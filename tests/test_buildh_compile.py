@@ -162,3 +162,27 @@ def test_linux_gate_reads_the_patch_sets_mozconfig_and_mach_default_objdir(tmp_p
     assert cg.objdir(moz, tmp_path / "src") == Path("/x/o")
     monkeypatch.setattr(cg.sys, "platform", "win32")
     assert cg.mozconfig_path(tmp_path) == tmp_path / "config" / "mozconfig.win64"
+
+
+def _regate_later(hours=1):
+    import json
+    p = task.STATE / "c1" / "build-record.json"
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    rec["at"] += hours * 3600                       # the gate was run again, later, on the same tree
+    p.write_text(json.dumps(rec), encoding="utf-8")
+
+
+def test_a_package_of_the_gated_tree_stays_current_when_the_gate_is_rerun_later(world):
+    """2026-11-12: 00:08 package, 00:54 re-gate of the same tree: build-verify called the package stale."""
+    cg.gate("c1")
+    _build(world, age=+5)
+    _regate_later()
+    rows = cg.verify("c1", run_binary=False)
+    assert failing(rows) == [], failing(rows)
+
+
+def test_a_package_older_than_the_gated_tree_still_fails_after_a_later_regate(world):
+    cg.gate("c1")
+    _build(world, age=-86400 * 200)
+    _regate_later()
+    assert any("is from THIS build" in c for c in failing(cg.verify("c1", run_binary=False)))
