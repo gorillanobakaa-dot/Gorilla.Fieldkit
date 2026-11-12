@@ -331,7 +331,16 @@ def test_the_whole_hook_process_measured_and_loads_no_yaml(tmp_path):
             "d={'yaml':'yaml' in sys.modules,'net':'fieldkit.zero.net' in sys.modules,"
             "'ms':(time.perf_counter()-t)*1000};"
             "toolrouter._room(c);d['all_ms']=(time.perf_counter()-t)*1000;print(json.dumps(d))")
-    env = dict(os.environ, FIELDKIT_COORDINATION_DIR=str(tmp_path / "coord"))
+    # I-13: the room step ingests the cable inbox from since=0 on a fresh coordination dir; the real one (~/.fieldkit/link,
+    # hundreds of notes on the VAIO) made the room step cost 2x, so the link home is the test's own too
+    env = dict(os.environ, FIELDKIT_COORDINATION_DIR=str(tmp_path / "coord"), FIELDKIT_LINK_HOME=str(tmp_path / "link"))
+    # I-13: a job worktree has no __pycache__ and the worker env sets PYTHONDONTWRITEBYTECODE=1, so every process
+    # recompiled ~100-190 ms of source: the hook is measured with a bytecode cache (as in the main checkout), warmed
+    # by one unmeasured run in a cache dir of the test's own
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    env["PYTHONPYCACHEPREFIX"] = str(tmp_path / "pyc")
+    subprocess.run([sys.executable, "-c", code, c], capture_output=True, text=True, env=env,
+                   cwd=str(Path(__file__).resolve().parents[1]), timeout=60)
     t = time.perf_counter()
     r = subprocess.run([sys.executable, "-c", code, c], capture_output=True, text=True, env=env,
                        cwd=str(Path(__file__).resolve().parents[1]), timeout=60)
