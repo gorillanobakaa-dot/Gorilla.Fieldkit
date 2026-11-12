@@ -80,3 +80,211 @@ rows:
   bh-pref-bisect: {status: PORT, order: 6, mechanism: "same halving over the Windows decode-test"}
   bh-release-roundtrip: {status: PORT, order: 6, mechanism: "published .exe: download, check, silent setup, verify, uninstall (installer-test pieces)"}
   bh-release-shots: {status: PORT, order: 6, mechanism: "Windows screen capture (PrintWindow) in place of gnome-screenshot"}
+
+# ---- everything else single-system (owner spec 2026-11-12): key = kind:name, found by `fieldkit parity os` scanners
+# (stage = pipeline/recipe, skill, workflow step, hook, module = a sys.platform guard that returns nothing on one side).
+# status MISSING|PARTIAL|INCOMPATIBLE need action (CREATE|PORT|ADAPT|WRAP|DOCUMENT), target, mechanism, effort S|M|L,
+# proof, order (DOCUMENT needs only target); NATIVE-ONLY needs a reason.
+items:
+  hook:wait-for-hook.sh:
+    action: DOCUMENT
+    status: PARTIAL
+    target: git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin
+  module:fieldkit/app/find.py:
+    action: ADAPT
+    effort: S
+    mechanism: dpkg-query -W -f='${Version}' on the owning package (dpkg -S PATH), else the program's --version line
+    order: 4
+    proof: test with a fake dpkg-query and a fake program
+    status: PARTIAL
+    target: app.find.exe_version returns a version on Linux (it returns an empty string today)
+  module:fieldkit/build/kernel.py:
+    reason: a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows has no kernel to build
+    status: NATIVE-ONLY
+  module:fieldkit/buildh/install.py:
+    action: PORT
+    effort: S
+    mechanism: dpkg-query -W -f='${Package} ${Version}\n' plus the .desktop files in /usr/share/applications
+    order: 2
+    proof: test with canned dpkg-query output
+    status: PARTIAL
+    target: install._uninstall_entries lists installed Gorilla packages on Linux (it returns nothing today)
+  module:fieldkit/buildh/task.py:
+    action: ADAPT
+    effort: S
+    mechanism: os.geteuid()==0 and `sudo -n true` / pkexec for the owner's elevated step
+    order: 3
+    proof: test with monkeypatched geteuid and a fake sudo
+    status: PARTIAL
+    target: task._elevated answers on Linux (it returns False today); owner proof for root actions uses sudo -n
+  module:fieldkit/core/longpath.py:
+    reason: the Windows 260-character path limit and its registry switch have no Linux twin; Linux PATH_MAX is 4096 with no setting to turn on
+    status: NATIVE-ONLY
+  module:fieldkit/desk/adopt.py:
+    action: PORT
+    effort: M
+    mechanism: dpkg-query -W, `which`, and the ~/.local/share/applications .desktop entries
+    order: 4
+    proof: test with a fake dpkg-query and a tmp applications folder
+    status: PARTIAL
+    target: adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux
+  module:fieldkit/leakgate/sensors.py:
+    action: ADAPT
+    effort: L
+    mechanism: ss -tupn, nft counters, /proc/net, readelf; not touched by this audit
+    order: 8
+    proof: the leakgate parity job's own tests
+    status: PARTIAL
+    target: the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgate-linux-parity-2026-11-12.md)
+  module:fieldkit/lifecycle/nested.py:
+    action: ADAPT
+    effort: S
+    mechanism: the Claude desktop app's per-user state under ~/.config/Claude (xdg config home)
+    order: 3
+    proof: test with a tmp XDG_CONFIG_HOME holding fake session JSON
+    status: PARTIAL
+    target: nested.records_glob finds the Claude desktop session records on Linux
+  module:fieldkit/power/drift.py:
+    action: PORT
+    effort: M
+    mechanism: /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor + cpupower frequency-info + powerprofilesctl get
+    order: 2
+    proof: tests/test_power_drift.py case with a fixture /sys tree and a fake powerprofilesctl
+    status: PARTIAL
+    target: power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and power-profiles daemon
+  module:fieldkit/power/incidents.py:
+    action: PORT
+    effort: M
+    mechanism: upower -i /org/freedesktop/UPower/devices/battery_BAT0 + /sys/class/power_supply/BAT*/ + journalctl -u upower
+    order: 3
+    proof: test with a fixture power_supply tree and a canned upower dump
+    status: PARTIAL
+    target: power.incidents.battery_usage reads Linux battery history
+  module:fieldkit/power/investigate.py:
+    action: PORT
+    effort: M
+    mechanism: journalctl --list-boots, journalctl -b -1 -p err, last -x shutdown reboot
+    order: 3
+    proof: test with canned journalctl and last output
+    status: PARTIAL
+    target: 'power.investigate.read_windows gets a read_linux twin: unexpected shutdowns and restarts'
+  module:fieldkit/thermal/brake.py:
+    action: PORT
+    effort: S
+    mechanism: /sys/devices/system/cpu/intel_pstate/no_turbo or /sys/devices/system/cpu/cpufreq/boost
+    order: 3
+    proof: test with a fixture sysfs file for each driver
+    status: PARTIAL
+    target: thermal.brake.boost_read returns the CPU boost state on Linux
+  module:fieldkit/thermal/governor.py:
+    action: PORT
+    effort: S
+    mechanism: /sys/devices/system/cpu/intel_pstate/max_perf_pct or cpufreq scaling_max_freq; cpupower frequency-set to write
+    order: 3
+    proof: test with a fixture sysfs tree
+    status: PARTIAL
+    target: thermal.governor.read_cap returns the CPU frequency or performance cap on Linux
+  module:fieldkit/thermal/sensors.py:
+    reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
+    status: NATIVE-ONLY
+  skill:fieldkit-evidence:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-evidence/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-icons:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-icons/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-lifecycle:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-lifecycle/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-linux-leftovers:
+    reason: XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on a Linux desktop
+    status: NATIVE-ONLY
+  skill:fieldkit-repair:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-repair/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-scratch:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-scratch/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-tools:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-tools/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-win11:
+    reason: the Windows 11 tweaks framework (registry, services, AppX) has no Linux twin
+    status: NATIVE-ONLY
+  stage:black-gorilla-theme:
+    reason: a GTK/libadwaita theme exists only on a Linux desktop
+    status: NATIVE-ONLY
+  stage:debian-kernel:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:firefox-linux:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: the firefox-windows pipeline is the Windows counterpart (same stages, Windows tools)
+  stage:firefox-windows:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools)
+  stage:gorilla-hdmi-harness:
+    action: PORT
+    effort: L
+    mechanism: drm sysfs, xrandr/wlr-randr, cec-ctl (the PORT rows of the hdmi-* cards)
+    order: 4
+    proof: the recipe's stages pass with fixtures on Linux
+    status: PARTIAL
+    target: the hdmi-harness recipe stages run on Linux once the hdmi cards are ported
+  stage:gorilla-tpfancontrol:
+    reason: TPFanControl is a Windows ThinkPad fan program built with MSBuild; the VAIO fan profile is thermal-profile-daemon
+    status: NATIVE-ONLY
+  stage:kernel-6.19.13-ultimate:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:kernel-7.0.5-release:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:kernel-7.0.9-unleashed:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:sensors-gorilla:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: gorilla-tpfancontrol and fieldkit hog read the sensors on Windows
+  stage:windows-11-tweaks:
+    reason: the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX)
+    status: NATIVE-ONLY
+  workflow:release.yml:desktop-file-validate for fieldkit insta:
+    reason: desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Windows verifies its shortcuts in the installer test
+    status: NATIVE-ONLY
+  workflow:tests.yml:desktop-file-validate for fieldkit insta:
+    reason: desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Windows verifies its shortcuts in the installer test
+    status: NATIVE-ONLY

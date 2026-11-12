@@ -2551,6 +2551,17 @@
    "parity-installed"
   ]
  },
+ "parity os": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-os"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",

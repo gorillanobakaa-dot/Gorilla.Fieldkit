@@ -100,6 +100,8 @@ def check(all_cards=None, frozen=None):
                 problems.append(f"{cid}: promises {sorted(bad)}, but its test {tf.name} is skipped there as a whole")
     from . import osparity
     problems += osparity.problems(all_cards, strict_stale=real)
+    if real:
+        problems += osparity.item_problems()
     return {"problems": problems, "backlog": sorted(backlog),
             "dual": sum(1 for c in all_cards if not single(c))}
 

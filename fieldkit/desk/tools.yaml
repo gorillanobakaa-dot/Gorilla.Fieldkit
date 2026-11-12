@@ -6878,6 +6878,26 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
 
+- id: parity-os
+  title: "Windows-Linux parity audit: every single-system tool card, pipeline, skill, workflow step, hook and module guard as one fixed record (id, kind, present_on, missing_on, status, evidence, action, target, mechanism, effort, proof, order), four lists (Windows-only, Linux-only, different, native-only), docs/PLATFORMS.md regenerated, briefs per batch; reads and reports only"
+  harness: core
+  entry: [python, -m, fieldkit, parity, os]
+  path: ${FIELDKIT}/fieldkit/desk/osparity.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "records, lists, summary as JSON"}
+    - {name: write, flag: --write, type: flag, required: false, help: "regenerate docs/PLATFORMS.md"}
+    - {name: since, flag: --since, type: str, required: false, help: "only the records whose file a branch touched since REF"}
+    - {name: briefs, flag: --briefs, type: str, required: false, help: "write one data-only brief per batch of gaps into DIR"}
+    - {name: live, flag: --live, type: flag, required: false, help: "also list which external programs this machine has (separate section)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "no gap and no problem", 3: "a gap exists, or a single-system item has no valid record (a new one, or a stale record)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_osparity.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-12: a permanent audit of Windows-Linux parity that says what to do to remove each gap, runs on either system with the same result. Static: reads the repo only. docs/PLATFORMS.md is generated; CI (platformcheck) fails a new single-system item without a record in fieldkit/desk/os_parity.yaml. Execution stays separate: fieldkit task start BRIEF."
+
 - id: parity-helpers
   title: "Gorilla OpenCode pins the same helpers for windows-amd64, linux-amd64 and darwin-amd64 (internal/toolbox/SHA256SUMS) and parityBacklog is empty; names what each system lacks"
   harness: core

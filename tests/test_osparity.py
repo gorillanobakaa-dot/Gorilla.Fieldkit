@@ -53,3 +53,88 @@ def test_platformcheck_reports_the_missing_row():
 def test_doc_is_generated_from_the_inventory():
     assert osparity.DOC.read_text(encoding="utf-8").rstrip("\n") == osparity.markdown(osparity.inventory()).rstrip("\n"), \
         "run: fieldkit parity os --write"
+
+
+# ---- the inventory beyond cards, the fixed record, the briefs ----------------------------------------------------------
+import json
+import sys
+
+import pytest
+
+
+def _found(kind="module", name="fieldkit/x.py", present=("windows",)):
+    return {"id": f"{kind}:{name}", "kind": kind, "name": name, "present_on": list(present),
+            "missing_on": ["linux"], "evidence": f"{name}:3"}
+
+
+def test_shipped_items_match_the_scanners():
+    assert osparity.item_problems() == []
+
+
+def test_new_single_os_module_without_record_fails():
+    p = osparity.item_problems(items={}, found=[_found()])
+    assert len(p) == 1 and "module:fieldkit/x.py" in p[0]
+
+
+def test_stale_item_record_fails():
+    rec = {"module:gone.py": {"status": "NATIVE-ONLY", "reason": "a long enough sentence here"}}
+    assert any("gone.py" in x for x in osparity.item_problems(items=rec, found=[]))
+
+
+def test_gap_record_needs_its_fields_but_document_needs_only_a_target():
+    f = [_found()]
+    bad = {"module:fieldkit/x.py": {"status": "PARTIAL", "action": "PORT", "target": "t"}}
+    assert any("mechanism" in x for x in osparity.item_problems(items=bad, found=f))
+    ok = {"module:fieldkit/x.py": {"status": "PARTIAL", "action": "PORT", "target": "t", "mechanism": "m", "effort": "S",
+                                   "proof": "p", "order": 2}}
+    assert osparity.item_problems(items=ok, found=f) == []
+    doc = {"module:fieldkit/x.py": {"status": "INCOMPATIBLE", "action": "DOCUMENT", "target": "the twin command"}}
+    assert osparity.item_problems(items=doc, found=f) == []
+    assert any("action" in x for x in osparity.item_problems(
+        items={"module:fieldkit/x.py": {**ok["module:fieldkit/x.py"], "action": "FIX"}}, found=f))
+
+
+def test_every_record_has_the_fixed_fields_and_four_lists_cover_them():
+    recs = osparity.records()
+    assert recs and all(set(osparity.FIELDS) <= set(r) for r in recs)
+    ls = osparity.lists(recs)
+    assert sum(len(v) for v in ls.values()) == len(recs)
+    assert {r["status"] for r in recs} <= set(osparity.REC_STATUS)
+
+
+def test_output_is_the_same_on_both_systems(monkeypatch, capsys):
+    outs = []
+    for plat in ("win32", "linux"):
+        monkeypatch.setattr(sys, "platform", plat)
+        osparity.main(["--json"])
+        outs.append(capsys.readouterr().out)
+    assert outs[0] == outs[1] and json.loads(outs[0])["summary"]["records"] > 50
+
+
+def test_scanners_find_a_one_sided_guard_and_pipeline_stages(tmp_path):
+    m = tmp_path / "fieldkit" / "pkg"
+    m.mkdir(parents=True)
+    (m / "mod.py").write_text('import sys\n\ndef f():\n    if sys.platform != "win32":\n        return []\n    return 1\n')
+    (m / "both.py").write_text('import sys\n\ndef f():\n    if sys.platform != "win32":\n        return 2\n    return 1\n')
+    got = osparity.scan_modules(tmp_path)
+    assert [(g["name"], g["present_on"]) for g in got] == [("fieldkit/pkg/mod.py", ["windows"])]
+    d = tmp_path / "fieldkit" / "build" / "pipelines"
+    d.mkdir(parents=True)
+    (d / "p.yaml").write_text("name: p\nstages:\n  - {id: a, platforms: [debian]}\n  - {id: b, platforms: [linux]}\n")
+    assert [(g["id"], g["present_on"]) for g in osparity.scan_stages(tmp_path)] == [("stage:p", ["linux"])]
+
+
+def test_briefs_are_data_only_and_gaps_exit_3(tmp_path, capsys):
+    n = osparity.briefs(osparity.records(), tmp_path / "b")
+    files = list((tmp_path / "b").glob("parity-*.md"))
+    assert n == len(files) > 0 and "fieldkit task start" in files[0].read_text(encoding="utf-8")
+    assert osparity.gaps(osparity.records())
+    assert osparity.main([]) == 3
+
+
+def test_since_limits_records_to_touched_evidence(monkeypatch):
+    class R:
+        stdout = "fieldkit/power/drift.py\n"
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: R)
+    got = osparity.since("origin/main", osparity.records())
+    assert got and all(r["evidence"].startswith("fieldkit/power/drift.py") for r in got)
