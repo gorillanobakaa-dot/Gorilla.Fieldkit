@@ -451,3 +451,4 @@ with open(_os.environ["FIELDKIT_AUTOACCEPT_POLICY"], "w", encoding="utf-8") as _
 _os.environ["FIELDKIT_REVIEWER_CMD"] = '["false"]'
 # Never a real passphrase prompt or desktop dialog from a test (Zero order M-1d6f4489): the owner proof asks nobody.
 _os.environ["FIELDKIT_OWNERPROOF_ASK"] = "off"
+_os.environ["FIELDKIT_ONESTART"] = "off"          # P9: no start check (claude CLI probe, dialog) from a test

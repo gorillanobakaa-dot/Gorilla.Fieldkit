@@ -227,6 +227,15 @@ def verify(task_id, run_binary=True):
         "unchanged since the gate" if same_commit and not dirty else
         "; ".join(x for x in ("the committed source changed after the gate" if not same_commit else "",
                               f"{len(dirty)} file(s) edited and not committed: {', '.join(dirty[:4])}" if dirty else "") if x))
+    # 2026-11-12: "newer than the gate" judged a package from the build of this very tree stale once the gate was run again
+    # after the build (00:08 package, 00:54 re-gate, same tree). A package is current when it is newer than the commit
+    # of the gated tree, which the row above proves is still the tree on disk; an older package is still stale.
+    built_after = rec["at"]
+    if same_commit and not dirty:
+        try:
+            built_after = min(built_after, float(_git(wd, "show", "-s", "--format=%ct", "HEAD")))
+        except ValueError:
+            pass
     moz = mozconfig_path()
     row("mozconfig unchanged since the gate", moz.is_file() and _sha(moz) == rec["mozconfig_sha256"],
         "unchanged" if moz.is_file() and _sha(moz) == rec["mozconfig_sha256"] else "mozconfig differs from what was gated")
@@ -243,7 +252,7 @@ def verify(task_id, run_binary=True):
             row(f"{kind} was produced", False, f"none in {dist}")
             continue
         f = found[kind][0]
-        fresh = f.stat().st_mtime >= rec["at"]
+        fresh = f.stat().st_mtime >= built_after
         big = f.stat().st_size >= MIN_ARTIFACT_MB * 2 ** 20
         row(f"{kind} is from THIS build", fresh, f"{f.name} {'newer' if fresh else 'OLDER (stale dist?)'} than the gate")
         row(f"{kind} has a real size", big, f"{f.stat().st_size / 2 ** 20:.0f} MB, need at least {MIN_ARTIFACT_MB}")
@@ -265,8 +274,8 @@ def verify(task_id, run_binary=True):
             if not debs:
                 return False, f"no .deb in {rel}"
             deb = debs[-1]
-            if deb.stat().st_mtime < rec["at"]:
-                return False, f"{deb.name} is OLDER than the gate (stale package)"
+            if deb.stat().st_mtime < built_after:
+                return False, f"{deb.name} is OLDER than the gated tree (stale package)"
             from ..build import deb_check
             brand = Path(rec["workdir"]) / "browser" / "branding" / "gorilla"
             r = deb_check.check(deb, brand)
@@ -323,7 +332,7 @@ def verify(task_id, run_binary=True):
         from . import aboutpages, buildstamp
         from . import ownercheck as _oc
         _root = _oc._owner_root(t)
-        srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None,
+        srows, built_id = buildstamp.built_rows(rec["objdir"], built_after, say=lambda m: None,
                                                 pinned=buildstamp.pinned_build_date(_root) if _root else None, about=False)
         rows.extend(srows)
         # 2026-10-09: the checks that read only the browser's own files run ONCE, here, on the zip that ships (not on
