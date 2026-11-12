@@ -73,6 +73,7 @@ helper, tool or command.
 ```
 fieldkit parity manifest [--hash]                  this machine: versions + sha256, capabilities, OS (stable JSON)
 fieldkit parity compare                            against every household device over the link: SAME / PARTIAL / DRIFT
+fieldkit parity os [--write|--briefs DIR|--since REF|--live]  Windows-Linux gaps: one record each (action, target, mechanism, effort, proof), exit 3 while gaps exist
 fieldkit parity align [--apply]                    to releases/parity-pin.yaml FROM THE RELEASE (sha256 + SHA256SUMS);
                                                    Windows installs (old exe kept); Linux/macOS get the root line to run
 fieldkit parity preflight --kind bench             the run guard's check alone: pin, other sessions' processes in this

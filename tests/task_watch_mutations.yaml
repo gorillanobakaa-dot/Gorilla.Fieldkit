@@ -15,3 +15,5 @@
   swap: ["        if code != 0:\n            return code\n        for n in notes:", "        if code != 0 or True:\n            return code\n        for n in notes:"]
 - file: fieldkit/peers/link_relay.py
   swap: ["if other_listener():\n        return False,", "if False:\n        return False,"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["_mtime(t.get(\"log\")), worker_activity(t)]", "_mtime(t.get(\"log\"))]"]

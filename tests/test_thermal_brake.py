@@ -177,3 +177,16 @@ def test_every_caller_inside_the_governor_passes_plan_cap_false():
     import inspect
     for mod in (watch, buildguard):
         assert "thermal_sensor(say, plan_cap=False)" in inspect.getsource(mod)
+
+
+def test_linux_boost_reads_intel_pstate_and_cpufreq(tmp_path):
+    from fieldkit.thermal import brake
+    assert brake._linux_boost(str(tmp_path)) is None
+    (tmp_path / "cpufreq").mkdir()
+    (tmp_path / "cpufreq" / "boost").write_text("1\n")
+    assert brake._linux_boost(str(tmp_path)) == 1
+    (tmp_path / "intel_pstate").mkdir()
+    (tmp_path / "intel_pstate" / "no_turbo").write_text("1\n")
+    assert brake._linux_boost(str(tmp_path)) == 0          # no_turbo=1 means turbo OFF, and it wins
+    (tmp_path / "intel_pstate" / "no_turbo").write_text("0\n")
+    assert brake._linux_boost(str(tmp_path)) == 1

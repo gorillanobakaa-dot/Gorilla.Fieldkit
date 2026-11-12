@@ -221,6 +221,35 @@ def branch_tips(repos):
     return {r: (_git(r, "for-each-ref", "--format=%(objectname)", "refs/heads") or "").split() for r in repos}
 
 
+def detached_heads(repos):
+    """-> {repo: HEAD sha} for each repository on a detached HEAD (a port work tree has no branch: 2026-11-11 the
+    firefox-160 tree's fix checkpoint was invisible to `git log --branches`)."""
+    out = {}
+    for r in repos:
+        if _git(r, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD":
+            out[r] = _git(r, "rev-parse", "HEAD")
+    return out
+
+
+def moved_detached(before):
+    """-> [{repo, path, branch, sha, subject}] for each detached build tree whose HEAD moved FORWARD since `before`
+    (a commit made on top; a reset or a checkout elsewhere is not a fix)."""
+    found = []
+    for r, old in before.items():
+        new = _git(r, "rev-parse", "HEAD")
+        if old and new and new != old and _git(r, "merge-base", "--is-ancestor", old, new) is not None:
+            found.append({"repo": r, "path": r, "branch": "(detached)", "sha": new,
+                          "subject": _git(r, "log", "-1", "--format=%s", new) or ""})
+    return found
+
+
+#: branches whose new commits are never a fix: main/master move by a sync or a merged pull request (a fix there is
+#: refused anyway), wip/* are the harness's snapshot refs of OTHER jobs (refs are shared by every worktree).
+#: 2026-11-11: a firefox-debian fix was refused as "landed in another repository" for a sibling job's wip ref,
+#: its stash commit and main fast-forwarded by PR 463 while the fix ran.
+NOT_A_FIX = ("main", "master", "wip/*")
+
+
 def elsewhere(repos, tips):
     """-> [{repo, path, branch, sha, subject}]: commits on any branch of these repositories that no branch tip in
     `tips` (taken before the run) reaches, with the worktree that has the branch checked out (else the repository itself)."""
@@ -232,7 +261,9 @@ def elsewhere(repos, tips):
                 cur = {"path": str(Path(line[9:]))}
             elif line.startswith("branch "):
                 trees[line[7:].removeprefix("refs/heads/")] = cur["path"]
-        log = _git(r, "log", "--branches", "--format=%H%x09%s%x09%D", *(["--not", *tips[r]] if tips.get(r) else [])) or ""
+        excl = [f"--exclude={b}" for b in NOT_A_FIX]
+        log = _git(r, "log", *excl, "--branches", "--format=%H%x09%s%x09%D",
+                   *(["--not", *tips[r]] if tips.get(r) else [])) or ""
         for row in log.splitlines():
             sha, _, rest = row.partition("\t")
             subject, _, refs = rest.partition("\t")
@@ -738,6 +769,7 @@ class Emerge:
             repos = fix_repos(self.recipe)
             before = snapshot(repos)
             tips = branch_tips(list(repos) + [r for r in log_repos(tail) if r not in repos])
+            detached = detached_heads(tips)
             self.say(f"    fix attempt {fixes[sid]}/{max_fix}: one autopilot model run with the log tail")
             t = self.clock()
             self.llm_calls += 1
@@ -749,7 +781,7 @@ class Emerge:
             b["llm"] += self.clock() - t
             ok, why = judge(before, snapshot(repos))
             if not ok and why == "the fix run committed nothing":
-                ok, why = self._found_elsewhere(repos, tail, tips)
+                ok, why = self._found_elsewhere(repos, tail, tips, detached)
             report["fixes"].append({"stage": sid, "attempt": fixes[sid], "ok": ok, "why": why})
             self.say(f"    fix {'accepted' if ok else 'REFUSED'}: {why}")
             if not ok:
@@ -760,11 +792,19 @@ class Emerge:
                 return
             self.recipe = self.recipe.reload()
 
-    def _found_elsewhere(self, repos, tail, tips):
-        """The model committed, but not where the build reads: name the commit(s); bring them in when they apply."""
+    def _found_elsewhere(self, repos, tail, tips, detached=None):
+        """The model committed, but not where the build reads: name the commit(s); bring them in when they apply.
+        A build tree on a detached HEAD (a port work tree, named by the failing log) that moved forward IS where the
+        build reads: that commit is the fix."""
         own = repos[0] if repos else None
         lr = [r for r in log_repos(tail) if r not in repos]
         found = elsewhere(list(repos) + lr, tips)
+        trees = moved_detached(detached or {})
+        if trees:
+            desc = "; ".join(f"{c['path']} {c['branch']} {c['sha'][:10]} {c['subject']}" for c in trees)
+            more = "; ".join(f"{c['path']} ({c['branch']}) {c['sha'][:10]} {c['subject']}" for c in found)
+            self._agent_ledger("fix committed in the build tree", desc + (f" (also: {more})" if more else ""))
+            return True, f"committed in the build tree: {desc}" + (f"; also committed: {more}" if more else "")
         if not found:
             return False, "the fix run committed nothing"
         desc = "; ".join(f"{c['path']} ({c['branch']}) {c['sha'][:10]} {c['subject']}" for c in found)

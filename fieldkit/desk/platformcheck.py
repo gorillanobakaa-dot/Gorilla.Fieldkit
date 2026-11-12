@@ -78,7 +78,8 @@ def skipped_whole(test_file):
 
 def check(all_cards=None, frozen=None):
     """-> {"problems": [...], "backlog": [ids single-system with no reason], "dual": n}"""
-    all_cards = cards() if all_cards is None else all_cards
+    real = all_cards is None
+    all_cards = cards() if real else all_cards
     frozen = baseline() if frozen is None else frozen
     problems, backlog = [], []
     for c in all_cards:
@@ -97,6 +98,10 @@ def check(all_cards=None, frozen=None):
             bad = skipped_whole(tf) & plats & set(BUILT)
             if bad:
                 problems.append(f"{cid}: promises {sorted(bad)}, but its test {tf.name} is skipped there as a whole")
+    from . import osparity
+    problems += osparity.problems(all_cards, strict_stale=real)
+    if real:
+        problems += osparity.item_problems()
     return {"problems": problems, "backlog": sorted(backlog),
             "dual": sum(1 for c in all_cards if not single(c))}
 

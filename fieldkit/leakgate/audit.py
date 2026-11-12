@@ -27,6 +27,8 @@ A model proposes dispositions (`suggestion`); only the owner approves them, at a
 import io
 import json
 import re
+import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -292,6 +294,52 @@ def executables(open_member, names):
     return out
 
 
+#: Linux twin of NET_DLLS: shared libraries that carry networking the browser would otherwise do itself (matched on the
+#: soname stem, `libcurl.so.4` -> `libcurl`). The libc socket calls every program has are not imports of a network library.
+NET_LIBS = ("libcurl", "libssl", "libgnutls", "libsoup", "libproxy", "libresolv", "libcares", "libnm", "libavahi-client",
+            "libgio-2.0")
+#: nothing is pre-approved on Linux: which network libraries each shipped binary may need is the owner's decision,
+#: recorded as an `elf:<path>` disposition after the first real scan (the Windows table above was built the same way)
+EXPECTED_NET_LIBS = {}
+_NEEDED = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]")
+
+
+def is_elf(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def elf_needed(path, readelf=None):
+    """-> the DT_NEEDED sonames of an ELF file (readelf -d), or None when readelf is not installed (the caller says
+    not-this-platform; a scan that did not run is never an empty result)."""
+    readelf = readelf or shutil.which("readelf")
+    if not readelf:
+        return None
+    p = subprocess.run([readelf, "-d", str(path)], capture_output=True, text=True, errors="replace")
+    return _NEEDED.findall(p.stdout)
+
+
+def elf_executables(install_dir, readelf=None):
+    """-> ({relpath: {"imports": [network libraries needed]}}, unscanned [relpath]) for every ELF file under the build:
+    the Linux equivalent of executables() (PE imports). `unscanned` lists ELF files when readelf is missing."""
+    inst = Path(install_dir)
+    out, unscanned = {}, []
+    for p in sorted(inst.rglob("*")):
+        if not p.is_file() or p.is_symlink() or not is_elf(p):
+            continue
+        rel = p.relative_to(inst).as_posix()
+        needed = elf_needed(p, readelf)
+        if needed is None:
+            unscanned.append(rel)
+            continue
+        stems = {n.split(".so")[0] for n in needed}
+        out[rel] = {"imports": sorted(st for st in stems if st in NET_LIBS)}
+    return out, unscanned
+
+
 def executable_audit(install_dir, previous_zip, dispositions):
     inst = Path(install_dir)
     names = [p.relative_to(inst).as_posix() for p in inst.rglob("*") if p.suffix.lower() in (".exe", ".dll")]
@@ -306,6 +354,14 @@ def executable_audit(install_dir, previous_zip, dispositions):
         extra = set(info["imports"]) - EXPECTED_NET_IMPORTS.get(Path(rel).name.lower(), set())
         if extra and not (dispositions.get("pe:" + rel) or {}).get("approval"):
             unexpected_net[rel] = sorted(extra)
+    elf, unscanned = elf_executables(inst)
+    for rel, info in elf.items():
+        extra = set(info["imports"]) - EXPECTED_NET_LIBS.get(Path(rel).name.split(".so")[0] + ".so", set())
+        if extra and not (dispositions.get("elf:" + rel) or {}).get("approval"):
+            unexpected_net[rel] = sorted(extra)
+    now = {**now, **elf}
+    for rel in unscanned:                              # fail closed: an ELF file nobody read is not a clean one
+        unexpected_net[rel] = ["not-this-platform: readelf missing, imports not read"]
     unapproved_new = [n for n in new if not (dispositions.get("exe:" + n) or {}).get("approval")]
     return {"binaries": len(now), "new": new, "unapproved_new": unapproved_new, "network_imports": {k: v["imports"] for k, v in now.items() if v["imports"]},
             "unexpected_network_imports": unexpected_net}
