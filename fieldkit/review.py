@@ -19,6 +19,7 @@ state/REVIEW.md is rewritten on every inbox or ideas change.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -117,7 +118,9 @@ def entries(root=None):
         if it.get("kind") not in ib.OWNER_KINDS:
             continue
         row = plan_of(it, titles)
-        w = ib.words_for(it)
+        w = dict(ib.words_for(it))
+        if w["if_approve"].startswith("It is closed as approved. The review runs nothing"):
+            w["if_approve"] = approve_words(it)           # 2026-11-12: an approval runs its command, right there
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
                     "title": plain(it["title"], titles), "what": plain(w["what"], titles),
                     "if_approve": plain(w["if_approve"], titles), "if_leave": plain(w["if_leave"], titles), "command": it.get("command", ""), "words": needs_words(it),
@@ -380,7 +383,61 @@ def split_answer(text):
     return head, " ".join(words.split())
 
 
-def apply(chosen, action, words, root=None, now=None, say=print):
+def approve_words(it):
+    cmd = str(it.get("command") or "").strip()
+    return "It is closed as approved" + (f" and its command runs at once, here, in your terminal: {cmd}" if cmd
+                                         else "; nothing is run, there is no command") + "."
+
+
+def runnable(cmd):
+    """True when the item's `command` is a command, not prose: its first word is a program on PATH or a file here."""
+    import shlex
+    try:
+        w = shlex.split(cmd, posix=os.name != "nt")
+    except ValueError:
+        return False
+    if not w:
+        return False
+    return w[0] in ("cd", "bash", "sh", "fieldkit") or bool(shutil.which(w[0])) or Path(w[0]).expanduser().is_file()
+
+
+RUNNER = None          # tests put a recorder here; None = subprocess.run
+
+
+def run_approved(raw, say=print, run=None):
+    """An approval given at the owner's own terminal runs its command right there, in the same step (owner, 2026-11-12:
+    "this is yet another example of bottleneck which has to be eliminated"; the review recorded 'a' and ran nothing, so
+    the owner then ran state/owner/approved-2026-11-12.sh by hand). The caller (`review`) passed `_owner_only`, so this
+    is the owner's terminal. Journaled in state/review-ran.jsonl; the result is shown. -> the journal row, or None."""
+    import json
+    import time
+    run = run or RUNNER or subprocess.run
+    cmd = str(raw.get("command") or "").strip()
+    if not cmd:
+        return None
+    row = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "item": raw.get("n"), "command": cmd, "ran": False, "rc": None}
+    if not runnable(cmd):
+        say(f"  not run: {cmd!r} is not a command a program can run; type it yourself if you meant it")
+        row["why"] = "not runnable"
+    else:
+        say(f"  running now: {cmd}")
+        try:
+            r = run(cmd, shell=True, capture_output=True, text=True, timeout=1800, cwd=str(state_root(ROOT)))
+            row.update(ran=True, rc=r.returncode, tail=((r.stdout or "") + (r.stderr or "")).strip()[-600:])
+        except (OSError, subprocess.TimeoutExpired) as x:
+            row.update(ran=True, rc=-1, tail=f"{type(x).__name__}: {x}")
+        say(f"  result: exit {row['rc']}" + (f"\n{row['tail']}" if row["tail"] else ""))
+    try:
+        p = state_root(ROOT) / "state" / "review-ran.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return {"id": f"#{raw.get('n')}", "status": "ran" if row["ran"] else "not-run", "brief": None, "plan_id": None, "rc": row["rc"]}
+
+
+def apply(chosen, action, words, root=None, now=None, say=print, run=None):
     """Record one action ('a' or 'f') on the chosen entries. -> [result dicts]."""
     res = []
     ib = _inbox()
@@ -394,16 +451,19 @@ def apply(chosen, action, words, root=None, now=None, say=print):
         if e["type"] != "inbox":
             continue
         n = e["raw"]["n"]
+        ran = None
         if action == "a":
             if e["words"] and not words:
                 say(f"{e['ref']} needs a choice: answer again with words after ':' (left open)")
                 continue
             ib.done(n, "approved by the owner at a terminal" + (f": {words}" if words else ""), approved=True, answer=words)
             say(f"{e['ref']} approved")
+            ran = run_approved(e["raw"], say=say, run=run)
         else:
             ib.done(n, "dismissed by the owner" + (f": {words}" if words else ""), approved=False, answer=words)
             say(f"{e['ref']} dismissed")
-        res.append({"id": e["ref"], "status": "approved" if action == "a" else "dismissed", "brief": None, "plan_id": None})
+        res.append({"id": e["ref"], "status": "approved" if action == "a" else "dismissed", "brief": None, "plan_id": None,
+                    "ran": (ran or {}).get("status") if action == "a" else None, "rc": (ran or {}).get("rc")})
     return res
 
 

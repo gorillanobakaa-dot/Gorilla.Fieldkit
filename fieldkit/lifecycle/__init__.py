@@ -120,6 +120,9 @@ def cmd_task(argv):
         i = argv.index("--")
         argv, line = argv[:i], argv[i + 1:]
     a = ap.parse_args(argv)
+    if a.action == "start":
+        from . import onestart
+        onestart.at_start("task", job=str(a.arg or ""))
     if a.action == "start" and a.run:
         try:
             rec = tasks.start_run(line, a.on, a.tree, a.project, a.artefact, a.wall, again=a.again)

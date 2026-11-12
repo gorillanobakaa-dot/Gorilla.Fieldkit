@@ -1,0 +1,10 @@
+# Tests: narrow local, wide on CI (idea I-19, owner 2026-11-12). Read by `fieldkit testcost staged` (the pre-commit hook).
+# Locally a commit runs only the tests that DIRECTLY cover the staged files (they import the file, are the file, or
+# tests/testmap.yaml maps it), minus the tests that already passed on this exact tree, inside this budget. Everything
+# else is printed as "deferred to CI" and journaled. CI runs the full selection and main moves only by a PR merged on
+# green CI, so nothing reaches main untested (a PR whose deferred tests fail follows TWO STRIKES in `ship ci-wait`).
+# FIELDKIT_FULL_SUITE=1 still runs the whole suite here.
+local:
+  max_files: 40            # most test files one commit runs here
+  budget_seconds: 120      # wall time one commit may spend on tests here
+  est_seconds_per_file: 3  # planning estimate; the lower of budget/est and max_files applies
