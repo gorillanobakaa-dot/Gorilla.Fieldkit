@@ -1815,6 +1815,11 @@ def build_parser():
                                   "(fieldkit/lifecycle/models.py, gguf.py, tune.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
+                       ("keeper", "work never waits for a model turn: a timer-run pass updates BEHIND PRs, starts one fix job for "
+                                  "a red PR, restarts a died job once, starts queued briefs, wakes Zero; tick, status, "
+                                  "install (fieldkit/lifecycle/keeper.py)"),
+                       ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
+                                "(fieldkit/lifecycle/idle.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
@@ -3168,6 +3173,12 @@ def main(argv=None):
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
+    if args[:1] == ["keeper"]:                        # P9: work never waits for a model turn (lifecycle/keeper.py)
+        from .lifecycle import keeper
+        return keeper.main(args[1:])
+    if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
+        from .lifecycle import idle
+        return idle.main(args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])

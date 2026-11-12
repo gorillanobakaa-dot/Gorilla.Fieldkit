@@ -244,6 +244,7 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             _append(rec)
             _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec['answer']})")
             return rec
+        launch_given = launch is not None
         if launch is None:
             from ..buildh import window
             launch = window.launch
@@ -251,6 +252,12 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             r = launch(["runbook", "run", str(rb)])
             rec.update(how="autopilot runbook", runbook=str(rb), pid=r.get("pid"), log=r.get("log"))
             worktrees.own(wt, r.get("pid"), tid)
+            if not launch_given and rec.get("pid"):     # P9: a real job runs, so the keeper timer is there to move work on
+                try:
+                    from . import keeper
+                    rec["keeper"] = keeper.ensure_timer()
+                except Exception:  # noqa: BLE001 - the timer is a courtesy of the start, never a reason to fail it
+                    pass
         except Exception as e:  # noqa: BLE001 - the refusal is the answer, recorded
             rec.update(how="autopilot runbook", runbook=str(rb), status="not-started", answer=str(e)[:300])
             worktrees.own(wt, -1, tid)               # no process: reap takes the tree back once it is clean

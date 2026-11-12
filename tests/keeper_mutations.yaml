@@ -1,0 +1,33 @@
+# P9: each mutation must make tests/test_lifecycle_keeper.py fail
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["pr.get(\"mergeStateStatus\") != \"BEHIND\" or not pr.get(\"autoMergeRequest\")", "pr.get(\"mergeStateStatus\") != \"BEHIND\""]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if key in st[\"done\"] or ctx[\"ci\"](head)[0] != \"green\":", "if ctx[\"ci\"](head)[0] != \"green\":"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if ctx[\"ci\"](head)[0] != \"red\":", "if ctx[\"ci\"](head)[0] == \"green\":"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["or p.parked(branch):\n            continue", "or False:\n            continue"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if st[\"restarts\"].get(root, 0) >= limit:", "if st[\"restarts\"].get(root, 0) >= limit + 99:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["worktree=lambda repo, tid, _w=wt: (_w, f\"resumed worktree of {t['id']}\"))", "worktree=None)"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["        if not why:\n            continue                                     # nothing to resume", "        if False:\n            continue                                     # nothing to resume"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if key in st[\"queue\"] or key in st[\"done\"]:", "if key in st[\"done\"]:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["ctx[\"retry\"].append(key)                         # no free slot", "pass                         # no free slot"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if age < after or f[\"key\"] in st[\"woken\"]:", "if age < 0 or f[\"key\"] in st[\"woken\"]:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if spent >= day:", "if spent >= day + 99:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if not open_ and not gh_err:", "if not gh_err:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if not held:\n            return {\"actions\": [], \"open\": True", "if False:\n            return {\"actions\": [], \"open\": True"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["        if on:\n            return \"\"\n        return (f\"KEEPER WARN", "        if False:\n            return \"\"\n        return (f\"KEEPER WARN"]
+- file: fieldkit/lifecycle/idle.py
+  swap: ["if len(f) >= 4 and _t(f[0]) is not None and not WORKER.search(f[1]):", "if len(f) >= 4 and _t(f[0]) is not None:"]
+- file: fieldkit/lifecycle/idle.py
+  swap: ["if hi - lo >= min_s:", "if hi - lo >= min_s * 1000:"]
