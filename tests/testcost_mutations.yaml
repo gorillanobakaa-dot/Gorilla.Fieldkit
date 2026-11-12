@@ -15,6 +15,22 @@
 - file: hooks/pre-commit
   swap: ['echo "pre-commit: ${TC_WHY:-no test covers the staged files} - nothing runs here', 'echo "pre-commit: no test covers the staged files - nothing runs here']
   why: the hook prints testcost's own reason when nothing runs, never a false "no test covers"
+# tests: narrow local, wide on CI (I-19, 2026-11-12): every rule of the local selector broken once
+- file: fieldkit/testcost.py
+  swap: ["            direct |= hits\n        if not hits:", "            pass\n        if not hits:"]
+  why: a test that imports the changed module is a direct cover and runs here
+- file: fieldkit/testcost.py
+  swap: ["    local = todo[:cap]", "    local = todo"]
+  why: the local list never exceeds the YAML budget (a hub change defers the rest to CI)
+- file: fieldkit/testcost.py
+  swap: ["    todo = [r for r in direct if file_check(r) not in passed]", "    todo = direct"]
+  why: a test that already passed on this exact tree is not run again
+- file: fieldkit/testcost.py
+  swap: ['            record("deferred", "skipped", 0', '            record("deferred-x", "skipped", 0']
+  why: what is deferred to CI is journaled
+- file: fieldkit/testcost.py
+  swap: ["    cap = max(1, min(int(policy[\"max_files\"]), int(policy[\"budget_seconds\"] // max(policy[\"est_seconds_per_file\"], 0.1))))", "    cap = max(1, int(policy[\"max_files\"]))"]
+  why: the time budget caps the list as well as the file count
 # every file mapped (2026-11-02)
 - file: fieldkit/testcost.py
   swap: ['        if rows:                                       # a mapped file', '        if False:                                       # a mapped file']

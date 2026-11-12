@@ -6277,7 +6277,7 @@ tools:
   skill: skills/fieldkit-emerge/SKILL.md
   notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
-  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests (data files through tests/testmap.yaml and their package; `unmapped --all` must print 0, CI enforces it), budgets from measured runs, every refusal logged
+  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), narrow local, wide on CI (direct covers inside the fieldkit/testcost_policy.yaml budget, the rest deferred to CI), changed files mapped to their tests (data files through tests/testmap.yaml and their package; `unmapped --all` must print 0, CI enforces it), budgets from measured runs, every refusal logged
   harness: core
   entry: [python, -m, fieldkit, testcost]
   path: ${FIELDKIT}/fieldkit/testcost.py
