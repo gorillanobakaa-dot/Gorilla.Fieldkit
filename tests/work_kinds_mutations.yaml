@@ -1,0 +1,20 @@
+# P35 work kinds: every rule must be CAUGHT when broken.
+# fieldkit mutate --plan tests/work_kinds_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_work_kinds.py
+- file: fieldkit/lifecycle/models.yaml
+  swap: ["    gather:    {rung: haiku,", "    gather:    {rung: sonnet,"]
+  why: "a gather brief never routes above haiku"
+- file: fieldkit/lifecycle/models.yaml
+  swap: ["    code:      {rung: sonnet,", "    code:      {rung: haiku,"]
+  why: "a code brief never routes below sonnet"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    low = strip_tail(text).lower()", "    low = (text or '').lower()"]
+  why: "the protocol tail must not turn a gather brief into code"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if hit:\n        return {\"kind\": \"code\"", "    if False:\n        return {\"kind\": \"code\""]
+  why: "a floor word makes the brief code"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if at is None or top is None or at > top:", "    if False:"]
+  why: "prose never goes above haiku"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if a is None or b is None or a <= b:\n        return \"\"", "    if True:\n        return \"\""]
+  why: "a wasteful pin is said"

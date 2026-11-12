@@ -54,7 +54,7 @@
     fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor|task|release|orders]   the agent net: is Zero
                                                  established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
-    fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
+    fieldkit sitrep template|check|render|example|doctor|gather [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
     fieldkit teach propose LOG.md --out DIR [--name N]   a pipeline draft, signature stubs and card candidates from a teaching log
     fieldkit terminal doctor|ask|run|history [-- COMMAND ...]   open a terminal window in front of a person with the command ready; history = every window's outcome (fieldkit/terminal)
@@ -2371,7 +2371,7 @@ def build_parser():
     st = sub.add_parser("sitrep", parents=[common],
                         help="a situation report a reader can take in a few seconds at a time: template, check, "
                              "render, example, doctor (fieldkit/sitrep)")
-    st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
+    st.add_argument("action", choices=["template", "check", "render", "example", "doctor", "gather"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
     st.add_argument("--session", help="check: also back every claim with this session's tool output "
                                       "(fieldkit honesty; rule HONESTY)")
@@ -2379,6 +2379,9 @@ def build_parser():
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
     st.add_argument("--md", action="store_true", help="render as markdown instead of plain text")
+    st.add_argument("--render", action="store_true", help="gather: the facts as a checked report, no model")
+    st.add_argument("--words", action="store_true", help="gather: one Haiku call writes the prose (never above haiku)")
+    st.add_argument("--hours", type=int, default=24, help="gather: tasks that ended within this many hours")
     st.set_defaults(fn=cmd_sitrep)
 
     sh = sub.add_parser("shot", parents=[common], help="read numbers off a screenshot: read, "
@@ -2774,6 +2777,9 @@ def cmd_sitrep(a):
             [f"  languages: {', '.join(x['languages'])}"] + [f"  {p}" for p in x["problems"]] +
             ["  OK: sitrep can run here" if x["ok"] else "  NEXT: fix the lines above"])))
         return 0 if d["ok"] else 3
+    if a.action == "gather":
+        from .sitrep import gather
+        return gather.main(a)
     if a.action == "template":
         print(sitrep.template(a.lang, a.order), end="")
         return 0

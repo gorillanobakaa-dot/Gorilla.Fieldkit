@@ -126,6 +126,9 @@ def cmd_task(argv):
         except (ValueError, tasks.AlreadyStarted) as e:
             print(f"NOT STARTED  {e}")
             return 3 if isinstance(e, tasks.AlreadyStarted) else 2
+        for w in ([] if a.json else rec.get("warnings") or []):
+            if w.startswith("WASTEFUL"):               # P35: said once, never a refusal
+                print(w)
         print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
               f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec['how']}): job {rec['job'] or '-'}: "
               f"{rec['answer']}\nNEXT: fieldkit task status (done or failed once the worker's signed result is here)")
