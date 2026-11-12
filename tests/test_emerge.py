@@ -763,6 +763,73 @@ def test_a_fix_in_another_repository_is_named_with_its_path(env):
     assert not rep["fixes"][0]["ok"] and "another repository" in why and str(other) in why
 
 
+def _detached_tree(tmp):
+    """A port work tree: its own repository on a detached HEAD, no branch (firefox-160, 2026-11-11)."""
+    tree = make_repo(tmp / "port-tree")
+    write(tree / "moz.build", "LOCAL_INCLUDES += ['/third_party/gone']\n")
+    commit_all(tree, "pristine")
+    git(tree, "checkout", "-q", "--detach")
+    git(tree, "branch", "-q", "-D", "main")
+    return tree
+
+
+def test_a_fix_committed_on_a_detached_build_tree_named_by_the_log_is_accepted(env):
+    tmp, work = env
+    tree = _detached_tree(tmp)
+    s = failing_spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c", f"import sys; print('error in {tree}/moz.build'); "
+                                     f"sys.exit(0 if 'gone' not in open(r'{tree}/moz.build').read() else 1)"]}
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+
+    def fix():
+        write(tree / "moz.build", "# excised\n")
+        commit_all(tree, "checkpoint: excise gone")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=Fixer(fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert rep["fixes"][0]["ok"], why
+    assert "committed in the build tree" in why and str(tree) in why and "checkpoint: excise gone" in why
+    assert statuses(rep)["one"] == "pass"
+
+
+def test_a_detached_build_tree_reset_backwards_is_not_a_fix(env):
+    tmp, work = env
+    tree = _detached_tree(tmp)
+    write(tree / "x.txt", "x\n")
+    commit_all(tree, "second")
+    before = E.detached_heads([str(tree)])
+    git(tree, "checkout", "-q", "--detach", "HEAD~1")
+    assert E.moved_detached(before) == []
+    git(tree, "checkout", "-q", "--detach", before[str(tree)])
+    write(tree / "y.txt", "y\n")
+    commit_all(tree, "third")
+    assert [c["subject"] for c in E.moved_detached(before)] == ["third"]
+
+
+def test_a_sibling_jobs_wip_ref_and_main_moving_are_not_a_fix(env):
+    """Refs are shared by every worktree: another job's wip/ snapshot and main fast-forwarded by a merged pull request
+    while the fix ran were refused as 'landed in another repository' (2026-11-11)."""
+    tmp, work = env
+    s = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+    git(work, "checkout", "-q", "-b", "build")
+
+    def not_a_fix():
+        git(work, "branch", "-q", "wip/T-other-work", "main")
+        git(work, "checkout", "-q", "wip/T-other-work")
+        write(work / "other.txt", "o\n")
+        commit_all(work, "wip T-other")
+        git(work, "checkout", "-q", "main")
+        write(work / "merged.txt", "m\n")
+        commit_all(work, "Merge pull request #1")
+        git(work, "checkout", "-q", "build")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False),
+                 fixer=Fixer(not_a_fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert not rep["fixes"][0]["ok"] and why == "the fix run committed nothing", why
+
+
 def test_the_fix_brief_names_the_build_tree_and_refuses_side_worktrees(env):
     tmp, work = env
     fixer = Fixer()
