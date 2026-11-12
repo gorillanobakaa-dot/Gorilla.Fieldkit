@@ -98,6 +98,9 @@ def test_task_start_uses_the_kind_and_warns_on_a_wasteful_pin(tmp_path, monkeypa
     monkeypatch.setattr(tasks, "_append", lambda r: None)
     monkeypatch.setattr(tasks, "_room", lambda *a: None)
     monkeypatch.setattr(tasks, "ledger", lambda: {})
+    from fieldkit.lifecycle import models
+    # the model-spend guard reads THIS machine's mandate (none on a CI runner); it has its own tests: isolate it here
+    monkeypatch.setattr(models, "require", lambda m, *a, **k: m)
     b = tmp_path / "brief.md"
     b.write_text("Gather the status of every task.\nPLAN ITEM: P34\n", encoding="utf-8")
     kw = dict(cwd=str(tmp_path), worktree=lambda r, t: (None, "t"), launch=lambda a: {"pid": 1, "log": "l"},
