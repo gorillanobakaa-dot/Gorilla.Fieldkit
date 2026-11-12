@@ -134,7 +134,7 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_toolrouter.py"]
 
 - id: night-pack
-  title: The night pack - every owner-only step the night may need (release send, leak-gate re-judge), pre-approved once at the owner's terminal, run by a Windows scheduled task when its conditions hold, disarmed at the first surprise, with a spoken and written morning report
+  title: The night pack - every owner-only step the night may need (release send, leak-gate re-judge), pre-approved once at the owner's terminal, run by a Windows scheduled task or a Linux systemd user timer when its conditions hold, disarmed at the first surprise, with a spoken and written morning report
   harness: core
   entry: [python, -m, fieldkit, build-harness, night-pack]
   path: ${FIELDKIT}/fieldkit/buildh/nightpack.py
@@ -144,8 +144,7 @@ tools:
   effects: [network, git, writes-files, processes]
   safety: reversible
   notes: 'arm stores the pack SHA-256 and registers the scheduled task "Gorilla night pack" (every 10 min, no elevation, expiry); run refuses an agent, a changed pack or an expired arming, runs each action once, removes the task at the end or at the first failure. Never in a pack: allowlist, dispositions, decision register, harness/hooks, telemetry. Owner 2026-10-19.'
-  platforms: [windows]
-  platforms_why: 'the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer'
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_nightpack.py"]
 
 - id: release-publish

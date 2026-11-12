@@ -9,7 +9,6 @@
 rows:
   # ---- Windows-only cards: what Linux gets -----------------------------------------------------------------------
   install-ps1: {status: EQUIVALENT, counterpart: install-sh}
-  night-pack: {status: PORT, order: 1, mechanism: "systemd user timer (systemctl --user, loginctl enable-linger) in place of Task Scheduler"}
   installer-test: {status: PORT, order: 1, mechanism: "the .deb round trip: dpkg -i, dpkg -L file check, dpkg -r/--purge, leftovers check (reuse bh-release-roundtrip pieces)"}
   laptop-sound: {status: EQUIVALENT, counterpart: fieldkit-audio}
   laptop-video: {status: NATIVE-ONLY, reason: "the missing NVIDIA Control Panel is a Microsoft Store (DCH) packaging problem; on Linux nvidia-settings ships in the distro driver package"}

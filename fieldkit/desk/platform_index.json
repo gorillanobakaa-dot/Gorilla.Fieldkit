@@ -957,9 +957,10 @@
  },
  "build-harness night-pack": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer",
+  "why": "",
   "ids": [
    "night-pack"
   ]
