@@ -119,4 +119,4 @@ More tools by job: `fieldkit web browsers` (card web-browsers: every installed b
 `fieldkit web search WORDS` (card web-search: the Gorilla OpenCode engines), `fieldkit web doctor` (card web-doctor: which browsers cannot be driven
 and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe` (open files, ports, processes),
 `fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
-inbox items), `fieldkit onestart` (card onestart: every owner-only action a job may need, checked and asked once before the job starts).
+inbox items), `fieldkit onestart` (card onestart: every owner-only action a job may need, checked and asked once before the job starts), `fieldkit cmd check TEXT|--file F` (card cmd: before you give anyone a command, a sudoers line or a brief, check that every fieldkit verb exists; exit 3 names the closest real command).

@@ -380,7 +380,18 @@ def route(command, cwd="", shell=""):
                                        and _hit(name, PS_LS, cmd))
         if hit and not (name == "sleep-to-wait" and _sampling(cmd)):
             return {"route": name, "use": use, "example": example}
-    return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
+    return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd) or unknown_verb_refusal(cmd)
+
+
+def unknown_verb_refusal(command):
+    """P9 (2026-11-12): a `fieldkit VERB` that does not exist in the live command tree is refused with the closest real
+    command, before it runs or is handed to anyone (fieldkit cmd check). A cheap JSON lookup; fails open."""
+    from ..core import cmdtree
+    why = cmdtree.verb_refusal(command)
+    if not why:
+        return None
+    return {"route": "unknown-fieldkit-command", "use": why + ". Look it up: fieldkit cmd check, fieldkit tools find WORDS",
+            "example": "fieldkit cmd check --file FILE"}
 
 
 # -- P18 stage 3b (2026-11-03): the two refusals the capture counted most (166 + 130 of 956) have one mechanical,

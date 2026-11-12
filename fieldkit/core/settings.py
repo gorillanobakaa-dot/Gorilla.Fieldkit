@@ -125,7 +125,7 @@ def load(path, strict=True):
 
 def self_cmd():
     """The fieldkit command as a person can paste it from ANY folder: the launcher's absolute path, or
-    the running Python with -m fieldkit when there is no launcher. Owner's rule (2026-10-14, from the
+    the running Python (python -m fieldkit) when there is no launcher. Owner's rule (2026-10-14, from the
     Windows harness, for readers who open a terminal wherever they are): a command handed to a person
     carries its full path. Every NEXT line that hands a person the command goes through here."""
     import shutil

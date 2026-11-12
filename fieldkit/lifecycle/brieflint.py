@@ -47,6 +47,13 @@ def lint(text, root=".", plan=None):
     elif not plan_id_of(text, root):
         out.append(("refuse", "the brief names no plan id (a row of docs/HARNESS-PLAN.md, e.g. O3); name the item "
                               "it serves, or pass --plan ID"))
+    try:
+        from ..core import cmdtree
+        for f in cmdtree.check(text, skip_negated=True, flags=False):
+            out.append(("refuse", "the brief gives a fieldkit command that does not exist (fieldkit cmd check): "
+                        + cmdtree.describe(f)))
+    except Exception:  # noqa: BLE001
+        pass
     n = tokens(text)
     if n > MAX_TOKENS:
         out.append(("warn", f"the brief is about {n} tokens (over {MAX_TOKENS}): point at files and plan rows "

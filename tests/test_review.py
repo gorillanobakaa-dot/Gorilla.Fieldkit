@@ -146,7 +146,7 @@ def test_open_writes_the_page_and_hands_it_to_the_viewer(env):
 
 def test_inbox_page_shows_owner_items_and_the_agent_ledger(env):
     inbox.add("Owner must sign", "hard line", "do-it --now", kind="hardline")
-    inbox.add("Worker note", "agents handle it", "fieldkit x", kind="approval")
+    inbox.add("Worker note", "agents handle it", "fieldkit doctor", kind="approval")
     text = review.inbox_page_path(env).read_text(encoding="utf-8")
     owner, _, agents = text.partition("## Handled by the agents")
     assert "Owner must sign" in owner and "hard line" in owner and "do-it --now" in owner

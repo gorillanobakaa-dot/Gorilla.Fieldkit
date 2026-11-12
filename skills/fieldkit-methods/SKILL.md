@@ -159,6 +159,7 @@ fieldkit ship train               Zero: merge the declared PRs one at a time (gh
                                   --match-head-commit), never red, never a head nobody declared; resumable
 fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
 fieldkit ship train --modes       every failure mode this closes, with its check
+fieldkit cmd check TEXT|--file F   a command is checked before it is given: every fieldkit verb looked up in the live command tree (exit 3 + did-you-mean)
 fieldkit ship batch run           many ready PRs, one branch (night/batch-STAMP), one CI, one merge (SOP for 100 machines):
                                   `batch collect` takes only PRs green on every required check at their head; `build`
                                   joins them (a generated-file conflict is regenerated, a real one leaves that PR out);
