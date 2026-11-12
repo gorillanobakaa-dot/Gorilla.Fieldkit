@@ -35,6 +35,8 @@
                                            with the failed log tail; --merge merges on green (train.py); a runner
                                            DNS / apt / network red (build/signatures/ci-infra.yaml) is re-run by
                                            itself with backoff, 3 times per head, never a strike
+    fieldkit ship batch collect|build|run|status|select   many green PRs -> one branch -> one CI -> one merge; on red
+                                           the culprit is found by its failing tests, dropped, the rest re-run (batch.py)
     fieldkit ship ci-local PR [--os OS]    GitHub's runner down (a ci-infra red, or the job never started): the SAME
                                            workflow steps at the PR head in a clean worktree here (Windows: over the
                                            cable); green = a signed proof posted as the job's status; a red check
@@ -214,6 +216,16 @@ def _own_reds(run, repo, branch, pr, runs, base, runner=None):
     return len(strikes.load()["strikes"].get(branch, {}).get("rounds", []))
 
 
+def _waiting_prs(run, repo):
+    """Open PRs with auto-merge on (best effort: any gh trouble -> 0, the hint is only a hint)."""
+    try:
+        ok, out, _ = _gh(run, repo, "pr", "list", "--state", "open", "--json", "number,isDraft,autoMergeRequest")
+        rows = json.loads(out or "[]") if ok else []
+        return sum(1 for r in rows if isinstance(r, dict) and r.get("autoMergeRequest") and not r.get("isDraft"))
+    except Exception:
+        return 0
+
+
 def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add,
          counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
@@ -291,8 +303,12 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
     ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)
     if not ok:
         return fail("gh pr merge --auto", err)
-    return dict(rep, ok=True, auto=True, said=f"{st.get('said', 'pushed')}; {pr['url']} auto-merge on",
-                next=f"GitHub merges {pr['url']} when both checks pass on {sha[:12]}; nothing more to do")
+    nxt = f"GitHub merges {pr['url']} when both checks pass on {sha[:12]}; nothing more to do"
+    waiting = _waiting_prs(run, repo)
+    if waiting >= 2:                                    # P9: many PRs wait on a serial merge: one batch is the way
+        nxt += (f". {waiting} PRs wait with auto-merge on; each merge makes the others BEHIND: "
+                f"`fieldkit ship batch run` joins them into one branch, one CI, one merge")
+    return dict(rep, ok=True, auto=True, said=f"{st.get('said', 'pushed')}; {pr['url']} auto-merge on", next=nxt)
 
 
 def pushed_report(repo, base, before, mandate_why=""):
@@ -558,6 +574,7 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
 
 
 TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
+BATCH = ("batch",)                                                                  # batch.py
 LOCAL = ("ci-local",)                                                               # cilocal.py
 PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
 #: every subcommand; tests/test_autopilot_hardlines.py makes each one be classed publishing or not for hard line 1
@@ -570,6 +587,9 @@ def main(argv=None, prog="fieldkit ship"):
     if argv[:1] and argv[0] in TRAIN:
         from . import train
         return train.main(argv, prog)
+    if argv[:1] and argv[0] in BATCH:
+        from . import batch
+        return batch.main(argv[1:], f"{prog} batch")
     if argv[:1] and argv[0] in LOCAL:
         from . import cilocal
         return cilocal.main(argv[1:], f"{prog} {argv[0]}")

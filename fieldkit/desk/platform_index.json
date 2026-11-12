@@ -3195,6 +3195,56 @@
    "ship"
   ]
  },
+ "ship batch build": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-build"
+  ]
+ },
+ "ship batch collect": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-collect"
+  ]
+ },
+ "ship batch run": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-run"
+  ]
+ },
+ "ship batch select": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-select"
+  ]
+ },
+ "ship batch status": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-status"
+  ]
+ },
  "ship gh-release": {
   "platforms": [
    "darwin",

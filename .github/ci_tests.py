@@ -4,6 +4,11 @@
     python .github/ci_tests.py BASE --merged   same, but nothing when a merge commit's tree equals its PR head's tree
     A diff of only documentation, state/ files or version lines selects zero tests (testcost plan: no_code).
     python .github/ci_tests.py full     the whole suite (a finished project, a release)
+    --shard I/N                         run only shard I of N of the selected files (fieldkit.method.shard; the
+                                        workflow runs N shards per OS in parallel, plan P9 item 7)
+    A batch pull request (head branch night/batch-*, fieldkit ship batch) carries its selection in its body
+    (<!-- fieldkit-batch {"tests": [...]} -->): what no member's own green head proved plus what two members both
+    cover. Without that marker, or with "tests": null, the normal selection above applies.
 
 Never the whole suite for a change (owner, 2026-11-02: "I don't want 40,000 tests for a small change because some
 file has no card"). When the changed files cannot be read, there is no base to compare, or a changed file is covered
@@ -30,8 +35,30 @@ def merged_tree_already_tested(head="HEAD"):
     return bool(a) and a == b
 
 
+BATCH_MARK = re.compile(r"<!-- fieldkit-batch (\{.*?\}) -->", re.S)
+
+
+def batch_selection(event_path=None, head_ref=None):
+    """-> the test files a batch PR's body names, or None (not a batch, no marker, or the tool could not select)."""
+    import os
+    head_ref = os.environ.get("GITHUB_HEAD_REF", "") if head_ref is None else head_ref
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "") if event_path is None else event_path
+    if not head_ref.startswith("night/batch-") or not event_path:
+        return None
+    try:
+        body = (json.load(open(event_path, encoding="utf-8")).get("pull_request") or {}).get("body") or ""
+        m = BATCH_MARK.search(body)
+        tests = json.loads(m.group(1)).get("tests") if m else None
+    except (OSError, ValueError):
+        return None
+    return sorted({t.replace("\\", "/") for t in tests}) if isinstance(tests, list) else None
+
+
 def selection(base, merged=False):
     """-> (tests, why); tests None = the whole suite (only `full`), [] = nothing to run, REFUSED = fail, run nothing."""
+    picked = batch_selection() if base != "full" else None
+    if picked is not None:
+        return picked, f"batch PR: {len(picked)} test file(s) not already proven by a member's own green head"
     if merged and merged_tree_already_tested():
         return [], "the merged tree equals the pull request's tree, already green: nothing new to test"
     if base == "full":
@@ -58,8 +85,21 @@ def selection(base, merged=False):
 def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
+    shard = None
+    if "--shard" in argv:
+        k = argv.index("--shard")
+        shard = argv[k + 1]
+        argv = argv[:k] + argv[k + 2:]
     tests, why = selection(argv[1] if len(argv) > 1 else "full", merged)
     print("ci-tests:", why)
+    if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
+        from pathlib import Path
+        from fieldkit.method import shard as sh
+        every = tests if tests is not None else sorted(p.as_posix() for p in Path("tests").rglob("test_*.py"))
+        tests = sh.pick(every, sh.load(), shard)
+        print(f"ci-tests: shard {shard}: {len(tests)} file(s)")
+        if not tests:
+            return 0
     if tests is REFUSED:
         print("ci-tests: REFUSED - no test was run", flush=True)
         return 1
