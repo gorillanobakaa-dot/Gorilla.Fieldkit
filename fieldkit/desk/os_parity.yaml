@@ -47,7 +47,6 @@ rows:
   profilefix: {status: NATIVE-ONLY, reason: "repairs registry and Windows uninstall entries left by a renamed profile; Linux has neither (usermod -d -m moves a home)"}
   wintrace: {status: PORT, order: 2, mechanism: "read-only intrusion triage: ss -tupn, systemctl list-units, journalctl, /proc walk, debsums for modified binaries, auditd"}
   bh-build-run: {status: PORT, order: 2, mechanism: "the Linux build runs through fieldkit emerge; port the power/governor proof as /sys/devices/system/cpu/*/cpufreq plus cpupower in place of powercfg"}
-  bh-capture: {status: PORT, order: 1, mechanism: "mitmproxy copy of the browser, ss/tcpdump/nft in a network namespace for DNS and packets, kill by PID (the leak gate's namespace runner)"}
   # ---- Linux-only cards: what Windows gets -----------------------------------------------------------------------
   update-check: {status: PORT, order: 5, mechanism: "not tied to Linux: compare installed versions with what was published; widen once the package-manager probe skips apt on Windows"}
   debian-kernel-project: {status: NATIVE-ONLY, reason: "patch data and config change-set for the Debian kernel; there is no Windows kernel to build"}

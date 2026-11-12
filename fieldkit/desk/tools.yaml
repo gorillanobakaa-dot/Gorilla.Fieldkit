@@ -5407,7 +5407,7 @@ tools:
   notes: "OWNER ONLY (real terminal). Runs decisions --strict and claims first (minutes)."
 
 - id: bh-capture
-  title: Network forensics of the built package on Windows - decrypted requests (mitm), DNS names, packets (admin)
+  title: Network forensics of the built package on Windows and Linux - decrypted requests (mitm), DNS names, packets (admin on Windows; root or sudo -n and tcpdump on Linux)
   harness: build
   entry: [python, -m, fieldkit, build-harness, capture]
   path: ${FIELDKIT}/fieldkit/buildh/capture.py
@@ -5417,10 +5417,9 @@ tools:
   effects: [processes, network, writes-files, admin]
   safety: reversible
   exits: {3: findings}
-  platforms: [windows]
-  platforms_why: "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner"
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_capture.py"]
-  notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Tests cover only judge() and SNI parsing."
+  notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Linux (P9, 2026-11-12): the .deb or tarball is unpacked (dpkg-deb -x, never installed), sockets read with psutil, processes stopped by PID, packets by tcpdump -i any read with dpkg. Tests cover judge(), SNI and pcap parsing, sockets, stop-by-PID and unpacking."
 
 - id: bh-netbench
   title: Network benches B1-B5 against local servers through an emulated link (headless throwaway copy); or compare two results

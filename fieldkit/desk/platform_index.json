@@ -522,9 +522,10 @@
  },
  "build-harness capture": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner",
+  "why": "",
   "ids": [
    "bh-capture"
   ]
