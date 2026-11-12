@@ -1,5 +1,5 @@
 # fieldkit ideas (2026-10-29): every mutation must be CAUGHT:
-#   fieldkit mutate --plan tests/ideas_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ideas.py tests/test_backup_usb.py
+#   fieldkit mutate --plan tests/ideas_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ideas.py  tests/test_review.py tests/test_backup_usb.py
 - file: fieldkit/ideas.py
   swap:
   - "    _owner_only()\n    if status not in STATUSES:"
@@ -85,3 +85,13 @@
   - " + ideas_files(root)"
   - ""
   why: backup drops the shared state/ideas
+- file: fieldkit/ideas.py
+  swap:
+  - "if (status in (None, e[\"status\"])) and bool(e.get(\"defect\")) == bool(defects)]"
+  - "if (status in (None, e[\"status\"]))]"
+  why: a defect found by an agent shows in the owner's review
+- file: fieldkit/ideas.py
+  swap:
+  - "    if defect and source == \"owner\":"
+  - "    if False:"
+  why: an owner suggestion can be filed as a defect and hidden

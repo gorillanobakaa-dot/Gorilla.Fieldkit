@@ -86,6 +86,26 @@ def plan_of(it, titles):
     return ""
 
 
+HARD_LINES = {"1": "the safety rule on pushing, merging and releasing", "2": "the safety rule against permanent deletes",
+              "3": "the safety rule that protects the guard and hook files", "4": "the rule that only you give some approvals",
+              "5": "the rule that keeps passwords and key files closed"}
+JARGON = (("owner_steps", "the list of approval steps in your signed permission file"),
+          ("mutate proof", "a test that is shown to fail when the code is broken"),
+          ("fieldkit mutate", "the check that proves a test can fail"))
+
+
+def plain(text, titles=None):
+    """The item's own words with the harness's inner names spelled out: HARD LINE N, owner_steps, a bare plan row id
+    (2026-11-12, owner: items must read in plain words). Nothing is invented; a name only gains its meaning."""
+    t = str(text or "")
+    t = re.sub(r"HARD LINE (\d)", lambda m: HARD_LINES.get(m.group(1), m.group(0)), t)
+    for k, v in JARGON:
+        t = t.replace(k, v)
+    titles = titles or {}
+    return re.sub(r"(?<!plan row )(?<![\w-])([RLOCIWPZ]\d+)\b(?! \()",
+                  lambda m: f"plan row {m.group(1)} ({titles[m.group(1)][:60]})" if m.group(1) in titles else m.group(0), t)
+
+
 def entries(root=None):
     """The page's items in page order (main-goal inbox items, everyday inbox items, parked ideas):
     [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
@@ -99,8 +119,8 @@ def entries(root=None):
         row = plan_of(it, titles)
         w = ib.words_for(it)
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
-                    "title": it["title"], "what": w["what"], "if_approve": w["if_approve"],
-                    "if_leave": w["if_leave"], "command": it.get("command", ""), "words": needs_words(it),
+                    "title": plain(it["title"], titles), "what": plain(w["what"], titles),
+                    "if_approve": plain(w["if_approve"], titles), "if_leave": plain(w["if_leave"], titles), "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
     in_plan = ideas_in_plan(root)
     for e in ideas.listing("parked", root or ROOT):
@@ -151,18 +171,37 @@ def idea_row(in_plan, e):
     return next((r for r in in_plan.get(e["id"], []) if day and day in r["line"]), None)
 
 
-def where_we_are(root=None):
-    """Plain lines: the phase now and its rows, each id spelled out."""
+def running_rows(root=None):
+    """-> [(plan row id or "", job title)] of the jobs running now (the task ledger, a dead process not counted): the
+    truth about what is being worked on, not a fixed order table (2026-11-12: the line said P5 while P27/P9 ran)."""
+    try:
+        from .lifecycle import tasks
+        led = tasks.ledger()
+        tasks.settle(led)
+        return [(t.get("plan") or "", (t.get("title") or t["id"])[:90]) for t in led.values()
+                if t.get("status") == "started"]
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+
+
+def where_we_are(root=None, running=None):
+    """Plain lines: what is running now (open plan rows with a live job), else the next open row; held rows apart."""
     from . import plan
     r = plan.next_(root or ROOT)
     if not r.get("ok"):
         return ["Where we are: the plan file is not readable here."]
     titles = plan_titles(root)
-    out = ([f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"] if r.get("phase")
-           else ["Where we are: no plan row is open to start."])
-    for ph in r["phases"]:
-        for i in ph["open"]:
-            out.append(f"  - {i} - {titles.get(i, '(no title)')} [phase {ph['phase']}]")
+    running = running_rows(root) if running is None else running
+    if running:
+        out = [f"Where we are: {len(running)} job(s) are running right now:"]
+        for row, title in running:
+            out.append(f"  - {('plan row ' + row + ' - ' + titles.get(row, '(no title)')) if row else 'no plan row'}: {title}")
+    else:
+        out = ["Where we are: no job is running now."]
+        opened = [i for ph in r["phases"] for i in ph["open"]][:5]
+        if opened:
+            out.append("Next in the plan:")
+            out += [f"  - {i} - {titles.get(i, '(no title)')}" for i in opened]
     # 2026-11-10 (owner): a row the owner holds (W10, the final goal) is never shown as work to do
     held = [i for ph in r["phases"] for i in ph.get("held", [])]
     if held:

@@ -12,6 +12,7 @@ def env(tmp_path, monkeypatch):
     from fieldkit.buildh import task
     monkeypatch.setattr(inbox, "INBOX", tmp_path / "inbox")
     monkeypatch.setattr(review, "ROOT", tmp_path)
+    monkeypatch.setattr(review, "running_rows", lambda root=None: [])      # never the real task ledger
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
     return tmp_path
 
@@ -153,7 +154,7 @@ def test_a_row_the_owner_holds_is_never_shown_as_work_to_do(env):
     (env / "docs" / "HARNESS-PLAN.md").write_text(
         PLAN.replace("| FINAL GOAL |", "| FINAL GOAL, not now |").replace("| PLANNED |", "| DONE |"), encoding="utf-8")
     lines = review.where_we_are(env)
-    assert lines[0] == "Where we are: no plan row is open to start." and "W10" in lines[-1] and "[held]" in lines[-1]
+    assert lines[0] == "Where we are: no job is running now." and "W10" in lines[-1] and "[held]" in lines[-1]
 
 
 def test_items_of_a_kind_that_no_longer_reaches_the_owner_move_to_the_ledger(env):
@@ -195,3 +196,29 @@ def test_an_idea_already_built_as_a_plan_row_says_so_and_accepting_makes_no_new_
     assert "ALREADY BUILT as plan row P23 (#412)" in e["what"] and "no new plan row" in e["if_approve"]
     r = ideas.set_status(["I-01"], "accepted", root=env, now=NOW)[0]
     assert r["plan_id"] == "P23" and r["brief"] is None
+
+
+def test_where_we_are_names_what_is_running_not_the_order_table(env):
+    # 2026-11-12: the line said "phase 7d ... P5" while P27/P9 were running
+    (env / "docs").mkdir()
+    (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN, encoding="utf-8")
+    lines = review.where_we_are(env, running=[("W10", "the one-command job")])
+    assert lines[0] == "Where we are: 1 job(s) are running right now:" and "plan row W10" in lines[1]
+    assert not any("P5" in x for x in lines), lines
+    assert any("P5 -" in x for x in review.where_we_are(env, running=[]))
+
+
+def test_inner_names_are_spelled_out_in_plain_words():
+    t = review.plain("blocked by HARD LINE 3: P9 needs owner_steps", {"P9": "Counsel wiring"})
+    assert "HARD LINE" not in t and "owner_steps" not in t and "plan row P9 (Counsel wiring)" in t
+
+
+def test_a_defect_never_reaches_the_review(env):
+    ideas.add("Real suggestion", "owner wants it", root=env, now=NOW)
+    ideas.add("Stop kills the worker", "found broken", source="agent:zero", root=env, now=NOW, defect=True)
+    ideas.mark_defect("I-01", root=env)
+    assert [e["raw"]["id"] for e in review.entries(env) if e["type"] == "idea"] == []
+    ideas.add("Another suggestion", "owner wants it too", root=env, now=NOW)
+    assert [e["raw"]["id"] for e in review.entries(env) if e["type"] == "idea"] == ["I-03"]
+    assert "Stop kills" not in "\n".join(review.render(review.entries(env), env))
+    assert [e["id"] for e in ideas.defects(env)] == ["I-01", "I-02"]
