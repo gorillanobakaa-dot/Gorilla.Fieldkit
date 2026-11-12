@@ -1292,7 +1292,8 @@ def run(a, emit):
         # installer-test TASK: the shipped installer installed silently into a temp folder (no shortcuts, no service),
         # checked file by file against the proved zip, uninstalled by its own uninstaller, machine as before (2026-10-19)
         from . import installertest
-        r = installertest.run(tid, say=lambda m: print(m, flush=True))
+        r = installertest.run(tid, say=lambda m: print(m, flush=True),
+                              opts=dict(x.split("=", 1) for x in a.args[1:] if "=" in x))
         print("INSTALLER TEST " + ("OK" if r["ok"] else "NOT OK: " + "; ".join(x["check"] for x in r["rows"] if not x["ok"])))
         return 0 if r["ok"] else 3
     if act == "stops":

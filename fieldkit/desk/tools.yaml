@@ -170,9 +170,8 @@ tools:
     - {name: task, flag: null, type: str, required: true, help: "build-harness task id, e.g. firefox-158.0"}
   effects: [writes-files, deletes-files, processes, registry]
   safety: reversible
-  notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run.'
-  platforms: [windows]
-  platforms_why: 'the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks'
+  notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run. Linux (P9, 2026-11-12): the same round trip with the .deb - apt-get with sudo -n, every file byte-identical to dpkg-deb -x, --version, apt-get purge, no file left, package state and launchers as before; refuses (never removes) a package that is already present unless remove-existing=1.'
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_installertest.py"]
 
 - id: room

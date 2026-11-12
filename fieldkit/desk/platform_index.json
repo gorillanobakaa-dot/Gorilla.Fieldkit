@@ -739,9 +739,10 @@
  },
  "build-harness installer-test": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks",
+  "why": "",
   "ids": [
    "installer-test"
   ]
