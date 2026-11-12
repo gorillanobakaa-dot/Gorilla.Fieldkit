@@ -132,3 +132,25 @@ def test_every_build_harness_action_has_a_card():
     assert len(actions) > 90
     missing = [a for a in actions if f"bh-{a}" not in ids and a not in ids]
     assert not missing, f"build-harness actions without a card (add bh-<action> to fieldkit/desk/tools.yaml): {missing}"
+
+
+def test_leakgate_root_falls_back_to_harness_root_and_refuses_without_one(tmp_path):
+    from fieldkit.buildh import ownercheck
+    hr = tmp_path / "gorilla-firefox"
+    hr.mkdir()
+    t = {"meta": {"harness_root": str(hr)}}          # Linux task: no harness/gorilla_build.py
+    assert ownercheck._owner_root(t) is None
+    assert ownercheck.gate_root(t) == hr
+    assert ownercheck.gate_root({"meta": {}}) is None
+    assert ownercheck.gate_root({"meta": {"harness_root": str(tmp_path / "gone")}}) is None
+
+
+def test_leakgate_command_refuses_clearly_without_any_root(monkeypatch, capsys):
+    from fieldkit.buildh import task
+    from fieldkit.core import platform_gate, crossos
+    monkeypatch.setattr(platform_gate, "refusal", lambda args, index=None: None)
+    monkeypatch.setattr(crossos, "handle", lambda args, main, say=None, err=None: None)
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "steps": []})
+    rc = cli.main(["build-harness", "leakgate", "no-such-task"])
+    out = capsys.readouterr()
+    assert rc != 0 and "cannot find where its allowlist" in out.out + out.err

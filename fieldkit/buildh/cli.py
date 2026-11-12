@@ -1594,7 +1594,12 @@ def run(a, emit):
         from . import buildrun, verify as vf
         import json as _js
         t = task.load(tid)
-        owner = Path(buildrun._owner_root(t))
+        from .ownercheck import gate_root
+        owner = gate_root(t)
+        if owner is None:
+            raise task.Refused(f"the leak gate cannot find where its allowlist and result live for task {tid}: the task has no "
+                               "meta.harness_root folder and no owner repository beside it")
+        owner = Path(owner)
         say = lambda m: print(m, flush=True)
         if act == "leakgate-approve":
             ids = set(x for x in a.args[1:]) or {"*proposed*"}
