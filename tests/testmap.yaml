@@ -10,6 +10,7 @@
 - {glob: "fieldkit.local.example.json", tests: [], why: "an example for a new machine; no code reads it"}
 - {glob: "docs/findings/*.yaml", tests: [], why: "a findings record for people; no code reads it"}
 - {glob: "docs/visual/*.yaml", tests: [], why: "the visual-check allowlist is read by the owner's local kit, not by Fieldkit code"}
+- {glob: "fieldkit/testcost_policy.yaml", tests: [tests/test_testcost.py]}
 - {glob: "fieldkit/refusals_policy.yaml", tests: [tests/test_refusals.py]}
 - {glob: "releases/parity-pin.yaml", tests: [tests/test_parity.py]}
 - {glob: "releases/*.yaml", tests: [tests/test_release.py, tests/test_release_cycle.py]}

@@ -238,6 +238,56 @@ def _imports(test_file):
     return mods
 
 
+POLICY_FILE = "fieldkit/testcost_policy.yaml"
+POLICY_DEFAULT = {"max_files": 40, "budget_seconds": 120, "est_seconds_per_file": 3}
+
+
+def local_policy(repo=ROOT):
+    """The local test budget from fieldkit/testcost_policy.yaml (data, not code); a missing or broken file = defaults."""
+    out = dict(POLICY_DEFAULT)
+    f = Path(repo) / POLICY_FILE
+    try:
+        import yaml
+        cfg = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("local") or {}
+    except Exception:             # unreadable or broken policy: the defaults, never a stop
+        cfg = {}
+    for k, v in cfg.items():
+        if k in out and isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[k] = v
+    return out
+
+
+def passed_files(key):
+    """{check names} that passed on exactly `key`: one read of the journal for the per-file checks."""
+    return {r.get("check") for r in _read("runs.jsonl") if key and r.get("key") == key and r.get("status") == "pass"}
+
+
+def file_check(rel):
+    return "test:" + rel.replace("\\", "/")
+
+
+def record_files(key, rels, seconds=0.0, note=""):
+    """Journal each test file as passed on `key` (a passed test is never re-run on the same tree)."""
+    for rel in rels:
+        record(file_check(rel), "pass", seconds, key=key, note=note)
+
+
+def select_local(pl, policy, passed=frozenset(), repo="."):
+    """-> {"local": [...], "deferred": [...], "skipped": [...]} (repo-relative). Only DIRECT covers run here: changed
+    test files first, then the rest by name, minus those that already passed on this tree, inside the budget. The
+    overflow and every non-direct test (hub fan-out, name matches) is deferred to CI, never dropped."""
+    rel = lambda t: os.path.relpath(t, repo).replace("\\", "/")
+    direct = [rel(t) for t in pl["direct"]]
+    changed = set(pl.get("changed") or [])
+    direct.sort(key=lambda r: (r not in changed, r))
+    skipped = [r for r in direct if file_check(r) in passed]
+    todo = [r for r in direct if file_check(r) not in passed]
+    cap = max(1, min(int(policy["max_files"]), int(policy["budget_seconds"] // max(policy["est_seconds_per_file"], 0.1))))
+    local = todo[:cap]
+    deferred = sorted((set(rel(t) for t in pl["tests"]) - set(local)) - set(skipped))
+    return {"local": local, "deferred": deferred, "skipped": skipped}
+
+
 TESTMAP = "tests/testmap.yaml"
 MUTATION_PLAN = re.compile(r"(^|/)([^/]+_mutations\.yaml|mutations\.yaml|mutations-[^/]+\.yaml)$")
 
@@ -377,36 +427,41 @@ def plan(repo=".", base=None, paths=None, diff_lines=None, own_base=None):
                                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
     diff_lines = diff_lines or (lambda path: _line_diff(repo, base, path))
     tmap = testmap(repo)
-    chosen, unmapped = set(), []
+    chosen, unmapped, direct = set(), [], set()        # direct: the tests that import/are/are mapped to the file itself
     for p in paths:
         q = p.replace("\\", "/")
         if q.startswith(NON_CODE_TREES) or is_version_only(q, diff_lines(q) if q in VERSION_FILES else []):
             continue
         if q.startswith("tests/") and Path(q).name.startswith("test_") and q.endswith(".py"):
             chosen.add(str(repo / q))
+            direct.add(str(repo / q))
             continue
         if Path(q).suffix.lower() in DOC_SUFFIXES and not q.startswith(CODE_TREES):
             continue
         rows = [ts for g, ts in tmap if _glob_match(q, g)]
         if rows:                                       # a mapped file; tests: [] = declared read by no test
             chosen |= {str(repo / t) for ts in rows for t in ts}
+            direct |= {str(repo / t) for ts in rows for t in ts}
             continue
         if MUTATION_PLAN.search(q):                    # read only by `fieldkit mutate`: the tests of what it mutates
             own = repo / "tests" / ("test_" + Path(q).name.replace("_mutations.yaml", ".py").replace("mutations-", ""))
             hits = {str(own)} if own.is_file() else (_package_tests(q, imports) if q.startswith("fieldkit/") else set())
             if hits:
                 chosen |= hits
+                direct |= hits
             continue
         if q in REGISTRY_INTEGRITY:                    # a shared registry: only the tests of what changed in it
             narrow = (_registry_tools_tests(repo, base, test_files, imports, "HEAD" if own_base else None) if q == REGISTRY_TOOLS else
                       _registry_cli_tests(repo, diff_lines(q), test_files, imports))
             if narrow:
-                chosen |= narrow
+                chosen |= narrow                       # what changed in a hub: wide, so CI's; the integrity set is local
+                direct |= {str(repo / t) for t in REGISTRY_INTEGRITY[q] if (repo / t).is_file()}
                 continue
         mod = _module_of(q)
         hits = set()
         if mod and mod != "fieldkit":
             hits = {str(t) for t, ms in imports.items() if any(m == mod or m.startswith(mod + ".") for m in ms)}
+            direct |= hits
         if not hits:
             needles = [Path(q).name] + ([mod.rsplit(".", 1)[-1]] if mod else []) +                 ([Path(q).stem] if Path(q).suffix != ".py" and Path(q).stem not in ("mutations", "data", "index") else [])
             needles = [n for n in needles if len(n) > 3 and n not in ("__init__.py", "cli.py", "cli")]
@@ -421,7 +476,7 @@ def plan(repo=".", base=None, paths=None, diff_lines=None, own_base=None):
             chosen |= hits
         else:
             unmapped.append(q)
-    return {"tests": sorted(chosen), "unmapped": unmapped, "docs_only": is_docs_only(paths),
+    return {"tests": sorted(chosen), "direct": sorted(direct & chosen), "unmapped": unmapped, "docs_only": is_docs_only(paths),
             "no_code": is_no_code(paths, lambda q: diff_lines(q) if q.replace("\\", "/") in VERSION_FILES else []),
             "changed": paths}
 
@@ -489,8 +544,12 @@ def main(argv=None, prog="fieldkit testcost"):
     rp = sub.add_parser("report")
     rp.add_argument("--last", type=int, default=200)
     sub.add_parser("flags")
-    st = sub.add_parser("staged", help="the test files that cover the staged files, one per line (the pre-commit hook)")
+    st = sub.add_parser("staged", help="the test files that DIRECTLY cover the staged files inside the local budget, one "
+                                       "per line; the rest is printed as deferred to CI (the pre-commit hook)")
     st.add_argument("--repo", default=".")
+    rf = sub.add_parser("record-files", help="journal test files as passed on a tree (the hook, after its run)")
+    rf.add_argument("--key", required=True)
+    rf.add_argument("files", nargs="*")
     um = sub.add_parser("unmapped", help="tracked files no test covers (each one makes CI run the whole suite)")
     um.add_argument("--repo", default=".")
     um.add_argument("--all", action="store_true", help="every tracked file, not only the changed ones")
@@ -510,21 +569,28 @@ def main(argv=None, prog="fieldkit testcost"):
     if a.cmd == "record":
         record(a.check, a.status, a.seconds, a.key, a.note)
         return 0
+    if a.cmd == "record-files":
+        record_files(a.key, a.files, note="pre-commit")
+        return 0
     if a.cmd == "staged":
         # owner 2026-10-27 (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI."
-        tests = plan(a.repo, paths=staged_files(a.repo), own_base=merge_base(a.repo))["tests"]
-        cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
-        if len(tests) > cap:
-            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop. R15: never dropped - this
-            # computer keeps its share (the cap), the free devices run the rest (fieldkit/testsplit.py), and what no
-            # device takes runs here
-            from . import testsplit
-            rel = [os.path.relpath(t, a.repo).replace("\\", "/") for t in tests]
-            for t in testsplit.start(a.repo, rel, tree_key(a.repo), cap)["local"]:
-                print(t)
-            return 0
-        for t in tests:
-            print(os.path.relpath(t, a.repo).replace("\\", "/"))
+        pl = plan(a.repo, paths=staged_files(a.repo), own_base=merge_base(a.repo))
+        key = tree_key(a.repo)
+        sel = select_local(pl, local_policy(a.repo), passed_files(key), a.repo)
+        for t in sel["local"]:
+            print(t)
+        if sel["skipped"]:
+            print(f"testcost: {len(sel['skipped'])} test file(s) already passed on this exact tree: not run again", file=sys.stderr)
+        if sel["deferred"]:
+            msg = (f"testcost: {len(sel['deferred'])} test file(s) deferred to CI (local budget "
+                   f"{local_policy(a.repo)['max_files']} files / {local_policy(a.repo)['budget_seconds']} s): "
+                   + ", ".join(sel["deferred"][:5]) + (" ..." if len(sel["deferred"]) > 5 else ""))
+            print(msg, file=sys.stderr)
+            record("deferred", "skipped", 0, key=key, note=f"{len(sel['deferred'])} file(s): " + " ".join(sel["deferred"])[:600])
+        if not sel["local"]:
+            print("testcost: " + ("every covering test already passed on this tree" if sel["skipped"] else
+                  "no test directly covers the staged files") + " - nothing runs here; CI runs the covering tests",
+                  file=sys.stderr)
         return 0
     if a.cmd in ("plan", "run"):
         pl = plan(a.repo, a.base)
@@ -552,6 +618,8 @@ def main(argv=None, prog="fieldkit testcost"):
         t0 = time.time()
         rc = subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
         record(check, "pass" if rc == 0 else "fail", time.time() - t0, key=key, note=f"{len(pl['tests'])} files")
+        if rc == 0:
+            record_files(key, [os.path.relpath(t, a.repo) for t in pl["tests"]], note="fast run")
         return rc
     if a.cmd == "budget":
         b = budget(a.check)
