@@ -5,7 +5,7 @@
                                                              (fieldkit emerge run does on/off/distill by itself, see capture/loop.py)
     fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
     fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
-    fieldkit capture scan                                    (not built yet)
+    fieldkit capture scan [--json] [--limit N]               journal the work calls the transcripts hold that no hook captured (idempotent)
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
@@ -61,6 +61,19 @@ def cmd_hook(a):
         hook.handle(a.agent, text)
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
+    return 0
+
+
+def cmd_scan(a):
+    from . import scan, switch
+    if a.scheduled and not switch.is_on():
+        return 0
+    r = scan.scan(st.Store(), limit=a.limit)
+    if a.scheduled:
+        return 0
+    r["next"] = "fieldkit capture coverage --strict, then fieldkit capture ledger --strict"
+    _emit(a, r, [f"scanned {r['files']} transcript(s) not hooked ({r['skipped_hooked']} left to the hook): {r['calls']} call(s) -> "
+                 f"{r['new_items']} new item(s), {r['repeats']} repeat(s) of known items; {r['already']} already journaled, skipped"])
     return 0
 
 
@@ -335,7 +348,10 @@ def main(argv=None):
     sw = sub.add_parser("state", help="is capture on, for which lesson, until when")
     sw.add_argument("--json", action="store_true")
     sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
-    sub.add_parser("scan", help="(not built yet)").add_argument("rest", nargs="*")
+    sc = sub.add_parser("scan", help="journal what the transcripts hold that no hook captured")
+    sc.add_argument("--json", action="store_true")
+    sc.add_argument("--limit", type=int, default=None, help="stop after N calls (a trial)")
+    sc.add_argument("--scheduled", action="store_true", help="the timer's run: does nothing while capture is off, prints nothing")
     ab = sub.add_parser("absorb", help="bring a stray store (a worktree's state/capture) into the shared one")
     ab.add_argument("dirs", nargs="+")
     ab.add_argument("--json", action="store_true")
@@ -384,15 +400,13 @@ def main(argv=None):
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
         t.add_argument("--" + k.replace("_", "-"), dest=k, action="store_true")
     a = ap.parse_args(argv)
-    if a.action == "scan":
-        return _not_built("scan")
     if a.action == "project":
         from . import projects
         return projects.cmd(a)
     if a.action in ("on", "off", "state"):
         from . import switch
         return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
-    return {"absorb": cmd_absorb, "hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
+    return {"absorb": cmd_absorb, "hook": cmd_hook, "scan": cmd_scan, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
             "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "adopted": cmd_adopted, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 
 

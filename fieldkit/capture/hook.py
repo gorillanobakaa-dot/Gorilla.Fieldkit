@@ -121,11 +121,15 @@ def parse(agent, p, store=None):
     ev = _first(p, "hook_event_name", "event", "type") or ""
     cwd = _first(p, "cwd", "workdir", "directory") or os.getcwd()
     session = str(_first(p, "session_id", "sessionId", "sessionID", "session") or "")
-    base = {"agent": agent, "session": session, "cwd": cwd, "env": dict(os.environ), "timestamp": st.now(),
-            "origin": f"hook:{agent}:{ev}"}
-    prompt = last_prompt(_first(p, "transcript_path", "transcriptPath")) or ""
+    scanned = "fk_timestamp" in p                          # `capture scan` read this call from a transcript, no hook saw it
+    base = {"agent": agent, "session": session, "cwd": cwd, "env": {} if scanned else dict(os.environ),
+            "timestamp": p.get("fk_timestamp") or st.now(), "origin": f"{'scan' if scanned else 'hook'}:{agent}:{ev}"}
+    prompt = p.get("fk_prompt") or "" if scanned else last_prompt(_first(p, "transcript_path", "transcriptPath")) or ""
     if str(ev).lower() in ("stop", "subagentstop", "sessionend", "afteragent"):
-        return dict(base, kind="session", source=prompt or "(no prompt found)", command="session-stop", args=[],
+        src = prompt or "(no prompt found)"
+        if scanned:                                        # one marker per scanned session, never merged with another's
+            src += f" [scan of session {session}]"
+        return dict(base, kind="session", source=src, command="session-stop", args=[],
                     deps=[], inputs=[_first(p, "transcript_path", "transcriptPath") or ""], outputs={}, exit_code=None,
                     errors="", problem=prompt, path=None)
     name = _first(p, "tool_name", "tool", "toolName")

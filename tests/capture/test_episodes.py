@@ -75,11 +75,11 @@ def test_items_without_a_session_are_counted_not_dropped(s):
 def test_coverage_lists_every_transcript_with_a_reason(s, tmp_path):
     proj = tmp_path / ".claude" / "projects" / "p"
     proj.mkdir(parents=True)
-    (proj / "s1.jsonl").write_text('{"type":"tool_use"}\n')
-    (proj / "s2.jsonl").write_text('{"type":"tool_use"}\n')
+    (proj / "s1.jsonl").write_text('{"type":"tool_use","name":"Bash"}\n')
+    (proj / "s2.jsonl").write_text('{"type":"tool_use","name":"Bash"}\n')
     (proj / "s3.jsonl").write_text('{"type":"text"}\n')
     s.record(rec("a", session="s1"))
     cov = ep.coverage(s.state(), home=tmp_path)["agents"]["claude"]
     assert cov["on_disk"] == 3 and cov["captured"] == 1
     reasons = {u["session"]: u["reason"] for u in cov["uncaptured"]}
-    assert reasons["s2"].startswith("GAP") and reasons["s3"].startswith("read-only")
+    assert reasons["s2"].startswith("GAP") and reasons["s3"].startswith("no work call")

@@ -159,7 +159,7 @@ def test_cli_on_without_lesson_extends(env, monkeypatch):
     monkeypatch.setenv("HOME", str(env))
     switch.turn_on("keep me", 30, home=env, py="py")
     r = subprocess.run([sys.executable, "-m", "fieldkit", "capture", "on", "--for", "600", "--json"],
-                       capture_output=True, text=True, env={**os.environ, "HOME": str(env)})
+                       capture_output=True, text=True, env={**os.environ, "HOME": str(env), "FIELDKIT_CAPTURE_NO_SCHEDULE": "1"})
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["lesson"] == "keep me"
     assert (datetime.fromisoformat(switch.read()["until"]) - datetime.now(timezone.utc)) > timedelta(hours=9)

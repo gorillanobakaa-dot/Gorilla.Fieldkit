@@ -158,7 +158,6 @@ def test_self_tests_pass(flag):
 def test_later_jobs_are_stubs_that_exit_2(flag):
     r = fk("self-test", "--" + flag)
     assert r.returncode == 2 and "NOT BUILT YET" in r.stderr
-    assert fk("scan").returncode == 2
 
 
 def test_a_broken_store_makes_strict_and_verify_exit_3(tmp_path):
