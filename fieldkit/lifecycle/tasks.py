@@ -206,7 +206,8 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     brief = full_brief(text, tid, on, title)
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
-           "status": "started", "hash": h, "wall": int(wall), "model": model}
+           "status": "started", "hash": h, "wall": int(wall), "model": model,
+           "plan": plan or (re.search(r"PLAN ITEM:\s*([A-Z]\d+)", text) or [None, ""])[1]}
     warns = [m for sev, m in findings if sev == "warn"]
     if warns:
         rec["warnings"] = warns

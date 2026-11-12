@@ -81,7 +81,7 @@ def cmd_friction(argv):
 def cmd_task(argv):
     ap = argparse.ArgumentParser(prog="fieldkit task", description=tasks.__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["start", "status", "report", "watch", "lint"])
+    ap.add_argument("action", choices=["start", "status", "report", "watch", "lint", "stop"])
     ap.add_argument("arg", nargs="?", help="start: the brief file; report: the task id")
     ap.add_argument("--on", help="start: a device of the household (the job runs there, over the cable)")
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
@@ -172,6 +172,22 @@ def cmd_task(argv):
         print(f"TASK {rec['id']}  {rec['status']}" + (f"  verdict {rec['verdict']}: {rec['verdict_why']}"
                                                        if rec.get("verdict") else ""))
         return 0 if rec["status"] == a.status else 3
+    if a.action == "stop":
+        if not a.arg:
+            print("task stop ID: stops the task's runner and its worker (process group and worktree)")
+            return 2
+        from . import taskstop
+        t = tasks.ledger().get(a.arg)
+        if not t:
+            print(f"task stop: no task {a.arg}")
+            return 2
+        r = taskstop.stop(t)
+        if t.get("status") == "started":
+            tasks.report(a.arg, "failed", note="closed by task stop")
+        print(f"STOPPED {a.arg}: signalled {len(r['signalled'])} process(es), force-killed {len(r['killed'])}, "
+              f"still alive {len(r['left'])}\nNEXT: " + ("a process survived SIGKILL: look at it by PID" if r["left"]
+                                                       else "fieldkit task status"))
+        return 3 if r["left"] else 0
     if a.action == "watch":
         from . import watch
         return watch.main(a)
