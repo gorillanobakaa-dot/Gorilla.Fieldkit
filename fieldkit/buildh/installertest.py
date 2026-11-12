@@ -212,6 +212,32 @@ def find_deb(res, t=None, opts=None):
     return (debs[-1], None) if debs else (None, None)
 
 
+def gate_artifact(res, t=None, linux=None):
+    """-> the package file the leak gate unpacks: the Windows zip, or on Linux the .deb (recorded in build-result, else the
+    newest gorilla-unleashed_<version>.deb in Build.Work/firefox/release-<version> or under the task's workdir). Raises
+    RuntimeError saying what is missing; never a KeyError."""
+    arts = (res or {}).get("artifacts") or {}
+    linux = sys.platform.startswith("linux") if linux is None else linux
+    if not linux:
+        if not arts.get("zip"):
+            raise RuntimeError("build-result.json names no zip artifact: run build-verify first")
+        return arts["zip"]["file"]
+    deb, _ = find_deb(res, t)
+    if deb is None and t:
+        try:
+            from . import vault
+            ver = (t.get("meta", {}).get("upstream") or {}).get("version")
+            rel = vault.root().parent / "Build.Work" / "firefox" / f"release-{ver}"
+            debs = sorted(rel.glob(f"{PKG}_*.deb"), key=lambda p: p.stat().st_mtime) if ver and rel.is_dir() else []
+            deb = debs[-1] if debs else None
+        except Exception:  # noqa: BLE001 - no vault on this machine: the refusal below says so
+            deb = None
+    if deb is None or not Path(deb).is_file():
+        raise RuntimeError("the leak gate needs the Linux package (.deb): build-result.json names none and no "
+                           f"{PKG}_*.deb was found for this task; run build-verify / emerge first")
+    return str(deb)
+
+
 def deb_snapshot(runner=subprocess.run):
     """-> what a package could leave on a Linux desktop: dpkg's state of the package and every launcher file."""
     r = runner(["dpkg-query", "-W", "-f=${Status}|${Version}", PKG], capture_output=True, text=True, errors="replace")
