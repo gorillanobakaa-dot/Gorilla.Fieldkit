@@ -10,6 +10,15 @@ import pytest
 from fieldkit.buildh import install as inst, task
 
 
+@pytest.fixture(autouse=True)
+def _windows_world(monkeypatch):
+    """These tests describe the Windows verify rows (firefox.exe, installer, zip, registry); on another system those
+    rows are `not-this-platform` by design (P9, tests/test_os_aware_rows.py holds that half)."""
+    from fieldkit.core import host
+    real = host.host()
+    monkeypatch.setattr(host, "host", lambda: dict(real, system="Windows", is_windows=True, is_linux=False, is_mac=False))
+
+
 def _fake_install(d, version="155.0.1"):
     d.mkdir(parents=True)
     (d / "application.ini").write_text(f"[App]\nVendor=Mozilla\nName=Firefox\nCodeName=Gorilla Unleashed\nVersion={version}\nBuildID=20260914\n", encoding="utf-8")

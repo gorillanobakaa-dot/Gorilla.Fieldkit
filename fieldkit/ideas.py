@@ -5,6 +5,8 @@ finish line kept moving because every suggestion went into the current plan).
     fieldkit ideas add "TITLE" --why "what it would do" [--what "2-3 plain sentences"] [--from owner|agent:NAME]
     fieldkit ideas list [--status parked|accepted|forgotten] [--json]
     fieldkit ideas brief           the review brief: each parked idea, its title and what it would do (read only)
+    fieldkit ideas add "TITLE" --why W --from agent:NAME --defect   a DEFECT: never reaches the owner's review
+    fieldkit ideas defect I-NN     move an idea that is really a defect out of the owner's review; list --defects shows them
     fieldkit ideas built I-NN --pr URL   an agent: the idea is already built (shown in the review; status unchanged)
     fieldkit ideas review          the owner's, at a real terminal: the same as `fieldkit review` (ideas AND inbox)
 
@@ -98,28 +100,49 @@ def _save(data, root=None):
         pass
 
 
-def add(title, why, what=None, source="owner", root=None, now=None):
-    """Park an idea. -> the new entry. The store is created here, by an add and by nothing else."""
+def add(title, why, what=None, source="owner", root=None, now=None, defect=False):
+    """Park an idea, or with defect=True queue a defect an agent found (never shown to the owner; a fix job under the
+    plan row it breaks). -> the new entry. The store is created here, by an add and by nothing else."""
     title, why = _clean(title), _clean(why)
     if not title or not why:
         raise Refused("an idea needs a title and --why (what it would do)")
     if not re.fullmatch(r"owner|agent:[\w.@-]+", source):
         raise Refused("--from is owner or agent:NAME")
+    if defect and source == "owner":
+        raise Refused("--defect is for what an agent found broken: --from agent:NAME (an owner suggestion is an idea)")
     ensure_md(root)
     data = _load(root)
     n = max([int(m.group(1)) for e in data["ideas"] if (m := re.fullmatch(r"I-(\d+)", e["id"]))] or [0]) + 1
     e = {"id": f"I-{n:02d}", "date": _stamp(now), "title": title, "why": why, "what": _clean(what) or why,
-         "source": source, "status": "parked"}
+         "source": source, "status": "parked", **({"defect": True} if defect else {})}
     data["ideas"].append(e)
     _save(data, root)
     return e
 
 
-def listing(status=None, root=None):
+def listing(status=None, root=None, defects=False):
+    """The owner's ideas. A DEFECT (an agent found something broken: work to fix, not a suggestion) is never in this list
+    unless defects=True (2026-11-12, owner: "a lot of crap" in `fieldkit review`): it never reaches the owner's review."""
     if status and status not in STATUSES:
         raise Refused(f"status is one of {', '.join(STATUSES)}")
     ensure_md(root)
-    return [e for e in _load(root)["ideas"] if not status or e["status"] == status]
+    return [e for e in _load(root)["ideas"] if (status in (None, e["status"])) and bool(e.get("defect")) == bool(defects)]
+
+
+def defects(root=None):
+    """The defect queue: what an agent found broken and nobody has fixed yet (not built, not forgotten)."""
+    return [e for e in listing(None, root, defects=True) if not e.get("built") and e["status"] == "parked"]
+
+
+def mark_defect(iid, root=None):
+    """Move an idea that is really a defect out of the owner's review into the defect queue. Nothing is deleted."""
+    data = _load(root)
+    for e in data["ideas"]:
+        if e["id"] == iid:
+            e["defect"] = True
+            _save(data, root)
+            return e
+    raise Refused(f"no idea {iid}")
 
 
 def parked_count(root=None):
@@ -300,8 +323,12 @@ def main(argv=None):
     pa.add_argument("--why", required=True)
     pa.add_argument("--what")
     pa.add_argument("--from", dest="source", default="owner")
+    pa.add_argument("--defect", action="store_true", help="a defect an agent found: never shown in the owner's review")
+    pd = sub.add_parser("defect", help="move an idea that is really a defect out of the owner's review")
+    pd.add_argument("id")
     pl = sub.add_parser("list")
     pl.add_argument("--status", choices=STATUSES)
+    pl.add_argument("--defects", action="store_true", help="list the defect queue instead of the owner's ideas")
     sub.add_parser("brief")
     sub.add_parser("review")
     pb = sub.add_parser("built", help="record that a parked idea is already built (the status stays the owner's)")
@@ -312,11 +339,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         if a.action == "add":
-            e = add(a.title, a.why, a.what, a.source)
+            e = add(a.title, a.why, a.what, a.source, defect=a.defect)
             print(json.dumps(e, indent=1) if a.json else f"parked as {e['id']}")
             return 0
         if a.action == "list":
-            es = listing(a.status)
+            es = listing(a.status, defects=a.defects)
             if a.json:
                 print(json.dumps(es, indent=1))
             else:
@@ -324,6 +351,11 @@ def main(argv=None):
                     print(f"{e['id']}  {e['status']:<9}  {e['title']}")
                 print("NEXT: fieldkit review (the owner, at a terminal)" if any(e["status"] == "parked" for e in es)
                       else "NEXT: nothing parked")
+            return 0
+        if a.action == "defect":
+            e = mark_defect(a.id)
+            print(f"{e['id']} is a defect now: it leaves the owner's review and waits as a fix job\nNEXT: fix it, then "
+                  "`fieldkit ideas built " + e["id"] + " --pr URL`")
             return 0
         if a.action == "brief":
             print(brief())

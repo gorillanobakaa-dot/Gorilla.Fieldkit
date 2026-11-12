@@ -218,8 +218,27 @@ def real_walk_lnk(folder):
     return out
 
 
+def _dpkg_version(path, run=None):
+    import subprocess
+    run = run or subprocess.run
+    try:
+        real = os.path.realpath(path)
+        for p in dict.fromkeys((str(path), real)):
+            r = run(["dpkg", "-S", p], capture_output=True, text=True, timeout=30)
+            pkg = (r.stdout or "").split(":")[0].strip() if r.returncode == 0 and r.stdout else ""
+            if pkg:
+                v = run(["dpkg-query", "-W", "-f=${Version}", pkg], capture_output=True, text=True, timeout=30)
+                return (v.stdout or "").strip() if v.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
 def exe_version(path):
-    """The file's own version resource (Windows); "" when there is none. Reads, never runs."""
+    """The file's own version resource (Windows) or, on Linux, its dpkg package's version; "" when there is none.
+    Reads, never runs the program (dpkg -S / dpkg-query only)."""
+    if sys.platform.startswith("linux"):
+        return _dpkg_version(path)
     if sys.platform != "win32":
         return ""
     try:

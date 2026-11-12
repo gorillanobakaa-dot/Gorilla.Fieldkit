@@ -122,8 +122,8 @@ def test_a_page_that_never_reported_or_a_download_never_served_fails():
     assert any("never served /tiny.exe" in x for x in fail["NETWORK_POLICY"])
 
 
-def test_linux_coverage_names_its_own_sensors():
-    assert gate.required_coverage("direct", True, linux=True) == {"strace", "tcpdump"}
+def test_linux_requires_the_same_sensors_as_windows():
+    assert gate.required_coverage("direct", True) == {"process-tree", "filesystem", "sockets", "necko-http", "necko-dns", "pktmon"}
 
 
 def test_lan_probe_requests_that_left_fail_lan_policy():

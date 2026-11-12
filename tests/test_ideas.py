@@ -247,3 +247,14 @@ def test_c7_an_idea_already_built_is_shown_built_and_stays_parked(root):
     assert "ALREADY BUILT" in item["what"] and "already merged" in item["if_approve"]
     with pytest.raises(ideas.Refused):
         ideas.mark_built("I-99", "x", root=root)
+
+
+def test_a_defect_needs_an_agent_and_stays_out_of_every_owner_list(root):
+    with pytest.raises(ideas.Refused):
+        ideas.add("x", "y", defect=True, root=root)               # an owner suggestion is an idea, not a defect
+    ideas.add("Broken thing", "it breaks", source="agent:zero", defect=True, root=root)
+    assert ideas.listing("parked", root) == [] and ideas.parked_count(root) == 0 and ideas.line(root) == ""
+    assert ideas.brief(root) == "No parked ideas."
+    assert [e["id"] for e in ideas.defects(root)] == ["I-01"]
+    ideas.mark_built("I-01", "http://pr/1", root=root)
+    assert ideas.defects(root) == []                              # fixed: leaves the queue

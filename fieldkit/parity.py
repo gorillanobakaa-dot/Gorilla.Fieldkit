@@ -999,6 +999,9 @@ def main(argv=None):
     ap.add_argument("--rollback", action="store_true", help="align: put back the binary the last align replaced")
     ap.add_argument("--label", default="parity preflight")
     ap.add_argument("--kind", default="test", help="preflight: test, build, gate, bench, measure (bench/measure: strict)")
+    if argv and argv[0] == "os":                       # single-system cards: port, equivalent or native
+        from .desk import osparity
+        return osparity.main(argv[1:])
     a = ap.parse_args(argv)
     if a.action in ("helpers", "installed"):
         from . import parity_goal

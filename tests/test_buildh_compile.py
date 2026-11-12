@@ -10,6 +10,15 @@ import pytest
 from fieldkit.buildh import compile as cg, task
 
 
+@pytest.fixture(autouse=True)
+def _windows_world(monkeypatch):
+    """These tests describe the Windows verify rows (firefox.exe, installer, zip, registry); on another system those
+    rows are `not-this-platform` by design (P9, tests/test_os_aware_rows.py holds that half)."""
+    from fieldkit.core import host
+    real = host.host()
+    monkeypatch.setattr(host, "host", lambda: dict(real, system="Windows", is_windows=True, is_linux=False, is_mac=False))
+
+
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
@@ -139,7 +148,7 @@ def test_verify_without_a_gate_refuses(world):
 def test_a_missing_binary_fails_when_it_is_asked_for(world):
     cg.gate("c1")
     _build(world, age=+5)
-    assert "built firefox.exe exists" in failing(cg.verify("c1"))
+    assert "built firefox.exe exists and reports the pinned version" in failing(cg.verify("c1"))
 
 
 def test_linux_gate_reads_the_patch_sets_mozconfig_and_mach_default_objdir(tmp_path, monkeypatch):

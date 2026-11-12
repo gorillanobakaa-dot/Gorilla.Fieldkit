@@ -389,20 +389,28 @@ def verify(install_dir, version, marker=None):
     info = installed(install_dir)
     rows.append({"check": "application.ini says the pinned version", "ok": bool(info) and info["version"] == version,
                  "evidence": str(info)})
-    exe = Path(install_dir) / "firefox.exe"
-    out = ""
-    if exe.is_file():
-        try:
-            out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
-        except (OSError, subprocess.TimeoutExpired) as e:
-            out = f"failed: {e}"
-    rows.append({"check": "installed firefox.exe reports the pinned version", "ok": version in out, "evidence": out or "no firefox.exe"})
+    from ..core import host
+    win = ("windows",)
+
+    def _exe_row(name):
+        exe = Path(install_dir) / name
+        out = ""
+        if exe.is_file():
+            try:
+                out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
+            except (OSError, subprocess.TimeoutExpired) as e:
+                out = f"failed: {e}"
+        return version in out, out or f"no {name}"
+    host.os_row(rows, win, "installed firefox.exe reports the pinned version", lambda: _exe_row("firefox.exe"))
+    host.os_row(rows, ("linux",), "installed firefox reports the pinned version", lambda: _exe_row("firefox"))
     if marker:
         rows.append(marker_row(install_dir, marker))
         return rows
-    reg = find_install()
-    rows.append({"check": "the uninstall entry points at this install", "ok": reg is not None and Path(reg).resolve() == Path(install_dir).resolve(),
-                 "evidence": str(reg)})
+
+    def _reg():
+        reg = find_install()
+        return reg is not None and Path(reg).resolve() == Path(install_dir).resolve(), str(reg)
+    host.os_row(rows, win, "the uninstall entry points at this install", _reg)
     return rows
 
 

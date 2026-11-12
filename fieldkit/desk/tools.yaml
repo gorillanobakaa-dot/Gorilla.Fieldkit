@@ -134,7 +134,7 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_toolrouter.py"]
 
 - id: night-pack
-  title: The night pack - every owner-only step the night may need (release send, leak-gate re-judge), pre-approved once at the owner's terminal, run by a Windows scheduled task when its conditions hold, disarmed at the first surprise, with a spoken and written morning report
+  title: The night pack - every owner-only step the night may need (release send, leak-gate re-judge), pre-approved once at the owner's terminal, run by a Windows scheduled task or a Linux systemd user timer when its conditions hold, disarmed at the first surprise, with a spoken and written morning report
   harness: core
   entry: [python, -m, fieldkit, build-harness, night-pack]
   path: ${FIELDKIT}/fieldkit/buildh/nightpack.py
@@ -144,8 +144,7 @@ tools:
   effects: [network, git, writes-files, processes]
   safety: reversible
   notes: 'arm stores the pack SHA-256 and registers the scheduled task "Gorilla night pack" (every 10 min, no elevation, expiry); run refuses an agent, a changed pack or an expired arming, runs each action once, removes the task at the end or at the first failure. Never in a pack: allowlist, dispositions, decision register, harness/hooks, telemetry. Owner 2026-10-19.'
-  platforms: [windows]
-  platforms_why: 'the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer'
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_nightpack.py"]
 
 - id: release-publish
@@ -171,9 +170,8 @@ tools:
     - {name: task, flag: null, type: str, required: true, help: "build-harness task id, e.g. firefox-158.0"}
   effects: [writes-files, deletes-files, processes, registry]
   safety: reversible
-  notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run.'
-  platforms: [windows]
-  platforms_why: 'the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks'
+  notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run. Linux (P9, 2026-11-12): the same round trip with the .deb - apt-get with sudo -n, every file byte-identical to dpkg-deb -x, --version, apt-get purge, no file left, package state and launchers as before; refuses (never removes) a package that is already present unless remove-existing=1.'
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_installertest.py"]
 
 - id: room
@@ -5409,7 +5407,7 @@ tools:
   notes: "OWNER ONLY (real terminal). Runs decisions --strict and claims first (minutes)."
 
 - id: bh-capture
-  title: Network forensics of the built package on Windows - decrypted requests (mitm), DNS names, packets (admin)
+  title: Network forensics of the built package on Windows and Linux - decrypted requests (mitm), DNS names, packets (admin on Windows; root or sudo -n and tcpdump on Linux)
   harness: build
   entry: [python, -m, fieldkit, build-harness, capture]
   path: ${FIELDKIT}/fieldkit/buildh/capture.py
@@ -5419,10 +5417,9 @@ tools:
   effects: [processes, network, writes-files, admin]
   safety: reversible
   exits: {3: findings}
-  platforms: [windows]
-  platforms_why: "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner"
+  platforms: [linux, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_capture.py"]
-  notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Tests cover only judge() and SNI parsing."
+  notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Linux (P9, 2026-11-12): the .deb or tarball is unpacked (dpkg-deb -x, never installed), sockets read with psutil, processes stopped by PID, packets by tcpdump -i any read with dpkg. Tests cover judge(), SNI and pcap parsing, sockets, stop-by-PID and unpacking."
 
 - id: bh-netbench
   title: Network benches B1-B5 against local servers through an emulated link (headless throwaway copy); or compare two results
@@ -6880,6 +6877,26 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_parity.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
+
+- id: parity-os
+  title: "Windows-Linux parity audit: every single-system tool card, pipeline, skill, workflow step, hook and module guard as one fixed record (id, kind, present_on, missing_on, status, evidence, action, target, mechanism, effort, proof, order), four lists (Windows-only, Linux-only, different, native-only), docs/PLATFORMS.md regenerated, briefs per batch; reads and reports only"
+  harness: core
+  entry: [python, -m, fieldkit, parity, os]
+  path: ${FIELDKIT}/fieldkit/desk/osparity.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "records, lists, summary as JSON"}
+    - {name: write, flag: --write, type: flag, required: false, help: "regenerate docs/PLATFORMS.md"}
+    - {name: since, flag: --since, type: str, required: false, help: "only the records whose file a branch touched since REF"}
+    - {name: briefs, flag: --briefs, type: str, required: false, help: "write one data-only brief per batch of gaps into DIR"}
+    - {name: live, flag: --live, type: flag, required: false, help: "also list which external programs this machine has (separate section)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "no gap and no problem", 3: "a gap exists, or a single-system item has no valid record (a new one, or a stale record)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_osparity.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-12: a permanent audit of Windows-Linux parity that says what to do to remove each gap, runs on either system with the same result. Static: reads the repo only. docs/PLATFORMS.md is generated; CI (platformcheck) fails a new single-system item without a record in fieldkit/desk/os_parity.yaml. Execution stays separate: fieldkit task start BRIEF."
 
 - id: parity-helpers
   title: "Gorilla OpenCode pins the same helpers for windows-amd64, linux-amd64 and darwin-amd64 (internal/toolbox/SHA256SUMS) and parityBacklog is empty; names what each system lacks"

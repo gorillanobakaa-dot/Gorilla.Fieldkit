@@ -1,5 +1,5 @@
 # Version: 1.0.0 · updated 26-10-19
-"""The night pack: every owner-only step the night may need, approved ONCE before bed, run by Windows when it is due.
+"""The night pack: every owner-only step the night may need, approved ONCE before bed, run by Windows (Task Scheduler) or Linux (systemd user timer) when it is due.
 
     fieldkit build-harness night-pack TASK prepare [release=TAG] [rejudge=RUN] [dep=REF] [rerun=RUN]
     fieldkit build-harness night-pack TASK arm [hours=12]      the owner, at their own terminal: shows it all, one yes
@@ -34,6 +34,7 @@ from . import task
 
 DIR = task.STATE.parent / "nightpack"
 TASK_NAME = "Gorilla night pack"
+UNIT = "gorilla-night-pack"          # Linux: the systemd user timer that is the scheduled task's twin
 
 
 def _p(task_id, name):
@@ -80,8 +81,41 @@ def prepare(task_id, release=None, rejudge=None, dep=None, rerun=None, gate=True
     return pack
 
 
+def _systemd_register(task_id, hours, runner=subprocess.run, now=None):
+    """Linux twin of the scheduled task: one transient systemd USER timer (no root), first run in 1 minute, then every
+    10 minutes, plus a second one-shot timer that stops it at the expiry. A run is killed after 2 hours
+    (RuntimeMaxSec). Transient units live in /run/user, so a reboot ends them, like the Windows task's expiry.
+    Unlike Task Scheduler's WakeToRun, a user timer cannot wake a sleeping laptop: the machine must be on and the
+    owner logged in (loginctl enable-linger would keep the session; the report says so)."""
+    py, work = sys.executable, str(task.STATE.parents[1])
+    base = ["systemd-run", "--user", "--collect", "--quiet"]
+    # a re-arm replaces the old timers, as Register-ScheduledTask -Force did
+    _systemd_remove(runner)
+    r = runner(base + [f"--unit={UNIT}", "--on-active=60", "--on-unit-active=600", "--timer-property=AccuracySec=1s",
+                       "--property=RuntimeMaxSec=7200", f"--working-directory={work}", "--",
+                       py, "-m", "fieldkit", "build-harness", "night-pack", task_id, "run"],
+               capture_output=True, text=True, errors="replace")
+    if r.returncode != 0:
+        return False, (r.stdout + r.stderr).strip()[-300:]
+    e = runner(base + [f"--unit={UNIT}-expire", f"--on-active={int(hours * 3600)}", "--",
+                       "systemctl", "--user", "stop", f"{UNIT}.timer", f"{UNIT}.service"],
+               capture_output=True, text=True, errors="replace")
+    if e.returncode != 0:                      # no expiry stop means no safe arming: take the first timer back
+        _systemd_remove(runner)
+        return False, (e.stdout + e.stderr).strip()[-300:]
+    return True, "registered"
+
+
+def _systemd_remove(runner=subprocess.run):
+    for u in (f"{UNIT}.timer", f"{UNIT}.service", f"{UNIT}-expire.timer", f"{UNIT}-expire.service"):
+        runner(["systemctl", "--user", "stop", u], capture_output=True, text=True, errors="replace")
+    runner(["systemctl", "--user", "reset-failed", f"{UNIT}.service"], capture_output=True, text=True, errors="replace")
+
+
 def _scheduler_register(task_id, hours, runner=subprocess.run):
     """One scheduled task under the owner's account, every 10 minutes until the expiry (no elevation)."""
+    if sys.platform != "win32":
+        return _systemd_register(task_id, hours, runner)
     py = sys.executable
     end = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() + hours * 3600))
     ps = (f"$a = New-ScheduledTaskAction -Execute '{py}' -Argument '-m fieldkit build-harness night-pack {task_id} run' "
@@ -97,6 +131,8 @@ def _scheduler_register(task_id, hours, runner=subprocess.run):
 
 
 def _scheduler_remove(runner=subprocess.run):
+    if sys.platform != "win32":
+        return _systemd_remove(runner)
     runner(["powershell", "-NoProfile", "-Command",
             f"Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue"],
            capture_output=True, text=True, errors="replace")
@@ -129,12 +165,12 @@ def arm(task_id, hours=12, say=print, confirm=None, owner=None, register=None):
         return 1
     ok, out = (register or _scheduler_register)(task_id, hours)
     if not ok:
-        say(f"NOT ARMED: Windows did not take the scheduled task: {out}")
+        say(f"NOT ARMED: the scheduler did not take the timer: {out}")
         return 3
     armed = {"task": task_id, "pack_sha256": _sha(_p(task_id, "pack")), "armed": time.time(),
              "expires": time.time() + hours * 3600, "done": []}
     _p(task_id, "armed").write_text(json.dumps(armed, indent=1), encoding="utf-8")
-    say(f"ARMED until {time.strftime('%H:%M', time.localtime(armed['expires']))}: Windows checks every 10 minutes. "
+    say(f"ARMED until {time.strftime('%H:%M', time.localtime(armed['expires']))}: the scheduler checks every 10 minutes. "
         "Good night.")
     return 0
 
