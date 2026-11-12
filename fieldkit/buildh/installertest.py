@@ -157,7 +157,8 @@ def run(task_id, say=print, runner=subprocess.run, work=None):
         ver = runner([str(target / "firefox.exe"), "--version"], capture_output=True, text=True, errors="replace",
                      timeout=120).stdout.strip()
     version = t["meta"]["upstream"]["version"]
-    row("firefox.exe --version says the version", version in ver, ver or "no firefox.exe")
+    from ..core import host
+    host.os_row(rows, ("windows",), "firefox.exe --version says the version", lambda: (version in ver, ver or "no firefox.exe"))
     helper = target / "uninstall" / "helper.exe"
     if helper.is_file():
         u = runner([str(helper), "/S"], capture_output=True, text=True, errors="replace", timeout=600)
