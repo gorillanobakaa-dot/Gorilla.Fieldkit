@@ -306,6 +306,24 @@ def _scan_proc():
     return out
 
 
+def _children_sig(root):
+    """Linux: the direct children of the container's root and of THIS process (the subreaper: every re-parented orphan
+    lands here), read from /proc/<pid>/task/*/children: a few tiny files, no walk. A change means a member was born or
+    re-parented since the last walk, so the cached snapshot is stale. None where /proc has no such file (the snapshot
+    then ages out by TRACK_S only)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    out = []
+    for pid in {root, os.getpid()} - {None}:
+        try:
+            for t in os.listdir(f"/proc/{pid}/task"):
+                with open(f"/proc/{pid}/task/{t}/children", "rb") as f:
+                    out.append(f.read())
+        except OSError:
+            continue
+    return tuple(out)
+
+
 # ---- the container ----------------------------------------------------------------------------------------------
 class Container:
     """One container per started command. Use as a context manager, or call close() (which stops what is left)."""
@@ -326,6 +344,7 @@ class Container:
         self._lock = threading.Lock()
         self._snap_at = 0.0               # when members() last walked the process table
         self._snap = {}
+        self._sig = None                  # the direct-children signature at that walk (a change = a new member)
 
     # -- start
     def popen(self, cmd, **kw):
@@ -358,10 +377,11 @@ class Container:
         than TRACK_S (the supervisor's per-second tick; the walk costs time in proportion to every process on the
         machine). kill() and close() always walk fresh."""
         now = time.monotonic()
-        if not fresh and self._snap and now - self._snap_at < TRACK_S:
+        sig = _children_sig(self.root)
+        if not fresh and self._snap and now - self._snap_at < TRACK_S and sig == self._sig:
             return dict(self._snap)
         out = self._walk()
-        self._snap, self._snap_at = out, time.monotonic()
+        self._snap, self._snap_at, self._sig = out, time.monotonic(), sig
         return dict(out)
 
     def _walk(self):
@@ -585,6 +605,7 @@ class Container:
                         break
                 leftovers = []
                 if status is None:
+                    self.members()                       # a fresh walk: the end of a step is never read from the cache
                     self.track()
                     live = {k: v for k, v in self.members().items() if k != p.pid}
                     if live and not self.keep_leftovers:
