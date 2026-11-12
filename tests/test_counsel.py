@@ -192,7 +192,7 @@ def test_one_journal_feeds_per_job_and_the_review(monkeypatch):
     j = {r["job"]: r for r in counsel.per_job()}["T-1"]
     assert (j["advisor"], j["advisor_calls"], j["reviews"], j["climbs"]) == ("opus", 3, 1, 1)
     ls = counsel.lines()
-    assert ls[1].split()[0] == "advise" and "3 time(s)" in ls[1]
+    assert "ready to advise" in ls[1] and "asked it 3 time(s)" in ls[1] and "advise " not in ls[1].split("(")[0]
     from fieldkit import review
     assert review.counsel_lines() == ls
 

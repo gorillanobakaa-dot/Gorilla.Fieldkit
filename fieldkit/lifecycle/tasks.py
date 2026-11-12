@@ -206,7 +206,8 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     brief = full_brief(text, tid, on, title)
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
-           "status": "started", "hash": h, "wall": int(wall), "model": model}
+           "status": "started", "hash": h, "wall": int(wall), "model": model,
+           "plan": plan or (re.search(r"PLAN ITEM:\s*([A-Z]\d+)", text) or [None, ""])[1]}
     warns = [m for sev, m in findings if sev == "warn"]
     if warns:
         rec["warnings"] = warns
@@ -234,6 +235,15 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         rec.update(worktree=str(wt) if wt else "", worktree_why=wwhy)
         rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall, model),
                       encoding="utf-8")
+        from . import modelauth
+        auth = modelauth.check()
+        if not auth["ok"]:                 # P9 f: the job waits for the login, it is not launched into a death
+            rec.update(how="autopilot runbook", runbook=str(rb), status=modelauth.WAITING,
+                       answer=modelauth.wait_line(auth)[:300])
+            modelauth.file_inbox(auth["why"])
+            _append(rec)
+            _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec['answer']})")
+            return rec
         if launch is None:
             from ..buildh import window
             launch = window.launch
@@ -461,10 +471,49 @@ def settle(tasks, alive=None):
             except (OSError, ValueError):
                 gone = False
             if gone:
+                from . import modelauth
+                if t.get("log") and modelauth.log_says_auth(t["log"]):
+                    # P9 f: a worker that died of a lost login waits for it and resumes (resume_waiting)
+                    t["status"] = modelauth.WAITING
+                    t["answer"] = f"process {t['pid']} lost the claude login; resumes from its checkpoint once the " \
+                                  f"CLI can log in again; log {t['log']}"
+                    if not t.get("auth_marked"):
+                        modelauth.mark_failed(f"task {t['id']}: see {t['log']}")
+                        t["auth_marked"] = True
+                        _append({"id": t["id"], "status": modelauth.WAITING, "answer": t["answer"],
+                                 "auth_marked": True})
+                    continue
                 t["status"] = "died"
                 t.setdefault("answer", f"process {t['pid']} ended with no report; its log: {t.get('log') or '-'}")
                 out.append(t["id"])
     return out
+
+
+def resume_waiting(tasks, check=None, launch=None):
+    """P9 f: relaunch a `waiting-auth` task from its runbook (the job resumes from its checkpoint) once the claude
+    CLI can authenticate. At most ONE per pass: a recovered login is not hit by several token refreshes at once.
+    In place and in the ledger; -> the ids relaunched. No model call when the login is still lost."""
+    from . import modelauth
+    waiting = [t for t in tasks.values() if t.get("status") == modelauth.WAITING and t.get("on") == "here"
+               and t.get("runbook")]
+    if not waiting:
+        return []
+    if not (check or modelauth.check)()["ok"]:
+        return []
+    if launch is None:
+        from ..buildh import window
+        launch = window.launch
+    t = waiting[0]
+    try:
+        r = launch(["runbook", "run", str(t["runbook"])])
+    except Exception as e:  # noqa: BLE001 - it stays waiting; the next pass tries again
+        t["answer"] = f"relaunch after the login came back failed: {e}"[:300]
+        return []
+    t.update(status="started", pid=r.get("pid"), log=r.get("log"), resumed="auth")
+    _append({"id": t["id"], "status": "started", "pid": r.get("pid"), "log": r.get("log"), "resumed": "auth",
+             "at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    _room(f"task:{t['id']}", f"task resumed after the claude login came back: {t.get('title', '')}")
+    return [t["id"]]
 
 
 def lines(tasks):
@@ -472,6 +521,6 @@ def lines(tasks):
     for t in tasks.values():
         L.append(f"{t['id']}  {t.get('status', '?'):<11} {t.get('on', '?'):<10} {t.get('title', '')[:60]}"
                  + (f"  branch {t['branch']}" if t.get("branch") else "") + (f"  PR {t['pr']}" if t.get("pr") else "")
-                 + (f"  ({t['answer'][:120]})" if t.get("status") in ("not-started", "died") else "")
+                 + (f"  ({t['answer'][:120]})" if t.get("status") in ("not-started", "died", "waiting-auth") else "")
                  + (f"  {owner_cell(t)[2:]}" if "owner_actions" in t else ""))
     return L or ["no tasks"]

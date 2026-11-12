@@ -91,7 +91,7 @@ class CertServers:
 
     KINDS = ("valid", "expired", "wronghost", "selfsigned", "unknownissuer")
 
-    def __init__(self, work, ca_pem):
+    def __init__(self, work, ca_pem, bind="127.0.0.1"):
         class H(_Quiet):
             def do_GET(self):
                 b = b"ok"
@@ -101,12 +101,12 @@ class CertServers:
                 self.end_headers()
                 self.wfile.write(b)
         self.servers = {}
-        specs = {"valid": dict(ca_pem=ca_pem), "expired": dict(ca_pem=ca_pem, expired=True),
-                 "wronghost": dict(ca_pem=ca_pem, host="wrong.example.invalid"), "selfsigned": dict(self_signed=True),
-                 "unknownissuer": dict(unknown_ca=True)}
+        specs = {"valid": dict(ca_pem=ca_pem, host=bind), "expired": dict(ca_pem=ca_pem, expired=True, host=bind),
+                 "wronghost": dict(ca_pem=ca_pem, host="wrong.example.invalid"), "selfsigned": dict(self_signed=True, host=bind),
+                 "unknownissuer": dict(unknown_ca=True, host=bind)}
         for k, spec in specs.items():
             c, key = make_cert(Path(work) / "certs", k, **spec)
-            self.servers[k] = https_server(c, key, H)
+            self.servers[k] = https_server(c, key, H, bind=bind)
 
     def ports(self):
         return {k: s.server_address[1] for k, s in self.servers.items()}
@@ -120,8 +120,9 @@ class CertServers:
 class DohServer:
     """RFC 8484 DNS-over-HTTPS (GET ?dns= and POST) on 127.0.0.1 with a cert signed by the run's CA."""
 
-    def __init__(self, work, ca_pem, allowed):
+    def __init__(self, work, ca_pem, allowed, bind="127.0.0.1"):
         import dpkt
+        self.bind = bind
         self.queries, self.allowed = [], [a.lower().lstrip("*.") for a in allowed]
         outer = self
 
@@ -172,12 +173,12 @@ class DohServer:
             def do_POST(self):
                 self._reply(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
 
-        c, k = make_cert(Path(work) / "certs", "doh", ca_pem=ca_pem)
-        self.httpd = https_server(c, k, H)
+        c, k = make_cert(Path(work) / "certs", "doh", ca_pem=ca_pem, host=bind)
+        self.httpd = https_server(c, k, H, bind=bind)
         self.port = self.httpd.server_address[1]
 
     def url(self):
-        return f"https://127.0.0.1:{self.port}/dns-query"
+        return f"https://{self.bind}:{self.port}/dns-query"
 
     def close(self):
         self.httpd.shutdown()

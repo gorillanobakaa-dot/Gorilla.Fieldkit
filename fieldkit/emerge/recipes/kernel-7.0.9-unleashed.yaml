@@ -11,6 +11,7 @@ description: >-
   The archived kernel 7.0.9 release from its tree: kernel.config present, the rebuild script parses, the installer
   compiles, a telemetry scan. No compile of the kernel (debian-kernel builds the maintained kernel).
 baseline_minutes: 1
+archive: "the archived 7.0.9 release folder, checked, never built: the kernel is built by the general debian-kernel recipe (any version)"
 vars:
   src: "${DOCUMENTS}/kernel-7.0.9-unleashed"
   py: python3

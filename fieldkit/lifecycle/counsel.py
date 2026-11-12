@@ -460,9 +460,15 @@ def lines(rs=None):
     s = summary(rs)
     if not s:
         return []
-    out = ["Stronger models the harness asked (counsel journal, every path):"]
+    out = ["Stronger models the harness used as a second opinion (information only, nothing for you to decide):"]
+    plain = {"review": "checked a finished job", "tiebreak": "settled a disagreement between a check and a reviewer",
+             "climb": "took over a job a cheaper model could not finish"}
     for p, c in s.items():
         ms = ", ".join(f"{m} {n}" for m, n in sorted(c["models"].items()))
-        extra = f"; the workers consulted the advisor {c['advisor_calls']} time(s)" if p == "advise" else ""
-        out.append(f"    {p:<9} {c['calls']} call(s): {ms}{extra}")
+        if p == "advise":
+            used = c["advisor_calls"]
+            out.append(f"    {c['calls']} job(s) had a stronger model ({', '.join(sorted(c['models']))}) ready to advise; "
+                       + ("none needed it." if not used else f"the workers asked it {used} time(s)."))
+        else:
+            out.append(f"    {c['calls']} time(s) a stronger model {plain.get(p, p)} ({ms}).")
     return out

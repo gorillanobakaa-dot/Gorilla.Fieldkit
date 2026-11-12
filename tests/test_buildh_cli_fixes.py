@@ -16,6 +16,9 @@ def test_leakgate_selftest_text_output_does_not_crash_when_ready(monkeypatch, ca
     # tests/test_platform_gate.py holds the gate itself (2026-10-20)
     from fieldkit.core import platform_gate
     monkeypatch.setattr(platform_gate, "refusal", lambda args, index=None: None)
+    # since P9 the command line's door is core/crossos.py (on Windows a linux-only card offloads): run it here
+    from fieldkit.core import crossos
+    monkeypatch.setattr(crossos, "handle", lambda args, main, say=None, err=None: None)
     assert cli.main(["build-harness", "leakgate-selftest"]) == 0
     assert "NEXT: " in capsys.readouterr().out
 

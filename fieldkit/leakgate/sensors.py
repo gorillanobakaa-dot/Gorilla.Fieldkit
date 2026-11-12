@@ -294,8 +294,10 @@ class Sampler(threading.Thread):
     """Process tree + sockets every `interval` s until stopped; then the post-kill watch looks for any process whose
     executable lives in the build directory (a relaunch, an updater, a crash helper)."""
 
-    def __init__(self, root_pid, interval=2.0, build_dir=None):
+    def __init__(self, root_pid, interval=2.0, build_dir=None, snap_procs=None, snap_all_socks=None):
         super().__init__(daemon=True)
+        self.snap_procs = snap_procs or (lambda: snapshot_processes())          # Linux injects its /proc and ss readers
+        self.snap_all_socks = snap_all_socks or (lambda: snapshot_all_sockets())
         self.root, self.interval, self.stop_flag = root_pid, interval, threading.Event()
         self.build_dir = str(Path(build_dir)).lower() if build_dir else None
         self.procs, self.all_procs, self.socks, self.sock_chains, self.timeline = {}, {}, set(), {}, []
@@ -304,7 +306,7 @@ class Sampler(threading.Thread):
     def run(self):
         t0 = time.time()
         while not self.stop_flag.is_set():
-            snap = snapshot_processes()
+            snap = self.snap_procs()
             for r in snap:
                 if "ProcessId" in r:
                     self.all_procs[r["ProcessId"]] = r
@@ -312,7 +314,7 @@ class Sampler(threading.Thread):
             for r in rows:
                 self.procs.setdefault(r["ProcessId"], r)
             pids = {r["ProcessId"] for r in rows}
-            every = snapshot_all_sockets()
+            every = self.snap_all_socks()
             self.owners.add(time.time(), every, pids)
             s = [x for x in every if x[6].isdigit() and int(x[6]) in pids]
             for x in s:
@@ -662,68 +664,82 @@ def parse_pcap(path, local_ports, canaries=(), owners=None, names=None):
     canaries in any non-loopback payload. With `owners` (PortOwners), a packet from a port that another program held
     at that moment is reported as kind "foreign-packet" (named, never hidden) instead of as the browser's."""
     import dpkt
-    ev = []
     if not Path(path).is_file():
-        return ev
+        return []
     with open(path, "rb") as f:
         try:
             reader = dpkt.pcapng.Reader(f)
         except Exception:
-            return ev
-        for _ts, buf in reader:
-            try:
-                ip = dpkt.ethernet.Ethernet(buf).data
-            except Exception:
-                continue
-            if not isinstance(ip, (dpkt.ip.IP, dpkt.ip6.IP6)):
-                continue
-            fam = socket.AF_INET if isinstance(ip, dpkt.ip.IP) else socket.AF_INET6
-            src, dst = socket.inet_ntop(fam, ip.src), socket.inet_ntop(fam, ip.dst)
-            if dst.startswith("127.") or dst == "::1":
-                continue
-            l4 = ip.data
-            payload = bytes(getattr(l4, "data", b""))
-            for name, c in canaries:
-                if c.encode() in payload:
-                    ev.append({"kind": "canary", "value": name, "detail": f"on the wire to {dst}"})
-            if isinstance(l4, dpkt.udp.UDP) and l4.dport == 53:
+            return []
+
+        def frames():
+            for _ts, buf in reader:
                 try:
-                    for q in dpkt.dns.DNS(l4.data).qd:
-                        ev.append({"kind": "dns-wire", "value": q.name.lower(), "detail": f"qtype {q.type} from {src}:{l4.sport}"})
+                    yield _ts, dpkt.ethernet.Ethernet(buf).data
                 except Exception:
-                    pass
-            if isinstance(l4, dpkt.udp.UDP) and l4.sport == 53:
-                # answers: the CNAME chain of a name (2026-10-04: Windows' DNS client chased cdn.jsdelivr.net to
-                # cdn.jsdelivr.net.cdn.cloudflare.net for the browser; the gate must know that name is the approved
-                # host's own alias, from the wire, not from a list)
-                try:
-                    for rr in dpkt.dns.DNS(l4.data).an:
-                        if rr.type == dpkt.dns.DNS_CNAME:
-                            ev.append({"kind": "dns-cname", "value": rr.name.lower(), "target": rr.cname.lower(),
-                                       "detail": f"answer from {src}"})
-                        elif rr.type in (dpkt.dns.DNS_A, dpkt.dns.DNS_AAAA):
-                            # the addresses a name really had in THIS run (CDN addresses rotate: resolving again at
-                            # judging time gave other addresses, and an approved host's packets read as unknown)
-                            fam2 = socket.AF_INET if rr.type == dpkt.dns.DNS_A else socket.AF_INET6
-                            ev.append({"kind": "dns-a", "value": rr.name.lower(), "ip": socket.inet_ntop(fam2, rr.rdata),
-                                       "detail": f"answer from {src}"})
-                except Exception:
-                    pass
-            if isinstance(l4, (dpkt.tcp.TCP, dpkt.udp.UDP)) and l4.sport in local_ports and owners is not None:
-                proto = "tcp" if isinstance(l4, dpkt.tcp.TCP) else "udp"
-                who, pid = owners.owner(proto, l4.sport, _ts)
-                if who == "other" and not (proto == "udp" and l4.dport == 53):
-                    ev.append({"kind": "foreign-packet", "value": dst, "port": l4.dport,
-                               "detail": f"{proto} from local port {l4.sport}, held then by pid {pid} "
-                                         f"({(names or {}).get(pid, 'exited before the snapshot')})"})
                     continue
-            if isinstance(l4, dpkt.tcp.TCP) and l4.sport in local_ports:
-                s = tls_sni(payload)
-                ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "tcp"})
-                if s:
-                    ev.append({"kind": "sni", "value": s.lower(), "port": l4.dport, "detail": dst})
-            elif isinstance(l4, dpkt.udp.UDP) and l4.sport in local_ports and l4.dport != 53:
-                ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "udp" + (" quic" if l4.dport == 443 else "")})
+        return frames_events(frames(), local_ports, canaries, owners, names)
+
+
+def frames_events(frames, local_ports, canaries=(), owners=None, names=None, all_local=False, local_ips=()):
+    """-> events from (timestamp, ip packet) pairs; the extraction both the pktmon (Windows) and tcpdump (Linux)
+    sensors share. `all_local`: every packet is the browser's (the Linux namespace holds nothing else), so no
+    local-port filter applies. `local_ips`: destinations that are the gate's own host side (never a leak): their
+    DNS is still read, their TCP/UDP payloads are not judged, as 127.0.0.1 is not."""
+    import dpkt
+    ev = []
+    for _ts, ip in frames:
+        if not isinstance(ip, (dpkt.ip.IP, dpkt.ip6.IP6)):
+            continue
+        fam = socket.AF_INET if isinstance(ip, dpkt.ip.IP) else socket.AF_INET6
+        src, dst = socket.inet_ntop(fam, ip.src), socket.inet_ntop(fam, ip.dst)
+        host_side = dst in local_ips
+        if dst.startswith("127.") or dst == "::1" or (host_side and not (isinstance(ip.data, dpkt.udp.UDP) and ip.data.dport == 53)):
+            continue
+        l4 = ip.data
+        payload = bytes(getattr(l4, "data", b""))
+        for name, c in canaries:
+            if c.encode() in payload:
+                ev.append({"kind": "canary", "value": name, "detail": f"on the wire to {dst}"})
+        if isinstance(l4, dpkt.udp.UDP) and l4.dport == 53:
+            try:
+                for q in dpkt.dns.DNS(l4.data).qd:
+                    ev.append({"kind": "dns-wire", "value": q.name.lower(), "detail": f"qtype {q.type} from {src}:{l4.sport}"})
+            except Exception:
+                pass
+        if isinstance(l4, dpkt.udp.UDP) and l4.sport == 53:
+            # answers: the CNAME chain of a name (2026-10-04: Windows' DNS client chased cdn.jsdelivr.net to
+            # cdn.jsdelivr.net.cdn.cloudflare.net for the browser; the gate must know that name is the approved
+            # host's own alias, from the wire, not from a list)
+            try:
+                for rr in dpkt.dns.DNS(l4.data).an:
+                    if rr.type == dpkt.dns.DNS_CNAME:
+                        ev.append({"kind": "dns-cname", "value": rr.name.lower(), "target": rr.cname.lower(),
+                                   "detail": f"answer from {src}"})
+                    elif rr.type in (dpkt.dns.DNS_A, dpkt.dns.DNS_AAAA):
+                        # the addresses a name really had in THIS run (CDN addresses rotate: resolving again at
+                        # judging time gave other addresses, and an approved host's packets read as unknown)
+                        fam2 = socket.AF_INET if rr.type == dpkt.dns.DNS_A else socket.AF_INET6
+                        ev.append({"kind": "dns-a", "value": rr.name.lower(), "ip": socket.inet_ntop(fam2, rr.rdata),
+                                   "detail": f"answer from {src}"})
+            except Exception:
+                pass
+        mine = all_local or (isinstance(l4, (dpkt.tcp.TCP, dpkt.udp.UDP)) and l4.sport in local_ports)
+        if isinstance(l4, (dpkt.tcp.TCP, dpkt.udp.UDP)) and mine and not all_local and owners is not None:
+            proto = "tcp" if isinstance(l4, dpkt.tcp.TCP) else "udp"
+            who, pid = owners.owner(proto, l4.sport, _ts)
+            if who == "other" and not (proto == "udp" and l4.dport == 53):
+                ev.append({"kind": "foreign-packet", "value": dst, "port": l4.dport,
+                           "detail": f"{proto} from local port {l4.sport}, held then by pid {pid} "
+                                     f"({(names or {}).get(pid, 'exited before the snapshot')})"})
+                continue
+        if isinstance(l4, dpkt.tcp.TCP) and mine and not host_side:
+            s = tls_sni(payload)
+            ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "tcp"})
+            if s:
+                ev.append({"kind": "sni", "value": s.lower(), "port": l4.dport, "detail": dst})
+        elif isinstance(l4, dpkt.udp.UDP) and mine and not host_side and l4.dport != 53:
+            ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "udp" + (" quic" if l4.dport == 443 else "")})
     seen, out = set(), []
     for e in ev:
         k = (e["kind"], e["value"], e.get("port"))
@@ -731,6 +747,84 @@ def parse_pcap(path, local_ports, canaries=(), owners=None, names=None):
             seen.add(k)
             out.append(e)
     return out
+
+
+# ------------------------------------------------------------------------------------------- shared parsers
+
+def necko_events(text, base, canaries):
+    """-> necko-http/necko-dns/necko-socket events from a MOZ_LOG necko log (one parser for Windows and Linux)."""
+    ev = []
+    for m in URL_RX.finditer(text):
+        host = m.group(2).lower().split("@")[-1].split(":")[0]
+        if HOSTNAME.match(host):
+            ev.append({**base, "sensor": "necko-http", "kind": "dest", "value": host, "detail": f"{m.group(1)}://{host}{m.group(3)[:120]}"})
+    for m in RES_RX.finditer(text):
+        ev.append({**base, "sensor": "necko-dns", "kind": "dns", "value": m.group(1).lower()})
+    ev += necko_lookups(text, base)
+    for m in SOCK_RX.finditer(text):
+        h = m.group(1).lower()
+        if HOSTNAME.match(h):
+            ev.append({**base, "sensor": "necko-socket", "kind": "dest", "value": h, "port": int(m.group(2))})
+        elif lan_address(h):                  # judged only in lan-probe (LAN_POLICY); loopback includes the local server
+            ev.append({**base, "sensor": "necko-socket", "kind": "dest-lan", "value": h.strip("[]"), "port": int(m.group(2))})
+    for cname, c in canaries:
+        for line in text.splitlines():
+            if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
+                ev.append({**base, "sensor": "necko-http", "kind": "canary", "value": cname, "detail": line.strip()[:200]})
+                break
+    return ev
+
+
+def mitm_events(mitm_out, mitm_raw, base, canaries):
+    """-> mitm events from the addon's jsonl and raw files (one parser for Windows and Linux)."""
+    ev = []
+    mitm_out, mitm_raw = Path(mitm_out), Path(mitm_raw)
+    if not mitm_out.is_file():
+        return ev
+    for l in mitm_out.read_text(encoding="utf-8").splitlines():
+        r = json.loads(l)
+        if r.get("kind") in ("http", "ws", "tls-failed"):
+            ev.append({**base, "sensor": "mitm", "kind": "dest", "value": (r.get("host") or "?").lower(), "port": r.get("port"),
+                       "detail": f"{r.get('method', r['kind'])} {r.get('path', '')[:150]} ({r.get('req_bytes', r.get('bytes', 0))} B)"})
+    if mitm_raw.is_file():
+        raw = mitm_raw.read_bytes()
+        for block in raw.split(b"\n--LEAKGATE--\n"):
+            first = block.split(b"\n", 1)[0].decode("utf-8", "replace")
+            if "127.0.0.1" in first or "localhost" in first:
+                continue
+            for cname, c in canaries:
+                if c.encode() in block:
+                    ev.append({**base, "sensor": "mitm", "kind": "canary", "value": cname, "detail": first[:200]})
+    return ev
+
+
+def socket_events(sampler, base, mode, build_dir, local_ips=()):
+    """-> (sockets events, the browser's local ports) from a Sampler's socket samples (one reader for Windows and
+    Linux). `local_ips`: addresses that count as loopback (the Linux namespace's host side, where the gate's own proxy
+    and test server listen)."""
+    ev, local_ports = [], set()
+    bd_prefix = str(Path(build_dir)).lower()
+    for s in sampler.socks:
+        proto, state, laddr, lport, raddr, rport, pid = s
+        local_ports.add(int(lport)) if lport.isdigit() else None
+        pid_int = int(pid) if str(pid).isdigit() else None
+        chain = sampler.sock_chains.get(s) or (parent_chain(sampler.all_procs, pid_int) if pid_int is not None else [])
+        proc_name = (chain[0]["name"] if chain else "?")
+        proc_path = (chain[0]["path"] if chain else "")
+        in_build = bool(pid_int in sampler.procs and (not proc_path or proc_path.lower().startswith(bd_prefix)))
+        chain_str = format_chain(chain) if chain else f"pid {pid}"
+        meta = {"pid": pid_int, "process": proc_name, "exe": proc_path, "parent_chain": chain, "in_build": in_build}
+        if proto == "tcp" and state == "Listen":
+            ev.append({**base, "sensor": "sockets", "kind": "listener", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
+        elif proto == "tcp" and raddr not in ("", "0.0.0.0", "::"):
+            loop = raddr.startswith("127.") or raddr == "::1" or raddr in local_ips
+            if not loop:
+                ev.append({**base, "sensor": "sockets", "kind": "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
+                if mode in ("proxied", "poisoned", "dns-controlled"):
+                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass" if mode != "dns-controlled" else "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
+        elif proto == "udp":
+            ev.append({**base, "sensor": "sockets", "kind": "udp", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
+    return ev, local_ports
 
 
 # ------------------------------------------------------------------------------------------- one run
@@ -840,28 +934,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
         ev.append({**base, "sensor": "process-tree", "kind": "process-exited-late" if late else "process-after-shutdown",
                    "value": (r.get("Name") or "?").lower(),
                    "detail": f"{why}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
-    local_ports = set()
-    bd_prefix = str(Path(build_dir)).lower()
-    for s in sampler.socks:
-        proto, state, laddr, lport, raddr, rport, pid = s
-        local_ports.add(int(lport)) if lport.isdigit() else None
-        pid_int = int(pid) if str(pid).isdigit() else None
-        chain = sampler.sock_chains.get(s) or (parent_chain(sampler.all_procs, pid_int) if pid_int is not None else [])
-        proc_name = (chain[0]["name"] if chain else "?")
-        proc_path = (chain[0]["path"] if chain else "")
-        in_build = bool(pid_int in sampler.procs and (not proc_path or proc_path.lower().startswith(bd_prefix)))
-        chain_str = format_chain(chain) if chain else f"pid {pid}"
-        meta = {"pid": pid_int, "process": proc_name, "exe": proc_path, "parent_chain": chain, "in_build": in_build}
-        if proto == "tcp" and state == "Listen":
-            ev.append({**base, "sensor": "sockets", "kind": "listener", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
-        elif proto == "tcp" and raddr not in ("", "0.0.0.0", "::"):
-            loop = raddr.startswith("127.") or raddr == "::1"
-            if not loop:
-                ev.append({**base, "sensor": "sockets", "kind": "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
-                if mode in ("proxied", "poisoned", "dns-controlled"):
-                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass" if mode != "dns-controlled" else "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
-        elif proto == "udp":
-            ev.append({**base, "sensor": "sockets", "kind": "udp", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
+    sock_ev, local_ports = socket_events(sampler, base, mode, build_dir)
+    ev += sock_ev
     for p in fs_diff(before, after):
         ev.append({**base, "sensor": "filesystem", "kind": "file-system", "value": p.replace("\\", "/")})
     for p in sorted(prof.rglob("*")):
@@ -870,40 +944,10 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     text = ""
     if mode == "direct":
         text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(work.glob(f"necko-{name}-{mode}.log*")))
-        for m in URL_RX.finditer(text):
-            host = m.group(2).lower().split("@")[-1].split(":")[0]
-            if HOSTNAME.match(host):
-                ev.append({**base, "sensor": "necko-http", "kind": "dest", "value": host, "detail": f"{m.group(1)}://{host}{m.group(3)[:120]}"})
-        for m in RES_RX.finditer(text):
-            ev.append({**base, "sensor": "necko-dns", "kind": "dns", "value": m.group(1).lower()})
-        ev += necko_lookups(text, base)
-        for m in SOCK_RX.finditer(text):
-            h = m.group(1).lower()
-            if HOSTNAME.match(h):
-                ev.append({**base, "sensor": "necko-socket", "kind": "dest", "value": h, "port": int(m.group(2))})
-            elif lan_address(h):                  # judged only in lan-probe (LAN_POLICY); loopback includes the local server
-                ev.append({**base, "sensor": "necko-socket", "kind": "dest-lan", "value": h.strip("[]"), "port": int(m.group(2))})
-        for cname, c in canaries:
-            for line in text.splitlines():
-                if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
-                    ev.append({**base, "sensor": "necko-http", "kind": "canary", "value": cname, "detail": line.strip()[:200]})
-                    break
+        ev += necko_events(text, base, canaries)
     ev += machine_addresses(base)
-    if mode in ("proxied", "poisoned") and mitm_out.is_file():
-        for l in mitm_out.read_text(encoding="utf-8").splitlines():
-            r = json.loads(l)
-            if r.get("kind") in ("http", "ws", "tls-failed"):
-                ev.append({**base, "sensor": "mitm", "kind": "dest", "value": (r.get("host") or "?").lower(), "port": r.get("port"),
-                           "detail": f"{r.get('method', r['kind'])} {r.get('path', '')[:150]} ({r.get('req_bytes', r.get('bytes', 0))} B)"})
-        if mitm_raw.is_file():
-            raw = mitm_raw.read_bytes()
-            for block in raw.split(b"\n--LEAKGATE--\n"):
-                first = block.split(b"\n", 1)[0].decode("utf-8", "replace")
-                if "127.0.0.1" in first or "localhost" in first:
-                    continue
-                for cname, c in canaries:
-                    if c.encode() in block:
-                        ev.append({**base, "sensor": "mitm", "kind": "canary", "value": cname, "detail": first[:200]})
+    if mode in ("proxied", "poisoned"):
+        ev += mitm_events(mitm_out, mitm_raw, base, canaries)
     if packets:
         owner_names = {**names_before, **process_names(snapshot_processes())} if packets else {}
         for e in parse_pcap(pcap, local_ports, canaries, owners=sampler.owners, names=owner_names):

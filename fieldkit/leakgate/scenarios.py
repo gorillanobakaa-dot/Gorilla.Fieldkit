@@ -273,6 +273,10 @@ class Server:
                 pass
 
             def _send(self, body, ctype="text/html; charset=utf-8", extra=()):
+                if isinstance(body, str) and outer.bind != "127.0.0.1":
+                    # the certificate servers listen where the browser can reach them (Linux: the namespace's host
+                    # side); only their https URLs follow - the lan-probe's closed loopback port stays loopback
+                    body = body.replace("https://127.0.0.1:", f"https://{outer.bind}:")
                 b = body.encode("utf-8") if isinstance(body, str) else body
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)

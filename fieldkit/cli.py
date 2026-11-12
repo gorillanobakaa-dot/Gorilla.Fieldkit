@@ -3069,16 +3069,13 @@ def main(argv=None):
         except (AttributeError, ValueError):
             pass
     args = sys.argv[1:] if argv is None else list(argv)
-    # The platform gate (2026-10-20): a command whose card says it runs on another system stops here, before any
-    # parser or tool code runs, with the card's reason and what to use instead (core/platform_gate.py).
-    from .core import platform_gate
-    refused = platform_gate.refusal(args)
-    if refused:
-        if "--json" in args:
-            print(json.dumps({"ok": False, "refused": "platform", "why": refused}))
-        else:
-            print("REFUSED: " + refused, file=sys.stderr)
-        return 2
+    # The platform gate (2026-10-20), never a refusal since P9 (2026-11-11): a command whose card names another
+    # system runs its equivalent here, runs on the other machine over the cable, or says not-this-platform and exits
+    # 0 (core/crossos.py, the rows in core/crossos.yaml).
+    from .core import crossos
+    routed = crossos.handle(args, main)
+    if routed is not None:
+        return routed
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")

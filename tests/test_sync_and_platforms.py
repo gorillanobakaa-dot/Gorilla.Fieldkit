@@ -131,7 +131,9 @@ def test_cards_hold_their_platform_promise(tmp_path):
     assert r["backlog"] == ["old"]
     joined = "\n".join(r["problems"])
     assert "both: promises ['linux']" in joined and "new: linux only" in joined and "odd: platforms" in joined
-    assert "why" not in [p.split(":")[0] for p in r["problems"]]
+    # "why" says why in platforms_why, so the old rule passes it; the OS parity inventory (desk/os_parity.yaml) is the
+    # new rule and wants a row for every single-system card (tests/test_osparity.py)
+    assert not [p for p in r["problems"] if p.startswith("why:") and "platforms_why" in p]
 
 
 def test_the_real_registry_has_no_platform_problem():

@@ -9,7 +9,7 @@ from fieldkit.leakgate import audit, extras, gate, scenarios as sc, sensors as s
 
 
 class _FakeCerts:
-    def __init__(self, *a):
+    def __init__(self, *a, **k):
         pass
 
     def ports(self):
@@ -22,7 +22,7 @@ class _FakeCerts:
 class _FakeDoh:
     queries = []
 
-    def __init__(self, *a):
+    def __init__(self, *a, **k):
         pass
 
     def url(self):

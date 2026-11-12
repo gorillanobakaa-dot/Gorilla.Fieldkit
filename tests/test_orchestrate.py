@@ -36,7 +36,9 @@ def house(tmp_path, monkeypatch):
     return {"homes": homes, "ports": ports, "file": out, "fp": fp}
 
 
-def serve(home, seconds=20):
+def serve(home, seconds=120):
+    # the test kills each worker in `finally`; a 20 s life ran out under load (load 13, 2026-11-11: the boss test
+    # took 24.6 s and w2 was gone before `devices --check` asked it)
     env = dict(os.environ, FIELDKIT_LINK_HOME=str(home))
     p = subprocess.Popen([sys.executable, "-m", "fieldkit", "peers", "link", "serve", "--seconds", str(seconds),
                           "--loopback-test"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
