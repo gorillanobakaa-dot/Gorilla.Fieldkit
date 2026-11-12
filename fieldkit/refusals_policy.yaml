@@ -10,6 +10,17 @@ readonly:
   - '(ls|cat|head|tail|grep|rg|find|wc|stat|pwd|which|echo)(?![\w-])'
   - 'gh\s+(pr|run|issue)\s+(view|list|checks|status)(?![\w-])'
 
+# stops: the harness's OWN deliberate stops (fieldkit/autopilot/budget.py): past the ROTATE line, the budget spent, a
+# checkpoint due. They refuse every call, reads included, ON PURPOSE: the worker writes HANDOFF.md and ends, and the
+# harness restarts the brief in a fresh session. Such a refusal is the design working, never a read-only false
+# positive: it is recorded (overhead counts it) but opens no defect and never blocks a re-run of the brief
+# (2026-11-11: P9's worker rotated at 151k, the rotation refusal of a `grep` opened a blocking defect, and
+# `fieldkit task start` refused the very restart the rotation asked for). Matched case-insensitive at the start.
+stops:
+  - 'SESSION ROTATION\b'
+  - 'BUDGET EXHAUSTED\b'
+  - 'CHECKPOINT REQUIRED\b'
+
 # lost_minutes: a ESTIMATE per refusal by tool (what one refusal of that kind costs: the retry, the wait, the owner's
 # time). Not measured; `fieldkit overhead causes` says so. A row may carry its own lost_min, which wins.
 lost_minutes:

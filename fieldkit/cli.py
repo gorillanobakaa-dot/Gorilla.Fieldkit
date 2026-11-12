@@ -1607,6 +1607,8 @@ METHODS = {
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
                      "merge into main only under a project mandate; never forces"),
+    "ci-steps": ("cisteps", "the CI workflow's job for this OS, run in this tree: the step runner `fieldkit ship "
+                            "ci-local` sends over the cable when GitHub's runner is down (--os --base --report)"),
     "strikes": ("strikes", "TWO STRIKES: a branch or PR that failed CI twice is parked, never tried a third time "
                            "(list | park ID | unpark ID | check BRANCH)"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),

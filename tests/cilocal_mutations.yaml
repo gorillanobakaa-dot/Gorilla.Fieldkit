@@ -1,0 +1,47 @@
+# P9 local CI fallback (owner rule 2026-11-11): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/cilocal_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_cilocal.py
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    inf = strikes.infra(list(log_lines or ()))'
+  - '    inf = "any red" if log_lines else ""'
+  why: only a red the infra signatures recognise is infrastructure; a failed test never is
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    return "test", f"GitHub''s job concluded'
+  - '    return "infra", f"GitHub''s job concluded'
+  why: anything not proven infrastructure is a test failure (fail closed)
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '        if age_s >= limit_s:'
+  - '        if True:'
+  why: a missing job is "never started" only past the time limit
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    return bool(SHA.fullmatch(a)) and a == b'
+  - '    return a[:7] == b[:7]'
+  why: a proof belongs to the exact full PR head only
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    if not sha_matches(head, pr2.get("headRefOid")):'
+  - '    if False:'
+  why: the head is read again after the run; a moved head gets no proof
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    if verdict not in ("infra", "never-started"):'
+  - '    if verdict not in ("infra", "never-started", "test"):'
+  why: a test failure on GitHub is never proven locally
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '        if rec["verdict"] == "red-setup":'
+  - '        if True:'
+  why: a red check step is a strike
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    if "sig" not in proof:'
+  - '    if False:'
+  why: an unsigned proof is never posted
+- file: fieldkit/method/cilocal.py
+  swap:
+  - '    _git(tree, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", head)'
+  - '    _git(tree, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", f"origin/{base}")'
+  why: the peer tree is the PR head, never the base

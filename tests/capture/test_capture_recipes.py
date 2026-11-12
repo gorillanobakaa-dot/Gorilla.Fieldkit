@@ -138,19 +138,23 @@ def ans_for(prompt):
     return json.dumps({"title": "Release it", "goal": "Publish a release", "steps": {i: {"sentence": "Do " + i + " now", "check": "It passes ok"} for i in ids}})
 
 
-def test_the_model_call_is_capped_and_goes_through_the_spend_guard(monkeypatch):
+def test_the_model_call_is_capped_and_goes_through_the_spend_guard(monkeypatch, tmp_path):
     seen = {}
 
     def fake(argv, **kw):
         seen["argv"], seen["env"] = argv, kw["env"]
 
         class P:
-            stdout = "{}"
+            returncode, stdout, stderr = 0, "{}", ""
         return P()
     import subprocess
+    from fieldkit.lifecycle import counsel
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
+    monkeypatch.setattr(counsel, "advisor_for", lambda w, data=None, check=None, env=None: {"advisor": "opus", "why": "t"})
     monkeypatch.setattr(subprocess, "run", fake)
     R.run_sonnet("hi")
     a = seen["argv"]
+    assert a[a.index("--advisor") + 1] == "opus"                       # I10: the naming call carries the advisor too
     assert a[a.index("--model") + 1] == "sonnet" and a[a.index("--max-budget-usd") + 1] == R.BUDGET_USD
     assert seen["env"]["ANTHROPIC_MODEL"] == "sonnet"
 

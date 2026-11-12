@@ -273,6 +273,12 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
         return {"ok": False, "rc": 1, "why": f"model refused: {e}", "refused": True}
     if missing:  # after the guard: a premium model is refused even where no executable exists (CI)
         return {"ok": False, "why": "no Claude Code executable found"}
+    # I10 (counsel path 1, lifecycle/counsel.py): the worker gets Claude Code's own advisor, the next usable rung above
+    # its model, so a hard decision is asked up the ladder in this session instead of failing the whole job. A launch
+    # the CLI refuses because of the advisor is retried once without it (journaled): an advisor never stops a job.
+    from ..lifecycle import counsel
+    worker = next((args[i + 1] for i, x in enumerate(args[:-1]) if x == "--model"), None)
+    args, advisor, adv_why = counsel.launch_args(args, env)
     # In a container (fieldkit/core/contain.py): the timeout stops the WHOLE tree, orphans included, output goes to
     # files (a leftover child can never hold a pipe open), and what the run leaves behind is stopped when it ends.
     # stream-json makes progress visible: no output and no CPU for idle_minutes is a STALL (FM-9, 2026-10-26: a relief
@@ -286,12 +292,22 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
     try:
         o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
                         stdin_text=prompt if via_stdin else None, popen=popen, idle_s=idle)
+        if advisor and not o.timed_out and counsel.advisor_rejected(o.rc, o.out, o.err):
+            counsel.journal("advise", model=advisor, author=worker, outcome="rejected",
+                            why=f"the CLI refused --advisor {advisor}: {((o.err or '') + (o.out or ''))[-160:]}")
+            adv_why = f"--advisor {advisor} refused by the CLI; ran without it"
+            args, advisor = counsel.drop_advisor(args), None
+            o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
+                            stdin_text=prompt if via_stdin else None, popen=popen, idle_s=idle)
     finally:
         if own:
             own.close()
+    calls = counsel.advisor_calls(o.out) if advisor else 0
+    counsel.journal("advise", model=advisor or "", author=worker, outcome="on" if advisor else "off", why=adv_why,
+                    calls=calls, seconds=round(time.time() - t0))
     so, se, timed_out = o.out, o.err, o.timed_out
     out = {"ok": o.rc == 0 and not timed_out, "rc": 124 if timed_out else o.rc,
-           "seconds": round(time.time() - t0), "timed_out": timed_out}
+           "seconds": round(time.time() - t0), "timed_out": timed_out, "advisor": advisor, "advisor_calls": calls}
     if o.stalled:
         out["stalled"] = True
         out["why"] = o.why

@@ -102,6 +102,51 @@ Looked at and kept (each is a single command, a hard line, or a guard on what a 
 | `release-publish` and `night-pack arm` "Type yes" | release outside `fieldkit ship` (hard line 1); `night-pack arm` is itself the one pre-approval for the night |
 | `mandate approve/renew` typed yes + passphrase | the single approval itself |
 
+## GitHub's runner down: the same CI runs locally and counts (P9, 2026-11-11)
+
+The owner, 2026-11-11, verbatim: "Add a rule. If the GitHub's remote machine is not available, we can run a CI
+locally. We have all the infrastructure needed. We have all the dependencies. We have all the programs." (The owner
+changing his own merge rule, hard line 1: main moves only by a PR merged on green CI.) Evidence: PR 461's Linux job
+failed 7 times from 13:59 to 16:43 at the apt step ("Temporary failure resolving 'archive.ubuntu.com'"), no test
+ran; Windows passed; githubstatus.com showed no incident; on the Debian machine the PR's tests passed (83 passed).
+
+| Place | Was | Now |
+|---|---|---|
+| a PR whose GitHub job for one OS fails by a runner-infrastructure signature (`build/signatures/ci-infra.yaml`), or never starts within 30 min | `ship ci-wait` re-ran it 3 times per head, then waited for GitHub | `fieldkit ship ci-local PR` (`fieldkit/method/cilocal.py`; ci-wait names it when its re-runs are spent) runs THE SAME workflow job for that OS (`.github/workflows/tests.yml` at the head: its steps, `if:`, `shell:`, `timeout-minutes:`) at the PR's exact head commit in a clean scratch worktree: Linux here, Windows on a Windows device over the cable (`fieldkit ci-steps` as a signed run job). Green: a proof (commit, OS, every step's exit code and seconds, the log's sha256, host) signed with this computer's review key, kept in `state/ci-local/`, posted as a commit status with the CI job's own context, so auto-merge counts it |
+
+What it never does (each one a test, `tests/cilocal_mutations.yaml` proves each can fail):
+
+| Never | Why |
+|---|---|
+| a proof for a test failure on GitHub | only a known runner outage is infrastructure; a log that names a failed test never is, and anything unrecognised is a test failure (fail closed) |
+| a proof for any commit but the PR head | the head is read before and after the run; a full 40-hex match or nothing |
+| a proof for the other OS | the OS of the job is the OS of the machine that ran it; the other OS's GitHub green is still required |
+| a red local check step without a strike | it counts as a GitHub red would (TWO STRIKES); a red in setup (checkout, venv, pip) proves nothing either way |
+| a workflow step it cannot reproduce | an unknown action, expression or condition refuses the whole run |
+| merging past a ruleset that pins the check to the GitHub Actions app | a commit status cannot satisfy it; that is said, and the owner gets one inbox item with the ruleset change |
+
+## Counsel: one module for every stronger-model call (P9, 2026-11-11)
+
+The owner, 2026-11-11, verbatim: "Toate aceste piese de tip advisor trebuie combinate într-un singur model unificat
+care să poată face totul, inclusiv ceea ce lipsește ... Unifică-le, nu le lăsa împrăștiate." Every "ask a stronger
+model" path now lives in `fieldkit/lifecycle/counsel.py`, with one data section (`counsel:` in
+`fieldkit/lifecycle/models.yaml`), one rung choice and one journal (`state/lifecycle/counsel.jsonl`). The paths are
+tried cheapest first. A job parks only past the top rung, as before.
+
+| Path (order) | What it does | Reused piece, now a thin call into counsel |
+|---|---|---|
+| 1. advise | Every headless Claude Code worker (`autopilot/run.claude`: task runbooks, `emerge` fix runs, goals, roles) starts with `--advisor <the next usable rung above its model>`. That is Claude Code's own advisor tool: a worker at a hard decision asks the stronger model in the same session, with no restart. If the CLI refuses the flag, the launch is retried once without it (journal `rejected`). Haiku is never an advisor (`counsel.advisor.never`). No usable rung above the worker means no advisor and no error. Off: `counsel.advisor.enabled: false` or `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` Wired by I10 (2026-11-11) in `autopilot/run.claude`; the one other headless launch (`capture/recipes.py`, the naming call) goes through `counsel.run_advised`, the same add-retry-journal path. A lint test fails when a launch skips it. | new (`counsel.advisor_for`, `launch_args`, `run_advised`, `advisor_calls`) |
+| 2. review | An independent reviewer on a higher rung answers `VERDICT: YES/NO`. It gets no tools and no advisor (`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` is set even if a settings file carries `advisorModel`) | `autoaccept.pick_reviewer`, `ask_reviewer` (PR 450/453/455) |
+| 3. tiebreak | The highest allowed rung settles a check-vs-reviewer deadlock | `autoaccept.pick_tiebreaker`, `ask_raw`, `tiebreak` (PR 452) |
+| 4. climb | A job that has used up its attempts on one rung moves up one rung | `models.climb`, `models.next_model` (PR 449; called by `buildh/task.next_status`, `method/strikes`) |
+| one rung choice | `counsel.pick(author, "next"/"top")` walks `escalation.ladder`. A rung counts only if it is available (`models.availability`, PR 454) and the spend guard allows it (`models.check_model`, which includes a mandate's `models_allowed`). All four paths use it; the advisor and the reviewer use the same `"next"` walk | `autoaccept._usable`, `_held_back`, `_rung` |
+| one journal | One row per call `{at, path, author, model, outcome, why, job, calls}`. The advise row counts the worker's advisor calls from its stream-json log: each call is a `server_tool_use` block named `advisor`, checked live on 2026-11-11 | read by `fieldkit overhead counsel` and `fieldkit review` |
+
+`tests/test_counsel.py` holds a lint test. It fails when a new `claude -p ... --model` call, or a new function that
+picks a rung, appears outside counsel. The places that existed before are listed in the test, each with the reason
+it may stay. Zero's orders and delegation (PR 342) only say who does which job. They never pick a stronger model, so
+they are not part of counsel.
+
 ## The rest of Fieldkit
 
 | Gate | Protects | Now |

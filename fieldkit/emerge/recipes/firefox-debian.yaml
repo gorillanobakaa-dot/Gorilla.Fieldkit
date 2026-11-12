@@ -32,6 +32,7 @@ stages:
   mozconfig: {uses: [sources, config], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, mozconfig, --local, --no-fix]}}
   patches-check: {uses: [sources], bucket: tests, offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, patches-check, --local, --no-fix]}}
   patches: {uses: [sources], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, patches, --local, --no-fix]}}
+  fonts: {uses: [sources], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, fonts, --local, --no-fix]}}
   preflight: {always_run: true, bucket: tools, offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, preflight, --local, --no-fix]}}
   bootstrap: {uses: [toolchain, config], needs: [patches], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, bootstrap, --local, --no-fix]}}
   build: {uses: [sources, config, toolchain], needs: [bootstrap], offload: {<<: *vaio, wall: 900, argv: [emerge, run, firefox-debian, --only, build, --local, --no-fix]}}

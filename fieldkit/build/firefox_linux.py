@@ -240,6 +240,92 @@ def verify_patches(ctx, run=_run):
     return r
 
 
+# ---------------------------------------------------------------- fonts
+# 2026-11-11 (Linux 160): preflight refused bundled-files/package-fonts/ASSET-009: the port's work tree is a git
+# checkout, so the Microsoft fonts the 158 tree had beside it (copied by hand, hidden by .git/info/exclude) never
+# came along, and no stage brought them. The fonts may never be committed or published (Microsoft's EULA allows use,
+# not redistribution: 11.FONT.SYSTEM/README.fonts.md), so they are copied from an earlier build tree on this machine
+# and excluded from git; with none at hand the patch set's get-microsoft-fonts.sh fetches them from Microsoft.
+FONT_RE = re.compile(r'"([^"]+\.(?:ttf|ttc|otf))"')
+
+
+def wanted_fonts(src, harness):
+    """The fonts browser/fonts/moz.build lists plus those the package gate requires (one list, no duplicates)."""
+    from .firefox_preflight import required_fonts
+    mb = Path(src) / "browser" / "fonts" / "moz.build"
+    want = FONT_RE.findall(mb.read_text(encoding="utf-8")) if mb.is_file() else []
+    want += [f for f in (required_fonts(harness) or []) if f not in want]
+    return want
+
+
+def font_donors(src, extra=None):
+    """Folders that may hold the fonts: FIREFOX_FONTS_FROM (or `extra`), then browser/fonts of the other Firefox
+    trees beside the source tree, newest version first."""
+    out = [Path(p) for p in (extra, os.environ.get("FIREFOX_FONTS_FROM")) if p]
+    src = Path(src).resolve()
+    sibs = [p for p in src.parent.glob("firefox-*") if p.resolve() != src and (p / "browser" / "fonts").is_dir()]
+    key = lambda p: [int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", p.name.split("-", 1)[-1])]
+    out += [p / "browser" / "fonts" for p in sorted(sibs, key=key, reverse=True)]
+    return out
+
+
+def _exclude(src, names, run=_run):
+    """Each copied font listed in the tree's .git/info/exclude, so it is never committed or exported."""
+    rc, out = run(["git", "-C", str(src), "rev-parse", "--git-path", "info/exclude"])
+    if rc != 0:
+        return
+    ex = Path(out.strip())
+    ex = ex if ex.is_absolute() else Path(src) / ex
+    have = ex.read_text(encoding="utf-8").splitlines() if ex.is_file() else []
+    add = [f"browser/fonts/{n}" for n in names if f"browser/fonts/{n}" not in have]
+    if add:
+        ex.parent.mkdir(parents=True, exist_ok=True)
+        with ex.open("a", encoding="utf-8") as h:
+            h.write("".join(a + "\n" for a in add))
+
+
+def stage_fonts(ctx, check_only=False, run=_run, donors=None):
+    """Every font browser/fonts needs is in the tree: missing ones copied from an earlier build tree (and excluded
+    from git), else fetched by the patch set's get-microsoft-fonts.sh when ISO_URL is set."""
+    src, harness = Path(_v(ctx, "src")), Path(_v(ctx, "harness"))
+    fonts = src / "browser" / "fonts"
+    want = wanted_fonts(src, harness)
+    missing = [f for f in want if not (fonts / f).is_file() or not (fonts / f).stat().st_size]
+    if check_only or not missing:
+        return {"ok": not missing, "missing": missing,
+                "detail": f"all {len(want)} font(s) in browser/fonts" if not missing
+                else "browser/fonts missing: " + ", ".join(missing)}
+    copied = {}
+    for d in (donors if donors is not None else font_donors(src)):
+        for f in [m for m in missing if m not in copied]:
+            p = Path(d) / f
+            if p.is_file() and p.stat().st_size:
+                fonts.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(p, fonts / f)
+                copied[f] = str(d)
+    _exclude(src, list(copied), run=run)
+    left = [f for f in missing if f not in copied]
+    fetch = harness / "patches" / "11.FONT.SYSTEM" / "get-microsoft-fonts.sh"
+    tail = ""
+    if left and os.environ.get("ISO_URL") and fetch.is_file():
+        rc, out = run(["bash", str(fetch)], cwd=str(harness), env={**os.environ, "FF_SRC": str(src)}, timeout=7200)
+        tail = out[-1500:]
+        _exclude(src, [f for f in left if (fonts / f).is_file()], run=run)
+        left = [f for f in left if not (fonts / f).is_file()]
+    where = sorted(set(copied.values()))
+    detail = (f"copied {len(copied)} font(s) from {', '.join(where)} (excluded from git)" if copied else "")
+    if left:
+        detail = (detail + "; " if detail else "") + "still missing: " + ", ".join(left) + \
+            f". No earlier build tree beside {src} holds them: set FIREFOX_FONTS_FROM=<folder with the fonts>, or " \
+            f"ISO_URL=<Windows 11 Enterprise eval ISO link> for {fetch}"
+    return {"ok": not left, "copied": copied, "missing": left, "detail": detail or "nothing to copy",
+            "output_tail": tail}
+
+
+def verify_fonts(ctx):
+    return stage_fonts(ctx, check_only=True)
+
+
 # ---------------------------------------------------------------- bootstrap
 def stage_bootstrap(ctx, run=_run, env=None):
     """Mozilla's own toolchain helpers (cbindgen, nasm, dump_syms, ...) into ~/.mozbuild, and the apt

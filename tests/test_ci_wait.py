@@ -174,6 +174,7 @@ def test_infra_re_runs_are_bounded_and_never_a_strike():
     gh = InfraGH(["red"])
     r = train.ci_wait(gh, 461, sleep=lambda s: None)
     assert r["state"] == "infra" and len(gh.reruns) == strikes.INFRA_RERUNS and "not counted" in r["why"], r
+    assert "fieldkit ship ci-local" in r["next"], r   # owner 2026-11-11: the runner still down -> the same CI locally
     rec = strikes.load()["strikes"]["feat/x"]
     assert rec["rounds"] == [] and strikes.parked_for("feat/x") is None and rec["infra"][-1]["gave_up"]
     assert train.ci_wait(InfraGH(["red"]), 461, sleep=lambda s: None)["state"] == "infra"   # the bound holds per head
