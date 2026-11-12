@@ -61,7 +61,8 @@ def test_cli_pipeline_list_and_plan():
     rc, out, _ = _cli("pipeline", "list", "--json")
     names = {p["name"] for p in json.loads(out)}
     assert {"debian-kernel", "firefox-windows"} <= names
-    rc, out, err = _cli("pipeline", "plan", "debian-kernel", "--json", "--var", "workdir=/tmp/kb", "project=/tmp/proj")
+    rc, out, err = _cli("pipeline", "plan", "debian-kernel", "--json", "--var", "workdir=/tmp/kb", "project=/tmp/proj",
+                       "version=7.2.9")      # the version is a parameter, never pinned in the pipeline (P9)
     assert rc == 0, err
     plan = json.loads(out)
     assert plan["vars"]["src"] == "/tmp/kb/linux-7.2.9"

@@ -13,7 +13,8 @@ description: >-
 baseline_minutes: 1
 vars:
   src: "${DOCUMENTS}/gtk-high-contrast-theme"
-  version: "26.10.22-14-03"
+latest:                             # never pinned (owner 2026-11-11): the version build-deb.sh builds
+  version: {file: "{src}/build-deb.sh", regex: '^VERSION="([^"]+)"'}
 sources:
   - {id: src, git: "{src}", track: tree}
 config:

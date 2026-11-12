@@ -67,11 +67,12 @@ core:
   audience: all
   enforced_by:
   - fieldkit emerge (skips a stage whose inputs were built)
+  - fieldkit emerge lint (tests/test_emerge_lint.py, in CI)
   owner: 2026-10-29
   text: |-
     BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
     `fieldkit emerge status RECIPE`. Never hand-run stages, never re-run a stage the runner skipped. A
-    project with no recipe gets one.
+    project with no recipe gets one. Any version, any OS; never pinned or "X only".
 - id: TESTS ONCE
   subject: which tests run
   audience: all
@@ -114,8 +115,8 @@ core:
   - fieldkit task start (refuses expensive workers)
   owner: 2026-10-30
   text: |-
-    MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
-    model-spend guard allows it (`fieldkit/lifecycle/models.py`).
+    MODELS. Default: Sonnet; Opus or Fable only for parked repairs and reviews, when the model-spend guard allows
+    it (`fieldkit/lifecycle/models.py`).
 - id: ZERO COMMANDS
   subject: finishing started work
   audience: all
@@ -154,10 +155,11 @@ core:
   - fieldkit/autopilot/toolrouter.py (does-by-hand refusals)
   - fieldkit tools find
   - fieldkit sweep
+  - fieldkit/core/crossos.py (tests/test_crossos.py)
   owner: 2026-10-28
   text: |-
     USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a script. Sizes, search, hashes:
-    `fieldkit size`. No new tool unless the job cannot be done without it. A script you must write goes in
+    `fieldkit size`. No new tool unless the job needs it. A script you must write goes in
     Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it later.
 - id: DONE
   subject: ending a job

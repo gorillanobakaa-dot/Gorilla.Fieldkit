@@ -15,6 +15,9 @@ no model in the loop unless a stage fails, no owner clicks.
     fieldkit emerge export RECIPE [--out F]                  every recorded key and its outputs' sha256
     fieldkit emerge repro RECIPE --with F                    the same keys built elsewhere: same bytes or not
     fieldkit emerge forget RECIPE [--stage S]                drop cache records (the outputs themselves stay)
+    fieldkit emerge lint [RECIPE]                            a recipe is general: no pinned product version, no
+                                                            version-named recipe (unless `archive:`), no single-OS
+                                                            stage that can never be offloaded, no machine path
 
 Modes are the test tiers the owner approved in the test cost audit (2026-10-26): `iterate` builds; `install` adds
 the package checks and post-install, once, on the installed build; `release` adds the leak gate, once per release, on
@@ -61,7 +64,8 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     ap = argparse.ArgumentParser(prog="fieldkit emerge", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["list", "plan", "run", "status", "manifest", "export", "repro", "forget"])
+    ap.add_argument("action", choices=["list", "plan", "run", "status", "manifest", "export", "repro", "forget",
+                                       "lint"])
     ap.add_argument("recipe", nargs="?")
     ap.add_argument("--mode", default="iterate", choices=sorted(MODES))
     ap.add_argument("--var", action="append", default=[], help="k=v: a recipe/pipeline variable (repeat)")
@@ -80,6 +84,9 @@ def main(argv=None):
             r = Recipe.load(n, strict=False)
             print(f"  {n:<22} {len(r.stages):>2} stage(s)  {r.description.strip().splitlines()[0][:90] if r.description else ''}")
         return 0
+    if a.action == "lint":
+        from . import lint
+        return lint.main([a.recipe] if a.recipe else None, as_json=a.json)
     if not a.recipe:
         print(f"fieldkit emerge {a.action}: name a recipe ({', '.join(available())})")
         return 2

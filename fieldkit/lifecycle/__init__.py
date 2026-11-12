@@ -181,11 +181,14 @@ def cmd_task(argv):
     gone = worktrees.reap(a.cwd or os.getcwd())          # job worktrees whose work is on origin
     led = tasks.ledger()
     tasks.settle(led)
+    resumed = tasks.resume_waiting(led)                  # P9 f: a job that waited for the claude login goes on
     tasks.attach_owner_actions(led)
     if a.json:
         print(json.dumps(list(led.values()), indent=1, ensure_ascii=False))
     else:
         print("\n".join(tasks.lines(led)))
+        for tid in resumed:
+            print(f"{tid}: resumed - the claude login works again (it waited as waiting-auth)")
         if new:
             print(f"{len(new)} report(s) came over the cable")
         if done:

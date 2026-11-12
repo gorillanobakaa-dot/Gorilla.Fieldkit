@@ -191,7 +191,20 @@ def _no_real_build_guard(request, monkeypatch):
     yield
 
 
+# P9 f: tests never ask the real `claude` CLI whether it is logged in (a logged-out machine would turn every task
+# start into `waiting-auth`); tests of the login check itself are marked `real_modelauth` and inject their runner.
+@pytest.fixture(autouse=True)
+def _no_real_modelauth(request, monkeypatch):
+    if not request.node.get_closest_marker("real_modelauth"):
+        from fieldkit.lifecycle import modelauth
+        monkeypatch.setattr(modelauth, "check", lambda *a, **k: {"ok": True, "why": "test", "fix": "",
+                                                                  "cached": True})
+        monkeypatch.setattr(modelauth, "mark_failed", lambda *a, **k: None)
+    yield
+
+
 def pytest_configure(config):
+    config.addinivalue_line("markers", "real_modelauth: run the real claude login check on an injected runner")
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
     config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
 

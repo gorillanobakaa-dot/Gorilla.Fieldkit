@@ -56,7 +56,8 @@ def test_the_leakgate_selftest_runs_without_a_build_job(tmp_path, monkeypatch):
     r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "leakgate-selftest", "--json"],
                        capture_output=True, text=True, timeout=120, cwd=str(ROOT))
     if not sys.platform.startswith("linux"):
-        # 2026-10-20 platform gate: the selftest card is linux only, so the command line refuses it elsewhere
-        assert r.returncode == 2 and '"refused": "platform"' in r.stdout, r.stdout[-300:] + r.stderr[-300:]
+        # P9 2026-11-11: never a refusal; elsewhere the selftest runs on the Linux machine over the cable, and a CI
+        # runner has no cable, so the offload fails plainly (exit 3), never exit 2
+        assert r.returncode in (0, 3) and "OFFLOAD" in r.stdout + r.stderr, r.stdout[-300:] + r.stderr[-300:]
         return
     assert r.returncode in (0, 3) and '"missing_required"' in r.stdout, r.stdout[-300:] + r.stderr[-300:]

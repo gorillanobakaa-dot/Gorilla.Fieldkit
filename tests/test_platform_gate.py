@@ -79,15 +79,20 @@ def test_the_shipped_index_matches_the_public_cards_and_holds_no_private_one():
     assert {i for row in shipped.values() for i in row["ids"]} <= public
 
 
-def test_the_command_line_refuses_with_exit_2_and_json(capsys):
+def test_the_command_line_never_refuses_a_command_for_the_other_system(capsys):
+    """P9 (2026-11-11): the gate no longer stops with exit 2; a command that cannot exist here says
+    not-this-platform and exits 0 (core/crossos.py)."""
     from fieldkit import cli
+    from fieldkit.core import crossos
     idx = gate.load_index(local=False)
-    key = next((k for k, v in idx.items() if HERE not in v["platforms"]), None)
+    rows = crossos.load()
+    key = next((k for k, v in idx.items() if HERE not in v["platforms"]
+                and (crossos.row_for(k.split(), rows)[1] or {}).get("route") == "none"), None)
     if key is None:
-        pytest.skip("no single-system command for the other system in the index")
-    assert cli.main(key.split() + ["--json"]) == 2
+        pytest.skip("no not-this-platform command for the other system in the index")
+    assert cli.main(key.split() + ["--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["ok"] is False and out["refused"] == "platform"
+    assert out["status"] == "not-this-platform" and "refused" not in out
 
 
 # -- doors 2 and 3: a model running or looking for a card -----------------------------------------------------------
