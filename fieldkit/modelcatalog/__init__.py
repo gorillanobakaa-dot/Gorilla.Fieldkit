@@ -22,6 +22,7 @@ said "Reported by the backend" for models the backend never reported and every p
 catalogue request had a body the agent never sent. Never prints a token or a body: ids and counts only."""
 import argparse
 import json
+import fnmatch
 import re
 import sys
 from pathlib import Path
@@ -111,7 +112,7 @@ def _src_files(src, prov):
     for p in sorted(Path(src).rglob("*")):
         s = p.as_posix()
         if p.is_file() and p.suffix in suf and not any(k in s for k in prov["source_skip"]):
-            if any(Path(s).match(g) or re.search(g.replace("*", ".*"), p.name) for g in prov["source_globs"]):
+            if any(fnmatch.fnmatch(p.name.lower(), g.lower()) for g in prov["source_globs"]):
                 yield p
 
 
