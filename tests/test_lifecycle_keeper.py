@@ -193,7 +193,7 @@ def test_timer_plan_uses_the_main_checkout_not_this_tree(monkeypatch, tmp_path):
     from fieldkit.core import settings
     monkeypatch.delenv("FIELDKIT_KEEPER_NO_SCHEDULE", raising=False)
     steps = keeper._plan()
-    assert any(str(settings.state_root()) in str(s[2]) for s in steps if s[0] == "write")
+    assert any(str(settings.state_root()) in str(s[2]) for s in steps if s[0].startswith("write"))  # Windows: "write-utf16" (the schtasks XML)
     assert any("keeper" in str(s) for s in steps)
 
 
