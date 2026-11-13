@@ -1,0 +1,30 @@
+- file: fieldkit/core/procs.py
+  swap:
+  - '    if root["source"] == "beacon" and not live and members:'
+  - '    if False:'
+  why: a member whose owner is gone is an ORPHAN
+- file: fieldkit/core/procs.py
+  swap:
+  - '    return row is not None and row[1] not in ("Z", "X") and ct is not None and abs(row[2] - float(ct)) <= contain.CT_TOL'
+  - '    return row is not None and row[1] not in ("Z", "X")'
+  why: PID plus creation time, so a reused number is never ours
+- file: fieldkit/core/procs.py
+  swap:
+  - '    elif root["source"] == "registry" and live and not root["service"]:'
+  - '    elif root["source"] == "registry" and live:'
+  why: a registered service is never stopped as an orphan
+- file: fieldkit/core/procs.py
+  swap:
+  - if st == "Z" and (pp == pid or pp in members))
+  - if st == "Z" and pp == -1)
+  why: zombies are attributed to the supervisor that has them
+- file: fieldkit/core/procs.py
+  swap:
+  - '                if int(pid) == os.getpid():'
+  - '                if False:'
+  why: reap never stops its own process
+- file: fieldkit/core/procs.py
+  swap:
+  - '    return 3 if res["findings"] and not (done and not done["left"] and all(a["ok"] for a in done["stopped"])) else 0'
+  - '    return 0'
+  why: a finding exits 3

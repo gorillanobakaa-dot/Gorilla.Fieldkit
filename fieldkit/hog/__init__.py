@@ -234,8 +234,8 @@ def _liveness(watch):
     if not watch:
         return ""
     try:
-        from ..core import liveness
-        return liveness.summary(liveness.check(act=True))
+        from ..core import liveness, procs
+        return liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
 
@@ -338,6 +338,10 @@ def main(argv=None, prog="fieldkit hog"):
                               "top": rules._top(facts["procs"], config()["top_n"])}, indent=1))
         else:
             print(rules.summary(found))
+            from ..core import procs
+            line = procs.pass_line(False)           # every process tree Fieldkit started (zombies, orphans, HOG)
+            if not line.startswith("procs: OK"):
+                print(line)
         return rules.worst(found)
     if cmd in ("act", "watch"):
         cfg = config()

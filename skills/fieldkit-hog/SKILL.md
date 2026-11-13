@@ -14,6 +14,7 @@ fieldkit hog check [--json]     one pass, changes nothing; exit 0 OK, 1 WARN, 2 
 fieldkit hog act [--dry-run]    one pass, then the safe actions
 fieldkit hog log                what it did: when, why, RAM before -> after
 fieldkit hog doctor             psutil, lms, the schedule, the room hook
+fieldkit procs check|reap [--json]   every process tree Fieldkit started: zombies, orphans, CPU share, age; reap stops only Fieldkit's own orphans (PID + creation time); `hog` and the keeper run it
 fieldkit hog install [--apply]  run `hog watch` every 5 min (Windows task as you / systemd user timer / launchd agent)
 fieldkit hog register PID --cap 3h --why "link listener"   a long-lived process YOU started, so it is cleaned up
 ```

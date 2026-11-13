@@ -63,7 +63,10 @@ def spawn(cmd, cwd=None):
         kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
     else:
         kw["start_new_session"] = True
-    return subprocess.Popen(cmd, **kw).pid
+    pid = subprocess.Popen(cmd, **kw).pid
+    from ..core import procs
+    procs.record(pid, "thermal-governor", "the thermal governor (a detached service: fieldkit thermal ensure)")
+    return pid
 
 
 def ensure(folder=None, start=None, sleep=time.sleep, now=time.time, alive=None, wait_s=START_WAIT_S, say=print):
