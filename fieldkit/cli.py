@@ -1816,6 +1816,8 @@ def build_parser():
                                     "the fix (fieldkit/lifecycle)"),
                        ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
                                  "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
+                       ("cmd", "does this command exist? every fieldkit command in a text checked against the live command "
+                               "tree, with the closest real one (cmd check TEXT|--file F; fieldkit/core/cmdtree.py)"),
                        ("onestart", "the one ask at the start: every owner-only action a job may need, checked and "
                                     "approved once before it begins (onestart check|ask --kind K; "
                                     "fieldkit/lifecycle/onestart.py)"),
@@ -3179,6 +3181,9 @@ def main(argv=None):
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
+    if args[:1] == ["cmd"]:                           # does the command exist? the live command tree (P9, core/cmdtree)
+        from .core import cmdtree
+        return cmdtree.main(args[1:])
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])

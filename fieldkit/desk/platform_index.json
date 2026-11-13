@@ -1524,6 +1524,17 @@
    "ciaudit"
   ]
  },
+ "cmd": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cmd"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",

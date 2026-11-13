@@ -39,6 +39,16 @@ def ledger_file():
     return INBOX.parent / "agent-ledger.jsonl"
 
 
+def command_unknown(command):
+    """-> '' or what is wrong with the fieldkit commands in `command` (every verb, sub-verb and flag is looked up in the
+    live command tree, fieldkit/core/cmdtree.json). A command that does not exist must never reach the owner."""
+    try:
+        from ..core import cmdtree
+        return "; ".join(cmdtree.describe(f) for f in cmdtree.check(command or ""))
+    except Exception:  # noqa: BLE001  the tree is a check, never a stop
+        return ""
+
+
 def add(title, why, command="", kind="approval", files=(), plan="", what="", if_approve="", if_leave=""):
     """-> the item. Only kind "hardline" (rules/CORE.md HARD LINES) becomes an owner inbox item. Every other kind
     (approval, decision, report, paused, failed, net, ...) goes to the agent ledger (state/autopilot/agent-ledger.jsonl,
@@ -46,6 +56,10 @@ def add(title, why, command="", kind="approval", files=(), plan="", what="", if_
     goal reports and the net filed items the owner never needed (4 closed by Zero 22 in one night).
     An OPEN item with the same title is the same question: it is updated (why, command, `repeats`, `last`) instead of
     a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
+    bad = command_unknown(command)
+    if bad:
+        return {"n": 0, "routed": "refused", "kind": kind, "title": title, "command": command,
+                "why": "COMMAND names a fieldkit command that does not exist (P9, fieldkit cmd check): " + bad}
     if kind not in OWNER_KINDS:
         row = {"n": 0, "routed": "ledger", "kind": kind, "title": title, "why": why, "command": command,
                "files": list(files), "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "ledger"}

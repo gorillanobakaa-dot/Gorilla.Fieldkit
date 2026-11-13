@@ -6727,6 +6727,24 @@ tools:
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
 
+- id: cmd
+  title: "A command is checked before it is given - every fieldkit command in a text (a sudoers line, a brief, an inbox command, a doc, a bash -c, a PowerShell line) looked up in the LIVE argparse command tree (fieldkit/core/cmdtree.json, regenerated from every verb's own parser; a stale tree fails CI); exit 3 on an unknown verb or sub-verb with the closest real command (did you mean: fieldkit build-harness leakgate). The same lookup refuses an unknown verb in inbox add, task lint/start and the PreToolUse tool router, and scans docs, rules, skills, cards and generated unit lines in CI"
+  harness: core
+  entry: [python, -m, fieldkit, cmd]
+  path: ${FIELDKIT}/fieldkit/core/cmdtree.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, tree, write, stale], help: "check TEXT or --file F; tree prints the tree; write regenerates cmdtree.json; stale exits 3 when it is out of date"}
+    - {name: file, flag: --file, type: path, required: false, help: "read the text from this file ('-' = stdin)"}
+    - {name: no-flags, flag: --no-flags, type: bool, required: false, help: "judge verbs only"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "an unknown command was found (check) or the tree is stale (stale)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_cmdtree.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Owner 2026-11-12 (plan P9): a sudoers line for `python -m fieldkit leakgate *` (no such verb; the real one is `fieldkit build-harness leakgate TASK`) reached the owner and stopped a job. Top-level verbs are exact; below them a word is a finding only when a real command is close to it (several verbs route sub-verbs by hand before argparse). Flags are judged on leaf parsers only. A line that says a command does not exist is skipped. Mutations: tests/cmdtree_mutations.yaml. Regenerate: python -m fieldkit.core.cmdtree write."
+
 - id: onestart
   title: "One ask at the start - every owner-only action a long job may need (CLI login, mandate, GitHub ruleset, model rungs, owner_steps door, machine prerequisites) listed in one registry, pre-checked when a job starts (task start, emerge run, goal run), asked ONCE on one screen, one yes applies all; unattended or declined, the job starts anyway and each step takes its fallback; mid-job `inbox add` of a registry command is refused"
   harness: core

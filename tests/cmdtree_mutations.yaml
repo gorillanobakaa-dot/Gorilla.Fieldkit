@@ -1,0 +1,27 @@
+# Proof the command check can fail (plan P9):
+#   fieldkit mutate --plan tests/cmdtree_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_cmdtree.py -k "not committed_tree and not docs_rules and not card_entry"
+- file: fieldkit/core/cmdtree.py
+  swap:
+  - '            if top or near:'
+  - '            if False:'
+  why: an unknown top-level verb (the incident, `fieldkit leakgate`) passes
+- file: fieldkit/core/cmdtree.py
+  swap:
+  - '            if flags and not node["v"] and not node["c"] and path and not _flag_known(node, w):'
+  - '            if False:'
+  why: an unknown flag on a leaf command passes
+- file: fieldkit/core/cmdtree.py
+  swap:
+  - "    return _QUOTED.sub('\"\"', command)"
+  - "    return command"
+  why: a commit message that talks about a wrong command is judged as a call (the router refuses it)
+- file: fieldkit/core/cmdtree.py
+  swap:
+  - '        if skip_negated and _NEGATED.search(lines[inv["line"] - 1]):'
+  - '        if False:'
+  why: a line that says the command does not exist is still judged
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    return unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)'
+  - '    return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)'
+  why: the router no longer refuses an unknown fieldkit verb (on Windows the heavy route used to answer first)
