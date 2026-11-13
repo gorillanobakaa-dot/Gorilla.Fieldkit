@@ -178,6 +178,7 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         from . import models as _models, roles as _roles
         _models.require(_roles.worker_model(model, allow_expensive=allow_expensive), "worker", "task start")
     if not pin:                                          # the router goes down from the ceiling, never above it
+        requested = model or routing.choice()["ceiling"]
         r = routing.route(text, model, pin, plan)
         routing.log({"id": tid, "action": r["action"], "model": r["model"], "why": r["why"]})
         if r["action"] == "park":
@@ -186,6 +187,20 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             raise routing.ModelParked(f"parked in the owner inbox: {r['why']}")
         if r["model"]:
             model = r["model"]
+        from . import counsel                            # P35: the work kind may go lower (gather, report) or up (code)
+        k = counsel.apply_kind(text, model or "sonnet")
+        rungs = counsel.ladder()
+        if k["changed"] and requested and (counsel.rung_index(k["model"], rungs) or 0) > (
+                counsel.rung_index(requested, rungs) or 0):
+            k["changed"] = False                         # the owner's --model is a ceiling: never raised above it
+        if k["changed"]:
+            routing.log({"id": tid, "action": "work-kind", "model": k["model"], "why": k["why"]})
+            model = k["model"]
+    else:
+        from . import counsel
+        waste = counsel.waste_note(text, model or "")
+        if waste:
+            findings = list(findings) + [("warn", waste)]
     from . import roles
     model = roles.worker_model(model, allow_expensive=allow_expensive)
     from . import models
