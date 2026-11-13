@@ -48,6 +48,7 @@ IDLE_CPU_S = 2.0                        # CPU seconds within the idle window tha
 BUSY_CORES = 0.5                        # FM-10: a lone step process above this share of a core, silent, is a spin
 TAIL_KEEP = 8000                       # characters of output kept on disk after a timeout or a stall
 CT_TOL = 0.05
+TRACK_S = 15.0                          # P37: the full tree walk runs at most this often (a tick is POLL_S; kill/close walk fresh)
 
 
 @dataclass
@@ -202,9 +203,120 @@ def enable_subreaper():
         import ctypes
         libc = ctypes.CDLL(None, use_errno=True)
         _SUBREAPER = libc.prctl(36, 1, 0, 0, 0) == 0          # PR_SET_CHILD_SUBREAPER
+        if _SUBREAPER:
+            _hook_popen()
     except (OSError, AttributeError):
         _SUBREAPER = False
     return _SUBREAPER
+
+
+_DIRECT = {}                                 # pid -> creation time of every Popen child of this process
+
+
+def _note_direct(pid):
+    ct = _start_time(pid)
+    if len(_DIRECT) > 4096:                  # forget the oldest half: a reused pid is told apart by its creation time
+        for k in list(_DIRECT)[:2048]:
+            _DIRECT.pop(k, None)
+    _DIRECT[pid] = ct
+
+
+def _hook_popen():
+    """Record every Popen child of this process, so the reaper never takes the exit status of a child whose owner
+    (a Popen, in any thread) still waits for it. Only RE-PARENTED orphans (not started by this process) are reaped."""
+    if getattr(subprocess.Popen, "_fk_hooked", False):
+        return
+    orig = subprocess.Popen.__init__
+
+    def init(self, *a, **kw):
+        orig(self, *a, **kw)
+        pid = getattr(self, "pid", None)
+        if pid:
+            _note_direct(pid)
+    subprocess.Popen.__init__ = init
+    subprocess.Popen._fk_hooked = True
+
+
+def same_start(pid, ct):
+    now = _start_time(pid)
+    return now is not None and ct is not None and abs(now - float(ct)) <= CT_TOL
+
+
+def _direct(pid):
+    return pid in _DIRECT and (_DIRECT[pid] is None or same_start(pid, _DIRECT[pid]))
+
+
+def reap_orphans():
+    """Linux subreaper: collect every exited, re-parented descendant (a hook, a tool shell...), so zombies stay ~0
+    all job long (P37: 8313 of them made the runner burn 80 % of a core). waitid(WNOWAIT) peeks at the next zombie
+    child without taking it: a Popen child of ours is left to its owner (it would lose its exit status), anything
+    else is reaped. Costs nothing per call when there is no zombie. -> how many were reaped."""
+    if not _SUBREAPER:
+        return 0
+    n = 0
+    while n < 100_000:
+        try:
+            r = os.waitid(os.P_ALL, 0, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        except (ChildProcessError, OSError):
+            break
+        if r is None or not r.si_pid:
+            break
+        if _direct(r.si_pid):
+            break                       # its owner collects it on the next poll
+        try:
+            if os.waitpid(r.si_pid, os.WNOHANG)[0]:
+                n += 1
+                continue
+        except (ChildProcessError, OSError):
+            pass
+        break
+    return n
+
+
+def _kids_sig(pid):
+    """Linux: the direct children of a process, from /proc/<pid>/task/*/children (a few small reads, no table walk).
+    None where /proc has no such file (kernel without CONFIG_PROC_CHILDREN, other systems)."""
+    try:
+        out = []
+        for t in os.listdir(f"/proc/{pid}/task"):
+            with open(f"/proc/{pid}/task/{t}/children", "rb") as f:
+                out.append(f.read())
+        return b" ".join(out)
+    except (OSError, ValueError):
+        return None
+
+
+def zombie_children(pid=None):
+    """-> how many zombie direct children a process has (psutil; the check in `fieldkit liveness` and the tests)."""
+    if psutil is None:
+        return 0
+    try:
+        return sum(1 for c in psutil.Process(pid or os.getpid()).children() if c.status() == psutil.STATUS_ZOMBIE)
+    except psutil.Error:
+        return 0
+
+
+def _scan_proc():
+    """Linux: {pid: (ppid, pgrp, state, creation time)} for the whole machine from /proc/*/stat, lean (psutil's
+    process_iter costs ~1 s over 13 000 processes)."""
+    out = {}
+    try:
+        boot = psutil.boot_time()
+        hz = os.sysconf("SC_CLK_TCK")
+        names = os.listdir("/proc")
+    except (OSError, ValueError, AttributeError):
+        return None
+    for nm in names:
+        if not nm.isdigit():
+            continue
+        try:
+            with open(f"/proc/{nm}/stat", "rb") as f:
+                raw = f.read().decode("utf-8", "replace")
+            f2 = raw[raw.rindex(")") + 2:].split()
+            out[int(nm)] = (int(f2[1]), int(f2[2]), f2[0], round(boot + int(f2[19]) / hz, 3))
+        except (OSError, ValueError, IndexError):
+            continue
+    return out
 
 
 # ---- the container ----------------------------------------------------------------------------------------------
@@ -225,6 +337,10 @@ class Container:
         self.killed = []
         self.sid = None                   # this container's step in the beacon
         self._lock = threading.Lock()
+        self._snap_at = 0.0               # when members() last walked the process table
+        self._snap = {}
+        self._dirty = False               # an event (root exit, a reaped orphan) made the snapshot stale
+        self._sig = None                  # children signature at the last walk (Linux)
 
     # -- start
     def popen(self, cmd, **kw):
@@ -252,55 +368,95 @@ class Container:
         return p
 
     # -- what is inside
-    def members(self):
-        """-> {pid: ctime} of the live processes in this container now."""
+    def members(self, fresh=True):
+        """-> {pid: ctime} of the live processes in this container now. fresh=False: the last walk when it is younger
+        than TRACK_S (the supervisor's per-second tick; the walk costs time in proportion to every process on the
+        machine). kill() and close() always walk fresh."""
+        now = time.monotonic()
+        if not fresh and self._snap and now - self._snap_at < TRACK_S and not self._dirty and not self._changed():
+            return dict(self._snap)
+        self._sig, self._dirty = self._signature(), False
+        out = self._walk()
+        self._snap, self._snap_at = out, time.monotonic()
+        return dict(out)
+
+    def _signature(self):
+        """What changes when membership can have changed: our own direct children (a re-parented orphan appears
+        there under the subreaper) and the root's. None = cannot tell (then only the TRACK_S age refreshes)."""
+        if not sys.platform.startswith("linux") or self.root is None:
+            return None
+        a, b = _kids_sig(os.getpid()), _kids_sig(self.root)
+        return None if a is None and b is None else (a, b)
+
+    def _changed(self):
+        sig = self._signature()
+        return sig is not None and sig != self._sig
+
+    def _walk(self):
         out = {}
         if self.job:
             for pid in self.job.pids():
                 c = ctime(pid)
                 if c is not None:
                     out[pid] = c
-        if psutil is not None and self.root is not None:
-            if same(self.root, self.root_ct):
-                try:
-                    for ch in psutil.Process(self.root).children(recursive=True):
-                        c = ctime(ch.pid)
-                        if c is not None:
-                            out[ch.pid] = c
-                except psutil.Error:
-                    pass
-            if not IS_WIN:
-                for pid in self._group_pids():
-                    c = ctime(pid)
-                    if c is not None:
-                        out[pid] = c
-            for pid, c in list(self.tracked.items()):
-                if same(pid, c):
-                    out[pid] = c
-                    try:                  # the children of a tracked orphan are ours too
-                        for ch in psutil.Process(pid).children(recursive=True):
-                            cc = ctime(ch.pid)
-                            if cc is not None:
-                                out[ch.pid] = cc
-                    except psutil.Error:
-                        pass
-        return out
-
-    def _group_pids(self):
-        if self.root is None or psutil is None:
-            return []
-        out = []
-        for p in psutil.process_iter(["pid"]):
+        if psutil is None or self.root is None:
+            return out
+        # ONE pass over the process table, then plain dictionary work (was: a full pass per tracked pid).
+        table, kids, pgrp = {}, {}, {}
+        scan = _scan_proc() if sys.platform.startswith("linux") else None
+        if scan is not None:
+            for pid, (ppid, pg, st, ct) in scan.items():
+                if st in ("Z", "X"):
+                    continue
+                table[pid], pgrp[pid] = ct, pg
+                kids.setdefault(ppid, []).append(pid)
+        else:
             try:
-                if os.getpgid(p.pid) == self.root:
-                    out.append(p.pid)
-            except (OSError, psutil.Error):
-                continue
+                for p in psutil.process_iter(["pid", "ppid", "create_time", "status"]):
+                    i = p.info
+                    if i.get("status") == psutil.STATUS_ZOMBIE or i.get("create_time") is None:
+                        continue
+                    table[i["pid"]] = round(i["create_time"], 3)
+                    kids.setdefault(i["ppid"], []).append(i["pid"])
+            except psutil.Error:
+                pass
+
+        def alive(pid, ct):
+            now = table.get(pid)
+            return now is not None and ct is not None and abs(now - float(ct)) <= CT_TOL
+
+        def below(pid):
+            stack = [pid]
+            while stack:
+                for ch in kids.get(stack.pop(), ()):
+                    if ch not in out:
+                        out[ch] = table[ch]
+                        stack.append(ch)
+        if alive(self.root, self.root_ct):
+            below(self.root)
+        if not IS_WIN:
+            for pid in table:
+                try:
+                    pg = pgrp[pid] if pid in pgrp else os.getpgid(pid)
+                except OSError:
+                    continue
+                if pg == self.root:
+                    out[pid] = table[pid]
+        with self._lock:
+            for pid, c in list(self.tracked.items()):
+                if alive(pid, c):
+                    out[pid] = table[pid]
+                    below(pid)
+                elif pid != self.root:
+                    self.tracked.pop(pid, None)     # gone for good: the pile must not grow with the job's age
         return out
 
-    def track(self):
-        """Record every live member (pid + creation time) and tell the beacon. -> the members."""
-        m = self.members()
+    def track(self, stale=False):
+        """Record every live member (pid + creation time) and tell the beacon. -> the members. stale=True: membership
+        can have changed since the last walk (the root exited, a re-parented child was reaped): walk fresh."""
+        if stale:
+            self._dirty = True
+        m = self.members(fresh=False)
         with self._lock:
             new = {p: c for p, c in m.items() if p not in self.tracked}
             self.tracked.update(new)
@@ -429,7 +585,7 @@ class Container:
                         break
                     except subprocess.TimeoutExpired:
                         pass
-                    self.track()
+                    self.track(stale=bool(reap_orphans()))
                     if on_tick:
                         try:
                             on_tick()
@@ -459,7 +615,7 @@ class Container:
                         break
                 leftovers = []
                 if status is None:
-                    self.track()
+                    self.track(stale=True)          # the root just exited: its orphans are the leftovers
                     live = {k: v for k, v in self.members().items() if k != p.pid}
                     if live and not self.keep_leftovers:
                         leftovers = self.kill("leftover")
@@ -471,6 +627,7 @@ class Container:
                     f.close()
                 if fin is not subprocess.DEVNULL:
                     fin.close()
+            reap_orphans()
             out = _tail(out_p, keep_tail)
             err = "" if merge else _tail(err_p, keep_tail)
             why = (f"wall deadline {deadline_s:.0f} s passed: the container was stopped "
@@ -526,7 +683,7 @@ class _Progress:
         if psutil is None:
             return 0.0
         t = 0.0
-        for pid in self.c.members():
+        for pid in self.c.members(fresh=False):
             try:
                 ct = psutil.Process(pid).cpu_times()
                 t += ct.user + ct.system
@@ -552,7 +709,7 @@ class _Progress:
         if not busy_s or psutil is None:
             return ""
         size, cpu, now = self._size(), self._cpu(), time.monotonic()
-        alone = len([p for p in self.c.members() if not _console_host(p)]) <= 1
+        alone = len([p for p in self.c.members(fresh=False) if not _console_host(p)]) <= 1
         if size > self.b_size or not alone:
             self.b_size, self.b_cpu, self.b_at = size, cpu, now
             return ""
@@ -689,7 +846,7 @@ def wait_inherit(cmd, label="", deadline_s=None, on_tick=None):
                 rc = p.wait(timeout=POLL_S)
                 return rc
             except subprocess.TimeoutExpired:
-                c.track()
+                c.track(stale=bool(reap_orphans()))
                 if on_tick:
                     on_tick()
                 if deadline_s and time.monotonic() >= t0 + deadline_s:
