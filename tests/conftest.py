@@ -429,6 +429,16 @@ def _no_real_worktrees(monkeypatch):
     yield
 
 
+# P9 (fieldkit pycache): a test never spawns a detached compile of a worktree or writes the bytecode .pth into the
+# real site-packages. tests/test_pycache.py imports the real functions before this runs.
+@pytest.fixture(autouse=True)
+def _no_real_pycache_side_effects(monkeypatch):
+    from fieldkit.pycache import core
+    monkeypatch.setattr(core, "warm_background", lambda path: False)
+    monkeypatch.setattr(core, "ensure_pth", lambda: True)
+    yield
+
+
 # Tests never write the real task ledger (2026-11-10: two "[TEST-LNX] PLAN ITEM: P23" rows reached
 # state/lifecycle/tasks.jsonl from tasks.start in a test and showed as started jobs). A test may set its own.
 @pytest.fixture(autouse=True)

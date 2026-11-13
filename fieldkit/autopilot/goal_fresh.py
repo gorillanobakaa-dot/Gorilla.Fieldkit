@@ -104,6 +104,8 @@ class Tree:
         if rc != 0:
             self.close()
             raise Refused(f"git worktree add failed: {out[:200]}")
+        from ..pycache.core import warm_background
+        warm_background(self.path)               # P9: bytecode for the verifier's hooks, in the background
         for rel in COPY:
             src, dst = Path(self.main) / rel, self.path / rel
             try:

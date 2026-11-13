@@ -36,6 +36,11 @@ log, so every session sees it, and the prompt hook shows one line when the last 
 
 Do not unload or kill by hand when the hog covers it: `fieldkit hog act`.
 
+## Slow hooks: Python recompiling on every call
+`fieldkit pycache audit [--timing]` (stale/missing .pyc, the bytecode .pth, cold vs warm import time of the hook modules;
+exit 3 = fix with `fieldkit pycache warm --install-pth`), `fieldkit pycache profile MODULE[:FUNC]` (where a hook's
+time goes), `fieldkit pycache compare --worktree` (main checkout vs a fresh worktree). Use before blaming Python's start.
+
 ## The machine thermal governor is never down (fieldkit thermal ensure)
 
 `fieldkit thermal ensure` says GOVERNOR UP / STARTED / DOWN and whether its keeper is installed; it starts the

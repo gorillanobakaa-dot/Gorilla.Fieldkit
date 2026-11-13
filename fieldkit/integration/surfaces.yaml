@@ -76,6 +76,8 @@ fieldkit:
         - {id: 4-composer, type: kind_has, scope: kind, files: [fieldkit/gdocs/releasepage.py],
            regex: 'tools\.yaml|helpers:begin', sample: "tools.yaml",
            what: "the release-page composer does not generate its tool table from the cards"}
+        - {id: 1-hotpath, type: hotpath_compiled, scope: kind,
+           what: "hot path compiled: a hook module in fieldkit/pycache/hotpath.yaml has no source that compiles (fieldkit pycache warm could not cache it)"}
         - {id: 5-platforms, type: card_platforms, what: "platforms do not name windows and linux (or platforms_why)"}
         - {id: 6-test, type: card_test, what: "card has no test, or the test file does not exist"}
     package:

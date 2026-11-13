@@ -1,0 +1,19 @@
+# The hot path: Python modules every agent tool call, prompt or stop starts as a NEW process (the hook commands in
+# the agents' settings files). Each of them must run from compiled bytecode, never recompile (owner, 2026-11-12:
+# "Python compiles once and does not recompile every 50, 150, 250 ms"). Read by `fieldkit pycache audit` and by the
+# integration check row "hot path compiled" (fieldkit/integration/surfaces.yaml). A new hook module goes here.
+modules:
+  - {module: fieldkit.autopilot.toolrouter, why: "PreToolUse hook, 1 process per tool call (runs the room step too)"}
+  - {module: fieldkit.autopilot.room,       why: "UserPromptSubmit hook"}
+  - {module: fieldkit.capture.hook,         why: "PostToolUse + Stop capture hook, 1 process per tool call"}
+  - {module: fieldkit.tokens.rotate,        why: "Stop hook (session length)"}
+  - {module: fieldkit.laptop.alerts,        why: "Stop and Notification hook"}
+  - {module: fieldkit.cli,                  why: "the `fieldkit` CLI every `python -m fieldkit ...` hook command loads (fieldkit/__main__.py exits on import)"}
+budget:
+  extra_cold_ms: 900     # cold minus warm import time of one module: above this the module is too heavy to ever recompile
+  warm_ms: 600           # a warm import of one hot module (Python start included) must stay below this
+timing_runs: 3           # best of N, per module and per state
+pth:
+  file: zz-fieldkit-bytecode.pth
+  line: "import sys; sys.dont_write_bytecode = False  # Fieldkit: keep .pyc despite PYTHONDONTWRITEBYTECODE=1 (fieldkit pycache)"
+  marker: "dont_write_bytecode = False"

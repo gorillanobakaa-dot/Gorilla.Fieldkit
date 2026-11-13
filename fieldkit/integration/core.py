@@ -262,6 +262,8 @@ def check_rule(repo, cfg, rule, name, card=None):
         i, j = txt.find(rule["begin"]), txt.find(rule["end"])
         block = txt[i:j] if 0 <= i < j else ""
         return None if re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", block, re.I) else f"{what} ({newest})"
+    if t == "hotpath_compiled":
+        return hotpath_gap(repo, what)
     if t == "kind_has":
         rx = re.compile(rule["regex"])
         return None if any(rx.search(repo.text(r) or "") for f in rule["files"] for r in repo.glob(f)) else what
@@ -286,6 +288,30 @@ def check_rule(repo, cfg, rule, name, card=None):
         need = set(cfg.get("required_systems", []))
         return None if need <= pl or card.get("platforms_why") else what
     return f"unknown rule type {t!r} in surfaces.yaml"
+
+
+def hotpath_gap(repo, what):
+    """Row "hot path compiled": every module on the hook path (fieldkit/pycache/hotpath.yaml) has a source that
+    compiles, so `fieldkit pycache warm` can cache it. -> a message, or None."""
+    import yaml
+    txt = repo.text("fieldkit/pycache/hotpath.yaml")
+    if not txt:
+        return f"{what}: fieldkit/pycache/hotpath.yaml is missing"
+    try:
+        mods = [m["module"] for m in (yaml.safe_load(txt) or {}).get("modules", [])]
+    except (yaml.YAMLError, KeyError, TypeError) as e:
+        return f"{what}: hotpath.yaml unreadable ({e})"
+    bad = []
+    for m in mods:
+        rel = m.replace(".", "/")
+        src = repo.text(rel + ".py")
+        if src is None:
+            src = repo.text(rel + "/__init__.py")
+        try:
+            compile(src, m, "exec") if src is not None else bad.append(f"{m} (no source file)")
+        except (SyntaxError, ValueError) as e:
+            bad.append(f"{m} ({type(e).__name__})")
+    return f"{what}: {', '.join(bad)}" if bad else None
 
 
 def check_package_card(repo, cfg, rule, name):

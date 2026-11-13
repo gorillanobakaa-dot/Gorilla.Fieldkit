@@ -24,6 +24,7 @@
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release|agent-shell]
     fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
+    fieldkit pycache audit|warm|profile|compare   Python compiled once on the hot path: stale .pyc, the .pth, cold vs warm import time
     fieldkit repair ACTION ...              11 small repair/check tools (cp1252, imports, conflicts, braces, ps1, pids, worktrees, Mach-O)
     fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
@@ -775,6 +776,11 @@ def cmd_triage(a):
 def cmd_pyliterals(a):
     from .build import pyliterals
     return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
+
+
+def cmd_pycache(a):
+    from . import pycache
+    return pycache.run(a.action, a.args + (["--json"] if a.json else []))
 
 
 def cmd_repair(a):
@@ -1998,6 +2004,11 @@ def build_parser():
     pl.add_argument("--apply", action="store_true")
     pl.set_defaults(fn=cmd_pyliterals)
 
+    pc = sub.add_parser("pycache", parents=[common], help="Python compiled once on the hot path: audit stale/missing .pyc, warm the cache, the bytecode .pth, profile, compare a worktree")
+    from . import pycache as _pycache
+    pc.add_argument("action", choices=sorted(_pycache.ACTIONS))
+    pc.add_argument("args", nargs=argparse.REMAINDER, help="the verb's own arguments (fieldkit pycache VERB --help)")
+    pc.set_defaults(fn=cmd_pycache)
     rp = sub.add_parser("repair", parents=[common], help="small repair and check tools: cp1252, missing imports, conflict markers, brace parity, ps1 syntax, pid-guarded stop, worktrees, Board rows, Mach-O, TPFan ini")
     from . import repair as _repair
     rp.add_argument("action", choices=sorted(_repair.ACTIONS))

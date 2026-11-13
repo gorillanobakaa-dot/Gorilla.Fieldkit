@@ -173,6 +173,8 @@ def apply(row, ci=ci_green):
         return row
     row["ci"] = ev
     _git(row["repo"], "merge", "--ff-only", "--quiet", target)
+    from ..pycache.core import warm_background
+    warm_background(row["repo"])               # P9: new sources after a pull: compile them now, not in the next hook
     left = int(_git(row["repo"], "rev-list", "--count", f"HEAD..{row['upstream']}"))
     took = row["behind"] - left
     if not left:
@@ -237,6 +239,8 @@ def skills_row(do_apply=False, installer=None):
 
 
 def run(do_apply=False, extra=(), fetch=True):
+    from ..pycache.core import ensure_pth
+    ensure_pth()                               # P9: a rebuilt venv loses the bytecode .pth; every session start puts it back
     rows = []
     for r in repos(extra):
         try:

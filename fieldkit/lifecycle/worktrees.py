@@ -61,6 +61,8 @@ def make(repo, name, run=subprocess.run, root=None, fetch=True):
     rc, out = _git(main, "worktree", "add", "--detach", str(path), base, run=run)
     if rc != 0:
         raise Refused(f"git worktree add {path} failed: {out[:200]}")
+    from ..pycache.core import warm_background
+    warm_background(path)                    # P9: a job worktree has no bytecode; compile it in the background
     return path, f"own worktree {path} at {base} (detached: the job makes its branch)"
 
 

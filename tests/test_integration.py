@@ -33,7 +33,7 @@ def test_every_rule_has_a_surface_number_a_reason_and_a_known_type():
         rule = next(x for x in RULES[kind]["capabilities"][ctype]["surfaces"] if x["id"] == rid)
         assert rid[0] in "123456" and rule.get("what") and rule["type"] in (
             "word_in", "exists", "manifest", "systems", "block", "kind_has", "card_field", "card_path", "card_test",
-            "card_platforms", "package_card")
+            "card_platforms", "package_card", "hotpath_compiled")
 
 
 @pytest.mark.parametrize("kind", ["opencode", "fieldkit"])

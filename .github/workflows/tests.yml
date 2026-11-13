@@ -38,6 +38,9 @@ jobs:
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request'
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
+      - name: hot path compiled once (fieldkit pycache) - the hook modules import from bytecode within the budget
+        shell: bash
+        run: python -m fieldkit pycache warm && python -m fieldkit pycache audit --timing --no-pth
       - name: the tests covering the change
         shell: bash
         run: |
@@ -80,6 +83,9 @@ jobs:
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request'
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
+      - name: hot path compiled once (fieldkit pycache) - the hook modules import from bytecode within the budget
+        shell: bash
+        run: python -m fieldkit pycache warm && python -m fieldkit pycache audit --timing --no-pth
       - name: the tests covering the change
         shell: bash
         run: |

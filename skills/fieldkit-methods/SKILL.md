@@ -177,3 +177,10 @@ Never `git merge origin/main` by hand on a PR branch when `ship update` can do i
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;
 then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never change their copy yourself.
+
+## Python compiled once (hooks, workers)
+Every process a hook starts must run from bytecode: `fieldkit pycache audit --timing` (exit 3: stale or missing .pyc,
+no bytecode .pth, or an import cost over the budget in `fieldkit/pycache/hotpath.yaml`), `fieldkit pycache warm
+--install-pth` fixes it, `fieldkit pycache profile MODULE[:FUNC]` finds where a hook's time goes. A new hook module goes
+into `hotpath.yaml`; `fieldkit integration check` row `1-hotpath` ("hot path compiled") refuses one that does not compile.
+A probe you write twice becomes a verb (docs/METHODS.md method 47).

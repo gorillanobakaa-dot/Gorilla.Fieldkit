@@ -7476,3 +7476,67 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
+
+- id: pycache-audit
+  title: "Python compiled once on the hot path: .pyc fresh/stale/missing counts against the cache Python reads, the hook modules, the bytecode .pth, where PYTHONDONTWRITEBYTECODE comes from, cold vs warm import time per hot module (--timing); recompile slow hook pycache stale"
+  harness: desk
+  entry: [python, -m, fieldkit, pycache, audit]
+  path: ${FIELDKIT}/fieldkit/pycache/audit.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the verb's own arguments (fieldkit pycache audit --help)"}
+  effects: [reads-files, runs-subprocess]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
+
+- id: pycache-warm
+  title: "Compile fieldkit/*.py into the bytecode cache (idempotent, seconds) and with --install-pth keep .pyc writing on despite PYTHONDONTWRITEBYTECODE=1; slow hook recompile every call"
+  harness: desk
+  entry: [python, -m, fieldkit, pycache, warm]
+  path: ${FIELDKIT}/fieldkit/pycache/warm.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the verb's own arguments (fieldkit pycache warm --help)"}
+  effects: [writes-files]
+  safety: writes-files
+  output: own
+  exits: {1: "error"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
+
+- id: pycache-profile
+  title: "Where the time of a Fieldkit function or import goes (cProfile of MODULE:FUNC, -X importtime of MODULE); saved probe of the PreToolUse room step; slow hook"
+  harness: desk
+  entry: [python, -m, fieldkit, pycache, profile]
+  path: ${FIELDKIT}/fieldkit/pycache/profile.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the verb's own arguments (fieldkit pycache profile --help)"}
+  effects: [runs-subprocess]
+  safety: read-only
+  output: own
+  exits: {1: "error"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
+
+- id: pycache-compare
+  title: "The hook-timing test in the main checkout against a fresh job worktree: what a worker pays for having no bytecode; slow hook worktree pycache"
+  harness: desk
+  entry: [python, -m, fieldkit, pycache, compare]
+  path: ${FIELDKIT}/fieldkit/pycache/compare.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the verb's own arguments (fieldkit pycache compare --help)"}
+  effects: [runs-subprocess, writes-files]
+  safety: writes-files
+  output: own
+  exits: {1: "error"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."

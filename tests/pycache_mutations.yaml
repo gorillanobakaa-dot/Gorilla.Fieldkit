@@ -1,0 +1,67 @@
+# fieldkit pycache: every rule must be CAUGHT (2026-11-12):
+#   fieldkit mutate --plan tests/pycache_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_pycache.py
+- file: fieldkit/pycache/core.py
+  swap:
+  - '    return "fresh" if mtime == (int(st.st_mtime) & 0xFFFFFFFF) and size == (st.st_size & 0xFFFFFFFF) else "stale"'
+  - '    return "fresh" if size == (st.st_size & 0xFFFFFFFF) else "stale"'
+  why: a source edited without a size change (the usual one-character fix) is stale, whatever its size
+- file: fieldkit/pycache/core.py
+  swap:
+  - '    if len(head) < 16 or head[:4] != importlib.util.MAGIC_NUMBER:'
+  - '    if len(head) < 16:'
+  why: a cache file that is not this Python's bytecode is never fresh
+- file: fieldkit/pycache/core.py
+  swap:
+  - "        return \"missing\"\n    if len(head)"
+  - "        return \"fresh\"\n    if len(head)"
+  why: a source with no .pyc is missing, never fresh
+- file: fieldkit/pycache/core.py
+  swap:
+  - '        return cfg["marker"] in p.read_text(encoding="utf-8"), p'
+  - '        return True, p'
+  why: a .pth that no longer turns writing on does not count as installed
+- file: fieldkit/pycache/core.py
+  swap:
+  - '        if not (p / "fieldkit" / "__init__.py").is_file():'
+  - '        if False:'
+  why: warming a folder that is not a Fieldkit tree is refused (no process for nothing)
+- file: fieldkit/pycache/audit.py
+  swap:
+  - '            if cold - warm > b["extra_cold_ms"]:'
+  - '            if False:'
+  why: an import that costs too much when cold is a finding
+- file: fieldkit/pycache/audit.py
+  swap:
+  - '            if warm > b["warm_ms"]:'
+  - '            if False:'
+  why: a warm import above its budget is a finding
+- file: fieldkit/pycache/audit.py
+  swap:
+  - '    if need_pth and not pth_ok:'
+  - '    if False:'
+  why: a machine without the bytecode .pth fails the audit
+- file: fieldkit/pycache/audit.py
+  swap:
+  - '    if hot_bad:'
+  - '    if False:'
+  why: a hook module that is not compiled fails the audit
+- file: fieldkit/integration/core.py
+  swap:
+  - '    return f"{what}: {'', ''.join(bad)}" if bad else None'
+  - '    return None'
+  why: a hot module that does not compile is a gap in the integration check
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '    warm_background(path)                    # P9'
+  - '    pass                                     # P9'
+  why: every new job worktree is warmed
+- file: fieldkit/core/sync.py
+  swap:
+  - '    ensure_pth()                               # P9'
+  - '    pass                                       # P9'
+  why: every session start puts the bytecode .pth back after a venv rebuild
+- file: fieldkit/autopilot/goal_fresh.py
+  swap:
+  - '        warm_background(self.path)               # P9'
+  - '        pass                                     # P9'
+  why: the verifier's fresh tree is warmed like every job worktree

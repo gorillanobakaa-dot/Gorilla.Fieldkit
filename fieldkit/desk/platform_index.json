@@ -2876,6 +2876,46 @@
    "publish"
   ]
  },
+ "pycache audit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pycache-audit"
+  ]
+ },
+ "pycache compare": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pycache-compare"
+  ]
+ },
+ "pycache profile": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pycache-profile"
+  ]
+ },
+ "pycache warm": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pycache-warm"
+  ]
+ },
  "pyliterals": {
   "platforms": [
    "darwin",

@@ -179,3 +179,11 @@ def test_a_failing_recheck_leaves_the_job_as_it_was(main, tmp_path):
     ok, text = goal_fresh.reverify("g1", "j1", say=lambda m: None)
     _, st = goal.load("g1")
     assert not ok and text.startswith("FAIL 0/1") and st["jobs"]["j1"]["status"] == "failed-verify"
+
+
+def test_the_verifier_tree_is_warmed_for_bytecode(main, tmp_path, monkeypatch):
+    from fieldkit.pycache import core as pyc
+    seen = []
+    monkeypatch.setattr(pyc, "warm_background", lambda p: seen.append(str(p)))
+    with goal_fresh.Tree(str(main), "g1") as t:
+        assert seen == [str(t.path)]

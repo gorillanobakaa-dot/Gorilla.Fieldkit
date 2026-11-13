@@ -147,6 +147,8 @@ if ask "Make a private Python environment in $SRC/.venv and install $WHAT?"; the
       || { say "Installing failed: see the lines above."; exit 3; }
     note "installed   pyyaml, psutil, fieldkit (editable) into $SRC/.venv"
   fi
+  # P9: compile once, and keep .pyc writing on when an agent sets PYTHONDONTWRITEBYTECODE=1 (fieldkit pycache)
+  if [ "${FIELDKIT_SKIP_PIP:-0}" != 1 ]; then (cd "$SRC" && "$VPY" -m fieldkit pycache warm --install-pth >/dev/null 2>&1) || true; fi
 else
   say "No environment made. To use Fieldkit without it: cd $SRC && $PY -m fieldkit doctor --lean"
   VPY="$PY"
