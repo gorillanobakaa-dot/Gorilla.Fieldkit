@@ -39,3 +39,6 @@
 - file: fieldkit/lifecycle/routing.py
   swap: ['    if fr > cr:', '    if False:']
   why: a floor above the ceiling parks the job, never shrinks it below the floor
+- file: fieldkit/lifecycle/routing.py
+  swap: ['_rung_of(c["ceiling"], d["ladder"]) >= 0:', '_rung_of(c["ceiling"], d["ladder"]) >= 0 and age < d.get("accept_valid_days", 1):']
+  why: a choice made yesterday stays in force (midnight never resets it to solo)
