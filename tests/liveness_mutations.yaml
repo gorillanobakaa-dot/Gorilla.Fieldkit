@@ -1,5 +1,5 @@
 # fieldkit liveness + contain: every containment, deadline and safety line must be CAUGHT (2026-10-26):
-#   fieldkit mutate --plan tests/liveness_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_liveness.py
+#   fieldkit mutate --plan tests/liveness_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_liveness.py tests/test_contain_reap.py
 - file: fieldkit/core/contain.py
   swap: ['        if not self.keep_leftovers:', '        if False:']
   why: FM-1 what a step leaves running is stopped when its container closes
@@ -72,3 +72,12 @@
 - file: fieldkit/core/liveness.py
   swap: ['        if idle and since and now - since > idle + GRACE_S:', '        if False:']
   why: FM-9 liveness check reports a step with no progress
+- file: fieldkit/core/contain.py
+  swap: ['    if not _SUBREAPER:\n        return 0\n    n = 0', '    return 0\n    n = 0']
+  why: P37 the subreaper reaps every exited orphan each tick (no zombie pile)
+- file: fieldkit/core/contain.py
+  swap: ['        if _direct(r.si_pid):\n            break', '        if False:\n            break']
+  why: P37 the reaper never takes the exit status of a Popen child of the supervisor
+- file: fieldkit/core/liveness.py
+  swap: ['    if zombies > ZOMBIE_LIMIT:', '    if False:']
+  why: P37 a supervisor with a zombie pile is a HOG finding

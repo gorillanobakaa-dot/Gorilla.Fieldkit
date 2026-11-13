@@ -25,6 +25,18 @@ What is left           bullets: what is not done, and who it waits on
 The asks come second because a reader who stops after the first screen must still know what is being asked
 of them. That is the one change from the classic military order; `--order classic` gives the classic one.
 
+## Gather first (plan P34: a sitrep needs no model to collect its facts)
+
+```
+fieldkit sitrep gather --render --lang ro     the facts in the shape above, checked, no model, about a second
+fieldkit sitrep gather --json                 only the facts (tasks, pull requests with CI, builds, inbox, ideas, net)
+fieldkit sitrep gather --words                one Haiku call writes the prose (never above haiku)
+```
+
+Run it BEFORE any Bash call of your own. An expensive model that reads status with a dozen Bash calls pays for the
+whole conversation on each one; Zero's hook says so after the fourth read in a row. A fact the command could not read
+(for example `gh` is not logged in) is said in the report, never left out.
+
 ## Do this at the end of a session
 
 ```
