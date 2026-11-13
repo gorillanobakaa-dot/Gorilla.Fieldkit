@@ -120,3 +120,4 @@ More tools by job: `fieldkit web browsers` (card web-browsers: every installed b
 and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe` (open files, ports, processes),
 `fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
 inbox items), `fieldkit onestart` (card onestart: every owner-only action a job may need, checked and asked once before the job starts).
+fieldkit appcapture start|show|stop|recycle|status APP   capture a desktop app's real requests (tokens redacted) before writing any client code; fieldkit modelcatalog verify checks a client's model ids/UA against the backend's real reply (docs/APP-TRAFFIC-FIRST.md)

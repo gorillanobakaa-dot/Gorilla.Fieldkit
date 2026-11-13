@@ -222,6 +222,10 @@ def start(app, exe=None, kind=None, port=None, root=None, say=print, wait=30.0):
         return {"ok": False, "error": f"a capture of {app} is already running (mitm pid {old['mitm']['pid']}): stop it first"}
     wd = workdir(app, root)
     wd.mkdir(parents=True, exist_ok=True)
+    try:
+        wd.chmod(0o700)          # the raw flows hold tokens: owner only, never printed, recycled by `stop --recycle`
+    except OSError:
+        pass
     conf, flows = wd / "conf", wd / "flows.mitm"
     port = port or _free_port()
     log = open(wd / "mitmdump.log", "ab")

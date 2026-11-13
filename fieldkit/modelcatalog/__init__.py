@@ -110,7 +110,7 @@ def check_catalogue(catalogue, backend, prov):
 def _src_files(src, prov):
     suf = set(prov["source_suffixes"])
     for p in sorted(Path(src).rglob("*")):
-        s = p.as_posix()
+        s = "/" + p.relative_to(src).as_posix()
         if p.is_file() and p.suffix in suf and not any(k in s for k in prov["source_skip"]):
             if any(fnmatch.fnmatch(p.name.lower(), g.lower()) for g in prov["source_globs"]):
                 yield p
