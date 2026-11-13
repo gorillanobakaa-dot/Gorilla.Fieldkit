@@ -592,6 +592,16 @@ def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
     return None
 
 
+def _write_partial(work, events, artifacts):
+    """events.jsonl and artifacts.json as they stand; the final write replaces them. Never raises."""
+    try:
+        (work / "events.jsonl").write_text("\n".join(json.dumps(e, default=str) for e in events) + "\n", encoding="utf-8")
+        (work / "artifacts.json").write_text(json.dumps(artifacts, indent=1, default=str), encoding="utf-8")
+        (work / "partial.txt").write_text(f"partial: {len(artifacts)} runs done, the gate has not finished\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def run(*args, say=print, **kw):
     """The gate under the one run guard (2026-10-26): observation and the safe reclaim only, before and during; it
     changes no allowlist, judgment or verdict. A STOP (free RAM under the floor after reclaiming) waits up to 10 min,
@@ -764,6 +774,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                         e["scenario"], e["rep"] = name, rep
                     events.extend(ev)
                     artifacts[f"{name}-r{rep}-{mode}"] = art
+                    _write_partial(work, events, artifacts)     # a late crash never loses the runs already done
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
                         events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
                                        "detail": "the page itself never reached mitmproxy"})
@@ -893,6 +904,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     result["FINAL_RESULT"] = "PASS" if all(result[p] == "PASS" for p in POLICIES) else "FAIL"
     result["ARTIFACTS"] = str(work)
 
+    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     (work / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
     (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     (work / "build-manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")

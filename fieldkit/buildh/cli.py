@@ -592,7 +592,12 @@ def run(a, emit):
             if len(pos) != 3:
                 raise task.Refused("usage: leakgate-ci run CONTEXT.tar.gz DEB OUT [release=1]")
             ctx, deb, out = pos
-            result, events = lci.run(ctx, deb, out, release=kv.get("release") == "1", say=lambda m: print(m, flush=True))
+            try:
+                result, events = lci.run(ctx, deb, out, release=kv.get("release") == "1", say=lambda m: print(m, flush=True))
+            except Exception as ex:                      # a late crash keeps the runs already done (P27)
+                art = lci.collect_partial(out, f"{type(ex).__name__}: {ex}")
+                print(f"fieldkit: the gate crashed: {ex}\n  partial results kept in {art}", flush=True)
+                return 1
             info = lci.runner_info(deb, lci.sha256(ctx))
             (Path(out) / "runner.json").write_text(json.dumps(info, indent=1), encoding="utf-8")
             art = lci.collect(out, result, events, Path(out) / "runner.json")
