@@ -6267,7 +6267,6 @@ tools:
   inputs:
     - {name: verb, flag: null, type: str, required: true, choices: [start, show, stop, recycle, status], help: "start (proxy + restart the app by recorded PID), show (endpoints; --bodies for redacted bodies), stop (by PID; --recycle), recycle (flows to the trash), status"}
     - {name: app, flag: null, type: str, required: false, help: "app profile name (fieldkit/appcapture/apps.yaml)"}
-    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [reads-files, writes-files, processes, network]
   safety: reversible
   headline: "{summary}"
