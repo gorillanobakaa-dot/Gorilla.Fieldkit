@@ -281,11 +281,64 @@ def check_rule(repo, cfg, rule, name, card=None):
         test = card.get("test") or []
         files = [_expand(str(x)) for x in test if str(x).endswith(".py")]
         return None if any(repo.exists(f) for f in files) else what
+    if t == "card_e2e":
+        return check_e2e(repo, cfg, card)
     if t == "card_platforms":
         pl = {str(x).lower() for x in (card.get("platforms") or [])}
         need = set(cfg.get("required_systems", []))
         return None if need <= pl or card.get("platforms_why") else what
     return f"unknown rule type {t!r} in surfaces.yaml"
+
+
+OS_RUNNER = {"windows": "windows", "linux": "ubuntu", "macos": "macos"}
+
+
+def workflow_jobs(repo):
+    """-> {job id or job name: runs-on text} of every .github/workflows/*.yml (an e2e job a card names must be there)."""
+    jobs = {}
+    for rel in repo.glob(".github/workflows/*.yml") + repo.glob(".github/workflows/*.yaml"):
+        try:
+            data = yaml.safe_load(repo.text(rel) or "") or {}
+        except yaml.YAMLError:
+            continue
+        for jid, job in (data.get("jobs") or {}).items():
+            if isinstance(job, dict):
+                ro = str(job.get("runs-on", ""))
+                jobs[str(jid)] = ro
+                if job.get("name"):
+                    jobs[str(job["name"])] = ro
+    return jobs
+
+
+def check_e2e(repo, cfg, card):
+    """Plan P37: every OS a card claims needs the name of a CI job that RAN the real entry point on that OS (or
+    platforms_why). -> None, or the sentence naming the OS that has no e2e job."""
+    if card.get("platforms_why"):
+        return None
+    claimed = [str(x).lower() for x in (card.get("platforms") or []) if str(x).lower() in OS_RUNNER]
+    named = card.get("e2e") or {}
+    named = {str(k).lower(): str(v) for k, v in named.items()} if isinstance(named, dict) else {}
+    jobs = workflow_jobs(repo)
+    bad = []
+    for osn in claimed:
+        job = named.get(osn)
+        if not job or job not in jobs:
+            bad.append(f"{osn}: " + (f"job {job!r} is in no workflow" if job else "no e2e job named"))
+        elif OS_RUNNER[osn] not in jobs[job].lower() and "${{" not in jobs[job]:
+            bad.append(f"{osn}: job {job!r} runs on {jobs[job]}")
+    return ("ran end to end on each OS it claims: " + "; ".join(bad)) if bad else None
+
+
+def platforms_due(repo, base):
+    """-> ids of the cards new since BASE or whose platforms changed: only those owe an e2e job (the 400 older cards
+    are not blocked by a rule that did not exist when they were written)."""
+    rc, old = repo.git("show", f"{base}:fieldkit/desk/tools.yaml")
+    before = {}
+    if rc == 0:
+        before = {str(c["id"]): c for c in (yaml.load(old, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+                                           or {}).get("tools", []) if isinstance(c, dict) and c.get("id")}
+    return {cid for cid, c in load_cards(repo, "fieldkit/desk/tools.yaml").items()
+            if cid not in before or sorted(map(str, before[cid].get("platforms") or [])) != sorted(map(str, c.get("platforms") or []))}
 
 
 def check_package_card(repo, cfg, rule, name):
@@ -296,7 +349,7 @@ def check_package_card(repo, cfg, rule, name):
     return rule.get("what")
 
 
-def run_check(root, base=None, kind=None):
+def run_check(root, base=None, kind=None, strict=False):
     """-> {"ok", "kind", "checked", "gaps": [{kind, capability, surface, what, fix}]}"""
     repo = Repo(root)
     rules = load_rules()
@@ -306,6 +359,7 @@ def run_check(root, base=None, kind=None):
     cfg = rules[kind]
     gaps, checked, kind_done = [], [], set()
     anything = False
+    due = platforms_due(repo, base) if base else set()
     for ctype, cap in cfg["capabilities"].items():
         caps = discover(repo, cfg, cap)
         if base:
@@ -319,6 +373,8 @@ def run_check(root, base=None, kind=None):
             for rule in cap["surfaces"]:
                 if rule.get("scope") == "kind":
                     continue
+                if rule.get("when") == "platforms_changed" and not strict and name not in due:
+                    continue                 # a card that is old, or whose platforms did not change, owes no e2e job
                 if rule["type"] == "package_card":
                     msg = check_package_card(repo, cfg, rule, name)
                 else:

@@ -17,11 +17,11 @@ def test_each_surface_omission_is_named_and_the_clean_fixture_passes(tmp_path, k
     clean = tmp_path / "clean"
     clean.mkdir()
     selftest.build(clean, kind)
-    assert core.run_check(clean)["ok"], core.run_check(clean)["gaps"]
+    assert core.run_check(clean, strict=True)["ok"], core.run_check(clean, strict=True)["gaps"]
     d = tmp_path / "omit"
     d.mkdir()
     selftest.build(d, kind, (ctype, rid))
-    r = core.run_check(d)
+    r = core.run_check(d, strict=True)
     rule = next(x for x in RULES[kind]["capabilities"][ctype]["surfaces"] if x["id"] == rid)
     want = "*" if rule.get("scope") == "kind" else selftest.PRIMARY[kind][ctype]
     assert any(g["surface"] == rid and g["capability"] == want for g in r["gaps"])
@@ -33,7 +33,7 @@ def test_every_rule_has_a_surface_number_a_reason_and_a_known_type():
         rule = next(x for x in RULES[kind]["capabilities"][ctype]["surfaces"] if x["id"] == rid)
         assert rid[0] in "123456" and rule.get("what") and rule["type"] in (
             "word_in", "exists", "manifest", "systems", "block", "kind_has", "card_field", "card_path", "card_test",
-            "card_platforms", "package_card")
+            "card_platforms", "card_e2e", "package_card")
 
 
 @pytest.mark.parametrize("kind", ["opencode", "fieldkit"])

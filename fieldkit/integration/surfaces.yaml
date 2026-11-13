@@ -77,6 +77,8 @@ fieldkit:
            regex: 'tools\.yaml|helpers:begin', sample: "tools.yaml",
            what: "the release-page composer does not generate its tool table from the cards"}
         - {id: 5-platforms, type: card_platforms, what: "platforms do not name windows and linux (or platforms_why)"}
+        - {id: 5-e2e, type: card_e2e, when: platforms_changed, create: fieldkit/desk/tools.yaml,
+           what: "ran end to end on each OS it claims: the card needs `e2e: {OS: CI-JOB}` per platform (a job in .github/workflows that runs the real entry point there), or platforms_why (docs/METHODS.md: done means it ran there)"}
         - {id: 6-test, type: card_test, what: "card has no test, or the test file does not exist"}
     package:
       discover:

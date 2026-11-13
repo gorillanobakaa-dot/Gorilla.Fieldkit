@@ -37,6 +37,38 @@ def plan_id_of(text, root="."):
     return ""
 
 
+PORTS = re.compile(r"\b(port(?:s|ed|ing)?|parity)\b[^.\n]{0,80}\b(linux|windows|macos|mac os)\b|"
+                   r"\b(linux|windows|macos)\b[^.\n]{0,40}\b(port|parity)\b", re.I)
+E2E_LINE = re.compile(r"^\s*E2E\s*:\s*(\S.*)$", re.I | re.M)
+
+
+def ports_to_os(text):
+    """P37: the brief ports or makes a feature work on an OS (a 'port' or 'parity' next to Linux/Windows/macOS)."""
+    return bool(PORTS.search(text))
+
+
+def e2e_named(text):
+    """-> the e2e job name the brief gives on an `E2E: JOB` line, or ''."""
+    m = E2E_LINE.search(text)
+    return m.group(1).strip().split()[0].strip("`,.") if m else ""
+
+
+def e2e_jobs(root="."):
+    """-> names (job ids and job names) of every end-to-end CI job (its id or name starts with `e2e`) in
+    .github/workflows under root."""
+    import yaml
+    names = set()
+    for f in sorted(Path(root).glob(".github/workflows/*.y*ml")):
+        try:
+            for jid, job in (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("jobs", {}).items():
+                for n in (str(jid), str(job.get("name", "")) if isinstance(job, dict) else ""):
+                    if n.startswith("e2e"):
+                        names.add(n)
+        except (OSError, yaml.YAMLError, AttributeError):
+            continue
+    return names
+
+
 def lint(text, root=".", plan=None):
     """-> list of (severity, message); severity is 'refuse' or 'warn'. `plan` is an id given outside the text."""
     out = []
@@ -47,6 +79,12 @@ def lint(text, root=".", plan=None):
     elif not plan_id_of(text, root):
         out.append(("refuse", "the brief names no plan id (a row of docs/HARNESS-PLAN.md, e.g. O3); name the item "
                               "it serves, or pass --plan ID"))
+    if ports_to_os(text) and not e2e_named(text):
+        out.append(("refuse", "the brief ports a feature to an OS but names no end-to-end CI job: add a line "
+                              "`E2E: JOB` (a job of .github/workflows/e2e.yml that runs the real entry point on that "
+                              "OS; docs/METHODS.md 'done means it ran there')"))
+    elif e2e_named(text) and e2e_named(text) not in e2e_jobs(root) and (Path(root) / ".github" / "workflows").is_dir():
+        out.append(("refuse", f"E2E job {e2e_named(text)!r} is in no .github/workflows file"))
     n = tokens(text)
     if n > MAX_TOKENS:
         out.append(("warn", f"the brief is about {n} tokens (over {MAX_TOKENS}): point at files and plan rows "

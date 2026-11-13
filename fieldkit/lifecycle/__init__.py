@@ -171,7 +171,13 @@ def cmd_task(argv):
         if not (a.arg and a.status):
             print("task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]")
             return 2
-        rec = tasks.report(a.arg, a.status, a.branch, a.pr, a.note)
+        try:
+            rec = tasks.report(a.arg, a.status, a.branch, a.pr, a.note)
+        except tasks.E2EMissing as e:
+            print(f"NOT REPORTED  {e}")
+            from .. import refusals
+            refusals.record("task", f"not reported done: {e}")
+            return 3
         print(f"TASK {rec['id']}  {rec['status']}" + (f"  verdict {rec['verdict']}: {rec['verdict_why']}"
                                                        if rec.get("verdict") else ""))
         return 0 if rec["status"] == a.status else 3
