@@ -163,7 +163,7 @@ def snapshot_processes(proc_root="/proc"):
 
 def build_rows(rows, build_dir):
     """-> the live (not zombie) rows whose program lives in `build_dir`."""
-    bd = str(Path(build_dir)).lower()
+    bd = os.path.abspath(str(build_dir)).lower()      # /proc reports absolute paths: a relative run folder matched nothing (P27)
     return [r for r in rows if r.get("State") != "Z" and (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
