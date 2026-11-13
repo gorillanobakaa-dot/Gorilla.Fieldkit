@@ -788,6 +788,16 @@
    "bh-leakgate-baseline"
   ]
  },
+ "build-harness leakgate-ci": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-ci"
+  ]
+ },
  "build-harness leakgate-context": {
   "platforms": [
    "linux",
