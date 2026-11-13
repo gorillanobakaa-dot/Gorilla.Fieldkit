@@ -251,6 +251,13 @@ def run(do_apply=False, extra=(), fetch=True):
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
                 rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
+    try:                                              # P37: the private store of untracked instruction files
+        from .. import rules_song
+        stored = rules_song.store_apply(rules_song.inventory(), restore=False) if do_apply else []
+        rows.append({"repo": "instruction files", "ok": True, "verdict": "STORED" if stored else "OK",
+                     "why": "; ".join(stored) or "fieldkit rules sync (hashes), rules lint --files (duplicates)"})
+    except Exception as e:  # noqa: BLE001 - informational: never fails the session-start sync
+        rows.append({"repo": "instruction files", "ok": True, "verdict": "SKIPPED", "why": str(e)[:100]})
     return rows
 
 

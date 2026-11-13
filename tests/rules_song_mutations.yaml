@@ -1,0 +1,52 @@
+# fieldkit rules song (P37): every detector must be CAUGHT when disabled:
+#   fieldkit mutate --plan tests/rules_song_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rules_song.py tests/test_autopilot_room.py
+- file: fieldkit/rules_song.py
+  swap:
+  - '                    if n in na and (key, n) not in seen:'
+  - '                    if False:'
+  why: duplicate across a global and a project file
+- file: fieldkit/rules_song.py
+  swap:
+  - '            if len(ss) > 1 and (r["path"], n) not in seen:'
+  - '            if False:'
+  why: duplicate inside one file
+- file: fieldkit/rules_song.py
+  swap:
+  - '            if ma and mb and ("conflict", c["why"], proj, agent) not in seen:'
+  - '            if False:'
+  why: known conflicting pair
+- file: fieldkit/rules_song.py
+  swap:
+  - '            for k in sorted(set(pos) & set(neg)):'
+  - '            for k in []:'
+  why: always X against never X
+- file: fieldkit/rules_song.py
+  swap:
+  - '        if b and r["tokens"] > b["limit"]:'
+  - '        if False:'
+  why: token budget
+- file: fieldkit/rules_song.py
+  swap:
+  - '        elif mine[k] != other[k]:'
+  - '        elif False:'
+  why: sync hash mismatch
+- file: fieldkit/rules_song.py
+  swap:
+  - '        if used + n <= cap:'
+  - '        if True:'
+  why: hook byte cap
+- file: fieldkit/autopilot/room.py
+  swap:
+  - '        if only_new(call["session_id"] + ".ear", full):'
+  - '        if True:'
+  why: the EAR line in full once per session, short after
+- file: fieldkit/autopilot/room.py
+  swap:
+  - '        out = rules_song.apply_cap(out, event)'
+  - '        out = out'
+  why: hook riders on a byte cap
+- file: fieldkit/autopilot/room.py
+  swap:
+  - '            rules_song.record(event, len(out.encode("utf-8")), call.get("session_id"))'
+  - '            pass'
+  why: injected bytes recorded

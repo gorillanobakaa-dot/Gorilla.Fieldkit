@@ -11,6 +11,8 @@ keeps only its own rules.
     fieldkit rules prove [--only ID ...] [--write F]  every proof's mutation through fieldkit mutate (CAUGHT each)
     fieldkit rules lint [--json]                  the rules data: drift, budget, duplicates, misplaced text,
                                                   contradictions, BOTTLENECKS (rules_lint.py)
+    fieldkit rules inventory|lint --files|sync|hooks   the song sheet: every project's instruction files, tokens, duplicates,
+                                                  conflicts, both laptops identical, hook bytes (rules_song.py, rules/song.yaml)
     fieldkit rules build                          write rules/CORE.md from rules/rules.yaml
     fieldkit rules install [--file F ...]         every block into each global file (--file: the core block only);
                                                   creates the file of an agent installed here, and the Claude hooks
@@ -273,15 +275,28 @@ def _lint_lines(found):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["inventory"] or argv[:1] == ["sync"] or argv[:1] == ["hooks"] or (
+            argv[:1] == ["lint"] and "--files" in argv):          # P37: the song sheet (rules_song.py)
+        from . import rules_song
+        return rules_song.main(argv)
     ap = argparse.ArgumentParser(prog="fieldkit rules", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["check", "install", "lint", "build", "prove"])
+    ap.add_argument("action", choices=["check", "install", "lint", "build", "prove", "inventory", "sync", "hooks"])
     ap.add_argument("--only", nargs="*", help="prove: only these rule ids")
     ap.add_argument("--write", help="prove: also write the results as a Markdown table to this file")
     ap.add_argument("--repo-only", action="store_true", help="check: only this repository's rules files (pre-commit)")
     ap.add_argument("--file", action="append", default=[], help="install: a rules file (the core block only)")
+    ap.add_argument("--files", action="store_true", help="lint: the instruction files of every project (rules_song.py)")
+    ap.add_argument("--against", help="sync: the other laptop's manifest (JSON from `rules sync --json`)")
+    ap.add_argument("--apply", action="store_true", help="sync: refresh the private store from this machine")
+    ap.add_argument("--restore", action="store_true", help="sync: bring files the store holds back where missing")
+    ap.add_argument("--home", help="inventory, lint --files, sync: another home folder")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action in ("inventory", "sync", "hooks"):
+        from . import rules_song
+        return rules_song.main(argv)
     if a.action == "build":
         print(f"rules/CORE.md: {build()}\nNEXT: fieldkit rules lint")
         return 0

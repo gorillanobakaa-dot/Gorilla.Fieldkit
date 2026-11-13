@@ -484,8 +484,10 @@ def test_rule_files_follow_the_agents_own_dirs(tmp_path):
     assert f["antigravity"] == tmp_path / ".gemini" / "GEMINI.md"
 
 
-def test_repo_agents_md_carries_the_rule():
-    assert protocol.rule_present(Path(__file__).resolve().parents[1] / "AGENTS.md")
+def test_repo_agents_md_does_not_repeat_the_rule():
+    """P37 one song sheet: the lifecycle block lives in the global files only (CORE is the one source); a project
+    AGENTS.md that carries it again costs every session ~1.5 KB twice."""
+    assert not protocol.rule_present(Path(__file__).resolve().parents[1] / "AGENTS.md")
 
 
 def test_cli_rule_install_and_protocol(tmp_path, capsys):
