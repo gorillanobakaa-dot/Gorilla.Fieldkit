@@ -91,15 +91,42 @@ class OpenCode:
             live = sessions()
         except Exception as e:  # noqa: BLE001 - a broken register must not stop the other channels
             return [{"channel": self.name, "target": "-", "ok": False, "detail": f"register unreadable: {e}"}]
+        told = _told_load() if entry.get("kind") == "open" else {}
+        epoch_key = str(net.get("epoch"))
         for s in live:
             name = s.get("name")
+            if entry.get("kind") == "open" and name in told.get(epoch_key, []):
+                continue  # NET OPEN once per station per epoch (a repeat check-in is not news)
             try:
                 r = send(name, text + f" (as station: --as opencode:{name})", as_name="fieldkit-zero")
                 out.append({"channel": self.name, "target": name, "ok": bool(r.get("ok")),
                             "detail": "sent" if r.get("ok") else str(r.get("error"))})
+                if r.get("ok") and entry.get("kind") == "open":
+                    told.setdefault(epoch_key, []).append(name)
             except Exception as e:  # noqa: BLE001
                 out.append({"channel": self.name, "target": name, "ok": False, "detail": str(e)})
+        if entry.get("kind") == "open":
+            _told_save({epoch_key: told.get(epoch_key, [])})
         return out
+
+
+def _told_path():
+    from . import net
+    return net.coord() / "net-open-told.json"
+
+
+def _told_load():
+    try:
+        return json.loads(_told_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _told_save(d):
+    try:
+        _told_path().write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def fake_cable_call(req, device=None, timeout=None):
