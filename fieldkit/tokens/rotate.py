@@ -608,6 +608,11 @@ def stop_hook(stdin=None, state_fn=None, alive=None):
     try:
         call = json.loads((stdin or sys.stdin).read() or "{}")
         tp = call.get("transcript_path")
+        if not call.get("stop_hook_active"):            # P9: jobs in flight and no keeper timer: a note for every session, Zero too
+            from ..lifecycle import keeper
+            warn = keeper.stop_guard()
+            if warn:
+                print(warn, file=sys.stderr)
         if call.get("stop_hook_active") or not tp or rotate_stop.permanent_zero(Path(tp).stem):
             return 0                                      # the permanent Zero is exempt (owner 2026-11-09)
         from ..method import ci_wake

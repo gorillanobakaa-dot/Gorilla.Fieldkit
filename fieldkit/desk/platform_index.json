@@ -1912,6 +1912,17 @@
    "ideas"
   ]
  },
+ "idle report": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "idle-report"
+  ]
+ },
  "image accept": {
   "platforms": [
    "darwin",
@@ -2018,6 +2029,17 @@
   "why": "",
   "ids": [
    "fieldkit-jobs"
+  ]
+ },
+ "keeper tick": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keeper-tick"
   ]
  },
  "laptop alerts say": {

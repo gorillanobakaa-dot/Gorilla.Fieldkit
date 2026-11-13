@@ -178,6 +178,7 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         from . import models as _models, roles as _roles
         _models.require(_roles.worker_model(model, allow_expensive=allow_expensive), "worker", "task start")
     if not pin:                                          # the router goes down from the ceiling, never above it
+        requested = model or routing.choice()["ceiling"]
         r = routing.route(text, model, pin, plan)
         routing.log({"id": tid, "action": r["action"], "model": r["model"], "why": r["why"]})
         if r["action"] == "park":
@@ -186,6 +187,20 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             raise routing.ModelParked(f"parked in the owner inbox: {r['why']}")
         if r["model"]:
             model = r["model"]
+        from . import counsel                            # P35: the work kind may go lower (gather, report) or up (code)
+        k = counsel.apply_kind(text, model or "sonnet")
+        rungs = counsel.ladder()
+        if k["changed"] and requested and (counsel.rung_index(k["model"], rungs) or 0) > (
+                counsel.rung_index(requested, rungs) or 0):
+            k["changed"] = False                         # the owner's --model is a ceiling: never raised above it
+        if k["changed"]:
+            routing.log({"id": tid, "action": "work-kind", "model": k["model"], "why": k["why"]})
+            model = k["model"]
+    else:
+        from . import counsel
+        waste = counsel.waste_note(text, model or "")
+        if waste:
+            findings = list(findings) + [("warn", waste)]
     from . import roles
     model = roles.worker_model(model, allow_expensive=allow_expensive)
     from . import models
@@ -244,6 +259,7 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             _append(rec)
             _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec['answer']})")
             return rec
+        launch_given = launch is not None
         if launch is None:
             from ..buildh import window
             launch = window.launch
@@ -251,6 +267,12 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             r = launch(["runbook", "run", str(rb)])
             rec.update(how="autopilot runbook", runbook=str(rb), pid=r.get("pid"), log=r.get("log"))
             worktrees.own(wt, r.get("pid"), tid)
+            if not launch_given and rec.get("pid"):     # P9: a real job runs, so the keeper timer is there to move work on
+                try:
+                    from . import keeper
+                    rec["keeper"] = keeper.ensure_timer()
+                except Exception:  # noqa: BLE001 - the timer is a courtesy of the start, never a reason to fail it
+                    pass
         except Exception as e:  # noqa: BLE001 - the refusal is the answer, recorded
             rec.update(how="autopilot runbook", runbook=str(rb), status="not-started", answer=str(e)[:300])
             worktrees.own(wt, -1, tid)               # no process: reap takes the tree back once it is clean
