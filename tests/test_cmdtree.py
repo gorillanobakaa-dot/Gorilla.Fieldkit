@@ -110,6 +110,7 @@ def test_the_tool_router_refuses_an_unknown_verb_and_allows_a_real_one():
     assert r and r["route"] == "unknown-fieldkit-command" and "build-harness leakgate" in r["use"]
     assert toolrouter.route("fieldkit build-harness leakgate foo") is None
     assert toolrouter.route("git commit -m 'the fieldkit nosuch thing'") is None      # a quoted message is no command
+    assert toolrouter.route("git commit -m \"fieldkit nosuch thing\"") is None      # the quoted text starts with the word
     assert toolrouter.route("bash -c 'fieldkit nosuch thing'")                        # but bash -c is one
 
 

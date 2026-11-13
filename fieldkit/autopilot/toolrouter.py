@@ -380,7 +380,7 @@ def route(command, cwd="", shell=""):
                                        and _hit(name, PS_LS, cmd))
         if hit and not (name == "sleep-to-wait" and _sampling(cmd)):
             return {"route": name, "use": use, "example": example}
-    return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd) or unknown_verb_refusal(cmd)
+    return unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
 
 
 def unknown_verb_refusal(command):

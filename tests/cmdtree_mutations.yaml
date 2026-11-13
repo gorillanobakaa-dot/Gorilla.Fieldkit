@@ -20,3 +20,8 @@
   - '        if skip_negated and _NEGATED.search(lines[inv["line"] - 1]):'
   - '        if False:'
   why: a line that says the command does not exist is still judged
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    return unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)'
+  - '    return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)'
+  why: the router no longer refuses an unknown fieldkit verb (on Windows the heavy route used to answer first)
