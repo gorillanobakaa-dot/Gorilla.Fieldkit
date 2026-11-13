@@ -101,7 +101,7 @@ def test_a_sensor_that_collected_nothing_in_a_scenario_fails():
     # packets on: pktmon is required in direct mode too
     events, results, requests = _ok_world(packets=False)
     fail, _ = gate.action_checks(set(NEW), events, results, requests, packets=True)
-    assert any("pktmon" in x for x in fail["NETWORK_POLICY"])
+    assert any(gate.packet_sensor_name() in x for x in fail["NETWORK_POLICY"])
 
 
 def test_a_scenario_that_ran_with_no_events_at_all_fails():

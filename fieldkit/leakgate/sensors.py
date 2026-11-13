@@ -290,6 +290,13 @@ def snapshot_sockets(pids):
     return [tuple(l.strip().split("|")) for l in out.splitlines() if l.count("|") == 6]
 
 
+def _absolute(path):
+    """The path as an absolute string: a relative run folder never matches /proc's absolute executable paths (P27)."""
+    import ntpath
+    s = str(path)
+    return s if ntpath.isabs(s) or s.startswith("/") else os.path.abspath(s)
+
+
 class Sampler(threading.Thread):
     """Process tree + sockets every `interval` s until stopped; then the post-kill watch looks for any process whose
     executable lives in the build directory (a relaunch, an updater, a crash helper)."""
@@ -299,7 +306,7 @@ class Sampler(threading.Thread):
         self.snap_procs = snap_procs or (lambda: snapshot_processes())          # Linux injects its /proc and ss readers
         self.snap_all_socks = snap_all_socks or (lambda: snapshot_all_sockets())
         self.root, self.interval, self.stop_flag = root_pid, interval, threading.Event()
-        self.build_dir = str(Path(build_dir)).lower() if build_dir else None
+        self.build_dir = _absolute(build_dir).lower() if build_dir else None
         self.procs, self.all_procs, self.socks, self.sock_chains, self.timeline = {}, {}, set(), {}, []
         self.owners = PortOwners()
 

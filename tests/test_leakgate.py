@@ -65,7 +65,7 @@ def test_judge_fails_closed():
     assert any("pingsender" in x for x in lists["UNEXPECTED_PROCESSES"])
     assert any("elsewhere" in x for x in lists["UNEXPECTED_EXECUTABLES"])
     assert any("datareporting" in x for x in lists["UNEXPECTED_TELEMETRY"])
-    assert any("pktmon" in x for x in fail["NETWORK_POLICY"])           # packets required but never collected
+    assert any(gate.packet_sensor_name() in x for x in fail["NETWORK_POLICY"])           # packets required but never collected
 
 
 def test_missing_packets_and_repeats_fail():
