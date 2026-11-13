@@ -72,7 +72,7 @@ def build_manifest(copy_dir, workdir_tree, upstream, allow_path, spec_path):
         "BUILD": cp.get("App", "BuildID", fallback=None), "VERSION": cp.get("App", "Version", fallback=None),
         "SOURCE": {"tree_head": _cmd(["git", "-C", str(workdir_tree), "rev-parse", "HEAD"]), "upstream": upstream,
                    "platform_source_stamp": pl.get("Build", "SourceStamp", fallback=None)},
-        "BINARY_SHA256": {n: _sha(Path(copy_dir) / n) for n in ("firefox.exe", "xul.dll", "omni.ja", "browser/omni.ja") if (Path(copy_dir) / n).is_file()},
+        "BINARY_SHA256": {n: _sha(Path(copy_dir) / n) for n in ("firefox.exe", "xul.dll", "firefox", "libxul.so", "omni.ja", "browser/omni.ja") if (Path(copy_dir) / n).is_file()},
         "OS": platform.platform(), "KERNEL": platform.version(), "ARCHITECTURE": platform.machine(),
         "TOOLCHAIN": {"clang-cl": _cmd([str(clang), "--version"]) if clang.is_file() else "not found", "rustc": _cmd(["rustc", "--version"]),
                       "python": sys.version.split()[0]},
@@ -81,7 +81,9 @@ def build_manifest(copy_dir, workdir_tree, upstream, allow_path, spec_path):
         "SPEC_SHA256": _sha(spec_path) if Path(spec_path).is_file() else None,
         "CONFIGURE": configure_record(),
         "PROFILE_CONFIGURATION": "fresh throwaway profile per scenario and mode; user.js: no default-browser check, no about:welcome, downloads into the profile",
-        "NETWORK_CONFIGURATION": "Windows host network (NOT the spec's namespace); direct and mitmproxy-pinned runs",
+        "NETWORK_CONFIGURATION": ("Linux network namespace behind nftables (output policy DROP); direct and mitmproxy-pinned runs"
+                                  if sys.platform.startswith("linux") else
+                                  "Windows host network (NOT the spec's namespace); direct and mitmproxy-pinned runs"),
     }
 
 
@@ -603,6 +605,17 @@ def run(*args, say=print, **kw):
                           refused=refused)
 
 
+def unpack_deb(deb, dest, runner=subprocess.run):
+    """-> the folder of an unpacked .deb that holds the browser (the one with application.ini). No root, nothing installed."""
+    r = runner(["dpkg-deb", "-x", str(deb), str(dest)], capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f"leakgate: dpkg-deb could not unpack {Path(deb).name}: {(r.stderr or '').strip()[:200]}")
+    ini = sorted(Path(dest).rglob("application.ini"), key=lambda q: len(q.parts))
+    if not ini:
+        raise RuntimeError(f"leakgate: no application.ini in {Path(deb).name}: not a browser package")
+    return ini[0].parent
+
+
 def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
          previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
@@ -647,7 +660,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             f"{len(talking)} system process(es) talking, named in quiet-start.json")
     except Exception as e:  # noqa: BLE001 - a gate that cannot quiet the machine says so, it does not guess
         raise RuntimeError(f"leakgate: the machine could not be quieted ({e}); refusing to measure a noisy machine")
-    zp = work / "build.zip"
+    is_deb = str(zip_path).endswith(".deb")
+    zp = work / ("build.deb" if is_deb else "build.zip")
     shutil.copyfile(zip_path, zp)
     if linux:
         import tarfile
@@ -655,9 +669,12 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             dest = Path(dest)
             shutil.rmtree(dest, ignore_errors=True)
             dest.mkdir(parents=True)
-            with tarfile.open(zp) as tf:
-                tf.extractall(dest / "_x")
-            inner = next((dest / "_x").iterdir())
+            if is_deb:                                 # the Linux artifact: the .deb's install tree (dpkg-deb -x, no install)
+                inner = unpack_deb(zp, dest / "_x")
+            else:
+                with tarfile.open(zp) as tf:
+                    tf.extractall(dest / "_x")
+                inner = next((dest / "_x").iterdir())
             for item in inner.iterdir():
                 shutil.move(str(item), dest / item.name)
             shutil.rmtree(dest / "_x")

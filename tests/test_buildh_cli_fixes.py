@@ -132,3 +132,82 @@ def test_every_build_harness_action_has_a_card():
     assert len(actions) > 90
     missing = [a for a in actions if f"bh-{a}" not in ids and a not in ids]
     assert not missing, f"build-harness actions without a card (add bh-<action> to fieldkit/desk/tools.yaml): {missing}"
+
+
+def test_leakgate_root_falls_back_to_harness_root_and_refuses_without_one(tmp_path):
+    from fieldkit.buildh import ownercheck
+    hr = tmp_path / "gorilla-firefox"
+    hr.mkdir()
+    t = {"meta": {"harness_root": str(hr)}}          # Linux task: no harness/gorilla_build.py
+    assert ownercheck._owner_root(t) is None
+    assert ownercheck.gate_root(t) == hr
+    assert ownercheck.gate_root({"meta": {}}) is None
+    assert ownercheck.gate_root({"meta": {"harness_root": str(tmp_path / "gone")}}) is None
+
+
+def test_leakgate_command_refuses_clearly_without_any_root(monkeypatch, capsys):
+    from fieldkit.buildh import task
+    from fieldkit.core import platform_gate, crossos
+    monkeypatch.setattr(platform_gate, "refusal", lambda args, index=None: None)
+    monkeypatch.setattr(crossos, "handle", lambda args, main, say=None, err=None: None)
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "steps": []})
+    rc = cli.main(["build-harness", "leakgate", "no-such-task"])
+    out = capsys.readouterr()
+    assert rc != 0 and "cannot find where its allowlist" in out.out + out.err
+
+
+def test_gate_artifact_windows_zip_linux_deb_and_clear_refusals(tmp_path):
+    from fieldkit.buildh import installertest as it
+    deb = tmp_path / "gorilla-unleashed_160.0-2_amd64.deb"
+    deb.write_bytes(b"x")
+    res_lnx = {"artifacts": {"deb": {"file": str(deb), "sha256": "a"}}}
+    assert it.gate_artifact(res_lnx, {}, linux=True) == str(deb)
+    assert it.gate_artifact({"artifacts": {"zip": {"file": "C:/b.zip"}}}, {}, linux=False) == "C:/b.zip"
+    import pytest
+    with pytest.raises(RuntimeError, match="names no zip"):         # Windows task without a zip: refusal, not KeyError
+        it.gate_artifact({"artifacts": {}}, {}, linux=False)
+    with pytest.raises(RuntimeError, match=r"needs the Linux package"):   # Linux task with nothing: refusal, not KeyError 'zip'
+        it.gate_artifact({"artifacts": {}}, {"workdir": str(tmp_path / "none")}, linux=True)
+    # no deb recorded (build-result of a Linux task has artifacts {}): the newest one under the workdir is found
+    assert it.gate_artifact({"artifacts": {}}, {"workdir": str(tmp_path)}, linux=True) == str(deb)
+
+
+def test_unpack_deb_finds_the_browser_folder_and_refuses_a_non_browser(tmp_path):
+    from fieldkit.leakgate import gate
+    import types
+
+    def fake(files, rc=0):
+        def run(cmd, **kw):
+            for f in files:
+                p = tmp_path / "out" / f
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("x")
+            return types.SimpleNamespace(returncode=rc, stderr="boom")
+        return run
+    inner = gate.unpack_deb("p.deb", tmp_path / "out", runner=fake(["usr/lib/gorilla-unleashed/application.ini", "usr/lib/gorilla-unleashed/firefox"]))
+    assert inner == tmp_path / "out" / "usr/lib/gorilla-unleashed"
+    import pytest
+    with pytest.raises(RuntimeError, match="no application.ini"):
+        gate.unpack_deb("q.deb", tmp_path / "out2", runner=lambda *a, **k: types.SimpleNamespace(returncode=0, stderr=""))
+    with pytest.raises(RuntimeError, match="could not unpack"):
+        gate.unpack_deb("q.deb", tmp_path / "out3", runner=fake([], rc=2))
+
+
+def test_embedded_hosts_reads_libxul_so_on_linux():
+    from fieldkit.leakgate import audit
+    import io, zipfile
+    b = io.BytesIO()
+    zipfile.ZipFile(b, "w").close()
+    files = {"omni.ja": b.getvalue(), "browser/omni.ja": b.getvalue(), "libxul.so": b"junk https://tracker.example.org/x junk"}
+    out = audit.embedded_hosts(lambda rel: files[rel])
+    assert out.get("tracker.example.org") == ["libxul.so"]
+
+
+def test_embedded_hosts_reads_unpacked_resources_when_there_is_no_omni_ja(tmp_path):
+    from fieldkit.leakgate import audit
+    (tmp_path / "browser" / "chrome").mkdir(parents=True)
+    (tmp_path / "browser" / "chrome" / "a.js").write_text("fetch('https://tracker.example.org/x')")
+    (tmp_path / "libxul.so").write_bytes(b"\0https://deep.example.net/y\0")
+    out = audit.embedded_hosts(lambda rel: (tmp_path / rel).read_bytes(), loose_root=tmp_path)
+    assert out["tracker.example.org"] == ["loose:browser/chrome/a.js"] and out["deep.example.net"] == ["libxul.so"]
+    assert audit.embedded_hosts(lambda rel: (tmp_path / rel).read_bytes()) .get("tracker.example.org") is None   # old behaviour kept without loose_root
