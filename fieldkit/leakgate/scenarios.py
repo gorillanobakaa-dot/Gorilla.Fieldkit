@@ -232,7 +232,10 @@ H264_PAGE = """<!doctype html><meta charset=utf-8><title>h264-call</title><body>
 # a minimal PE-looking stub (never executed): enough for the download to be classed as an executable
 TINY_EXE = b"MZ" + b"\x90\x00" * 29 + b"\x40\x00\x00\x00" + b"\x00" * 448 + b"PE\x00\x00" + b"\x00" * 60
 
-PAGES = {"/certerror": CERTERROR_PAGE, "/download-exe": DOWNLOAD_EXE_PAGE, "/lan": LAN_PAGE, "/drm": DRM_PAGE,
+SMOKE_PAGE = ("<!doctype html><title>smoke</title><body>smoke<script>"
+              "fetch('/result', {method: 'POST', body: JSON.stringify({scenario: 'smoke', ok: true})});</script>")
+
+PAGES = {"/smoke": SMOKE_PAGE, "/certerror": CERTERROR_PAGE, "/download-exe": DOWNLOAD_EXE_PAGE, "/lan": LAN_PAGE, "/drm": DRM_PAGE,
          "/h264": H264_PAGE}
 
 

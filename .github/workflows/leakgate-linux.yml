@@ -56,7 +56,7 @@ jobs:
           gh release download "$REL" -R "$GITHUB_REPOSITORY" -D in -p "$DEB" -p leakgate-context.tar.gz
           ls -l in
           sha256sum "in/$DEB"
-      - name: the browser starts on this CPU (a SIGILL here is "the binary does not run", not a gate FAIL)
+      - name: the browser starts and shows a page (a death here is "the binary does not run", not a gate FAIL)
         env:
           DEB: ${{ inputs.deb }}
         run: |
@@ -64,7 +64,19 @@ jobs:
           dpkg-deb -x "in/$DEB" smoke
           bin=$(find smoke -type f -name firefox -perm -u+x | head -1)
           test -n "$bin" || { echo "no firefox binary in the .deb"; exit 1; }
+          echo "display: DISPLAY='${DISPLAY:-}' (the gate runs headless: MOZ_HEADLESS=1 and -headless, no display needed)"
           timeout 60 "$bin" --version
+          dir=$(dirname "$bin")
+          echo "libraries not found:"; ldd "$dir/libxul.so" 2>&1 | grep "not found" || echo "  none"
+          mkdir -p smoke-home smoke-prof
+          # the real start, as the gate does it (headless, fresh profile): must stay up 15 s; stderr printed either way
+          set +e
+          MOZ_HEADLESS=1 HOME="$PWD/smoke-home" timeout 15 "$bin" -headless -no-remote -profile "$PWD/smoke-prof" about:blank 2> smoke-stderr.txt
+          rc=$?
+          set -e
+          echo "exit status: $rc (124 = still running when stopped, which is the good case)"
+          echo "--- stderr (last 40 lines) ---"; tail -40 smoke-stderr.txt
+          test "$rc" = 124 || { echo "the browser did not stay up: not a gate result"; exit 1; }
       - name: the gate, as root, the unchanged code
         env:
           DEB: ${{ inputs.deb }}
