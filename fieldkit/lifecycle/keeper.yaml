@@ -1,0 +1,22 @@
+# The keeper's rule table (plan P9, 2026-11-12). Data first: switch a rule off or change a limit here, not in keeper.py.
+# One pass = `fieldkit keeper tick`; the timer runs it every every_min minutes while any task, PR or queue item is open.
+every_min: 5
+hours: 24                 # an ended task older than this is history, not work to restart
+rules:
+  behind_update:          # a PR with auto-merge on, CI green and BEHIND main: GitHub's update-branch (once per head)
+    enabled: true
+  red_fix:                # a PR red by its OWN fault (strikes), not parked: one fix job per (branch, head) from a generated brief
+    enabled: true
+    per_head: 1
+  died_restart:           # a task that died or blocked with work in its worktree: restart once with --again and a RESUME note
+    enabled: true
+    max_restarts: 1       # the second death of the same brief is parked
+  queue_start:            # the first unstarted brief of the queue file, when the router has a free slot
+    enabled: true
+    file: state/coordination/queue.yaml
+  wake:                   # what only a model can decide: said in the room and in Zero's hook file at once,
+    enabled: true              # a headless job with the situation as its brief once the finding is this old
+    headless_after_min: 45
+    max_per_day: 3        # headless wake jobs per 24 h (each is a model run)
+    plan: P9              # the plan id the situation brief carries (brieflint refuses a brief without one)
+    model: sonnet
