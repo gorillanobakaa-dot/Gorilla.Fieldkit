@@ -389,6 +389,133 @@ def climb(model, own_failures, data=None):
     return out
 
 
+
+# ---- 5. downward: the cheapest capable model for a kind of work (plan P35) ---------------------------------------------
+CHEAP_KINDS = ("gather", "search", "summarize", "classify", "compact", "report")
+_TAIL = re.compile(r"(\n|^)\s*(#+\s*)?(SIDE JOBS|DONE PROTOCOL|Harness \(job)", re.I)
+
+
+def strip_tail(text):
+    """-> the brief without the protocol the harness appends (it names tests, commits and branches in every brief)."""
+    m = _TAIL.search(text or "")
+    return (text[:m.start()] if m else (text or ""))
+
+
+def _has(words, low):
+    return sorted(w for w in words if (w in low if not w[0].isalnum() else re.search(r"\b" + re.escape(w), low)))
+
+
+def work_kind(text, data=None):
+    """-> {"kind": name | "", "why"}. A brief that names a code word is `code` (sonnet at least); a design word,
+    `design`; else the kind with the most word hits among the cheap kinds, the first in file order on a tie. No hit:
+    "" (the router decides)."""
+    wk = (data or _models().load()).get("work_kinds") or {}
+    low = strip_tail(text).lower()
+    hit = _has(wk.get("code_words") or (), low)
+    if hit:
+        return {"kind": "code", "why": "names " + ", ".join(hit[:4])}
+    hit = _has(wk.get("design_words") or (), low)
+    if hit:
+        return {"kind": "design", "why": "names " + ", ".join(hit[:4])}
+    best, bh = "", []
+    for name, spec in (wk.get("kinds") or {}).items():
+        h = _has(spec.get("words") or (), low) if name in CHEAP_KINDS else []
+        if len(h) > len(bh):
+            best, bh = name, h
+    return {"kind": best, "why": ("names " + ", ".join(bh[:4])) if best else "no work-kind word"}
+
+
+def model_for_kind(kind, data=None, check=None):
+    """-> {"model": rung | None, "advisor": bool, "why"}: the kind's rung, else the first usable fallback."""
+    d = data or _models().load()
+    spec = ((d.get("work_kinds") or {}).get("kinds") or {}).get(kind)
+    if not spec:
+        return {"model": None, "advisor": False, "why": f"no work kind {kind}"}
+    tried = []
+    for r in [spec.get("rung")] + list(spec.get("fallback") or ()):
+        if not r:
+            continue
+        up, why = _models().availability(r, data=d)
+        ok = up and (check or (lambda x: _models().check_model(x, role="worker", origin="counsel", data=d,
+                                                               log=False)))(r).get("ok") if up else False
+        if ok:
+            return {"model": r, "advisor": bool(spec.get("advisor")),
+                    "why": f"{kind} -> {r}" + (f" ({'; '.join(tried)})" if tried else "")}
+        tried.append(f"{r} unavailable")
+    return {"model": None, "advisor": False, "why": f"{kind}: " + "; ".join(tried)}
+
+
+def apply_kind(text, routed, data=None, check=None):
+    """-> {"model", "kind", "why", "changed"}: `routed` (the router's model) moved to the kind's rung. A cheap kind
+    lowers it to its rung (never raises, never below the router's floor: the floor words are code words); a code or
+    design brief is raised to the kind's rung when the router chose less. A kind with no usable rung leaves `routed`."""
+    d = data or _models().load()
+    k = work_kind(text, d)
+    out = {"model": routed, "kind": k["kind"], "why": k["why"], "changed": False}
+    if not k["kind"]:
+        return out
+    m = model_for_kind(k["kind"], d, check)
+    if not m["model"]:
+        out["why"] = m["why"] + "; left to the router"
+        return out
+    rungs = ladder(d)
+    cur, want = rung_index(routed, rungs), rung_index(m["model"], rungs)
+    cheap = k["kind"] in CHEAP_KINDS
+    if want is None or (cur is not None and ((cheap and want >= cur) or (not cheap and want <= cur))):
+        out["why"] = f"{k['kind']} ({k['why']}); {routed} already fits"
+        return out
+    out.update(model=m["model"], changed=True, why=f"{k['kind']} ({k['why']}): {m['why']}")
+    return out
+
+
+def waste_note(text, model, data=None):
+    """-> a sentence when `model` is pinned for a cheap kind of work (never a refusal), else ""."""
+    d = data or _models().load()
+    k = work_kind(text, d)
+    if k["kind"] not in CHEAP_KINDS:
+        return ""
+    rungs = ladder(d)
+    cheap = (((d.get("work_kinds") or {}).get("kinds") or {}).get(k["kind"]) or {}).get("rung")
+    a, b = rung_index(model, rungs), rung_index(cheap, rungs)
+    if a is None or b is None or a <= b:
+        return ""
+    return (f"WASTEFUL: this brief is a {k['kind']} job ({k['why']}); {cheap} does it. {model} costs several times "
+            f"more per token for the same answer (models.yaml work_kinds). Pinned anyway.")
+
+
+def prose_ask(prompt, data=None, run=subprocess.run):
+    """-> {"ok", "text", "why", "model"}: one cheap model writes prose (`sitrep gather --words`). Never above haiku
+    (CHEAP_KINDS rung), no verdict rule: a reply with no VERDICT line is an answer here, never a reason to mark the
+    model unavailable. A budget / limit error still marks it (mark_if_gone)."""
+    d = data or _models().load()
+    m = model_for_kind("report", d)
+    rungs = ladder(d)
+    top = rung_index("haiku", rungs)
+    at = rung_index(m["model"], rungs) if m["model"] else None
+    if at is None or top is None or at > top:         # haiku (or a local model off the ladder) only, never above
+        return {"ok": False, "text": "", "model": "", "why": m["why"] or "no model at or below haiku is available"}
+    model = m["model"]
+    pol = _policy(None)
+    cmd = ask_cmd(model, pol)
+    if not cmd:
+        return {"ok": False, "text": "", "model": model, "why": "no model command (auto_accept.reviewer.cmd)"}
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
+    env.update(ANTHROPIC_MODEL=model, FIELDKIT_ATTEMPT_MODEL=model, CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1")
+    t0 = time.time()
+    try:
+        r = run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+                timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        journal("prose", model=model, outcome="error", why=type(e).__name__)
+        return {"ok": False, "text": "", "model": model, "why": f"could not be run: {type(e).__name__}"}
+    out = (r.stdout or "").strip()
+    gone = mark_if_gone(model, out, r, [1]) if r.returncode != 0 or not out else ""
+    journal("prose", model=model, outcome="answered" if out and not gone else "error",
+            why=(f"exit {r.returncode}" if r.returncode else ""), seconds=round(time.time() - t0))
+    return {"ok": bool(out) and r.returncode == 0, "text": out, "model": model,
+            "why": "" if out and r.returncode == 0 else f"exit {r.returncode}" + (f"; {model} marked unavailable {gone}" if gone else "")}
+
+
 # ---- the one journal ---------------------------------------------------------------------------------------------------
 def journal_path(data=None):
     from .friction import state_dir

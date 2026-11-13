@@ -2,7 +2,7 @@
 session burned the 5-hour quota). Deterministic: no network, no model, no third-party router (LiteLLM, Portkey,
 RouteLLM and Langfuse are doors to a vendor; the same three moves are done here with a score and a table).
 
-    choice()                  -> {mode, ceiling, accepted, fresh}: the owner's one accept per day, else the cheap defaults
+    choice()                  -> {mode, ceiling, accepted, fresh}: the owner's last accept (kept until changed), else the cheap defaults
     set_choice(mode, ceiling) the accept (`fieldkit route choose --mode solo --model sonnet`)
     assess(text, plan)        -> {score, rung, reasons}: the cheapest rung the brief's risk needs
     route(text, requested, pin) -> {model, rung, ceiling, action, why}; action is use | downgrade | capped | park
@@ -70,8 +70,9 @@ def _rung_of(model, ladder):
 
 
 def choice(data=None, today=None):
-    """-> {mode, ceiling, accepted (date or ""), fresh}. A missing, stale or damaged accept gives the data's cheap
-    defaults (solo, sonnet): an unattended run is never blocked and never silently gets more than that."""
+    """-> {mode, ceiling, accepted (date or ""), fresh}. The last accepted choice stays in force until
+    the owner changes it (a date change never refuses a running or queued job); `fresh` only says it was made today,
+    so the room hook can remind. A missing or damaged accept gives the data's cheap defaults (solo, sonnet)."""
     d = data or load()
     out = {"mode": d["mode"], "ceiling": d["ceiling"], "accepted": "", "fresh": False}
     env = os.environ.get("FIELDKIT_ROUTING_MODE")
@@ -81,9 +82,9 @@ def choice(data=None, today=None):
         c = json.loads(_choice_path().read_text(encoding="utf-8"))
         day = time.strptime(c["accepted"], "%Y-%m-%d")
         age = ((today or time.time()) - time.mktime(day)) / 86400
-        if c["mode"] in MODES and _rung_of(c["ceiling"], d["ladder"]) >= 0 and age < d.get("accept_valid_days", 1):
+        if c["mode"] in MODES and _rung_of(c["ceiling"], d["ladder"]) >= 0:
             out.update(mode=env if env in MODES else c["mode"], ceiling=c["ceiling"], accepted=c["accepted"],
-                       fresh=True)
+                       fresh=age < d.get("accept_valid_days", 1))
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return out
@@ -359,11 +360,11 @@ def hook_line(call, event, data=None, ch=None):
         ch = ch or choice(d)
         out = []
         if not ch["fresh"]:
-            out.append("ROUTE: the owner has not chosen today's mode. Ask them ONCE, first thing in your reply, in "
-                       "plain words: 'Solo (one job at a time, cheapest) or Multiplayer (several jobs, other "
+            out.append(f"ROUTE: the owner has not confirmed today's mode (the last choice, {ch['mode']} + {ch['ceiling']}, "
+                       "stays in force). Ask them ONCE, first thing in your reply, in plain words: 'Solo (one job at a time, cheapest) or Multiplayer (several jobs, other "
                        "devices)? And the strongest model a job may use: Fable, Opus, Sonnet or Haiku?' Then run "
-                       "`fieldkit route choose --mode solo|multi --model NAME`. Until they answer: solo + "
-                       f"{ch['ceiling']}. Jobs are routed to the cheapest model that fits, never above that choice; a "
+                       "`fieldkit route choose --mode solo|multi --model NAME`. Until they answer: "
+                       f"{ch['mode']} + {ch['ceiling']}. Jobs are routed to the cheapest model that fits, never above that choice; a "
                        "job that needs Fable is parked for them.")
         if w and w["fraction"] >= d["window"]["warn_fraction"]:
             out.append(f"ROUTE: the {d['window']['hours']}-hour window is {w['fraction']:.0%} spent (${w['usd']:.2f}); "
@@ -429,7 +430,7 @@ def main(argv=None):
         from . import tasks
         ok, why = admit(tasks.ledger(), None, data=d, ch=ch)
         print(f"MODE  {ch['mode']}  strongest {ch['ceiling']}  accept {ch['accepted'] or 'none (cheap defaults)'}"
-              f"{'' if ch['fresh'] else '  STALE'}")
+              f"{'' if ch['fresh'] else '  (not confirmed today; stays in force)'}")
         print(f"ROOM  {why}")
         from . import models
         for line in models.unavailable_lines() or ["MODELS  every model is available"]:
