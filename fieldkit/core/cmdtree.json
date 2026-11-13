@@ -3863,6 +3863,16 @@
      "open": false,
      "v": {}
     },
+    "record-files": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--key": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "report": {
      "c": [],
      "f": {
