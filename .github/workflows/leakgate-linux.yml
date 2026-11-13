@@ -75,7 +75,14 @@ jobs:
         if: always()
         run: |
           sudo chown -R "$(id -u):$(id -g)" out 2>/dev/null || true
-          test -d out/artifact && ls -l out/artifact | head -40
+          if [ ! -d out/artifact ]; then
+            # the run died before collect: keep whatever it wrote (small text files only, never the .deb or a pcap)
+            mkdir -p out/artifact
+            find out/runs -maxdepth 2 -type f -size -5000k \( -name '*.json' -o -name '*.jsonl' -o -name '*.txt' -o -name '*.log' -o -name '*.observed' -o -name '*.new' \) \
+              -exec cp --parents {} out/artifact/ \; 2>/dev/null || true
+            echo "no verdict: the run stopped early; partial files kept" > out/artifact/crash.txt
+          fi
+          ls -l out/artifact | head -40
       - uses: actions/upload-artifact@v4
         if: always()
         with:

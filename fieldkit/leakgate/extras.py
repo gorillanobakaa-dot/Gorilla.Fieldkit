@@ -237,10 +237,14 @@ def tls_details(pcap_path, local_ports):
     hellos, servers = {}, {}
     if not Path(pcap_path).is_file():
         return []
-    with open(pcap_path, "rb") as f:
-        for _ts, buf in dpkt.pcapng.Reader(f):
+    from . import pcapio
+    try:
+        frames = list(pcapio.packets(pcap_path))        # either format; an unreadable capture is no TLS detail, never a crash
+    except Exception:  # noqa: BLE001
+        return []
+    if True:
+        for _ts, ip in frames:
             try:
-                ip = dpkt.ethernet.Ethernet(buf).data
                 tcp = ip.data
                 if not isinstance(tcp, dpkt.tcp.TCP):
                     continue

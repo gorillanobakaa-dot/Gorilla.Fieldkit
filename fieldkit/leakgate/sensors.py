@@ -663,22 +663,16 @@ def parse_pcap(path, local_ports, canaries=(), owners=None, names=None):
     """-> events from frames: SNI/TCP/UDP of the browser's ports, every DNS query on the wire in the window,
     canaries in any non-loopback payload. With `owners` (PortOwners), a packet from a port that another program held
     at that moment is reported as kind "foreign-packet" (named, never hidden) instead of as the browser's."""
-    import dpkt
+    from . import pcapio
     if not Path(path).is_file():
         return []
-    with open(path, "rb") as f:
-        try:
-            reader = dpkt.pcapng.Reader(f)
-        except Exception:
-            return []
-
-        def frames():
-            for _ts, buf in reader:
-                try:
-                    yield _ts, dpkt.ethernet.Ethernet(buf).data
-                except Exception:
-                    continue
-        return frames_events(frames(), local_ports, canaries, owners, names)
+    try:
+        reader = pcapio.packets(path)
+        first = next(reader, None)
+    except Exception:
+        return []
+    import itertools
+    return frames_events(itertools.chain([first] if first else [], reader), local_ports, canaries, owners, names)
 
 
 def frames_events(frames, local_ports, canaries=(), owners=None, names=None, all_local=False, local_ips=()):

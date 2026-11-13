@@ -212,3 +212,18 @@ def lines(r):
     return [f"LEAKGATE-CI PACKED: {r['context']} ({r['source_files']} source files, {r['source_bytes']:,} bytes, "
             f"previous: {r['previous_files']} files, lock {'yes' if r['has_previous_lock'] else 'NO'}); "
             f".deb {r['deb']['name']} sha256 {r['deb']['sha256']}"]
+
+
+def collect_partial(out_dir, error):
+    """The gate crashed: put what the runs already wrote (events, artifacts.json, small text files) plus the error into
+    OUT_DIR/artifact, so a late crash never loses the runs done. -> the folder, or None when nothing was written."""
+    out = Path(out_dir)
+    runs = sorted((p for p in (out / "runs").glob("*") if p.is_dir()), key=lambda p: p.stat().st_mtime) if (out / "runs").is_dir() else []
+    art = out / "artifact"
+    art.mkdir(parents=True, exist_ok=True)
+    (art / "crash.txt").write_text(f"the gate stopped before its verdict: {error}\n", encoding="utf-8")
+    if runs:
+        for p in runs[-1].iterdir():
+            if p.is_file() and p.stat().st_size < 5_000_000 and p.suffix in (".json", ".jsonl", ".observed", ".new", ".txt", ".md", ".log"):
+                shutil.copyfile(p, art / p.name)
+    return art
