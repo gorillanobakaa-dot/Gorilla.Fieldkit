@@ -273,6 +273,19 @@ def reap_orphans():
     return n
 
 
+def _kids_sig(pid):
+    """Linux: the direct children of a process, from /proc/<pid>/task/*/children (a few small reads, no table walk).
+    None where /proc has no such file (kernel without CONFIG_PROC_CHILDREN, other systems)."""
+    try:
+        out = []
+        for t in os.listdir(f"/proc/{pid}/task"):
+            with open(f"/proc/{pid}/task/{t}/children", "rb") as f:
+                out.append(f.read())
+        return b" ".join(out)
+    except (OSError, ValueError):
+        return None
+
+
 def zombie_children(pid=None):
     """-> how many zombie direct children a process has (psutil; the check in `fieldkit liveness` and the tests)."""
     if psutil is None:
@@ -344,7 +357,8 @@ class Container:
         self._lock = threading.Lock()
         self._snap_at = 0.0               # when members() last walked the process table
         self._snap = {}
-        self._sig = None                  # the direct-children signature at that walk (a change = a new member)
+        self._dirty = False               # an event (root exit, a reaped orphan) made the snapshot stale
+        self._sig = None                  # children signature at the last walk (Linux)
 
     # -- start
     def popen(self, cmd, **kw):
@@ -377,12 +391,24 @@ class Container:
         than TRACK_S (the supervisor's per-second tick; the walk costs time in proportion to every process on the
         machine). kill() and close() always walk fresh."""
         now = time.monotonic()
-        sig = _children_sig(self.root)
-        if not fresh and self._snap and now - self._snap_at < TRACK_S and sig == self._sig:
+        if not fresh and self._snap and now - self._snap_at < TRACK_S and not self._dirty and not self._changed():
             return dict(self._snap)
+        self._sig, self._dirty = self._signature(), False
         out = self._walk()
-        self._snap, self._snap_at, self._sig = out, time.monotonic(), sig
+        self._snap, self._snap_at = out, time.monotonic()
         return dict(out)
+
+    def _signature(self):
+        """What changes when membership can have changed: our own direct children (a re-parented orphan appears
+        there under the subreaper) and the root's. None = cannot tell (then only the TRACK_S age refreshes)."""
+        if not sys.platform.startswith("linux") or self.root is None:
+            return None
+        a, b = _kids_sig(os.getpid()), _kids_sig(self.root)
+        return None if a is None and b is None else (a, b)
+
+    def _changed(self):
+        sig = self._signature()
+        return sig is not None and sig != self._sig
 
     def _walk(self):
         out = {}
@@ -443,8 +469,11 @@ class Container:
                     self.tracked.pop(pid, None)     # gone for good: the pile must not grow with the job's age
         return out
 
-    def track(self):
-        """Record every live member (pid + creation time) and tell the beacon. -> the members."""
+    def track(self, stale=False):
+        """Record every live member (pid + creation time) and tell the beacon. -> the members. stale=True: membership
+        can have changed since the last walk (the root exited, a re-parented child was reaped): walk fresh."""
+        if stale:
+            self._dirty = True
         m = self.members(fresh=False)
         with self._lock:
             new = {p: c for p, c in m.items() if p not in self.tracked}
@@ -574,8 +603,7 @@ class Container:
                         break
                     except subprocess.TimeoutExpired:
                         pass
-                    reap_orphans()
-                    self.track()
+                    self.track(stale=bool(reap_orphans()))
                     if on_tick:
                         try:
                             on_tick()
@@ -605,8 +633,7 @@ class Container:
                         break
                 leftovers = []
                 if status is None:
-                    self.members()                       # a fresh walk: the end of a step is never read from the cache
-                    self.track()
+                    self.track(stale=True)          # the root just exited: its orphans are the leftovers
                     live = {k: v for k, v in self.members().items() if k != p.pid}
                     if live and not self.keep_leftovers:
                         leftovers = self.kill("leftover")
@@ -837,8 +864,7 @@ def wait_inherit(cmd, label="", deadline_s=None, on_tick=None):
                 rc = p.wait(timeout=POLL_S)
                 return rc
             except subprocess.TimeoutExpired:
-                reap_orphans()
-                c.track()
+                c.track(stale=bool(reap_orphans()))
                 if on_tick:
                     on_tick()
                 if deadline_s and time.monotonic() >= t0 + deadline_s:

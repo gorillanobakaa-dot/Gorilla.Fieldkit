@@ -3808,20 +3808,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_teach.py", "${FIELDKIT}/tests/test_teach_propose.py"]
 
 - id: sitrep
-  title: "A situation report a reader can take in a few seconds at a time: template, check, render (six languages), doctor"
+  title: "A situation report a reader can take in a few seconds at a time: template, check, render (six languages), doctor; gather = every fact collected with no model (P34)"
   harness: sitrep
   entry: [python, -m, fieldkit, sitrep]
   path: ${FIELDKIT}/fieldkit/sitrep/__init__.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "template | check | render | example | doctor"}
+    - {name: action, flag: null, type: str, required: true, help: "template | check | render | example | doctor | gather"}
     - {name: file, flag: null, type: str, required: false, help: "the filled-in report, for check and render"}
     - {name: lang, flag: --lang, type: str, required: false, help: "heading language: en es pt it de ro"}
     - {name: order, flag: --order, type: str, required: false, help: "ask-first (default) or classic"}
     - {name: md, flag: --md, type: bool, required: false, help: "render as markdown"}
+    - {name: render, flag: --render, type: bool, required: false, help: "gather: the facts as a checked report, no model"}
+    - {name: words, flag: --words, type: bool, required: false, help: "gather: one Haiku call writes the prose"}
+    - {name: hours, flag: --hours, type: int, required: false, help: "gather: tasks that ended within this many hours"}
   effects: [reads-files]
   safety: read-only
   platforms: [linux, darwin, windows, freebsd]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sitrep.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sitrep.py", "${FIELDKIT}/tests/test_sitrep_gather.py"]
   skill: skills/fieldkit-sitrep/SKILL.md
 
 - id: explain
@@ -7491,3 +7494,31 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
+
+- id: keeper-tick
+  title: "Work never waits for a model turn: one deterministic pass (a timer runs it every 5 min while a task, PR or queued brief is open) updates BEHIND PRs, starts one fix job for a red PR and one restart for a dead task, starts queued briefs into free slots, wakes Zero when only a model can decide, and journals each action (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, keeper, tick]
+  path: ${FIELDKIT}/fieldkit/lifecycle/keeper.py
+  inputs:
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "show what it would do, change nothing"}
+  effects: [processes, writes-files, network]
+  safety: reversible
+  headline: "KEEPER: N action(s), what it did and why; the timer is installed while anything is open and removed when nothing is."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py"]
+  notes: "P9, 2026-11-12: Zero ended a turn with jobs in flight and nothing woke it for 5.5 h. Rules are data in fieldkit/lifecycle/keeper.yaml; the timer reuses zero/schedule (systemd user timer, Task Scheduler). The Stop hook (tokens/rotate.py) warns when Zero ends a turn with work open and no keeper timer. Mutation plan tests/keeper_mutations.yaml."
+
+- id: idle-report
+  title: "Where work was open and nothing acted: the gaps in the last N hours from the room, task and PR timestamps (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, idle, report]
+  path: ${FIELDKIT}/fieldkit/lifecycle/idle.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "window, e.g. 24h (default 24h)"}
+  effects: [reads-files]
+  safety: safe
+  headline: "N idle gap(s) in the window, each with start, end and length."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py", -k, idle]
+  notes: "P9. The recorded fixture tests/fixtures/idle_2026_11_12.json shows 2026-11-12 05:41 to 11:18 as one gap of 5 h 37 min."

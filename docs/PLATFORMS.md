@@ -93,7 +93,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 ## Beyond cards: pipelines, skills, workflows, hooks, modules
 
-30 records: 0 Windows-only, 0 Linux-only, 15 on both but different, 15 native-only.
+31 records: 0 Windows-only, 0 Linux-only, 15 on both but different, 16 native-only.
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
@@ -126,7 +126,8 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:kernel-7.0.9-unleashed` | linux | windows | NATIVE-ONLY | CREATE | the Linux kernel is built only on Linux; Windows has no kernel to build | M |  | fieldkit/emerge/recipes/kernel-7.0.9-unleashed.yaml:37 |
 | `stage:windows-11-tweaks` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX) | M |  | fieldkit/emerge/recipes/windows-11-tweaks.yaml:40 |
 | `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:32 |
-| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:27 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:30 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:72 |
 
 ## How each single-system command is routed (core/crossos.py)
 

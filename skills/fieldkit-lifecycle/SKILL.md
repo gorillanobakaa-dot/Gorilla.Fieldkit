@@ -86,3 +86,5 @@ until it does.
 
 The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, Codex AGENTS.md); check with
 `fieldkit sessions doctor`.
+
+`fieldkit keeper tick` (timer-run every 5 min while work is open; installs itself on `task start`) keeps work moving when no model turn runs: BEHIND PR update, one fix job, one restart, queued briefs, wake Zero. `fieldkit idle report --since 24h` lists the gaps where work was open and nothing acted.
