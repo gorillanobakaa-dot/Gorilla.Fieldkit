@@ -1,0 +1,25 @@
+- file: fieldkit/appcapture/__init__.py
+  swap:
+  - '    return {**rec, "path": redact.text(rec["path"]), "req_headers": redact.headers(rec["req_headers"]),'
+  - '    return {**rec, "path": rec["path"], "req_headers": rec["req_headers"],'
+  why: every flow is redacted before it is printed
+- file: fieldkit/appcapture/__init__.py
+  swap:
+  - '        return p.status() != psutil.STATUS_ZOMBIE and abs(p.create_time() - float(ctime)) <= CT_TOL'
+  - '        return p.status() != psutil.STATUS_ZOMBIE'
+  why: PID plus creation time, a reused number is never ours
+- file: fieldkit/appcapture/__init__.py
+  swap:
+  - '"SSL_CERT_FILE": b, "REQUESTS_CA_BUNDLE": b, "NODE_EXTRA_CA_CERTS": b,'
+  - '"REQUESTS_CA_BUNDLE": b, "NODE_EXTRA_CA_CERTS": b,'
+  why: the Go language server trusts the mitm CA through SSL_CERT_FILE
+- file: fieldkit/appcapture/redact.py
+  swap:
+  - '    (re.compile(r"ya29\.[\w.\-]+"), "ya29.<redacted>"),'
+  - '    (re.compile(r"ya29X\.[\w.\-]+"), "ya29.<redacted>"),'
+  why: Google OAuth access tokens are redacted
+- file: fieldkit/appcapture/redact.py
+  swap:
+  - '    return {k: ("<redacted>" if k.lower() in SECRET_HEADERS else text(v)) for k, v in (h or {}).items()}'
+  - '    return {k: text(v) for k, v in (h or {}).items()}'
+  why: Authorization and Cookie headers are blanked

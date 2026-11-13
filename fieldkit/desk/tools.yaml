@@ -6259,6 +6259,47 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_procs.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Born 2026-11-12 (P37): five runbook runners burned 70-83 % of a core for hours behind 2,000-8,000 zombies each. Trees come from the liveness beacons (state/liveness/runs) and the hog registry (state/hog/pids.jsonl; a detached service records itself with procs.record: the thermal governor, the link listener and relay). A zombie can only be collected by its own parent: the subreaper supervisor reaps in its own tick; a foreign supervisor's pile is named with its PID, never faked. Wired into `fieldkit hog check|watch` and `fieldkit task watch --act` (the keeper). CI: 0 zombies after a 2000-child run (ubuntu), 0 orphans after a contained run (both). Mutations: tests/procs_mutations.yaml."
+- id: appcapture
+  title: "Capture a desktop app's REAL requests through a local proxy (HTTPS_PROXY + CA bundle, restart by PID), list endpoints, show bodies with tokens redacted - observe the real client before writing any client code"
+  harness: desk
+  entry: [python, -m, fieldkit, appcapture]
+  path: ${FIELDKIT}/fieldkit/appcapture/__init__.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: true, choices: [start, show, stop, recycle, status], help: "start (proxy + restart the app by recorded PID), show (endpoints; --bodies for redacted bodies), stop (by PID; --recycle), recycle (flows to the trash), status"}
+    - {name: app, flag: null, type: str, required: false, help: "app profile name (fieldkit/appcapture/apps.yaml)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments"}
+  platforms: [linux, windows]
+  platforms_why: "Proxy variables and CA bundles work the same on both; the app profile names the per-OS executable. Not run on Windows or macOS yet."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_appcapture.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Born 2026-11-13: a model faked Antigravity model ids for a day; the real app, seen through mitmdump, answered it in minutes. Printed output is always redacted (ya29., 1//, AIza, JWT, Bearer, Authorization, cookies: fieldkit/appcapture/redact.py); raw flows stay in the owner-only scratch folder appcapture-APP and are never copied to a repo. Mitmproxy runs on its own venv interpreter with -I. Mutations: tests/appcapture_mutations.yaml. Procedure and the 7 DO NOTs: docs/APP-TRAFFIC-FIRST.md."
+
+- id: modelcatalog
+  title: "Check a client's model ids, user agent, headers and catalogue against what the backend really returned (from an appcapture) - invented ids, hardcoded UA versions, 404 probes fail with exit 3"
+  harness: desk
+  entry: [python, -m, fieldkit, modelcatalog]
+  path: ${FIELDKIT}/fieldkit/modelcatalog/__init__.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: true, choices: [verify], help: "verify"}
+    - {name: provider, flag: --provider, type: str, required: false, help: "provider profile (fieldkit/modelcatalog/providers.yaml), default antigravity"}
+    - {name: app, flag: --app, type: str, required: false, help: "take the reference flows from this appcapture"}
+    - {name: client_src, flag: --client-src, type: str, required: false, help: "client source folder to scan for invented ids and hardcoded UA"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments", 3: "findings: invented id, hardcoded UA, wrong body, 404 probe"}
+  platforms: [linux, windows]
+  platforms_why: "Pure Python reading files; no OS-specific call."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_modelcatalog.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Born 2026-11-13 with appcapture. Signatures for the failures it names: fieldkit/build/signatures/model-backend.yaml. Mutations: tests/modelcatalog_mutations.yaml."
+
 - id: liveness
   title: "Process liveness - every harness long run (goal supervisor, runbook, emerge, pipeline, link job) OK, STALLED or ORPHAN; --act stops the harness's own orphans and overdue steps by PID + creation time; the named failure modes and their checks"
   harness: desk

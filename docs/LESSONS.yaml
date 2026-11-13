@@ -74,3 +74,15 @@ lessons:
     tool: fieldkit ship push --tag refuses (exit 3, with the fix command) unless version, notes, page, CI on every mandate ci_os and a free tag all hold at the tagged commit; fieldkit ship release-ready vX is the dry run; ship gh-release does nothing when release.yml publishes on tags
     pr: feat/tag-guard
     test: tests/test_tag_guard.py
+  - id: L-20261113-1
+    date: 2026-11-13
+    what: A model faked Antigravity model ids (guessed ids, injected catalogue entries, hardcoded a user-agent version, probed with wrong requests, rebuilt twice); a capture of the real app answered it in minutes.
+    tool: fieldkit appcapture (observe the real client, tokens redacted) and fieldkit modelcatalog verify (invented ids, hardcoded UA, 404 probes exit 3)
+    pr: feat/app-traffic-first
+    test: tests/test_modelcatalog.py
+  - id: L-20261113-2
+    date: 2026-11-13
+    what: thermal sensors prove_live killed its load processes without wait(); a thermal watch held 4 zombies for 83 hours.
+    tool: fieldkit/thermal/sensors.py waits for every child it kills; load comes from fieldkit/thermal/burn.py instead of python -c
+    pr: feat/app-traffic-first
+    test: tests/test_thermal.py

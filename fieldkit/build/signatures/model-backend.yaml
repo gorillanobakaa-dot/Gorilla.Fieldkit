@@ -1,0 +1,31 @@
+# Model-backend failures seen when a client talks to a model service (Antigravity first), 2026-11-13.
+# The cure is never a guess: capture the REAL app (`fieldkit appcapture`) and compare (`fieldkit modelcatalog verify`).
+success: []
+
+signatures:
+- id: antigravity-entity-not-found
+  pattern: 'Requested entity was not found|\(HTTP 404\).*(generateContent|streamGenerateContent|antigravity)|antigravity.*404'
+  check: null
+  whole_log: true
+  source: lesson
+  sample: 'Error: Requested entity was not found. (HTTP 404) model gemini-4-hydrogen-medium'
+  cause: >-
+    The backend does not know that model id for this account. Almost always the client invented or guessed the id, or
+    its catalogue request differs from the real app's (the app sends fetchAvailableModels with a body; an empty body
+    returns a shorter list). Faking catalogue entries, bumping the UA version or probing with an empty body does not
+    help (2026-11-13, Gorilla.Opencode).
+  fix: >-
+    fieldkit appcapture start antigravity, use the app once, fieldkit appcapture show antigravity --path fetchAvailableModels,
+    then fieldkit modelcatalog verify --provider antigravity --app antigravity --client-src DIR. Copy the real request shape and
+    the real ids. docs/APP-TRAFFIC-FIRST.md.
+
+- id: catalogue-fake-entries
+  pattern: 'Reported by the backend'
+  check: null
+  whole_log: true
+  source: lesson
+  sample: 'Hydrogen Medium  (gemini-4-hydrogen-medium)  Reported by the backend'
+  cause: >-
+    A picker label is not evidence: a client that injects entries into its own list prints the same label. Seen
+    2026-11-13 for four ids the backend never returned.
+  fix: "Compare with the backend's own reply, not the label - fieldkit modelcatalog verify (check catalogue-not-reported)."
