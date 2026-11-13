@@ -277,6 +277,11 @@ def _once(a, ledger, notes):
     ids = {x.strip() for x in (getattr(a, "arg", None) or "").split(",") if x.strip()} or None
     found = findings(led, stalled_min=a.stalled, hours=a.hours, notes=notes, ids=ids)
     done = act(found, led=led) if a.act else []
+    if a.act:                                   # the keeper's pass also reaps Fieldkit's own process trees (P37)
+        from ..core import procs
+        line = procs.pass_line(act=True)
+        if not line.startswith("procs: OK") and not a.json:
+            print(line)
     over = ended(led, ids) if ids else None
     if a.json:
         print(json.dumps({"findings": found, "done": done, "new_reports": len(new), "ended": over},

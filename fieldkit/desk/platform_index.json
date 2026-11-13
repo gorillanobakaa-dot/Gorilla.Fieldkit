@@ -2898,6 +2898,16 @@
    "privacy-scan"
   ]
  },
+ "procs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Linux: zombies and the child subreaper (contain.reap_orphans). Windows: no zombies; orphaned trees and the job object give the same verdicts. macOS has no subreaper (prctl) and no test runner here: not claimed.",
+  "ids": [
+   "procs"
+  ]
+ },
  "publish": {
   "platforms": [
    "linux",
