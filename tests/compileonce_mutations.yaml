@@ -1,0 +1,20 @@
+- file: fieldkit/compileonce/__init__.py
+  swap:
+  - '            if (rel, rid) in allow:'
+  - '            if True:'
+  why: a hit outside the allow list is a finding
+- file: fieldkit/compileonce/__init__.py
+  swap:
+  - '    stale = sorted(a for a in allow if a not in used and (root / a[0]).exists())'
+  - '    stale = []'
+  why: an allow row that matches nothing is reported
+- file: fieldkit/compileonce/__init__.py
+  swap:
+  - '    return 3 if bad else 0'
+  - '    return 0'
+  why: a finding exits 3
+- file: fieldkit/thermal/sensors.py
+  swap:
+  - '            p.wait(timeout=5)'
+  - '            pass'
+  why: a killed load process is collected, never left defunct

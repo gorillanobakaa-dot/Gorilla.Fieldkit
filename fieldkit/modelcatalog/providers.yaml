@@ -1,0 +1,17 @@
+# Model-catalogue providers, as data. `fieldkit modelcatalog verify` compares what a client sends and shows with what the
+# REAL app sends and the backend reports (captured with `fieldkit appcapture`). Add a provider here, not in code.
+providers:
+  antigravity:
+    list_path: "fetchAvailableModels"          # a flow whose path contains this is the catalogue call
+    chat_paths: ["generateContent", "streamGenerateContent"]
+    id_regex: '(?:gemini|claude|gpt|orchestrator)[\w.\-]*'     # what a model id looks like (keys and string values)
+    ua_header: user-agent
+    ua_version_regex: 'antigravity/(?:[\w]+/)?(\d+\.\d+\.\d+)'
+    # a literal like "antigravity/hub/2.31.2" in client source: the version moves with the app, so it is read, not typed
+    source_ua_literal: '["''`]antigravity/[^"''`]*\d+\.\d+\.\d+[^"''`]*["''`]'
+    source_globs: ["*antigravity*"]
+    source_suffixes: [".go", ".py", ".ts", ".js", ".rs"]
+    source_skip: ["_test.go", "test_", "/vendor/", "/node_modules/", "/testdata/"]
+    # a line with one of these markers is an explicit, user-set opt-in (never part of the default catalogue)
+    source_allow_markers: ["EXTRA_MODELS"]
+    not_found_text: ["Requested entity was not found", "NOT_FOUND"]
