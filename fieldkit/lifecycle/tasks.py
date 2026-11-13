@@ -347,10 +347,39 @@ def gate(tid, task, result, reviewer=None, fixer=None):
     return v
 
 
+class E2EMissing(ValueError):
+    """A port-to-an-OS task reported done without the end-to-end CI job that proves it ran there (plan P37)."""
+
+
+def e2e_refusal(task, note, root="."):
+    """-> the sentence refusing `done`, or ''. A task whose brief ports a feature to an OS is done only when its brief
+    (an `E2E: JOB` line) or its done note names a job of .github/workflows that exists."""
+    from . import brieflint
+    b = task.get("brief")
+    try:
+        text = Path(b).read_text(encoding="utf-8") if b and Path(b).is_file() else ""
+    except OSError:
+        text = ""
+    if not brieflint.ports_to_os(text or task.get("title", "")):
+        return ""
+    jobs = brieflint.e2e_jobs(root)
+    named = brieflint.e2e_named(text)
+    if named and named in jobs:
+        return ""
+    if any(j in (note or "") for j in jobs):
+        return ""
+    return ("this task ports a feature to an OS, and `done` needs the end-to-end CI job that RAN it there: name a job "
+            "of .github/workflows in --note (e.g. e2e-leakgate-linux), or `E2E: JOB` in the brief")
+
+
 def report(tid, status, branch="", pr="", note="", source="local", reviewer=None, fixer=None):
     if status not in STATUSES[1:]:
         raise ValueError(f"status is one of {', '.join(STATUSES[1:])}")
     task = ledger().get(tid) or {}
+    if status == "done" and source != "verdict":
+        why = e2e_refusal(task, note)
+        if why:
+            raise E2EMissing(why)
     verdict = {}
     if status == "done" and task.get("accept") and source != "verdict":
         verdict = gate(tid, task, note, reviewer, fixer) or {}
