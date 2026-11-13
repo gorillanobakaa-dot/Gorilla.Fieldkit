@@ -3079,6 +3079,8 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+    from .core import asuser
+    asuser.adopt()                                   # under sudo: act for the invoking user (P27), files chowned back at exit
     args = sys.argv[1:] if argv is None else list(argv)
     # The platform gate (2026-10-20), never a refusal since P9 (2026-11-11): a command whose card names another
     # system runs its equivalent here, runs on the other machine over the cable, or says not-this-platform and exits
