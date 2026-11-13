@@ -444,9 +444,15 @@ def _ear(call, event):
                 pass
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(str(time.time()), encoding="utf-8")
-        return ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
+        full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
                 f"call. Start your ear as its own background command (Bash run_in_background): {link_relay.ear_line(me)}"
                 " ; when it ends, read what it printed and start it again with the line it prints")
+        # P37 (hook text on a budget): every injected line stays in the conversation, so the 450-byte line is said in
+        # full once per session; the nag after it is the short one (same frequency, the line is already in context)
+        if only_new(call["session_id"] + ".ear", full):
+            return full
+        from .. import rules_song
+        return rules_song.policy()["hooks"]["ear_short"]
     except Exception:
         return ""
 
@@ -541,7 +547,15 @@ def _context(call, event):
     ctx = _ideas(call, event, ctx)
     ctx = _refusals(call, event, ctx)
     ctx = _workflows(call, event, ctx)
-    return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx), _ear(call, event)) if x)
+    out = "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx), _ear(call, event)) if x)
+    try:                                              # P37: the riders on a byte budget, and what was injected counted
+        from .. import rules_song
+        out = rules_song.apply_cap(out, event)
+        if out:
+            rules_song.record(event, len(out.encode("utf-8")), call.get("session_id"))
+    except Exception:
+        pass
+    return out
 
 
 def pretool(call):

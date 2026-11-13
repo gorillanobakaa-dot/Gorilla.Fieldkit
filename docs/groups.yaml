@@ -156,6 +156,7 @@ groups:
       - review_verdict.py
       - rules.py
       - rules_lint.py
+      - rules_song.py
       - suite_offload.py
       - testsplit.py
 

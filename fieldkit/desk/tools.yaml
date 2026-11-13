@@ -957,6 +957,24 @@ tools:
   safety: reversible   # it changes nothing, but it asks for sudo (admin) to read root-only sensors, so not read-only
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sensors_gorilla.py"]
 
+- id: rules-song
+  title: "One song sheet: every project's agent instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md frontmatter, memory index) inventoried with tokens, linted for duplicates, conflicts and a token budget, hashed for sameness on both laptops, and the bytes each hook injects per turn"
+  harness: core
+  entry: [python, -m, fieldkit, rules]
+  path: ${FIELDKIT}/fieldkit/rules_song.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "inventory (files, tokens, loader, tracked), lint (use --files: duplicates, conflicts, budget), sync (hash manifest, --against the other laptop's), hooks (bytes per hook event)", choices: [inventory, lint, sync, hooks]}
+    - {name: files, flag: --files, type: flag, required: false, help: "lint: the instruction files (required to reach this lint; plain lint checks rules/rules.yaml)"}
+    - {name: against, flag: --against, type: str, required: false, help: "sync: the other laptop's manifest (JSON from rules sync --json)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "sync: refresh the private store (state/rules-store/) from this machine's untracked project files"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON document"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "clean", 3: "findings (duplicate, conflict, over budget, files differ, hook over its cap)"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rules_song.py"]
+
 - id: thermal-profile-daemon
   title: Step the Sony VAIO's firmware fan profile (silent, balanced, performance, forced) with the temperature (Linux)
   harness: desk
