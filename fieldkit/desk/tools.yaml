@@ -5235,6 +5235,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", "${FIELDKIT}/tests/test_leakgate_actions_run.py", "${FIELDKIT}/tests/test_leakgate_sensors.py"]
   notes: "DANGEROUS TO THE OWNER'S SESSION: 'quiet machine' stops every user app that holds a network socket or is on the quiet list, by PID, and a holder re-checks every 2 s until the gate ends (autopilot/quiet.py) - unsaved work in those apps is lost. Starts mitmdump and browser copies (stops its own by PID). Lets the build copies reach the real network (that is the measurement). Windows: --release asks UAC for the elevated pktmon helper; with admin it enables the DNS-Client event log (restored afterwards per dnsclient_restore - not traced); --firewall adds and removes an outbound rule. Linux: needs root (network namespace, nftables). Writes the run folder and <owner>/state/leakgate_result.json (the publish gate reads it). Hours for a release run: use bh-window."
 
+- id: bh-leakgate-ci
+  title: The Linux leak gate on a GitHub ubuntu runner (kernel with no veth) - pack the context here, run there, record the result here
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-ci]
+  path: ${FIELDKIT}/fieldkit/leakgate/ci.py
+  inputs:
+    - {name: sub, required: true}
+    - {name: task, required: false}
+    - {name: deb, required: false}
+  effects: [writes-files]
+  safety: bounded
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_ci.py"]
+  notes: "pack and record run on the owner's machine, run only on the runner (root, veth: .github/workflows/leakgate-linux.yml, docs/LEAKGATE-GITHUB.md). THREAT MODEL: GitHub (Microsoft) sees the .deb, the context and every packet log of the run; the repository is public so the run's log is readable by anyone; the .deb travels in a DRAFT release, never as an artifact; the verdict is the gate's own, record never edits it and refuses a result for another binary or with a policy missing."
+
 - id: bh-leakgate-selftest
   title: Can the leak gate run on this Linux machine (root, ip, nft, ...)? Changes nothing; needs no task
   harness: build
