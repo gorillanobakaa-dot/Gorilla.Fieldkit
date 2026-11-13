@@ -258,6 +258,8 @@ def start_serve(popen=subprocess.Popen):
               stdin=subprocess.DEVNULL, creationflags=flags, start_new_session=(os.name != "nt"),
               env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2])))
     (link.home() / "serve.pid").write_text(str(p.pid))
+    from ..core import procs
+    procs.record(p.pid, "link-listener", "the cable listener started by link setup")
     return p.pid
 
 

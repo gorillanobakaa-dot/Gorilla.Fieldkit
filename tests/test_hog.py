@@ -303,7 +303,7 @@ def test_orphan_classes(cfg):
     assert rules.orphan_class("firefox.exe", "firefox.exe -headless", c) == "browser"
     assert rules.orphan_class("python.exe", "python -m fieldkit peers link serve", c) == "link-listener"
     assert rules.orphan_class("python.exe", "python -P -m fieldkit peers link relay listen", c) == "link-relay"
-    assert set(cfg["service_classes"]) == {"link-listener", "link-relay"}
+    assert set(cfg["service_classes"]) == {"link-listener", "link-relay", "thermal-governor"}
     assert rules.orphan_class("WINWORD.EXE", "WINWORD.EXE", c) is None
     assert rules.orphan_class("python.exe", "python -m fieldkit hog watch", c) is None
 

@@ -1,6 +1,7 @@
 """P37: a supervisor that is the child subreaper must reap every exited orphan each tick (no zombie pile) and keep
 its tick cheap. The driver runs in its own process: becoming the subreaper is permanent for a process."""
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -66,3 +67,31 @@ def test_a_popen_child_of_the_supervisor_keeps_its_exit_status():
     ''')
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "7", out
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux") or not os.path.exists(f"/proc/{os.getpid()}/task/{os.getpid()}/children"),
+                    reason="the children signature needs /proc/<pid>/task/<tid>/children (CONFIG_PROC_CHILDREN)")
+def test_a_new_child_is_seen_inside_the_snapshot_window(tmp_path):
+    """The cached snapshot (TRACK_S) is refreshed when the root's direct children change: a member born after the first
+    walk is in the very next members(fresh=False), not 15 s later (the beacon test of 487)."""
+    import os
+    import time
+    from fieldkit.core import contain
+    go, pidf = tmp_path / "go", tmp_path / "kid.pid"
+    script = ("import os, subprocess, sys, time\nwhile not os.path.exists(sys.argv[1]): time.sleep(0.05)\n"
+              "k = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+              "open(sys.argv[2], 'w').write(str(k.pid))\ntime.sleep(30)\n")
+    c = contain.Container("sig-test")
+    p = c.popen([sys.executable, "-c", script, str(go), str(pidf)])
+    try:
+        before = c.members(fresh=False)
+        go.write_text("x")
+        end = time.time() + 20
+        while not pidf.exists() and time.time() < end:
+            time.sleep(0.05)
+        time.sleep(0.2)
+        kid = int(pidf.read_text())
+        assert kid not in before and kid in c.members(fresh=False)
+    finally:
+        c.kill("test")
+        p.wait(timeout=10)

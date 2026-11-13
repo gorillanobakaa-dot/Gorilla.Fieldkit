@@ -43,6 +43,7 @@
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
+    fieldkit procs check|reap [--json]           every process tree Fieldkit started: zombies, orphans, CPU, age (exit 3)
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
@@ -1795,6 +1796,10 @@ def build_parser():
                         help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
                              "harness's own orphans and overdue steps (fieldkit liveness)")
     lv.add_argument("args", nargs=argparse.REMAINDER)
+    pr_ = sub.add_parser("procs", add_help=False,
+                         help="every process tree Fieldkit started: zombies, orphans, CPU share, age; check, reap "
+                              "(only Fieldkit's own, by PID + creation time; fieldkit procs)")
+    pr_.add_argument("args", nargs=argparse.REMAINDER)
     zr = sub.add_parser("zero", add_help=False,
                         help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
                              "net log (fieldkit zero; also fieldkit net VERB)")
@@ -3161,6 +3166,9 @@ def main(argv=None):
     if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
         from . import app as app_cli
         return app_cli.main(args[1:])
+    if args[:1] == ["procs"]:                         # every process tree Fieldkit started (fieldkit/core/procs)
+        from .core import procs
+        return procs.main(args[1:])
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
