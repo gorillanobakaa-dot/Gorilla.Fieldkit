@@ -61,11 +61,32 @@ def is_debian_family():
     return h["is_linux"] and (h["distro"] in ("debian", "ubuntu") or "debian" in h["distro_like"])
 
 
-def find_tool(name, extra=None):
-    """Full path to a program, or None. Looks on PATH, then known locations."""
-    found = shutil.which(name)
+# Where programs live that a user's PATH often lacks: the sbin folders (nft, dnsmasq, ip) and sudo's secure_path.
+# 2026-11-12: `doctor --for leakgate` said "NOT READY: nftables, dnsmasq" with both installed in /usr/sbin.
+SBIN_DIRS = ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]   # root's secure_path
+
+
+def tool_dirs(runs_as="user"):
+    """The folders a program is looked for in: PATH (user only) + sbin dirs; for root only sudo's secure_path
+    (a program in ~/.local/bin is invisible to a tool that runs under sudo)."""
+    if host()["is_windows"]:
+        return os.environ.get("PATH", "").split(os.pathsep)
+    if runs_as == "root":
+        return list(SBIN_DIRS)
+    dirs = os.environ.get("PATH", "").split(os.pathsep) + SBIN_DIRS + [os.path.expanduser("~/.local/bin")]
+    return list(dict.fromkeys(d for d in dirs if d))
+
+
+def find_tool(name, extra=None, runs_as="user"):
+    """Full path to a program, or None. Looks on PATH, the sbin folders (the PATH the tool will run under: root's
+    secure_path when runs_as="root"), then known locations."""
+    found = shutil.which(name, path=os.pathsep.join(tool_dirs(runs_as))) if runs_as == "root" else shutil.which(name)
     if found:
         return found
+    if not host()["is_windows"]:
+        found = shutil.which(name, path=os.pathsep.join(tool_dirs(runs_as)))
+        if found:
+            return found
     candidates = list(extra or [])
     if host()["is_windows"]:
         candidates += WINDOWS_EXTRA.get(name, [])

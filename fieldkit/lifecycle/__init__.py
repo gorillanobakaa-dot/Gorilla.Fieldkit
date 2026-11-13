@@ -150,6 +150,11 @@ def cmd_task(argv):
         if not a.arg:
             print("task start BRIEF.md [--on DEVICE]")
             return 2
+        if not a.on:                                   # prepare first, execute second (P9); a peer prepares for itself
+            from ..core import prepare
+            if not prepare.gate(a.arg):
+                print("NOT STARTED  prepare is not READY (above)")
+                return 3
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan,
                              model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark, pin=a.pin)

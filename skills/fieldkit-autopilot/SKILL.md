@@ -131,3 +131,5 @@ goes to files, never pipes. On the deadline the whole tree stops, orphans includ
 ## The owner
 - `fieldkit autopilot stop [why]` - only reads from then on; `resume` lifts it. Never argue with a stop.
 - In the morning: `fieldkit inbox`, then `fieldkit publish --repo DIR [--release TAG --notes FILE --asset FILE]`.
+
+Before any unattended run, `fieldkit prepare` (wired into `task start`, `emerge run`, `runbook run`, `goal run`) installs every no-root dependency and asks the owner ONCE for the root ones; a mid-run missing tool is a defect of `fieldkit/core/prepare.yaml`, journaled with `fieldkit prepare defect`.

@@ -102,6 +102,9 @@ def main(argv=None):
     if a.action == "run":
         from ..lifecycle import onestart
         onestart.at_start("emerge", job=a.recipe)
+        from ..core import prepare                     # prepare first, execute second (P9): the recipe's tools, before stage 1
+        if not prepare.gate(a.recipe):
+            return 3
         e = Emerge(r, mode=a.mode, allow_fix=not a.no_fix, local_only=a.local, guard=not a.no_guard, hold=True,
                    say=lambda m: print(m, flush=True))
         rep = e.run(only=a.only or None)

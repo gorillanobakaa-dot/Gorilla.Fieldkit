@@ -87,4 +87,5 @@ until it does.
 The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, Codex AGENTS.md); check with
 `fieldkit sessions doctor`.
 
+Prepare first, execute second (P9): `fieldkit prepare JOB|BRIEF|RECIPE` runs before every `task start`, `emerge run`, runbook and goal run (wired in): it finds each missing tool in the PATH the tool will run under, sets up what needs no root, and puts everything that needs root into ONE script and ONE ask; the job starts only on READY. A tool missing mid-job: `fieldkit prepare defect TOOL --job J`, then add it to `fieldkit/core/prepare.yaml`.
 `fieldkit keeper tick` (timer-run every 5 min while work is open; installs itself on `task start`) keeps work moving when no model turn runs: BEHIND PR update, one fix job, one restart, queued briefs, wake Zero. `fieldkit idle report --since 24h` lists the gaps where work was open and nothing acted.

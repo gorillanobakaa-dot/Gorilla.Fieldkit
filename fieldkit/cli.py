@@ -1337,6 +1337,9 @@ def runbook_main(action, file, fix=True):
         r = window.launch(["runbook", "run", str(Path(file).resolve())])
         print(f"started in its own window (PID {r.get('pid')}); log {r.get('log')}")
         return 0
+    from .core import prepare                          # prepare first, execute second (P9): the runbook's own words
+    if not prepare.gate(file):
+        return 3
     claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=200, timeout=3600)) if fix else None
     r = runbook.run(file, claude=claude)
     print(json.dumps(r, indent=1))
@@ -1417,6 +1420,11 @@ def cmd_goal(a):
     if a.action == "run":
         from .lifecycle import onestart
         onestart.at_start("goal", job=x[0] if x else "")
+    if x and not a.once:                                # prepare first, execute second (P9): the goal's own words
+        from .core import prepare
+        g = Path(goal.GOALS) / x[0] / "goal.json"
+        if not prepare.gate(g.read_text(encoding="utf-8", errors="replace") if g and g.is_file() else x[0]):
+            return 3
     return goal.supervise(x or None, once=a.once)
 
 
@@ -1840,6 +1848,10 @@ def build_parser():
                        ("board", "every finished session has its Board row in PLAN.md: check (with / all today), "
                                  "add from the transcript, no model (fieldkit/lifecycle/board.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
+    pr = sub.add_parser("prepare", add_help=False,
+                        help="before a job starts: find every missing tool and dependency from the requirements table, "
+                             "set up what needs no root, ONE ask for the rest (fieldkit/core/prepare.py)")
+    pr.add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
@@ -3201,6 +3213,9 @@ def main(argv=None):
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])
+    if args[:1] == ["prepare"]:                       # prepare first, execute second (fieldkit/core/prepare.py)
+        from .core import prepare
+        return prepare.main(args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
