@@ -183,3 +183,34 @@ def test_windows_install_and_self_test(tmp_path: Path):
     target_dir = Path(res["target_dir"])
     assert (target_dir / "Antigravity.exe").is_file()
     assert (target_dir / "antigravity.ico").is_file()
+
+
+def test_peer_install_and_purge_call_dict(monkeypatch):
+    from fieldkit.peers import link
+
+    calls = []
+
+    def fake_call(req, timeout=15, device=None):
+        calls.append((req, timeout, device))
+        return {"ok": True, "result": {"ok": True, "os": "linux", "app": req.get("name")}}
+
+    monkeypatch.setattr(link, "call", fake_call)
+    r1 = appinstall.run_install("/tmp/Antigravity-x64", name="antigravity", replace=True, apply=True, peer=True)
+    assert r1["ok"] is True
+    assert calls[-1][0] == {
+        "verb": "install-app",
+        "source": "/tmp/Antigravity-x64",
+        "name": "antigravity",
+        "replace": True,
+        "apply": True,
+    }
+
+    r2 = appinstall.run_purge("antigravity", apply=True, install_dir="/opt/ag", peer=True)
+    assert r2["ok"] is True
+    assert calls[-1][0] == {
+        "verb": "purge-app",
+        "name": "antigravity",
+        "apply": True,
+        "dir": "/opt/ag",
+    }
+
