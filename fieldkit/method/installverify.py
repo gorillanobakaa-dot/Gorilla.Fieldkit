@@ -632,9 +632,9 @@ def reference_from_local(product, opt_dir=None, home=None, version=None):
             bin_file = bin_link.resolve()
     if not bin_file.is_file():
         raise RuntimeError(f"local installation binary for {product} not found under {opt_dir}")
-    icons = {f"{s}x{s}": hashlib.sha256(appinstall.make_rgba_png(s)).hexdigest() for s in REQUIRED_SIZES}
+    icons = {f"{s}x{s}": hashlib.sha256(appinstall.icon_bytes_for_size(opt_dir, s)).hexdigest() for s in REQUIRED_SIZES}
     meta = appinstall.app_meta(product)
-    icons["scalable"] = hashlib.sha256(appinstall.make_svg(meta["display_name"]).encode("utf-8")).hexdigest()
+    icons["scalable"] = hashlib.sha256(appinstall.svg_for_source(opt_dir, meta["display_name"]).encode("utf-8")).hexdigest()
     dsk = home / ".local" / "share" / "applications" / f"{product}.desktop"
     return {
         "product": product,
