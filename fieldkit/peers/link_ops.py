@@ -156,6 +156,14 @@ def startcheck(agent="claude", run=_run):
             aprun.claude_cmd = old
         rows.append(("brief goes on stdin, not argv", seen.get("input") == probe and probe not in seen.get("args", []),
                      "argv would read '---' as an option" if probe in seen.get("args", []) else "ok"))
+    elif agent in link.DEFAULT_START:
+        tmpl = (reg.get("start_commands") or {}).get(agent) or link.DEFAULT_START[agent]
+        used = link.fit_command([a for a in tmpl], flags) if tmpl is link.DEFAULT_START[agent] else tmpl
+        unknown = [a for a in used if a.startswith("--") and a not in flags]
+        rows.append(("every start option exists", not unknown, "unknown: " + " ".join(unknown) if unknown else "ok"))
+        from . import agentfind
+        exe = agentfind.find_path(agent)
+        rows.append((f"{agent} found", bool(exe), exe or f"{agent} not found on PATH or known install dirs"))
     return rows
 
 
@@ -219,6 +227,11 @@ def restart(wait=10, start=None, listen=None, holder=port_holder, alive=pid_aliv
     here = os.getcwd()
     try:
         os.chdir(link.LINK_ROOT)                 # serve imports from its working folder too: start it from ours
+        try:
+            from .. import compileonce
+            compileonce.build(link.LINK_ROOT)
+        except Exception:  # noqa: BLE001
+            pass
         new = start()
     finally:
         os.chdir(here)

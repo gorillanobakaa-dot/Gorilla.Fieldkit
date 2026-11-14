@@ -47,6 +47,8 @@ def problems(all_cards, rows=None, strict_stale=True):
     out, seen = [], set()
     by_id = {c.get("id"): c for c in all_cards}
     for c in all_cards:
+        if Path(str(c.get("_file") or "")).parent.name == "local":
+            continue
         one = _single(c)
         if not one:
             continue
@@ -81,6 +83,8 @@ def inventory(all_cards=None, rows=None):
     rows = load() if rows is None else rows
     out = []
     for c in all_cards:
+        if Path(str(c.get("_file") or "")).parent.name == "local":
+            continue
         one = _single(c)
         if not one:
             continue
@@ -243,6 +247,8 @@ def records(all_cards=None, rows=None, items=None, found=None):
     found = scan_all() if found is None else found
     recs = []
     for c in all_cards:
+        if Path(str(c.get("_file") or "")).parent.name == "local":
+            continue
         one = _single(c)
         if not one:
             continue

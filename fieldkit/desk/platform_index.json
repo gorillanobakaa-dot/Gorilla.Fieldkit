@@ -1544,6 +1544,17 @@
    "ciaudit"
   ]
  },
+ "compileonce": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "compileonce"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",

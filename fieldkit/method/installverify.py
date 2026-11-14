@@ -37,7 +37,7 @@ import time
 import zlib
 from pathlib import Path
 
-PRODUCTS = ("gorilla-opencode",)
+PRODUCTS = ("gorilla-opencode", "antigravity", "agy", "codex", "claude")
 REQUIRED_SIZES = (48, 64, 96, 128, 256, 512)       # the release's own sizes are added to these
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
@@ -613,12 +613,66 @@ def os_of(platform=None):
     return "linux" if p.startswith("linux") else "windows" if p.startswith("win") else "macos" if p == "darwin" else p
 
 
+def reference_from_local(product, opt_dir=None, home=None, version=None):
+    """Build a reference dictionary for a locally installed product (e.g. Antigravity in ~/.local/opt/<product>-<ver>)
+    so all 17 Linux desktop/icon/binary/cache checks run deterministically."""
+    from . import appinstall
+    home = Path(home or Path.home()).resolve()
+    if opt_dir is None:
+        opt_root = home / ".local" / "opt"
+        cands = sorted(opt_root.glob(f"{product}-*")) if opt_root.is_dir() else []
+        if not cands and (opt_root / product).is_dir():
+            cands = [opt_root / product]
+        opt_dir = cands[-1] if cands else (opt_root / product)
+    opt_dir = Path(opt_dir)
+    bin_file = opt_dir / product
+    if not bin_file.is_file():
+        bin_link = home / ".local" / "bin" / product
+        if bin_link.is_file():
+            bin_file = bin_link.resolve()
+    if not bin_file.is_file():
+        raise RuntimeError(f"local installation binary for {product} not found under {opt_dir}")
+    icons = {f"{s}x{s}": hashlib.sha256(appinstall.make_rgba_png(s)).hexdigest() for s in REQUIRED_SIZES}
+    meta = appinstall.app_meta(product)
+    icons["scalable"] = hashlib.sha256(appinstall.make_svg(meta["display_name"]).encode("utf-8")).hexdigest()
+    dsk = home / ".local" / "share" / "applications" / f"{product}.desktop"
+    return {
+        "product": product,
+        "tag": version or appinstall.detect_source_version(opt_dir, product),
+        "repo": "local",
+        "binary_sha": sha256(bin_file),
+        "icons": icons,
+        "desktop_sha": sha256(dsk) if dsk.is_file() else None,
+    }
+
+
+def verify_linux(ref, home=None, product=None):
+    """Convenience wrapper returning {"ok", "os", "rows", "resolved"} for a Linux install."""
+    prod = product or ref.get("product") or "antigravity"
+    env = None
+    if home is not None:
+        h = Path(home).resolve()
+        env = environment(h, {
+            "XDG_DATA_HOME": str(h / ".local" / "share"),
+            "XDG_DATA_DIRS": "/usr/local/share:/usr/share",
+            "PATH": f"{h / '.local' / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        })
+    rows, resolved = verify(prod, ref, e=env, session_start=shell_start() if home is None else None)
+    return {"ok": all(r["ok"] for r in rows), "os": "linux", "rows": rows, "resolved": resolved}
+
+
 def reference(product, os_name, tag=None, ref_file=None):
-    """The reference for one OS: a saved JSON, or the release itself (public download, checked against SHA256SUMS)."""
+    """The reference for one OS: a saved JSON, the release itself (public download, checked against SHA256SUMS),
+    or the local canonical opt tree for vendor-packaged coding agents."""
     if ref_file:
         return json.loads(Path(ref_file).read_text(encoding="utf-8"))
     from .. import parity
-    p = parity.pin()[product]
+    pins = parity.pin()
+    if product not in pins:
+        if os_name == "linux":
+            return reference_from_local(product, version=tag)
+        raise KeyError(f"{product} has no release pin in parity-pin.yaml; pass --ref FILE.json")
+    p = pins[product]
     with tempfile.TemporaryDirectory(prefix="fk-install-ref-", ignore_cleanup_errors=True) as t:
         if os_name == "linux":
             return reference_from_release(product, tag or p["version"], p["repo"], Path(t) / "r")
@@ -680,17 +734,68 @@ def self_test_all(which="all"):
 
 def main(argv=None, prog="fieldkit install"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["verify", "self-test"])
-    ap.add_argument("product", nargs="?")
+    ap.add_argument("action", choices=["verify", "self-test", "app", "purge"])
+    ap.add_argument("product", nargs="?", help="product name (verify/purge) or source path (app)")
+    ap.add_argument("--name", default="antigravity", help="app: application name (default: antigravity)")
+    ap.add_argument("--replace", action="store_true", help="app: purge any existing/corrupted installation before installing")
+    ap.add_argument("--apply", action="store_true", help="app/purge: make changes (without: dry run)")
+    ap.add_argument("--dir", help="purge: explicit folder path when unregistered")
     ap.add_argument("--tag", help="the release to compare with (default: the parity pin)")
     ap.add_argument("--ref", help="a reference JSON (from --save-ref) instead of downloading the release")
     ap.add_argument("--save-ref", help="write the reference read from the release to this file")
     ap.add_argument("--proof", help="write the resolved icon paths and sha256 per size to this JSON file")
-    ap.add_argument("--peer", action="store_true", help="verify the paired computer instead (its link listener runs the probe)")
-    ap.add_argument("--host", help="verify this Mac over ssh (macair): the reference is read here, its python3 runs the checks")
+    ap.add_argument("--peer", action="store_true", help="run on the paired computer instead (its link listener runs the verb)")
+    ap.add_argument("--host", help="run on this remote host over ssh")
     ap.add_argument("--os", default="all", choices=["all", "linux", "windows", "macos"], help="self-test: which fixtures")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "purge":
+        if not a.product:
+            print("REFUSED: purge needs an application name (e.g. antigravity)")
+            return 2
+        from . import appinstall
+        res = appinstall.run_purge(a.product, apply=a.apply, install_dir=a.dir, peer=a.peer, host=a.host)
+        if a.json:
+            print(json.dumps(res, indent=1))
+        else:
+            status = "OK" if res.get("ok") else "FAIL"
+            mode = "APPLIED" if a.apply else "DRY-RUN"
+            print(f"INSTALL PURGE [{mode}]: {status} ({res.get('os', '?')}: {a.product})")
+            if res.get("paths"):
+                for p in res["paths"]:
+                    print(f"  target: {p}")
+            if res.get("output"):
+                print(res["output"])
+            if res.get("trash_dir"):
+                print(f"  recycled to: {res['trash_dir']}")
+            if not a.apply:
+                print("NEXT: add --apply to execute")
+        return 0 if res.get("ok") else 3
+    if a.action == "app":
+        if not a.product:
+            print("REFUSED: app needs a source folder or binary path")
+            return 2
+        from . import appinstall
+        res = appinstall.run_install(a.product, name=a.name, replace=a.replace, apply=a.apply, peer=a.peer, host=a.host)
+        if a.json:
+            print(json.dumps(res, indent=1))
+        else:
+            status = "OK" if res.get("ok") else "FAIL"
+            mode = "APPLIED" if a.apply else "DRY-RUN"
+            print(f"INSTALL APP [{mode}]: {status} ({res.get('os', '?')}: {res.get('app', a.name)} {res.get('version', '')})")
+            if res.get("error"):
+                print(f"  ERROR: {res['error']}")
+            for step in res.get("plan") or []:
+                print(f"  plan: {step}")
+            if res.get("opt_dir"):
+                print(f"  opt_dir: {res['opt_dir']}")
+            if res.get("target_dir"):
+                print(f"  target_dir: {res['target_dir']}")
+            if res.get("binary_sha256") or res.get("exe_sha256"):
+                print(f"  sha256: {res.get('binary_sha256') or res.get('exe_sha256')}")
+            if not a.apply:
+                print("NEXT: add --apply to install")
+        return 0 if res.get("ok") else 3
     if a.action == "self-test":
         res = self_test_all(a.os)
         ok = all(r["ok"] for r in res)

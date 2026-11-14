@@ -88,8 +88,9 @@ def cmd_task(argv):
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
     ap.add_argument("--plan", help="start, lint: the plan item (a row id of docs/HARNESS-PLAN.md) the brief serves")
-    ap.add_argument("--model", help="start: the worker's model (default: roles.yaml worker.default; Opus/Fable "
-                                    "are reviewers and refused as workers)")
+    ap.add_argument("--agent", help="start: the coding agent to run (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--model", help="start: the worker's specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
+    ap.add_argument("--thinking", help="start: the reasoning/thinking level (lowest, low, medium, high, max)")
     ap.add_argument("--pin", action="store_true", help="start: keep --model exactly; the router does not go down from it")
     ap.add_argument("--allow-expensive", action="store_true", help="start: let the worker be an expensive model")
     ap.add_argument("--accept", help="start: the acceptance command; done needs a passing reviewer verdict on it")
@@ -148,11 +149,12 @@ def cmd_task(argv):
         return 3 if found else 0
     if a.action == "start":
         if not a.arg:
-            print("task start BRIEF.md [--on DEVICE]")
+            print("task start BRIEF.md --agent AGENT --model MODEL --thinking LEVEL [--on DEVICE]")
             return 2
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan,
-                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark, pin=a.pin)
+                              model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark,
+                              pin=a.pin, agent=a.agent, thinking=a.thinking, require_choice=True)
         except (routing.ModeRefused, routing.ModelParked, tasks.DefectOpen) as e:   # the mode / router answered; not a defect
             print(f"NOT STARTED  {e}")
             return 3

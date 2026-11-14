@@ -107,7 +107,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `skill:fieldkit-repair` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-repair/SKILL.md description names Linux too (the commands already run on… | S | 7 | skills/fieldkit-repair/SKILL.md:3 |
 | `skill:fieldkit-scratch` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-scratch/SKILL.md description names Linux too (the commands already run on… | S | 7 | skills/fieldkit-scratch/SKILL.md:3 |
 | `skill:fieldkit-tools` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-tools/SKILL.md description names Linux too (the commands already run on b… | S | 7 | skills/fieldkit-tools/SKILL.md:3 |
-| `module:fieldkit/leakgate/sensors.py` | windows | linux | PARTIAL | ADAPT | the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgat… | L | 8 | fieldkit/leakgate/sensors.py:616 |
+| `module:fieldkit/leakgate/sensors.py` | windows | linux | PARTIAL | ADAPT | the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgat… | L | 8 | fieldkit/leakgate/sensors.py:623 |
 | `hook:wait-for-hook.sh` | linux | windows | PARTIAL | DOCUMENT | git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin | M |  | hooks/wait-for-hook.sh:1 |
 | `stage:firefox-linux` | linux | windows | INCOMPATIBLE | DOCUMENT | the firefox-windows pipeline is the Windows counterpart (same stages, Windows tools) | M |  | fieldkit/build/pipelines/firefox-linux.yaml:25 |
 | `stage:firefox-windows` | windows | linux | INCOMPATIBLE | DOCUMENT | the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools) | M |  | fieldkit/build/pipelines/firefox-windows.yaml:13 |
