@@ -40,6 +40,7 @@
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
+    fieldkit compileonce [build|check] [--force] pre-compile all Python modules to .pyc bytecode ahead of time
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
@@ -1144,7 +1145,18 @@ def cmd_autopilot(a):
     elif a.action == "workspace":
         r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
     elif a.action == "antigravity":
-        r = run.antigravity()
+        if a.rest:
+            r = run.agent_run("antigravity", " ".join(a.rest), cwd=a.cwd, model=a.model,
+                              thinking=getattr(a, "thinking", None))
+        else:
+            r = run.antigravity()
+    elif a.action in ("agy", "codex", "gorilla-opencode"):
+        if not a.rest:
+            print(f"autopilot {a.action} PROMPT [--cwd DIR] [--model MODEL] [--thinking LEVEL]")
+            return 2
+        r = run.agent_run(a.action, " ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
+                          timeout=a.wall_minutes * 60 if a.wall_minutes else None,
+                          model=a.model, thinking=getattr(a, "thinking", None))
     elif a.action == "login":
         if "--check" in a.rest or "check" in a.rest:
             r = {"logged_in": run.logged_in(), "command": run.paste_command()}
@@ -1154,6 +1166,11 @@ def cmd_autopilot(a):
         if not a.rest:
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
+        from .lifecycle import models as _models
+        ag_avail = _models.agent_availability("claude")
+        if not ag_avail["available"]:
+            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_avail['reason']})"}, indent=1))
+            return 3
         job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
         if job_dir:
             # a budgeted job: checkpoints, resumes, exit 75 = paused-resumable (fieldkit/autopilot/job.py)
@@ -1632,7 +1649,7 @@ METHODS = {
     "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
                                "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
-    "install": ("installverify", "a program is installed the way its release says, as the desktop finds it: binary, .desktop, every icon size, caches (verify PRODUCT | self-test)"),
+    "install": ("installverify", "a program is installed, purged or verified on Linux and Windows: binary, .desktop/.lnk, icons, caches, registry (verify PRODUCT | self-test | app SRC --name APP | purge APP)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
 }
 
@@ -1929,6 +1946,10 @@ def build_parser():
                         help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
                              "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
     pn.add_argument("args", nargs=argparse.REMAINDER)
+    co = sub.add_parser("compileonce", add_help=False,
+                        help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
+                             "ahead of time: build [--force], check (fieldkit compileonce)")
+    co.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -2117,14 +2138,16 @@ def build_parser():
     sw.set_defaults(fn=cmd_sweep)
 
     apl = sub.add_parser("autopilot", parents=[common])
-    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
-    apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
-    apl.add_argument("--cwd", help="claude: the folder the run works in")
+    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet",
+                                        "antigravity", "agy", "codex", "gorilla-opencode", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude/agy/codex/gorilla-opencode: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude/agy/codex/gorilla-opencode: the folder the run works in")
     apl.add_argument("--max-turns", type=int, default=None, help="claude: turns per session (10000)")
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
     apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
-    apl.add_argument("--model", help="claude: the model the run uses (a worker: sonnet, haiku; roles.yaml)")
+    apl.add_argument("--model", help="the specific model the run uses (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, sonnet, haiku)")
+    apl.add_argument("--thinking", help="reasoning/thinking level: lowest, low, medium, high, max")
     apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
@@ -3281,6 +3304,9 @@ def main(argv=None):
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["compileonce"]:                   # ahead-of-time .pyc bytecode compilation and check
+        from . import compileonce
+        return compileonce.main(args[1:])
     if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
         from .image import cli as image_cli
         return image_cli.main(args[1:])

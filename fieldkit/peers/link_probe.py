@@ -42,7 +42,7 @@ def _where(arg=None, finder=None, **_):
     return F.render(rows) if rows else [f"{arg}: not found"], rows
 
 
-DEFAULT_APPS = ("claude", "codex", "gemini", "opencode", "gorilla-opencode", "antigravity", "TPFanControl")
+DEFAULT_APPS = ("claude", "codex", "gemini", "opencode", "gorilla-opencode", "antigravity", "agy", "TPFanControl")
 
 
 def start_app(name, allowed=None, finder=None, starter=None):

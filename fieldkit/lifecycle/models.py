@@ -423,6 +423,322 @@ def best_model(job_type, min_tries=3, rows=None, data=None):
     return None
 
 
+# ---- Coding agent catalogue, thinking levels, and multi-agent quota guard (2026-11-14) ------------------------------
+CHOICE_PROMPT = "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
+CODING_AGENTS = ("antigravity", "agy", "codex", "gorilla-opencode", "claude")
+THINKING_LEVELS = ("lowest", "low", "medium", "high", "max")
+
+DEFAULT_AGENTS_CATALOG = {
+    "antigravity": {
+        "title": "Google Antigravity Desktop IDE",
+        "kind": "ide",
+        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5", "claude-opus-4-6"],
+        "ultra_models": ["carbon", "claude-opus-4-6"],
+        "default_model": "argon",
+        "thinking_levels": list(THINKING_LEVELS),
+        "default_thinking": "high",
+    },
+    "agy": {
+        "title": "Antigravity Terminal CLI (agy)",
+        "kind": "cli",
+        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5", "claude-opus-4-6"],
+        "ultra_models": ["carbon", "claude-opus-4-6"],
+        "default_model": "argon",
+        "thinking_levels": list(THINKING_LEVELS),
+        "default_thinking": "high",
+    },
+    "codex": {
+        "title": "OpenAI Codex CLI",
+        "kind": "cli",
+        "models": ["codex-mini", "o4-mini", "o3", "gpt-5-codex"],
+        "ultra_models": ["o3", "gpt-5-codex"],
+        "default_model": "o4-mini",
+        "thinking_levels": list(THINKING_LEVELS),
+        "default_thinking": "medium",
+    },
+    "gorilla-opencode": {
+        "title": "Gorilla OpenCode Agent",
+        "kind": "cli",
+        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "qwen3-coder", "local/qwen3", "sonnet", "opus"],
+        "ultra_models": ["carbon", "opus"],
+        "default_model": "argon",
+        "thinking_levels": list(THINKING_LEVELS),
+        "default_thinking": "medium",
+    },
+    "claude": {
+        "title": "Claude Code CLI",
+        "kind": "cli",
+        "models": ["haiku", "sonnet", "opus", "fable"],
+        "ultra_models": ["opus", "fable"],
+        "default_model": "sonnet",
+        "thinking_levels": list(THINKING_LEVELS),
+        "default_thinking": "medium",
+    },
+}
+
+
+def agents_catalog(data=None) -> dict:
+    d = data or load()
+    return dict(d.get("agents") or DEFAULT_AGENTS_CATALOG)
+
+
+def agent_availability_path(data=None):
+    from .friction import state_dir
+    return state_dir() / "agent-availability.json"
+
+
+def _read_agent_avail(data=None) -> dict:
+    p = agent_availability_path(data)
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def unavailable_agents(now=None, data=None) -> dict:
+    """Return {agent: {"reason", "until", "source"}} for coding agents currently blocked by quota or owner pin."""
+    now = time.time() if now is None else now
+    d = data or load()
+    acfg = d.get("agent_availability") or {}
+    out = {}
+    for k, val in (acfg.get("unavailable") or {}).items():
+        if not val or not str(val).strip():
+            continue
+        end = _yaml_until(val, now)
+        if end and end > now:
+            out[k.lower()] = {"reason": f"pinned in models.yaml ({val})", "until": end, "source": "owner"}
+    for k, rec in _read_agent_avail(d).items():
+        if rec.get("cleared"):
+            out.pop(k.lower(), None)
+            continue
+        end = float(rec.get("until") or 0)
+        if end > now and (k.lower() not in out or end > out[k.lower()]["until"]):
+            out[k.lower()] = {
+                "reason": rec.get("reason") or "quota limit",
+                "until": end,
+                "source": rec.get("source") or "quota-guard",
+            }
+    return out
+
+
+def agent_availability(agent: str, now=None, data=None) -> tuple[bool, str]:
+    """Return (available: bool, why: str) for a coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`)."""
+    now = time.time() if now is None else now
+    a = (agent or "").strip().lower()
+    if not a:
+        return False, CHOICE_PROMPT
+    if a == "gemini":
+        return (
+            False,
+            "REFUSED: 'gemini' is a generic model family name, not a specific coding agent or model. "
+            "Choose agent 'antigravity' or 'agy' with a specific model (hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash).",
+        )
+    unavail = unavailable_agents(now, data)
+    if a in unavail:
+        rec = unavail[a]
+        return False, f"agent {a} is blocked {until_text(rec['until'])} ({rec['source']}: {rec['reason']})"
+    return True, "available"
+
+
+def is_agent_available(agent: str, now=None, data=None) -> bool:
+    return agent_availability(agent, now, data)[0]
+
+
+def mark_agent_unavailable(agent: str, reason: str = "quota limit", until=None, now=None, data=None) -> dict:
+    now = time.time() if now is None else now
+    d = data or load()
+    acfg = d.get("agent_availability") or {}
+    end = _yaml_until(until, now) if isinstance(until, str) else (float(until) if until else now + 60 * float(acfg.get("cooldown_minutes") or 120))
+    if end is None:
+        end = now + 60 * float(acfg.get("cooldown_minutes") or 120)
+    rec = {
+        "reason": str(reason)[:200],
+        "until": end,
+        "source": "owner" if isinstance(until, str) else "quota-guard",
+        "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+    }
+    try:
+        cur = _read_agent_avail(d)
+        cur[(agent or "?").lower()] = rec
+        agent_availability_path(d).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return rec
+
+
+def clear_agent_unavailable(agent: str, data=None) -> None:
+    cur = _read_agent_avail(data)
+    cur[(agent or "").lower()] = {"cleared": True, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        agent_availability_path(data).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def validate_agent_choice(
+    agent: str | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
+    require_explicit: bool = True,
+    role: str = "worker",
+    origin: str = "cli",
+    data=None,
+) -> dict:
+    """Validate (agent, model, thinking) deterministically.
+
+    - Never silently defaults to `claude`.
+    - When `require_explicit=True` and any of `agent`, `model`, or `thinking` is omitted, returns
+      `{"ok": False, "needs_choice": True, "prompt": CHOICE_PROMPT, ...}` so the user is asked:
+      "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
+    - Rejects generic `"gemini"` for either agent or model.
+    - Blocks any agent that is marked unavailable/quota-maxed (including `claude` at 100% weekly quota).
+    """
+    d = data or load()
+    cat = agents_catalog(d)
+    a = (agent or "").strip().lower()
+    m = (model or "").strip().lower()
+    t = (thinking or "").strip().lower()
+
+    if a == "gemini" or m == "gemini":
+        return {
+            "ok": False,
+            "verdict": "generic-refused",
+            "why": (
+                "REFUSED: 'gemini' is a generic family name. Specify the exact coding agent "
+                f"({', '.join(CODING_AGENTS)}) and the exact model (e.g. hydrogen, argon, carbon, "
+                "gemini-2.5-pro, gemini-2.5-flash) with a thinking level (lowest, low, medium, high, max)."
+            ),
+            "prompt": CHOICE_PROMPT,
+        }
+
+    if require_explicit and (not a or not m or not t):
+        missing = [k for k, v in (("agent", a), ("model", m), ("thinking", t)) if not v]
+        return {
+            "ok": False,
+            "needs_choice": True,
+            "verdict": "choice-required",
+            "missing": missing,
+            "prompt": CHOICE_PROMPT,
+            "why": f"{CHOICE_PROMPT} (missing: {', '.join(missing)}; pass --agent <agent> --model <model> --thinking <{'|'.join(THINKING_LEVELS)}>)",
+            "agents": {
+                k: {
+                    "available": is_agent_available(k, data=d),
+                    "models": v.get("models", []),
+                    "ultra_models": v.get("ultra_models", []),
+                    "thinking_levels": v.get("thinking_levels", list(THINKING_LEVELS)),
+                }
+                for k, v in cat.items()
+            },
+        }
+
+    if a not in cat:
+        return {
+            "ok": False,
+            "verdict": "unknown-agent",
+            "why": f"REFUSED: unknown coding agent {a!r}; choose one of {', '.join(cat)}",
+            "prompt": CHOICE_PROMPT,
+        }
+
+    avail_ok, avail_why = agent_availability(a, data=d)
+    if not avail_ok:
+        return {
+            "ok": False,
+            "verdict": "agent-blocked",
+            "agent": a,
+            "why": f"REFUSED: {avail_why}. {CHOICE_PROMPT}",
+            "prompt": CHOICE_PROMPT,
+        }
+
+    acfg = cat[a]
+    if not m:
+        m = acfg.get("default_model") or "argon"
+    if not t:
+        t = acfg.get("default_thinking") or "medium"
+
+    allowed_thinking = tuple(acfg.get("thinking_levels") or THINKING_LEVELS)
+    if t not in allowed_thinking:
+        return {
+            "ok": False,
+            "verdict": "invalid-thinking",
+            "why": f"REFUSED: thinking level {t!r} is not in {', '.join(allowed_thinking)}",
+            "prompt": CHOICE_PROMPT,
+        }
+
+    allowed_models = [x.lower() for x in (acfg.get("models") or [])]
+    if allowed_models and m not in allowed_models and not any(m.startswith(x) for x in allowed_models):
+        return {
+            "ok": False,
+            "verdict": "invalid-model-for-agent",
+            "why": f"REFUSED: model {m!r} is not in {a}'s model catalogue ({', '.join(acfg.get('models') or [])})",
+            "prompt": CHOICE_PROMPT,
+        }
+
+    if a == "claude":
+        mchk = check_model(m, role=role, origin=origin, data=d)
+        if not mchk["ok"]:
+            return {
+                "ok": False,
+                "verdict": "model-refused",
+                "agent": a,
+                "model": m,
+                "thinking": t,
+                "why": mchk["why"],
+            }
+        tier_val = mchk["tier"]
+        why_val = mchk["why"]
+    else:
+        avail_m, avail_m_why = availability(m, data=d)
+        if not avail_m:
+            return {
+                "ok": False,
+                "verdict": "model-unavailable",
+                "agent": a,
+                "model": m,
+                "thinking": t,
+                "why": f"REFUSED: model {m} is unavailable ({avail_m_why})",
+            }
+        tier_val = "ultra" if m in [x.lower() for x in (acfg.get("ultra_models") or [])] else "standard"
+        why_val = f"{a} catalogue ({tier_val})"
+
+    return {
+        "ok": True,
+        "verdict": "allowed",
+        "agent": a,
+        "model": m,
+        "thinking": t,
+        "tier": tier_val,
+        "why": f"agent={a} model={m} thinking={t} ({why_val})",
+    }
+
+
+def status_report(data=None) -> dict:
+    d = data or load()
+    cat = agents_catalog(d)
+    rows = []
+    for name, info in cat.items():
+        ok, why = agent_availability(name, data=d)
+        rows.append({
+            "agent": name,
+            "title": info.get("title", name),
+            "kind": info.get("kind", "cli"),
+            "available": ok,
+            "status_why": why,
+            "models": info.get("models", []),
+            "ultra_models": info.get("ultra_models", []),
+            "default_model": info.get("default_model", ""),
+            "thinking_levels": info.get("thinking_levels", list(THINKING_LEVELS)),
+            "default_thinking": info.get("default_thinking", "medium"),
+        })
+    return {
+        "prompt": CHOICE_PROMPT,
+        "thinking_levels": list(THINKING_LEVELS),
+        "agents": rows,
+        "unavailable_models": unavailable_models(data=d),
+    }
+
+
 def main(argv=None):
     argv = list(argv or [])
     if argv[:1] in (["gguf"], ["bandwidth"]):        # P21: dense or MoE, active parameters, expected speed
@@ -435,6 +751,40 @@ def main(argv=None):
     if argv[:1] == ["tune"]:                         # P22: host analysis, right load settings, lms load
         from . import tune
         return tune.main(argv)
+    if argv[:1] in (["status"], ["ask-choice"]):
+        st = status_report()
+        if "--json" in argv:
+            print(json.dumps(st, indent=2))
+            return 0
+        print(st["prompt"])
+        for r in st["agents"]:
+            state_str = "AVAILABLE" if r["available"] else f"BLOCKED ({r['status_why']})"
+            print(
+                f"  {r['agent']:<18} [{state_str}]\n"
+                f"    models:   {', '.join(r['models'])} (Ultra: {', '.join(r['ultra_models'])})\n"
+                f"    thinking: {', '.join(r['thinking_levels'])} (default: {r['default_thinking']})"
+            )
+        return 0
+    if argv[:1] == ["block"] and len(argv) >= 2:
+        ag = argv[1]
+        until = "always"
+        why = "quota maxed out / blocked by owner"
+        if "--until" in argv:
+            i = argv.index("--until")
+            if i + 1 < len(argv):
+                until = argv[i + 1]
+        if "--why" in argv:
+            i = argv.index("--why")
+            if i + 1 < len(argv):
+                why = argv[i + 1]
+        rec = mark_agent_unavailable(ag, why, until=until)
+        print(f"BLOCKED {ag}: {rec['reason']} ({until_text(rec['until'])})")
+        return 0
+    if argv[:1] == ["unblock"] and len(argv) >= 2:
+        ag = argv[1]
+        clear_agent_unavailable(ag)
+        print(f"UNBLOCKED {ag}")
+        return 0
     if argv[:1] == ["table"]:
         tab = success_table()
         if "--json" in argv:
@@ -447,7 +797,9 @@ def main(argv=None):
         print("NEXT: the table decides delegation (best_model); main's reds and flakes are not counted")
         return 0
     if argv[:1] != ["report"]:
-        print("models report [--json]: counts per device and day from the spend ledger\n"
+        print("models status [--json]: coding agents, specific models (hydrogen/argon/carbon/...), thinking levels, and quota blocks\n"
+              "models block AGENT [--until YYYY-MM-DD|always] [--why REASON] | models unblock AGENT\n"
+              "models report [--json]: counts per device and day from the spend ledger\n"
               "models table [--json]: success rate per model and job type (plan P9)\n"
               "models gguf FILE|URL: before loading a local model, dense or MoE and the expected speed (P21)\n"
               "models tune MODEL [--apply]: analyse this machine and the GGUF, pick the load settings, load through lms (P22)\n"

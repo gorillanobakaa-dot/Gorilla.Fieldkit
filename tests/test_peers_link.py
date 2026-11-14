@@ -207,10 +207,11 @@ def test_a_session_that_dies_at_start_is_reported_dead_and_unknown_options_are_d
 
 def test_an_allowed_agent_without_a_known_start_command_is_never_guessed(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
-    (tmp_path / "link.yaml").write_text("allow_start: [codex]\ncwd: /tmp\nstart_commands: {}\n")
+    assert {"claude", "antigravity", "agy", "codex", "gorilla-opencode"} <= set(link.DEFAULT_START)
+    (tmp_path / "link.yaml").write_text("allow_start: [opencode]\ncwd: /tmp\nstart_commands: {}\n")
     link.approve(confirm=True, say=lambda m: None)
-    ok, why = link.start_session("codex", "x", "vaio", popen=lambda *a, **k: 1 / 0, inbox_add=lambda *a, **k: None)
-    assert not ok and "no start command for codex" in why
+    ok, why = link.start_session("opencode", "x", "vaio", popen=lambda *a, **k: 1 / 0, inbox_add=lambda *a, **k: None)
+    assert not ok and "no start command for opencode" in why
 
 
 def test_the_link_key_is_behind_the_hard_lines():

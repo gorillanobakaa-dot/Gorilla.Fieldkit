@@ -61,16 +61,27 @@ AGENTS = {
     "codex": (["codex"], ["--version"]),
     "opencode": (["opencode"], ["--version"]),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"]),
-    "antigravity": (["antigravity", "agy", "Antigravity"], None),
+    "antigravity": (["antigravity", "Antigravity", "agy"], None),
+    "agy": (["agy", "antigravity"], ["--version"]),
 }
-# How a session is STARTED for "ask". Only claude is wired (proven: fieldkit autopilot claude). Others are reported
-# as present but start only with a command the owner writes into link.yaml (start_commands), never a guessed one.
-DEFAULT_START = {"claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
-                            "--job", "{job}", "--wall-minutes", "{wall}"]}
+# How a session is STARTED for "ask": all five coding agents (claude, antigravity, agy, codex, gorilla-opencode)
+# run through `fieldkit autopilot <agent>` with their explicit model and thinking level.
+DEFAULT_START = {
+    "claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
+               "--job", "{job}", "--wall-minutes", "{wall}"],
+    "antigravity": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "antigravity", "{brief}", "--cwd", "{cwd}",
+                    "--job", "{job}", "--wall-minutes", "{wall}"],
+    "agy": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "agy", "{brief}", "--cwd", "{cwd}",
+            "--job", "{job}", "--wall-minutes", "{wall}"],
+    "codex": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "codex", "{brief}", "--cwd", "{cwd}",
+              "--job", "{job}", "--wall-minutes", "{wall}"],
+    "gorilla-opencode": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "gorilla-opencode", "{brief}", "--cwd", "{cwd}",
+                         "--job", "{job}", "--wall-minutes", "{wall}"],
+}
 # 2026-10-22, found on the VAIO by its Claude: --job and --wall-minutes exist only where the long horizon code is
 # (feat/long-horizon); an older `fieldkit autopilot` refused them and the session died at once. Options this
 # computer's autopilot does not offer are dropped (with their value), never passed blind.
-OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model")
+OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model", "--thinking")
 START_GRACE = 2.0           # a started process must still be alive this many seconds later to count as started
 # 2026-10-22, found on the VAIO by its Claude: a started session runs with cwd = the approved folder (the main
 # checkout), and `python -m fieldkit` there loaded THAT checkout's code, not the link's, so no fix on this branch
@@ -195,7 +206,7 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app", "install-app", "purge-app")
 KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
@@ -695,7 +706,7 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None):
+                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None, thinking=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     # Cost guard (lifecycle/models.py), first: this listener checks the model against ITS OWN data and mandate. The
@@ -746,9 +757,13 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
             env["FIELDKIT_CLAUDE_EXE"] = found
     if agent == "claude":
         env["ANTHROPIC_MODEL"] = chosen               # an env or settings model cannot slip past the check
+    if thinking:
+        env["FIELDKIT_THINKING"] = str(thinking)
     if tmpl is DEFAULT_START.get(agent):
-        if agent == "claude":                          # the worker's model (I5); none sent = the cheap default
+        if agent in DEFAULT_START:                     # the worker's model (I5); none sent = the cheap default
             argv += ["--model", chosen]
+        if thinking:
+            argv += ["--thinking", str(thinking)]
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     from . import link_return
     before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
@@ -974,6 +989,25 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         from . import link_probe
         _log(f"start-app {req.get('name')!r} from {req.get('from_host')}")
         return link_probe.start_app(req.get("name"))
+    if verb == "install-app":
+        from ..method import appinstall
+        _log(f"install-app {req.get('name')!r} ({req.get('source')!r}) from {req.get('from_host')}")
+        res = appinstall.run_install(
+            str(req.get("source") or ""),
+            name=str(req.get("name") or "antigravity"),
+            replace=bool(req.get("replace")),
+            apply=bool(req.get("apply")),
+        )
+        return {"ok": bool(res.get("ok")), "result": res, "host": socket.gethostname()}
+    if verb == "purge-app":
+        from ..method import appinstall
+        _log(f"purge-app {req.get('name')!r} from {req.get('from_host')}")
+        res = appinstall.run_purge(
+            str(req.get("name") or ""),
+            apply=bool(req.get("apply")),
+            install_dir=req.get("dir"),
+        )
+        return {"ok": bool(res.get("ok")), "result": res, "host": socket.gethostname()}
     if verb == "tags":
         # read-only, like friction: this computer's live sessions whose title lacks its machine tag (machine.py,
         # 2026-10-27), so `fieldkit sessions tag --check` on any device checks every machine of the household
@@ -1049,7 +1083,8 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb == "ask":
         item = store("ask", req)
         started, why = start_session(str(req.get("agent")), str(req.get("brief") or ""), req.get("from_host"),
-                                     popen=popen, inbox_add=inbox_add, model=req.get("model"))
+                                     popen=popen, inbox_add=inbox_add, model=req.get("model"),
+                                     thinking=req.get("thinking"))
         _log(f"ask #{item['n']} from {req.get('from_host')} for {req.get('agent')}: {why}")
         return {"ok": True, "stored": item["n"], "started": started, "why": why}
     return {"ok": False, "error": f"unknown verb {verb!r}"}
@@ -1414,7 +1449,9 @@ def main(argv=None):
     ap.add_argument("--allow", action="append", help="approve: an agent the peer may start (repeatable or a comma list): writes link.yaml, shows it, one yes")
     ap.add_argument("--cwd", help="approve: the folder a started session works in")
     ap.add_argument("--wall-minutes", type=int, help="approve: the budget of a started session")
-    ap.add_argument("--agent", default="claude")
+    ap.add_argument("--agent", default=None, help="ask: coding agent (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--model", default=None, help="ask: specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
+    ap.add_argument("--thinking", default=None, help="ask: reasoning/thinking level (lowest, low, medium, high, max)")
     ap.add_argument("--brief")
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--wait", type=float, default=0)
@@ -1497,10 +1534,17 @@ def main(argv=None):
             print(f"NOT HEARD on the other computer: {r.get('heard_why')}", file=sys.stderr)
         return 0 if r.get("ok") else 3
     if a.action == "ask":
-        if not a.brief:
-            print("ask --agent claude --brief FILE (what the new session is for; it is shown fenced as your text)")
+        from ..lifecycle import models
+        chk = models.validate_agent_choice(agent=a.agent, model=a.model, thinking=a.thinking, require_explicit=True,
+                                           role="worker", origin="peers link ask")
+        if not chk["ok"]:
+            print(chk["why"])
             return 2
-        r = call({"verb": "ask", "agent": a.agent, "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
+        if not a.brief:
+            print("ask --agent AGENT --model MODEL --thinking LEVEL --brief FILE")
+            return 2
+        r = call({"verb": "ask", "agent": chk["agent"], "model": chk["model"], "thinking": chk["thinking"],
+                  "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3
     if a.action == "inbox":
