@@ -726,7 +726,7 @@ def run_purge(
 ) -> dict:
     if peer:
         from ..peers import link
-        r = link.call("purge-app", name=name, apply=apply, dir=install_dir)
+        r = link.call({"verb": "purge-app", "name": name, "apply": apply, "dir": install_dir}, timeout=120)
         return r.get("result") or r
     if host:
         cmd = ["ssh", "-o", "BatchMode=yes", host, "python3", "-m", "fieldkit", "install", "purge", name, "--json"]
@@ -754,7 +754,7 @@ def run_install(
 ) -> dict:
     if peer:
         from ..peers import link
-        r = link.call("install-app", source=source, name=name, replace=replace, apply=apply)
+        r = link.call({"verb": "install-app", "source": source, "name": name, "replace": replace, "apply": apply}, timeout=300)
         return r.get("result") or r
     if host:
         cmd = [

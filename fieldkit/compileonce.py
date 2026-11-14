@@ -108,7 +108,20 @@ def build(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS, force: bool =
             try:
                 py_compile.compile(str(f), doraise=True)
                 stale_before.add(f)
-            except py_compile.PyCompileError as e:
+            except (py_compile.PyCompileError, OSError) as e:
+                # If __pycache__ or its .pyc was left root-owned inside a user-writable package directory,
+                # move the stale __pycache__ out of the way and retry once.
+                if isinstance(e, PermissionError):
+                    pyc_dir = f.parent / "__pycache__"
+                    backup = f.parent / f".pycache-stale-{int(time.time())}"
+                    try:
+                        if pyc_dir.is_dir():
+                            pyc_dir.rename(backup)
+                        py_compile.compile(str(f), doraise=True)
+                        stale_before.add(f)
+                        continue
+                    except (py_compile.PyCompileError, OSError) as e2:
+                        e = e2
                 errors.append({"file": str(f.relative_to(root)), "error": str(e)})
     chk = check(root, dirs=dirs)
     compiled = max(0, len(stale_before) - len(errors))
