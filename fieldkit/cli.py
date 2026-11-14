@@ -747,7 +747,7 @@ def cmd_triage_kind(a):
             [print(f"{'PASS' if x['ok'] else 'FAIL'} {a.kind}/{x['id']}: {x['why']}") for x in r["rows"]],
             print(f"triage self-test --kind {a.kind}: {'OK' if r['ok'] else 'FAILED'}")))
         return 0 if ok else 3
-    ctx = {k: v for k, v in (("home", a.home), ("root", a.root), ("branch", a.branch)) if v}
+    ctx = {k: v for k, v in (("home", a.home), ("root", a.root or "."), ("branch", a.branch)) if v}
     hits = failure_checks.run(a.kind, ctx)
     _emit({"kind": a.kind, "hits": hits}, a.json, lambda r: print(
         chr(10).join(failure_checks.lines(r["hits"])) or f"{a.kind}: every stored check is clean"))

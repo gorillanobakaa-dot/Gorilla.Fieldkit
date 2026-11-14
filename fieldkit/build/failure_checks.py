@@ -82,7 +82,9 @@ def desktop_exec(ctx):
 
 
 def rolling_url(ctx):
-    root = Path(ctx.get("root") or ".")
+    if not ctx.get("root"):
+        return []           # no tree named: never fall back to the process cwd (it is not the product's tree)
+    root = Path(ctx["root"])
     out = []
     for p in sorted(root.rglob("*")) if root.is_dir() else []:
         if ".git" in p.parts or not p.is_file() or p.suffix.lower() not in TEXT_EXT or p.stat().st_size > 1 << 20:
@@ -105,7 +107,7 @@ def _current_branch(root):
 def branch_mandate(ctx):
     b = ctx.get("branch")
     if b is None:
-        b = _current_branch(ctx.get("root") or ".")
+        b = _current_branch(ctx["root"]) if ctx.get("root") else ""
     if not b:
         return []           # not a git tree: nothing to push
     if not b.startswith(ALLOWED_BRANCH):
