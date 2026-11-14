@@ -130,6 +130,18 @@ def detect_source_version(source: Path, app_id: str) -> str:
     return "local"
 
 
+def _encode_rgba_png(size: int, rows: list[bytes]) -> bytes:
+    raw = b"".join(b"\x00" + r for r in rows)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    idat = zlib.compress(raw, level=9)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
+
 def make_rgba_png(size: int, rgb: tuple[int, int, int] = (24, 90, 219)) -> bytes:
     """Create a deterministic, valid RGBA PNG (`color_type == 6`, bit_depth == 8) of `size x size` in pure Python."""
     r0, g0, b0 = rgb
@@ -138,7 +150,7 @@ def make_rgba_png(size: int, rgb: tuple[int, int, int] = (24, 90, 219)) -> bytes
     radius = size * 0.45
     inner = size * 0.22
     for y in range(size):
-        row = bytearray([0])  # filter type 0 (None)
+        row = bytearray()
         gy = (y * 19) // max(1, size)
         for x in range(size):
             gx = (x * 19) // max(1, size)
@@ -151,18 +163,128 @@ def make_rgba_png(size: int, rgb: tuple[int, int, int] = (24, 90, 219)) -> bytes
             else:
                 row.extend((min(255, r0 + gx), min(255, g0 + gy), b0, 255))
         rows.append(bytes(row))
-    raw = b"".join(rows)
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
-    idat = zlib.compress(raw, level=9)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+    return _encode_rgba_png(size, rows)
 
 
-def make_svg(display_name: str, rgb: tuple[int, int, int] = (24, 90, 219)) -> str:
+def extract_asar_icon(asar_path: Path) -> bytes | None:
+    """Extract the original 8-bit RGBA `icon.png` directly from an Electron `app.asar` archive."""
+    if not asar_path.is_file():
+        return None
+    try:
+        with open(asar_path, "rb") as f:
+            hdr_bytes = f.read(16)
+            if len(hdr_bytes) < 16:
+                return None
+            _, h_size, _, j_len = struct.unpack("<IIII", hdr_bytes)
+            if j_len <= 0 or j_len > 32 * 1024 * 1024:
+                return None
+            hdr = json.loads(f.read(j_len).decode("utf-8", errors="replace"))
+            base = 8 + h_size
+
+            # Prefer top-level icon.png first, then walk nested files
+            candidates: list[tuple[int, str, dict]] = []
+
+            def walk(node: dict, rel: str = "") -> None:
+                for k, v in (node.get("files") or {}).items():
+                    cur = f"{rel}/{k}" if rel else k
+                    if isinstance(v, dict) and "files" in v:
+                        walk(v, cur)
+                    elif isinstance(v, dict) and "offset" in v and "size" in v:
+                        low = cur.lower()
+                        if low.endswith(".png") and ("icon" in low or "logo" in low or "code" in low):
+                            prio = 0 if low == "icon.png" else (1 if low.endswith("/icon.png") else 2)
+                            candidates.append((prio, cur, v))
+
+            walk(hdr)
+            candidates.sort(key=lambda item: (item[0], -int(item[2].get("size", 0))))
+            for _, _, info in candidates:
+                f.seek(base + int(info["offset"]))
+                data = f.read(int(info["size"]))
+                pinfo = iv.png_info(data)
+                if pinfo and pinfo.get("depth") == 8 and pinfo.get("ctype") == 6:
+                    return data
+    except (OSError, ValueError, struct.error):
+        return None
+    return None
+
+
+def extract_source_icon_png(source: Path) -> bytes | None:
+    """Locate and extract the original RGBA PNG icon from `source` (`resources/app.asar` or unpacked tree)."""
+    source = Path(source)
+    if source.is_file() and source.name.endswith(".asar"):
+        return extract_asar_icon(source)
+    search_root = source if source.is_dir() else source.parent
+    for rel_asar in ("resources/app.asar", "app.asar"):
+        data = extract_asar_icon(search_root / rel_asar)
+        if data:
+            return data
+    cand = _find_source_png(search_root)
+    if cand:
+        return cand.read_bytes()
+    return None
+
+
+def scale_rgba_png(src_png: bytes, size: int) -> bytes:
+    """Scale a source 8-bit RGBA PNG to `size x size` in pure Python (preserving exact bytes when already `size x size`)."""
+    info = iv.png_info(src_png)
+    if not info or info.get("depth") != 8 or info.get("ctype") != 6:
+        return make_rgba_png(size)
+    sw, sh = info["w"], info["h"]
+    if sw == size and sh == size:
+        return src_png
+    src_rows = iv.pixel_rows(src_png, info)
+    if not src_rows:
+        return make_rgba_png(size)
+    out_rows: list[bytes] = []
+    for y in range(size):
+        y0 = (y * sh) // size
+        y1 = max(y0 + 1, ((y + 1) * sh) // size)
+        row = bytearray()
+        for x in range(size):
+            x0 = (x * sw) // size
+            x1 = max(x0 + 1, ((x + 1) * sw) // size)
+            r_sum = g_sum = b_sum = a_sum = cnt = 0
+            for sy in range(min(y0, sh - 1), min(y1, sh)):
+                srow = src_rows[sy]
+                for sx in range(min(x0, sw - 1), min(x1, sw)):
+                    off = sx * 4
+                    a = srow[off + 3]
+                    r_sum += srow[off] * a
+                    g_sum += srow[off + 1] * a
+                    b_sum += srow[off + 2] * a
+                    a_sum += a
+                    cnt += 1
+            if cnt == 0 or a_sum == 0:
+                row.extend((0, 0, 0, 0))
+            else:
+                row.extend((
+                    min(255, r_sum // a_sum),
+                    min(255, g_sum // a_sum),
+                    min(255, b_sum // a_sum),
+                    min(255, a_sum // cnt),
+                ))
+        out_rows.append(bytes(row))
+    return _encode_rgba_png(size, out_rows)
+
+
+def icon_bytes_for_size(source: Path | None, size: int) -> bytes:
+    """Return the `size x size` RGBA PNG icon for `source` (using the original icon when present)."""
+    if source is not None:
+        src_png = extract_source_icon_png(Path(source))
+        if src_png:
+            return scale_rgba_png(src_png, size)
+    return make_rgba_png(size)
+
+
+def make_svg(display_name: str, rgb: tuple[int, int, int] = (24, 90, 219), src_png: bytes | None = None) -> str:
+    if src_png:
+        import base64
+        b64 = base64.b64encode(src_png).decode("ascii")
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">\n'
+            f'  <image width="512" height="512" href="data:image/png;base64,{b64}"/>\n'
+            "</svg>\n"
+        )
     letter = (display_name[:1] or "A").upper()
     hex_col = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
     return (
@@ -174,9 +296,18 @@ def make_svg(display_name: str, rgb: tuple[int, int, int] = (24, 90, 219)) -> st
     )
 
 
-def make_ico(sizes: tuple[int, ...] = WIN_ICO_SIZES, rgb: tuple[int, int, int] = (24, 90, 219)) -> bytes:
+def svg_for_source(source: Path | None, display_name: str) -> str:
+    src_png = extract_source_icon_png(Path(source)) if source is not None else None
+    return make_svg(display_name, src_png=src_png)
+
+
+def make_ico(
+    sizes: tuple[int, ...] = WIN_ICO_SIZES,
+    rgb: tuple[int, int, int] = (24, 90, 219),
+    src_png: bytes | None = None,
+) -> bytes:
     """Build a valid Windows `.ico` file embedding RGBA PNG frames for each size in `sizes`."""
-    frames = [(s, make_rgba_png(s, rgb=rgb)) for s in sizes]
+    frames = [(s, scale_rgba_png(src_png, s) if src_png else make_rgba_png(s, rgb=rgb)) for s in sizes]
     header = struct.pack("<HHH", 0, 1, len(frames))
     offset = 6 + 16 * len(frames)
     entries = []
@@ -292,7 +423,12 @@ def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, 
     if (bin_target.exists() or bin_target.is_symlink()) and meta["binary"] not in meta["preserve_bins"]:
         file_targets.append(bin_target)
 
-    for d_file in (apps_root / f"{app_id}.desktop", autostart_root / f"{app_id}.desktop"):
+    for d_file in (
+        apps_root / f"{app_id}.desktop",
+        autostart_root / f"{app_id}.desktop",
+        home / "Desktop" / f"{app_id}.desktop",
+        home / "Desktop" / f"{meta['display_name']}.desktop",
+    ):
         if d_file.exists() or d_file.is_symlink():
             file_targets.append(d_file)
 
@@ -528,15 +664,18 @@ def install_linux(
         bin_link.write_text(f'#!/bin/sh\nexec "{installed_bin}" "$@"\n', encoding="utf-8")
         bin_link.chmod(0o755)
 
+    src_png = extract_source_icon_png(opt_dir)
     for sz in HICOLOR_SIZES:
         ic_dir = hicolor_root / f"{sz}x{sz}" / "apps"
         ic_dir.mkdir(parents=True, exist_ok=True)
         ic_path = ic_dir / f"{app_id}.png"
-        ic_path.write_bytes(make_rgba_png(sz))
+        ic_path.write_bytes(scale_rgba_png(src_png, sz) if src_png else make_rgba_png(sz))
 
     svg_dir = hicolor_root / "scalable" / "apps"
     svg_dir.mkdir(parents=True, exist_ok=True)
-    (svg_dir / f"{app_id}.svg").write_text(make_svg(meta["display_name"]), encoding="utf-8", newline="\n")
+    (svg_dir / f"{app_id}.svg").write_text(
+        make_svg(meta["display_name"], src_png=src_png), encoding="utf-8", newline="\n"
+    )
 
     index_theme = hicolor_root / "index.theme"
     if not index_theme.is_file():
@@ -572,6 +711,18 @@ def install_linux(
     )
     desktop_file.write_text(desktop_content, encoding="utf-8", newline="\n")
     desktop_file.chmod(0o755)
+
+    desktop_shortcut = home / "Desktop" / f"{meta['display_name']}.desktop"
+    if (home / "Desktop").is_dir():
+        desktop_shortcut.write_text(desktop_content, encoding="utf-8", newline="\n")
+        desktop_shortcut.chmod(0o755)
+        if shutil.which("gio"):
+            from ..app import start as app_start
+            subprocess.run(
+                ["gio", "set", str(desktop_shortcut), "metadata::trusted", "true"],
+                env=app_start.linux_gui_env(),
+                capture_output=True,
+            )
 
     cache_runs = {}
     if shutil.which("desktop-file-validate"):
@@ -681,8 +832,9 @@ def install_windows(
         return {"ok": False, "os": "windows", "app": app_id, "error": f"SHA-256 mismatch: {src_sha} != {dst_sha}"}
 
     ico_path = target_dir / f"{app_id}.ico"
+    src_png = extract_source_icon_png(target_dir)
     if not ico_path.is_file() or ivos.ico_sizes(ico_path) != list(WIN_ICO_SIZES):
-        ico_path.write_bytes(make_ico(WIN_ICO_SIZES))
+        ico_path.write_bytes(make_ico(WIN_ICO_SIZES, src_png=src_png))
 
     shortcuts = []
     if not install_root:
