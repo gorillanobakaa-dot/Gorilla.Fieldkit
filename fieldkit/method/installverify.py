@@ -671,6 +671,8 @@ def reference(product, os_name, tag=None, ref_file=None):
     if product not in pins:
         if os_name == "linux":
             return reference_from_local(product, version=tag)
+        if os_name == "windows":       # any APP_META product: the install itself is the reference (installverify_win)
+            return {"product": product, "tag": tag, "repo": "local-windows"}
         raise KeyError(f"{product} has no release pin in parity-pin.yaml; pass --ref FILE.json")
     p = pins[product]
     with tempfile.TemporaryDirectory(prefix="fk-install-ref-", ignore_cleanup_errors=True) as t:
@@ -685,6 +687,9 @@ def verify_this(product, ref, os_name=None, session_start=None):
     os_name = os_name or os_of()
     if os_name == "linux":
         return verify(product, ref, session_start=session_start)
+    if os_name == "windows" and ref.get("repo") == "local-windows":
+        from . import installverify_win
+        return installverify_win.verify(product), {}
     from . import installverify_os as osx
     return osx.verify_here(os_name, ref), {}
 
