@@ -59,7 +59,7 @@ def _gh_prs(root, branch):
     """-> [{number, state, url, headRefOid}] of the PRs whose head is the branch, or None when gh cannot say."""
     try:
         r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all", "--limit", "10", "--json",
-                            "number,state,url,headRefOid"], cwd=str(root), capture_output=True, text=True,
+                            "number,state,url,headRefOid,mergedAt"], cwd=str(root), capture_output=True, text=True,
                            timeout=40, encoding="utf-8", errors="replace")
         return json.loads(r.stdout) if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -150,6 +150,16 @@ def _default_ref(root):
     return None
 
 
+def _after(merged_at, commit_ts):
+    """True when the PR was merged at or after the commit was made: a merged PR's headRefOid may be the merge commit."""
+    try:
+        import datetime
+        t = datetime.datetime.fromisoformat(str(merged_at).replace("Z", "+00:00")).timestamp()
+        return t >= int(commit_ts)
+    except (ValueError, TypeError):
+        return False
+
+
 def _age_h(root, now):
     t = (_git(root, "log", "-1", "--format=%ct") or "").strip()
     return round((now - int(t)) / 3600, 1) if t.isdigit() else 0.0
@@ -207,7 +217,8 @@ def scan_worktree(root, edited=None, only_edited=False, now=None, gh=None, alive
         prs = gh(root, branch)
         if prs is None:
             return out                                    # gh cannot say: no finding (fail open), the keeper tries again
-        merged = [p for p in prs if p.get("state") == "MERGED" and p.get("headRefOid") == head]
+        ct = (_git(root, "log", "-1", "--format=%ct") or "0").strip()
+        merged = [p for p in prs if p.get("state") == "MERGED" and (p.get("headRefOid") == head or _after(p.get("mergedAt"), ct))]
         if merged:
             return out
         age = _age_h(root, now)
