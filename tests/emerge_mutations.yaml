@@ -69,3 +69,6 @@
 - file: fieldkit/emerge/runner.py
   swap: ['        if other:', '        if False:']
   why: a fix in another repository is named with its path, never taken into the build tree
+- file: fieldkit/emerge/runner.py
+  swap: ['            refresh_bytecode(before, repos)  ', '            pass  ']
+  why: a fix to a .py file committed in the same second as the failing run is re-tested, not hidden by a stale .pyc

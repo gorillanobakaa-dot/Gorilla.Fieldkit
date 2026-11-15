@@ -10,6 +10,8 @@
         .agent/workflows -> .agents/skills; preview by default; undo moves files to .agent/workflows.undone (nothing
         is ever deleted)
 
+    fieldkit antigravity sessions|send|stream|bind-check|station ...   the session bridge (bridge.rs; docs/ANTIGRAVITY-BRIDGE.md)
+
 This module is a thin wrapper. The binary is built from source by `fieldkit emerge run agy-tools` (pinned by sha256 in
 the recipe report, never committed). Absent: one NEXT line and exit 1. No Python fallback, so a run is never silently
 slow. Exit codes follow the binary: 0 fine, 3 findings, 2 bad usage; 1 binary missing.
@@ -50,6 +52,29 @@ def run_tool(argv):
     return r.returncode
 
 
+BRIDGE_VERBS = ("sessions", "send", "stream", "bind-check", "station")
+RUST_BRIDGE = ("sessions", "send", "stream", "bind-check")
+
+
+def run_bridge(cmd, rest):
+    """The session bridge: the Rust binary (starts in ~5 ms, waits for agy, leaves no child) when it is built, else
+    the same logic in bridge.py (one NOTE on stderr). `station` is Python: it only calls `fieldkit zero checkin`."""
+    exe = binary() if cmd in RUST_BRIDGE else None
+    if exe is None:
+        if cmd in RUST_BRIDGE:
+            print("NOTE: agy-tools is not built; using the slower Python bridge. NEXT: fieldkit emerge run agy-tools",
+                  file=sys.stderr)
+        from . import bridge
+        return bridge.main([cmd, *rest])
+    if cmd == "stream":  # inherits stdin/stdout: NDJSON in, fenced NDJSON out
+        return subprocess.run([str(exe), "bridge", cmd, *rest]).returncode
+    r = subprocess.run([str(exe), "bridge", cmd, *rest], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    sys.stdout.write(r.stdout)
+    sys.stdout.flush()
+    sys.stderr.write(r.stderr)
+    return r.returncode
+
+
 def main(args):
     if not args or args[0] in ("-h", "--help"):
         print(__doc__)
@@ -79,5 +104,7 @@ def main(args):
         root = pos[0] if pos and pos[0] != "--json" else "."
         tail = ["--json"] if "--json" in pos else []
         return run_tool(["workflow-migrate", root, "--mode", mode, *tail])
+    if cmd in BRIDGE_VERBS:
+        return run_bridge(cmd, rest)
     print(f"unknown antigravity command: {cmd}", file=sys.stderr)
     return 2

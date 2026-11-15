@@ -11,6 +11,7 @@ join Zero's net as a station, like a Claude session. Whatever an Antigravity ses
 - `stream`: `agy --print` stream-json; each line out is `{"untrusted": true, "source": ..., "line": ...}`.
 - `station NAME`: `fieldkit zero checkin --as antigravity:NAME`. Roll call, orders and reports use the same net verbs as for `claude:` and `opencode:` stations (Antigravity pulls: its GEMINI.md rule runs `fieldkit net checkin`).
 - Security: nothing listens. The cable relay (47077) is the existing link listener with Fieldkit's pairing key and HMAC; the crate's own key file and :47078 orchestrator are not used. `check_bind` (and `fieldkit antigravity bind-check ADDR`) allows loopback and 10.77.0.0/24 only; tests prove 0.0.0.0, ::, LAN and public addresses are refused.
+- Rust: the verbs `sessions`, `send`, `stream`, `bind-check` run in `rust/agy-tools/src/bridge.rs` (std only, about 5 ms start, waits for agy so no zombie; unit tests in `cargo test`, built by `fieldkit emerge run agy-tools`). Python (`bridge.py`) is the fallback when the binary is not built, and owns `station`.
 - Not ported: `orchestrator.rs` (2551 lines, own listener, own HMAC). Follow-up brief `state/briefs/antigravity-orchestrator-port.md` (not in git).
 
 ## Gorilla.Opencode
