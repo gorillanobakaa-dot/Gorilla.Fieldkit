@@ -508,6 +508,11 @@ def verify(task_id):
         if s["kind"] == "model" and "hunk" in a:
             m = re.search(r"-h(\d+)$", s["id"])
             by_key[(a["patch"], a["file"], int(m.group(1)) if m else -1)] = s
+    try:
+        from ..migrate import landed as _landed
+        landed_h = _landed.proven_hunks(t)
+    except Exception:
+        landed_h = {}
     for key, s in by_key.items():
         # `dropped_by` is what task.drop writes (2026-10-16: the 167 steps of a dropped 098 still read as 106 false
         # completions because only `dropped_by_owner` was skipped)
@@ -594,6 +599,10 @@ def verify(task_id):
             # very check wrong for this step: upstream renamed the message and dropped words the literal text wants back
             rep.setdefault("waived_by_tiebreak", []).append({"step": s["id"], "by": s["override_by"], "was": d})
             v, d = "WAIVED", f"the tie-break ruled the text check wrong here: {s['override_by']}"
+        if v in ("NOT-APPLIED", "PARTIAL") and s["status"] == "obsolete" and key in landed_h:
+            # the intent landed in another form, proven by a verbatim quote re-read now (`migrate landed`)
+            rep.setdefault("landed", []).append({"step": s["id"], "was": d, "proof": landed_h[key]})
+            v, d = "LANDED", landed_h[key]
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file

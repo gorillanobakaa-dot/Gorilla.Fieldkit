@@ -1,0 +1,17 @@
+# Rules the local-tests refusal must hold (TESTS ONCE, owner 2026-11-15):
+#   fieldkit mutate --plan tests/toolrouter_local_tests_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_toolrouter_local_tests.py
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    lt = local_tests_refusal(cmd)                    # before the override', '    lt = None                    # before the override']
+  why: the hook route refuses a test runner
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    if not command or env.get(LOCAL_TESTS_ENV) == "1" or', '    if not command or']
+  why: the owner switch in the environment opens it
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    cmd = MUTATE_RUN.sub("", cmd)', '    cmd = cmd']
+  why: a mutation run is the rules' own proof and passes
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    cmd = "".join("" if SEARCH.match(x) else x for x in re.split', '    cmd = "".join(x for x in re.split']
+  why: a search for the word pytest is not a test run
+- file: fieldkit/migrate/landed.py
+  swap: ['        if not ok:\n            continue\n        for h in', '        for h in']
+  why: a stale landed quote is never accepted by verify

@@ -77,7 +77,7 @@ def test_a_commit_in_a_fieldkit_checkout_runs_the_suite_and_is_refused(tmp_path)
 
 def test_the_hook_route_refuses_heavy_work_on_windows(monkeypatch):
     monkeypatch.setattr(tr.sys, "platform", "win32")
-    assert tr.route("python -m pytest -q tests")["route"] == "heavy-work-outside-the-guard"
+    assert tr.route("cargo build --release")["route"] == "heavy-work-outside-the-guard"
 
 
 def test_a_goal_criterion_on_windows_runs_under_the_guard(tmp_path, monkeypatch):
@@ -136,6 +136,9 @@ def test_fix5_heavy_work_next_to_a_search_is_still_refused(cmd):
 @pytest.fixture
 def win(monkeypatch):
     monkeypatch.setattr(tr.sys, "platform", "win32")
+    # a test runner is refused outright unless the owner asked for a local run (TESTS ONCE, 2026-11-15); these cases
+    # are that owner-asked run on the Windows laptop, which must still go under the guard
+    monkeypatch.setenv(tr.LOCAL_TESTS_ENV, "1")
 
 
 @pytest.mark.parametrize("cmd, fixed", [
