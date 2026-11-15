@@ -613,6 +613,9 @@ def stop_hook(stdin=None, state_fn=None, alive=None):
             warn = keeper.stop_guard()
             if warn:
                 print(warn, file=sys.stderr)
+        if not call.get("stop_hook_active") and tp:     # the auto-report to Zero (an order holder only; Zero exempt)
+            from ..zero import autoreport
+            autoreport.report(call)
         if call.get("stop_hook_active") or not tp or rotate_stop.permanent_zero(Path(tp).stem):
             return 0                                      # the permanent Zero is exempt (owner 2026-11-09)
         from ..method import ci_wake

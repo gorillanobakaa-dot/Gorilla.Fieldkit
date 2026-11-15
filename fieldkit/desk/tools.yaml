@@ -49,14 +49,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_install_ps1.py"]
 
 - id: autopilot
-  title: Unattended agent runs (Claude Code, Antigravity) with no approval prompts, held by hard lines and no credential
+  title: Unattended agent runs (Claude Code, Antigravity, agy, Codex, Gorilla OpenCode) with specific model and thinking level, held by hard lines, quota guards and no credential
   harness: core
   entry: [python, -m, fieldkit, autopilot]
   path: ${FIELDKIT}/fieldkit/autopilot/run.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [on, off, status, stop, resume, claude, workspace, quiet, antigravity, login], help: "status first; claude PROMPT runs one headless run"}
-    - {name: rest, flag: null, type: str, required: false, help: "stop: the reason; claude: the prompt; workspace: the folder"}
-    - {name: cwd, flag: --cwd, type: str, required: false, help: "claude: the folder the run works in"}
+    - {name: action, flag: null, type: str, required: true, choices: [on, off, status, stop, resume, claude, workspace, quiet, antigravity, agy, codex, gorilla-opencode, login], help: "status first; claude/agy/codex/gorilla-opencode PROMPT runs one headless run"}
+    - {name: rest, flag: null, type: str, required: false, help: "stop: the reason; claude/agy/codex/gorilla-opencode: the prompt; workspace: the folder"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "claude/agy/codex/gorilla-opencode: the folder the run works in"}
+    - {name: model, flag: --model, type: str, required: false, help: "the specific model (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, sonnet, haiku)"}
+    - {name: thinking, flag: --thinking, type: str, required: false, help: "reasoning/thinking level: lowest, low, medium, high, max"}
     - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turns per session (10000)"}
     - {name: wall_minutes, flag: --wall-minutes, type: float, required: false, help: "claude: wall time per session; the process tree is killed after it (default: none; with --job 720)"}
     - {name: cost_usd, flag: --cost-usd, type: float, required: false, help: "claude --job: dollars per session"}
@@ -68,7 +70,7 @@ tools:
     - {name: apply, flag: --apply, type: bool, required: false, help: "quiet: stop them (without it: list only)"}
   platforms: [windows, linux]
   changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py", "${FIELDKIT}/tests/test_long_horizon.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py", "${FIELDKIT}/tests/test_long_horizon.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
 
 - id: goal
   title: Long horizon goals - a planner writes bounded jobs, fresh workers do them (budgets, checkpoints, resume), a separate verifier runs the acceptance criteria and decides; pre-approved decisions answered without a human; a supervisor resumes every unfinished goal at logon
@@ -5238,6 +5240,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", "${FIELDKIT}/tests/test_leakgate_actions_run.py", "${FIELDKIT}/tests/test_leakgate_sensors.py"]
   notes: "DANGEROUS TO THE OWNER'S SESSION: 'quiet machine' stops every user app that holds a network socket or is on the quiet list, by PID, and a holder re-checks every 2 s until the gate ends (autopilot/quiet.py) - unsaved work in those apps is lost. Starts mitmdump and browser copies (stops its own by PID). Lets the build copies reach the real network (that is the measurement). Windows: --release asks UAC for the elevated pktmon helper; with admin it enables the DNS-Client event log (restored afterwards per dnsclient_restore - not traced); --firewall adds and removes an outbound rule. Linux: needs root (network namespace, nftables). Writes the run folder and <owner>/state/leakgate_result.json (the publish gate reads it). Hours for a release run: use bh-window."
 
+- id: bh-leakgate-ci
+  title: The Linux leak gate on a GitHub ubuntu runner (kernel with no veth) - pack the context here, run there, record the result here
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-ci]
+  path: ${FIELDKIT}/fieldkit/leakgate/ci.py
+  inputs:
+    - {name: sub, required: true}
+    - {name: task, required: false}
+    - {name: deb, required: false}
+  effects: [writes-files]
+  safety: bounded
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_ci.py"]
+  notes: "pack and record run on the owner's machine, run only on the runner (root, veth: .github/workflows/leakgate-linux.yml, docs/LEAKGATE-GITHUB.md). THREAT MODEL: GitHub (Microsoft) sees the .deb, the context and every packet log of the run; the repository is public so the run's log is readable by anyone; the .deb travels in a DRAFT release, never as an artifact; the verdict is the gate's own, record never edits it and refuses a result for another binary or with a policy missing."
+
 - id: bh-leakgate-selftest
   title: Can the leak gate run on this Linux machine (root, ip, nft, ...)? Changes nothing; needs no task
   harness: build
@@ -6054,24 +6073,28 @@ tools:
   notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
 
 - id: install-verify
-  title: A program is installed the way its release says, on this computer, the peer and the Mac - the binary on PATH is the one the menu entry or shortcut launches (sha256 = the release's), every icon size installed with the release's hash, the .desktop / shortcuts / app bundle exist, caches newer than the icons, no older install shadows; self-test seeds each break
+  title: Install, purge or verify a program on this computer, the peer over the cable, or the Mac - binary, .desktop / shortcuts / app bundle, every icon size, caches, registry cleanup on Windows, quarantine on Linux; self-test seeds each break
   harness: method
   entry: [python, -m, fieldkit, install]
   path: ${FIELDKIT}/fieldkit/method/installverify.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "verify | self-test"}
-    - {name: product, flag: null, type: str, required: false, help: "gorilla-opencode"}
+    - {name: action, flag: null, type: str, required: true, help: "verify | self-test | app | purge"}
+    - {name: product, flag: null, type: str, required: false, help: "product name (verify/purge) or source path (app)"}
+    - {name: name, flag: --name, type: str, required: false, help: "app: program name (e.g. antigravity)"}
+    - {name: replace, flag: --replace, type: bool, required: false, help: "app: purge any existing install before installing"}
+    - {name: apply, flag: --apply, type: bool, required: false, help: "app/purge: apply changes (without it: dry-run plan)"}
+    - {name: dir, flag: --dir, type: str, required: false, help: "purge: explicit corrupted/unregistered folder to remove"}
     - {name: tag, flag: --tag, type: str, required: false, help: "the release to compare with (default: the parity pin)"}
     - {name: proof, flag: --proof, type: str, required: false, help: "write the resolved icon paths and sha256 per size to this JSON file"}
-    - {name: peer, flag: --peer, type: bool, required: false, help: "verify the paired computer (its link listener runs the install-verify probe)"}
-    - {name: host, flag: --host, type: str, required: false, help: "verify this Mac over ssh (macair)"}
+    - {name: peer, flag: --peer, type: bool, required: false, help: "run on the paired computer over the cable (install-verify, install-app, purge-app)"}
+    - {name: host, flag: --host, type: str, required: false, help: "run over ssh"}
     - {name: os, flag: --os, type: str, required: false, help: "self-test: all | linux | windows | macos"}
-  effects: [reads-files, writes-files, network]
-  safety: reversible             # writes only the --proof JSON and the downloaded reference package
+  effects: [reads-files, writes-files, network, processes]
+  safety: reversible
   output: own
-  exits: {2: "bad usage or no reference", 3: "a check failed (each line names its fix)"}
+  exits: {2: "bad usage or no reference", 3: "a check or install/purge step failed (each line names its fix)"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py", "${FIELDKIT}/tests/test_installverify_os.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py", "${FIELDKIT}/tests/test_installverify_os.py", "${FIELDKIT}/tests/test_appinstall_purge.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-11-01 (plan W6) after an old Jul-23 icon in ~/.local/share/icons shadowed the release's in /usr/share. The reference is the release itself (its .deb, fetched from the public URL and checked against SHA256SUMS). Network: that one download. Wayland keeps the old icon in the running GNOME session until log out/in; reported as INFO. Windows reads the shortcuts with PowerShell's WScript.Shell and the exe's icon frames with pefile; macOS reads the app bundle when the release ships one. --peer sends one read-only probe over the cable link; --host sends this module to the Mac's python3 over ssh."
 
@@ -6223,6 +6246,65 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hog.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Rule pileup (2026-10-26, adopted from the scratch conhost-census.ps1): the owner saw 61 Console Window Host rows in Task Manager; 33 were held by ONE Claude Desktop NodeService utility process (alive since 2026-10-25 14:44), a vendor leak of one console per shell never closed. Groups the whole process table (psutil ppid, the same field ps shows on Linux/macOS) by (parent, class: pileup_classes); > pileup_max_children (20) of one class, or >= pileup_stale_min (10) started > pileup_stale_h (12) h before the parent's newest one, is a WARN naming the parent (name, pid, start, its own parent), the count, their working set and the fix (pileup_fixes). A dead parent or a reused PID (parent younger than the child) holds nothing. Report only, never stopped. Mutations: tests/hog_mutations.yaml."
+
+- id: procs
+  title: "Every process tree Fieldkit started - zombies, orphans, CPU share, age, one verdict each (OK, ZOMBIES, ORPHAN, HOG); reap stops only Fieldkit's own orphans by PID + creation time"
+  harness: desk
+  entry: [python, -m, fieldkit, procs]
+  path: ${FIELDKIT}/fieldkit/core/procs.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, reap], help: "check (read only) or reap (also stop Fieldkit's own orphans, collect this process's zombies)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments", 3: "findings: a tree has zombies, orphans or is a HOG"}
+  platforms: [linux, windows]
+  platforms_why: "Linux: zombies and the child subreaper (contain.reap_orphans). Windows: no zombies; orphaned trees and the job object give the same verdicts. macOS has no subreaper (prctl) and no test runner here: not claimed."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_procs.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Born 2026-11-12 (P37): five runbook runners burned 70-83 % of a core for hours behind 2,000-8,000 zombies each. Trees come from the liveness beacons (state/liveness/runs) and the hog registry (state/hog/pids.jsonl; a detached service records itself with procs.record: the thermal governor, the link listener and relay). A zombie can only be collected by its own parent: the subreaper supervisor reaps in its own tick; a foreign supervisor's pile is named with its PID, never faked. Wired into `fieldkit hog check|watch` and `fieldkit task watch --act` (the keeper). CI: 0 zombies after a 2000-child run (ubuntu), 0 orphans after a contained run (both). Mutations: tests/procs_mutations.yaml."
+- id: appcapture
+  title: "Capture a desktop app's REAL requests through a local proxy (HTTPS_PROXY + CA bundle, restart by PID), list endpoints, show bodies with tokens redacted - observe the real client before writing any client code"
+  harness: desk
+  entry: [python, -m, fieldkit, appcapture]
+  path: ${FIELDKIT}/fieldkit/appcapture/__init__.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: true, choices: [start, show, stop, recycle, status], help: "start (proxy + restart the app by recorded PID), show (endpoints; --bodies for redacted bodies), stop (by PID; --recycle), recycle (flows to the trash), status"}
+    - {name: app, flag: null, type: str, required: false, help: "app profile name (fieldkit/appcapture/apps.yaml)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments"}
+  platforms: [linux, windows]
+  platforms_why: "Proxy variables and CA bundles work the same on both; the app profile names the per-OS executable. Not run on Windows or macOS yet."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_appcapture.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Born 2026-11-13: a model faked Antigravity model ids for a day; the real app, seen through mitmdump, answered it in minutes. Printed output is always redacted (ya29., 1//, AIza, JWT, Bearer, Authorization, cookies: fieldkit/appcapture/redact.py); raw flows stay in the owner-only scratch folder appcapture-APP and are never copied to a repo. Mitmproxy runs on its own venv interpreter with -I. Mutations: tests/appcapture_mutations.yaml. Procedure and the 7 DO NOTs: docs/APP-TRAFFIC-FIRST.md."
+
+- id: modelcatalog
+  title: "Check a client's model ids, user agent, headers and catalogue against what the backend really returned (from an appcapture) - invented ids, hardcoded UA versions, 404 probes fail with exit 3"
+  harness: desk
+  entry: [python, -m, fieldkit, modelcatalog]
+  path: ${FIELDKIT}/fieldkit/modelcatalog/__init__.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: true, choices: [verify], help: "verify"}
+    - {name: provider, flag: --provider, type: str, required: false, help: "provider profile (fieldkit/modelcatalog/providers.yaml), default antigravity"}
+    - {name: app, flag: --app, type: str, required: false, help: "take the reference flows from this appcapture"}
+    - {name: client_src, flag: --client-src, type: str, required: false, help: "client source folder to scan for invented ids and hardcoded UA"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments", 3: "findings: invented id, hardcoded UA, wrong body, 404 probe"}
+  platforms: [linux, windows]
+  platforms_why: "Pure Python reading files; no OS-specific call."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_modelcatalog.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Born 2026-11-13 with appcapture. Signatures for the failures it names: fieldkit/build/signatures/model-backend.yaml. Mutations: tests/modelcatalog_mutations.yaml."
 
 - id: liveness
   title: "Process liveness - every harness long run (goal supervisor, runbook, emerge, pipeline, link job) OK, STALLED or ORPHAN; --act stops the harness's own orphans and overdue steps by PID + creation time; the named failure modes and their checks"
@@ -6766,20 +6848,22 @@ tools:
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
 
 - id: route
-  title: "Solo or Multiplayer and the model router - the owner accepts a mode (solo = one job at a time, nothing on another device; multi = up to 3) and the strongest model (haiku, sonnet, opus, fable) once a day; every `task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the accepted one; a failed round climbs one rung up to the ceiling; a job that needs Fable is parked in the owner inbox"
+  title: "Solo or Multiplayer and the model router - the owner accepts a mode (solo = one job at a time, nothing on another device; multi = up to 3), coding agent (antigravity, agy, codex, gorilla-opencode, claude), specific model (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, haiku, sonnet, opus, fable), and thinking level (lowest, low, medium, high, max) once a day; every `task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the accepted one"
   harness: core
   entry: [python, -m, fieldkit, route]
   path: ${FIELDKIT}/fieldkit/lifecycle/routing.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [status, choose, assess], help: "LEAVE EMPTY for status. choose --mode solo|multi --model haiku|sonnet|opus|fable is the daily accept; assess BRIEF.md shows the model a brief would get"}
+    - {name: action, flag: null, type: str, required: false, choices: [status, choose, assess], help: "LEAVE EMPTY for status. choose --mode solo|multi --agent AGENT --model MODEL --thinking LEVEL is the daily accept; assess BRIEF.md shows the model a brief would get"}
     - {name: mode, flag: --mode, type: str, required: false, choices: [solo, multi], help: "choose: solo (default) or multi"}
-    - {name: model, flag: --model, type: str, required: false, help: "choose: the strongest model a job may use"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "choose: coding agent (antigravity, agy, codex, gorilla-opencode, claude)"}
+    - {name: model, flag: --model, type: str, required: false, help: "choose: the specific model a job may use"}
+    - {name: thinking, flag: --thinking, type: str, required: false, help: "choose: reasoning/thinking level (lowest, low, medium, high, max)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
   exits: {2: "bad mode or model"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_routing.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_routing.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-11-02: one hour of 7 parallel jobs and a 300k-context Opus session burned the 5-hour quota; 'Solo' and 'Multiplayer', the owner picks the model, the harness routes down on its own (risk score, cascade, fallback), Fable only parked for approval. Data: fieldkit/lifecycle/routing.yaml (words, thresholds, caps). State: state/lifecycle/mode.json (the accept, valid one day; without it solo + sonnet), routing.jsonl (every decision). Deterministic, no network, no model: LiteLLM, Portkey, RouteLLM and Langfuse were not adopted because each is a vendor door; the same router, cascade and fallback are a score and a table here. `task start --model M --pin` keeps M exactly. The cost guard (models.py) still checks the owner's ceiling first. Mutations: tests/routing_mutations.yaml."
 
@@ -6804,13 +6888,16 @@ tools:
   notes: "Plan R3, 2026-10-28: 58 of 75 sessions ($703) left no Board row with their id. A row counts when a PLAN.md table line names the session id's first 8 characters, or the job or task id in its first message (fieldkit task report rows). Claude Code transcripts on this computer; the other computer through fieldkit friction (kind board, over the cable) and fieldkit sessions sweep there. The Zero handover writes the old Zero's row (zero/net.py _board_row_of). Append-only to PLAN.md; appends a row only when none names the session."
 
 - id: task
-  title: "Headless tasking - start a job from a brief file with no click: a one-step autopilot runbook in its own window here, or the peer's link listener over the cable (verb ask: fieldkit autopilot claude under that computer's approved link.yaml); the done protocol appended; reports come back by themselves (here: task report, over the cable: the link inbox) to the ledger, the ROOM log and the Board"
+  title: "Headless tasking - start a job from a brief file with no click on any coding agent (antigravity, agy, codex, gorilla-opencode, claude) with a specific model and thinking level (or prompts 'WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?' if unspecified); enforces per-agent quota guards"
   harness: core
   entry: [python, -m, fieldkit, task]
   path: ${FIELDKIT}/fieldkit/lifecycle/tasks.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [start, status, report], help: "start BRIEF.md [--on DEVICE] | status | report ID --status done|failed|blocked"}
+    - {name: action, flag: null, type: str, required: true, choices: [start, status, report], help: "start BRIEF.md [--agent AGENT --model MODEL --thinking LEVEL] [--on DEVICE] | status | report ID --status done|failed|blocked"}
     - {name: arg, flag: null, type: str, required: false, help: "start: the brief file; report: the task id"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "start: coding agent (antigravity, agy, codex, gorilla-opencode, claude)"}
+    - {name: model, flag: --model, type: str, required: false, help: "start: specific model (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, haiku, sonnet, opus, fable)"}
+    - {name: thinking, flag: --thinking, type: str, required: false, help: "start: reasoning/thinking level (lowest, low, medium, high, max)"}
     - {name: "on", flag: --on, type: str, required: false, help: "start: a household device; the job runs there"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "start here: the job's folder"}
     - {name: wall, flag: --wall, type: int, required: false, help: "start here: wall budget in minutes (120)"}
@@ -6821,9 +6908,9 @@ tools:
   effects: [reads-files, writes-files, processes, network]
   safety: reversible
   output: own
-  exits: {2: "no brief / bad arguments", 3: "not started (the answer says why)"}
+  exits: {2: "no brief / bad arguments / agent+model+thinking choice required", 3: "not started (the answer says why)"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Replaces desktop session cards for relief and side jobs (2026-10-26: a session-started turn cannot start a desktop session, so jobs became cards the owner had to click, on the VAIO and on Windows). Proven 2026-10-26 18:57: Windows started a claude job on the VAIO over the cable; it reported back in 40 s, no click. Ledger: state/lifecycle/tasks.jsonl; runbooks: state/lifecycle/tasks/<id>/. The peer side needs allow_start: [claude] + cwd in its approved link.yaml (fieldkit friction says so when missing)."
 
@@ -7524,3 +7611,21 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py", -k, idle]
   notes: "P9. The recorded fixture tests/fixtures/idle_2026_11_12.json shows 2026-11-12 05:41 to 11:18 as one gap of 5 h 37 min."
+
+- id: compileonce
+  title: "Pre-compile every Python file in fieldkit/ and kits/ into validated .pyc bytecode ahead of time on Windows and Linux so tools never recompile on the fly on every start; check verifies zero missing, stale or syntax-broken bytecode files"
+  harness: core
+  entry: [python, -m, fieldkit, compileonce]
+  path: ${FIELDKIT}/fieldkit/compileonce.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [build, check], help: "build (default): compile changed/missing .py files; check: verify all .pyc files are fresh and valid"}
+    - {name: force, flag: --force, type: flag, required: false, help: "build: recompile all .py files even when .pyc is up to date"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable output"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "all modules compiled and fresh", 2: "bad usage", 3: "syntax error, missing or stale .pyc file"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_compileonce.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."

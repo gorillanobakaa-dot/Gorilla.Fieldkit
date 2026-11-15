@@ -70,3 +70,56 @@ work_kinds:
 zero_reads:
   max_run: 4
   every: 5
+
+# Reasoning / thinking levels supported across coding agents, from lowest to maximum (2026-11-14).
+thinking_levels: [lowest, low, medium, high, max]
+
+# Coding agents, their specific selectable models (never generic "gemini"), Ultra frontier models, and thinking levels.
+agents:
+  antigravity:
+    title: "Google Antigravity Desktop IDE"
+    kind: ide
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
+    ultra_models: [carbon, claude-opus-4-6]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: high
+  agy:
+    title: "Antigravity Terminal CLI (agy)"
+    kind: cli
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
+    ultra_models: [carbon, claude-opus-4-6]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: high
+  codex:
+    title: "OpenAI Codex CLI"
+    kind: cli
+    models: [codex-mini, o4-mini, o3, gpt-5-codex]
+    ultra_models: [o3, gpt-5-codex]
+    default_model: o4-mini
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+  gorilla-opencode:
+    title: "Gorilla OpenCode Agent"
+    kind: cli
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, qwen3-coder, local/qwen3, sonnet, opus]
+    ultra_models: [carbon, opus]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+  claude:
+    title: "Claude Code CLI"
+    kind: cli
+    models: [haiku, sonnet, opus, fable]
+    ultra_models: [opus, fable]
+    default_model: sonnet
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+
+# Multi-agent quota & block guard (owner 2026-11-14: Claude weekly quota is maxed out at 100%; block claude and
+# support quota/block guards for antigravity, agy, codex, gorilla-opencode, and claude alike).
+agent_availability:
+  cooldown_minutes: 120
+  unavailable:
+    claude: "always"

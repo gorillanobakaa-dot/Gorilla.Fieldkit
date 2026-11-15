@@ -31,3 +31,9 @@
   swap: ["if len(f) >= 4 and _t(f[0]) is not None and not WORKER.search(f[1]):", "if len(f) >= 4 and _t(f[0]) is not None:"]
 - file: fieldkit/lifecycle/idle.py
   swap: ["if hi - lo >= min_s:", "if hi - lo >= min_s * 1000:"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if ctx[\"now\"] - last < after or p.has_wait(station):", "if p.has_wait(station):"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if rep.get(\"status\") == \"done\":\n            continue", "if False:\n            continue"]
+- file: fieldkit/lifecycle/keeper.py
+  swap: ["if f[\"key\"].startswith((\"rotating:\", \"silent:\")):", "if False:"]

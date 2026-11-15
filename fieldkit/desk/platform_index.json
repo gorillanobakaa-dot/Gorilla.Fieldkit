@@ -301,6 +301,16 @@
    "app"
   ]
  },
+ "appcapture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Proxy variables and CA bundles work the same on both; the app profile names the per-OS executable. Not run on Windows or macOS yet.",
+  "ids": [
+   "appcapture"
+  ]
+ },
  "audio": {
   "platforms": [
    "linux"
@@ -786,6 +796,16 @@
   "why": "",
   "ids": [
    "bh-leakgate-baseline"
+  ]
+ },
+ "build-harness leakgate-ci": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-ci"
   ]
  },
  "build-harness leakgate-context": {
@@ -1522,6 +1542,17 @@
   "why": "",
   "ids": [
    "ciaudit"
+  ]
+ },
+ "compileonce": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "compileonce"
   ]
  },
  "cost": {
@@ -2280,6 +2311,16 @@
    "metrics"
   ]
  },
+ "modelcatalog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Pure Python reading files; no OS-specific call.",
+  "ids": [
+   "modelcatalog"
+  ]
+ },
  "models gguf": {
   "platforms": [
    "darwin",
@@ -2897,6 +2938,16 @@
   "why": "",
   "ids": [
    "privacy-scan"
+  ]
+ },
+ "procs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Linux: zombies and the child subreaper (contain.reap_orphans). Windows: no zombies; orphaned trees and the job object give the same verdicts. macOS has no subreaper (prctl) and no test runner here: not claimed.",
+  "ids": [
+   "procs"
   ]
  },
  "publish": {
