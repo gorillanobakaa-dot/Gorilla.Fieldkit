@@ -87,10 +87,19 @@ class OpenCode:
         send = self._send or peers.send
         text = human(entry, net)[:PUSH_MAX]
         out = []
+        to = entry.get("to") or "*"
+        if to != "*" and not str(to).startswith("opencode:"):
+            # 2026-11-15: a message to Zero (a Claude Code station) was pushed to every OpenCode session. Only a
+            # broadcast or a message addressed to an OpenCode station goes through this door.
+            return [{"channel": self.name, "target": "-", "ok": True,
+                     "detail": f"not for OpenCode (addressed to {to}); not pushed"}]
         try:
             live = sessions()
         except Exception as e:  # noqa: BLE001 - a broken register must not stop the other channels
             return [{"channel": self.name, "target": "-", "ok": False, "detail": f"register unreadable: {e}"}]
+        if to != "*":
+            want = to.split(":", 1)[1].split("@", 1)[0]
+            live = [s for s in live if s.get("name") == want]
         told = _told_load() if entry.get("kind") == "open" else {}
         epoch_key = str(net.get("epoch"))
         for s in live:
