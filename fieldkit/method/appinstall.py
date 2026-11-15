@@ -770,12 +770,57 @@ def _create_windows_shortcut(lnk_path: Path, target_exe: Path, icon_path: Path, 
     return r.returncode == 0 and lnk_path.is_file(), (r.stdout + r.stderr).strip()
 
 
+def find_existing_windows(app_name: str, exe_name: str, finder=None) -> Path | None:
+    """The exe an existing install of this app already uses (PATH, App Paths, Uninstall, Programs folder, a running
+    process), wherever its folder is named: 'Gorilla OpenCode' with a space is the same install as 'GorillaOpencode'.
+    None when there is none. 2026-11-15: the new folder name made a second copy beside the one PATH uses."""
+    from ..app import find as F
+    want = F.norm(os.path.splitext(exe_name)[0])
+    try:
+        rows = (finder or F.find)(app_name)
+    except Exception:  # noqa: BLE001 - no finder answer = no existing install
+        return None
+    for m in rows:
+        pth = m.get("path") or ""
+        if m.get("launch", {}).get("kind") == "exe" and pth.lower().endswith(".exe") and \
+                F.norm(os.path.splitext(os.path.basename(pth))[0]) == want and os.path.isfile(pth):
+            return Path(pth)
+    return None
+
+
+def update_in_place_windows(src_exe: Path, existing: Path, apply: bool, ver: str = "") -> dict:
+    """Replace ONE exe where it already is. A running exe cannot be overwritten or deleted on Windows but can be
+    renamed: the old one becomes <name>.old (its running copies keep going; new launches get the new file), the new
+    one is copied in and checked by SHA-256. Never purges, never recycles the folder, never kills a process.
+    The .old file is left for `fieldkit size recycle` once nothing runs it."""
+    base = {"os": "windows", "app": existing.stem.lower(), "version": ver, "apply": apply, "mode": "update in place",
+            "source": str(src_exe), "target_dir": str(existing.parent), "exe": str(existing)}
+    if not apply:
+        return {"ok": True, **base}
+    old = existing.with_name(existing.name + ".old")
+    if old.exists():
+        old = existing.with_name(f"{existing.name}.{int(time.time())}.old")
+    try:
+        existing.rename(old)
+        shutil.copy2(src_exe, existing)
+    except OSError as e:
+        if old.exists() and not existing.exists():
+            old.rename(existing)                             # put it back: a failed update leaves the install as it was
+        return {"ok": False, **base, "error": f"{type(e).__name__}: {e}"}
+    src_sha, dst_sha = sha256_file(src_exe), sha256_file(existing)
+    if src_sha != dst_sha:
+        return {"ok": False, **base, "error": f"SHA-256 mismatch: {src_sha} != {dst_sha}", "old": str(old)}
+    return {"ok": True, **base, "exe_sha256": dst_sha, "old": str(old), "shortcuts": [], "purge": None,
+            "next": f"recycle {old} when nothing runs it: fieldkit size recycle"}
+
+
 def install_windows(
     source: Path,
     name: str = "antigravity",
     replace: bool = False,
     apply: bool = False,
     install_root: Path | None = None,
+    finder=None,
 ) -> dict:
     """Install an unpacked app tree or binary on Windows into `%LOCALAPPDATA%\\Programs\\<App>` with `.ico` & `.lnk`."""
     source = Path(source).expanduser().resolve()
@@ -797,6 +842,11 @@ def install_windows(
 
     if not src_exe.is_file():
         return {"ok": False, "os": "windows", "app": app_id, "error": f"executable not found at {src_exe}"}
+
+    if not source.is_dir() and not install_root:
+        existing = find_existing_windows(name, exe_name, finder)
+        if existing is not None:
+            return {**update_in_place_windows(src_exe, existing, apply, ver), "app": app_id}
 
     if not apply:
         return {
