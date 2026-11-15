@@ -15,6 +15,8 @@
                                            the repository's release.yml publishes on tags
     fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
                                            SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
+    (gh-release, push --tag and release refuse inside releasegate.yaml's min_hours of the repository's last release:
+     one release per batch; `--hotfix "WHY"` is the logged escape, one per window)
     fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
                                            one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
@@ -374,7 +376,7 @@ def ship_env():
     return env
 
 
-def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None):
+def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None, hotfix="", gate=None):
     """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin,
     and the tagged commit can publish (tagguard: version, release notes, page, CI, tag not on origin)."""
     if not tag or not _rev(repo, f"refs/tags/{tag}"):
@@ -383,6 +385,11 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
+    from . import releasegate
+    from ..core import sync
+    rg = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)      # one release per batch
+    if not rg["ok"]:
+        return rg
     from . import tagguard
     # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
     g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
@@ -406,7 +413,7 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     return {"ok": False, "state": "network", "tag": tag, "error": last[-300:], "next": "try again later"}
 
 
-def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run):
+def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
     wf = Path(repo) / ".github" / "workflows" / "release.yml"
@@ -422,6 +429,10 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run)
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "publishing a release is the owner's unless a mandate allows it"}
     from ..core import sync
+    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
+    g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
+    if not g["ok"]:
+        return g
     r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
             capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
@@ -443,9 +454,20 @@ def add_rows(page, rows):
     """The page with each (name, size, sha256) row put in its 'File | Bytes | SHA-256' table: a row of the same name
     replaced, a new one after the table's last row. Raises ValueError when the page has no such table."""
     from ..build import relfiles
-    found = list(relfiles.ROW.finditer(page or ""))
+    page = page or ""
+    found = list(relfiles.ROW.finditer(page))
     if not found:
-        raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+        # a page written before the build has the header and a placeholder row ("(filled in by ...)"): that row is
+        # replaced by the first measured one (v0.1.163 shipped with it unfilled and `release verify` found no table)
+        head = re.search(r"^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|\s*\n\|[-\s|:]+\n(\|[^\n]*\|[ \t]*\n?)?", page, re.M)
+        if not head:
+            raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+        rows = list(rows)
+        name, size, sha = rows.pop(0)
+        page = page[:head.start(1) if head.group(1) else head.end()] + f"| `{name}` | {size:,} | `{sha}` |\n" \
+            + page[head.end():]
+        if not rows:
+            return page
     def end(m):                                        # ROW's trailing \s* also takes the newlines after the row
         return m.start() + len(m.group(0).rstrip())
 
@@ -493,10 +515,17 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
             return {"ok": False, "state": "no-sums", "tag": tag, "error": f"{sums_name} is not on the release",
                     "next": "nothing was changed"}
         new = {p.name: relfiles.sha256(p) for p in paths}
-        page = add_rows(view.get("body", ""), [(p.name, p.stat().st_size, new[p.name]) for p in paths])
         gh("release", "download", tag, "-p", sums_name, "-D", str(work), "--clobber")
         sums = work / sums_name
-        sums.write_text(merge_sums(sums.read_text(encoding="utf-8"), new), encoding="utf-8", newline="\n")
+        merged = merge_sums(sums.read_text(encoding="utf-8"), new)
+        sums.write_text(merged, encoding="utf-8", newline="\n")
+        # one page row per SHA256SUMS line (sizes from the release's own asset list), not only for the added files:
+        # a page whose table is empty or short is completed here
+        have = {a["name"]: a.get("size") for a in view.get("assets", [])}
+        rows = [(n, p.stat().st_size, new[n]) for p in paths for n in [p.name]]
+        rows += [(n, have[n], sha) for n, sha in relfiles.parse_sums(merged).items()
+                 if n not in new and have.get(n)]
+        page = add_rows(view.get("body", ""), rows)
         notes = work / "page.md"
         notes.write_text(page, encoding="utf-8", newline="\n")
         gh("release", "upload", tag, *[str(p) for p in paths], str(sums), "--clobber")
@@ -615,6 +644,9 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--wait", type=int, default=900, help="release: seconds to wait for the published release")
     ap.add_argument("--add", nargs="+", default=[], metavar="FILE",
                     help="gh-release: add these files to the published release (sums and page table updated)")
+    ap.add_argument("--hotfix", default="", metavar="WHY",
+                    help="gh-release, push --tag, release: publish inside the one-release-per-batch window "
+                         "(security fix or broken release); logged in the room and the ledger, one per window")
     ap.add_argument("--base", default="main")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
@@ -635,9 +667,9 @@ def main(argv=None, prog="fieldkit ship"):
         if a.add and (a.action != "gh-release" or extra):
             ap.error("--add is for `ship gh-release vX.Y.Z --add FILE...`, without `-- ARGS`")
         if a.action != "gh-release":
-            r = push_tag(a.repo, a.push_tag)
+            r = push_tag(a.repo, a.push_tag, hotfix=a.hotfix)
         else:
-            r = gh_release_add(a.repo, a.tag, a.add) if a.add else gh_release(a.repo, a.tag, extra)
+            r = gh_release_add(a.repo, a.tag, a.add) if a.add else gh_release(a.repo, a.tag, extra, hotfix=a.hotfix)
         emit(r, a.json, lambda d: [f"{d.get('tag')}: {d.get('state')}"]
              + ([f"error: {d['error']}"] if d.get("error") else [])
              + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
@@ -671,7 +703,7 @@ def main(argv=None, prog="fieldkit ship"):
         elif not a.tag:
             ap.error("release needs a tag: fieldkit ship release vX.Y.Z")
         else:
-            r = sr.release(a.tag, a.repo, a.base, scaffold_notes=a.scaffold, wait=a.wait)
+            r = sr.release(a.tag, a.repo, a.base, scaffold_notes=a.scaffold, wait=a.wait, hotfix=a.hotfix)
         emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     try:

@@ -214,3 +214,29 @@ def test_peer_install_and_purge_call_dict(monkeypatch):
         "dir": "/opt/ag",
     }
 
+
+
+def test_windows_update_goes_into_the_existing_folder_with_a_space(tmp_path: Path):
+    """The install PATH uses is 'Gorilla OpenCode' (a space); a single new exe replaces it there, keeps the old as .old,
+    and never makes a second 'GorillaOpencode' copy."""
+    existing_dir = tmp_path / "Programs" / "Gorilla OpenCode"
+    existing_dir.mkdir(parents=True)
+    old = existing_dir / "gorilla-opencode.EXE"
+    old.write_bytes(b"old-160")
+    src = tmp_path / "gorilla-opencode.exe"
+    src.write_bytes(b"new-163")
+    row = {"name": "gorilla-opencode", "path": str(old), "launch": {"kind": "exe", "target": str(old)}, "score": 2}
+    assert appinstall.find_existing_windows("Gorilla OpenCode", "gorilla-opencode.exe", finder=lambda q: [row]) == old
+    dry = appinstall.update_in_place_windows(src, old, apply=False)
+    assert dry["ok"] and dry["target_dir"] == str(existing_dir) and old.read_bytes() == b"old-160"
+    r = appinstall.update_in_place_windows(src, old, apply=True)
+    assert r["ok"] and old.read_bytes() == b"new-163"
+    assert (existing_dir / "gorilla-opencode.EXE.old").read_bytes() == b"old-160"
+    assert not (tmp_path / "Programs" / "GorillaOpencode").exists()
+    # a second update does not collide with the first .old
+    src.write_bytes(b"new-164")
+    assert appinstall.update_in_place_windows(src, old, apply=True)["ok"] and old.read_bytes() == b"new-164"
+    # another program with the same words is not taken for this one
+    other = dict(row, path=str(existing_dir / "other.exe"))
+    (existing_dir / "other.exe").write_bytes(b"x")
+    assert appinstall.find_existing_windows("Gorilla OpenCode", "gorilla-opencode.exe", finder=lambda q: [other]) is None

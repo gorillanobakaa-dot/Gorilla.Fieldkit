@@ -601,6 +601,15 @@ def endcheck(transcript, state_fn=None, alive=None):
     return (not fails), fails
 
 
+def permanence_reasons(transcript):
+    """UNCOMMITTED / UNPUSHED work of the ending session (fieldkit/lifecycle/permanence.py). Fails open: []."""
+    try:
+        from ..lifecycle import permanence
+        return permanence.stop_reasons(transcript)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def stop_hook(stdin=None, state_fn=None, alive=None):
     """Claude Code Stop hook (`rotate --stop-hook`): stdin {transcript_path, stop_hook_active}. Prints
     {"decision":"block","reason":...} ONLY for a PR whose gh state is really OPEN with no ci-wait running. A state gh
@@ -629,9 +638,12 @@ def stop_hook(stdin=None, state_fn=None, alive=None):
                 return "MERGED"                           # not proven open: no block, only a note
             return st
         a, p = sc.resolve(str(tp), [sc.ClaudeCode()])
-        if a is None:
+        lost = permanence_reasons(str(tp))                # work not yet permanent: blocks once (stop_hook_active never loops)
+        if a is None and not lost:
             return 0
-        fails = ci_wake.check(measure(a, p)["pushed_prs"], known, session=p.stem, alive=alive or ci_wake.pid_alive)
+        fails = list(lost)
+        if a is not None:
+            fails += ci_wake.check(measure(a, p)["pushed_prs"], known, session=p.stem, alive=alive or ci_wake.pid_alive)
         if fails:
             print(json.dumps({"decision": "block", "reason": "ENDCHECK: " + " | ".join(fails)}))
         elif unknown:

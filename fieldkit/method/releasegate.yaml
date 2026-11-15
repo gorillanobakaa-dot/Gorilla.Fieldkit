@@ -1,0 +1,3 @@
+# One release per batch (owner order 2026-11-15): a repository that published a release less than min_hours ago
+# gets no new one; batch the fixes and release once from main after the last. `--hotfix WHY` is the logged escape.
+min_hours: 24

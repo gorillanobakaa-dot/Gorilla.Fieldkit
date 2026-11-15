@@ -1,0 +1,17 @@
+# one release per batch (2026-11-15): each rule of the gate broken once; all CAUGHT.
+#   python -m fieldkit mutate --plan tests/releasegate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_releasegate.py
+- file: fieldkit/method/releasegate.py
+  swap: ["    if age >= hours:", "    if age >= hours * 0:"]
+  why: "inside the window the gate refuses"
+- file: fieldkit/method/releasegate.py
+  swap: ["    if age >= hours:", "    if age > 1e9:"]
+  why: "outside the window the gate allows"
+- file: fieldkit/method/releasegate.py
+  swap: ["        if not any(h.get(\"repo\") == slug", "        if False and not any(h.get(\"repo\") == slug"]
+  why: "a hotfix is always logged"
+- file: fieldkit/method/releasegate.py
+  swap: ["        if prior:", "        if False:"]
+  why: "one hotfix per window"
+- file: fieldkit/method/releasegate.py
+  swap: ["\"state\": \"gate-unreadable\"", "\"state\": \"gate-open\""]
+  why: "an unreadable gh fails closed"

@@ -1857,8 +1857,12 @@ def build_parser():
                        ("keeper", "work never waits for a model turn: a timer-run pass updates BEHIND PRs, starts one fix job for "
                                   "a red PR, restarts a died job once, starts queued briefs, wakes Zero; tick, status, "
                                   "install (fieldkit/lifecycle/keeper.py)"),
+                       ("permanence", "check: a session's work that is uncommitted, unpushed or unmerged; blocks the turn end "
+                                      "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
                        ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
                                 "(fieldkit/lifecycle/idle.py)"),
+                       ("pool", "plan Zero's session pool: keep, recycle idle sessions into a reserve, archive extras, "
+                                "top up; exact app-tool calls in order (fieldkit/lifecycle/pool.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
@@ -3238,9 +3242,15 @@ def main(argv=None):
     if args[:1] == ["keeper"]:                        # P9: work never waits for a model turn (lifecycle/keeper.py)
         from .lifecycle import keeper
         return keeper.main(args[1:])
+    if args[:1] == ["permanence"]:                    # no session's work is lost when it ends (lifecycle/permanence.py)
+        from .lifecycle import permanence
+        return permanence.main(args[1:])
     if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
         from .lifecycle import idle
         return idle.main(args[1:])
+    if args[:1] == ["pool"]:                          # Zero's session pool: keep / recycle / archive / start (lifecycle/pool.py)
+        from .lifecycle import pool
+        return pool.main(args[1:])
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])

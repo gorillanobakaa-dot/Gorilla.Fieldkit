@@ -547,6 +547,9 @@ def main(argv=None, prog="fieldkit testcost"):
     st = sub.add_parser("staged", help="the test files that DIRECTLY cover the staged files inside the local budget, one "
                                        "per line; the rest is printed as deferred to CI (the pre-commit hook)")
     st.add_argument("--repo", default=".")
+    st.add_argument("--local", action="store_true",
+                    help="also RUN those test files here (a debugging session the owner asked for); the default runs nothing: "
+                         "GitHub CI runs the tests (owner order 2026-11-15)")
     rf = sub.add_parser("record-files", help="journal test files as passed on a tree (the hook, after its run)")
     rf.add_argument("--key", required=True)
     rf.add_argument("files", nargs="*")
@@ -587,6 +590,13 @@ def main(argv=None, prog="fieldkit testcost"):
                    + ", ".join(sel["deferred"][:5]) + (" ..." if len(sel["deferred"]) > 5 else ""))
             print(msg, file=sys.stderr)
             record("deferred", "skipped", 0, key=key, note=f"{len(sel['deferred'])} file(s): " + " ".join(sel["deferred"])[:600])
+        covering = sel["local"] + sel["deferred"]
+        if covering:
+            print(f"testcost: GitHub CI (Linux and Windows) will run {len(covering)} covering test file(s): "
+                  + ", ".join(covering[:5]) + (" ..." if len(covering) > 5 else "") + "; nothing runs here unless --local",
+                  file=sys.stderr)
+        if a.local and sel["local"]:
+            return subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *sel["local"]], cwd=a.repo)
         if not sel["local"]:
             print("testcost: " + ("every covering test already passed on this tree" if sel["skipped"] else
                   "no test directly covers the staged files") + " - nothing runs here; CI runs the covering tests",

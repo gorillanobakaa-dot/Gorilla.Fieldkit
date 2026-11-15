@@ -84,6 +84,10 @@ def plan(match, args, osname, which=shutil.which):
     k, t = match["launch"]["kind"], match["launch"]["target"]
     if k == "exe":
         return "CreateProcess" if osname == "win32" else "exec", [t, *args], True
+    if k == "schtask":
+        if osname != "win32":
+            return "", None, False
+        return "scheduled task (elevated, no UAC)", ["schtasks", "/run", "/tn", t], False
     if k == "lnk":
         return "ShellExecute (the shortcut)", None, False
     if k == "appsfolder":
@@ -117,7 +121,8 @@ def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, p
                                "unelevated, never through UAC or sudo"}
     method, argv, direct = plan(match, list(args), osname, which)
     if not method:
-        return {**base, "why": f"refused: {match['path']} is an install folder, not a program"}
+        return {**base, "why": f"refused: {match['path']} is an install folder, not a program"
+                if match["launch"]["kind"] != "schtask" else "refused: a scheduled-task launcher runs on Windows only"}
     base["method"] = method
     before = {p[0] for p in procs()}
     pid = None
@@ -140,10 +145,11 @@ def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, p
     sleep(wait)
     now = procs()
     alive = {x[0] for x in now}
-    stems = {F.norm(match["name"]), F.norm(os.path.splitext(os.path.basename(match["path"] or ""))[0])} - {""}
+    exes = [match["path"] or "", match.get("exe") or ""]
+    stems = {F.norm(match["name"])} | {F.norm(os.path.splitext(os.path.basename(x))[0]) for x in exes} - {""}
     new = [(pid_, n, e) for pid_, n, e in now if pid_ not in before and
-           (F.norm(os.path.splitext(n or "")[0]) in stems or (e and match["launch"]["kind"] == "exe"
-                                                              and os.path.normcase(e) == os.path.normcase(match["path"])))]
+           (F.norm(os.path.splitext(n or "")[0]) in stems or (e and (match["launch"]["kind"] == "exe" or match.get("exe"))
+                                                              and os.path.normcase(e) in {os.path.normcase(x) for x in exes if x}))]
     pids = [x[0] for x in new]
     if direct and pid in alive and pid not in pids:
         pids.insert(0, pid)
