@@ -1,5 +1,6 @@
 """fieldkit emerge: content-addressed stages, a model only on failure, fixes only as commits, tiers, offload, pins."""
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -880,3 +881,32 @@ def test_rolling_url_without_a_root_scans_nothing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert fc.rolling_url({}) == []
     assert fc.rolling_url({"root": str(tmp_path)})
+
+
+def test_a_fix_to_a_python_file_is_not_hidden_by_a_stale_pyc(tmp_path):
+    """CI 2026-11-15 (PR 490): the fix (`a - b` -> `a + b`, same size) landed in the same second as the failing run,
+    so the re-run imported the stale .pyc, failed again, and the second fix "committed nothing" -> inbox. The fixer
+    here keeps the old mtime: the same second on any machine, however fast."""
+    w = make_repo(tmp_path / "w")
+    write(w / "calc.py", "def add(a, b):\n    return a - b\n")
+    write(w / "check.py", "import sys; sys.path.insert(0, sys.argv[1]); import calc\n"
+                          "sys.exit(0 if calc.add(2, 3) == 5 else 1)\n")
+    write(w / ".gitignore", "__pycache__/\n")
+    commit_all(w)
+    s = {"name": "pyc", "vars": {"w": str(w)}, "sources": [{"id": "w", "git": "{w}", "track": "tree"}],
+         "stages": [{"id": "test", "run": {"cmd": [PY, "{w}/check.py", "{w}"]}, "inputs": ["{w}/calc.py"],
+                     "outputs": [], "uses": ["inputs"], "needs": []}]}
+
+    def same_second():
+        src = w / "calc.py"
+        st = src.stat()
+        git(w, "checkout", "-q", "-B", "fix/pyc")
+        write(src, "def add(a, b):\n    return a + b\n")
+        os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns))
+        commit_all(w, "fix")
+
+    inbox = Inbox()
+    rep = emerge(recipe(tmp_path, s), fixer=Fixer(same_second), inbox_add=inbox).run()
+    assert list((w / "__pycache__").glob("calc.*.pyc")), "the failing run wrote no .pyc: the test proves nothing"
+    assert rep["ok"] and len(rep["fixes"]) == 1, (rep["fixes"], statuses(rep))
+    assert E.refresh_bytecode({str(w): {"head": git(w, "rev-parse", "HEAD")}}, [str(w)]) == []
