@@ -227,3 +227,11 @@ def test_zero_gets_no_handover_at_the_stop_line(tmp_path, monkeypatch):
     (coord / "NET.yaml").write_text("net: open\nzero:\n  station: claude:zz@h\n  session: abcdef12-0000\n", encoding="utf-8")
     text = budget.lines(row(ctx=140_000, sid="abcdef12-0000"), transcript(tmp_path, "abcdef12-0000"))
     assert "you are Zero, which never rotates" in text and "stop writing" not in text
+
+
+def test_the_ask_to_zero_carries_why_a_successor_is_visible_not_headless():
+    sent = []
+    r = budget.start_successor("b.md", "t", "session", send=lambda m: sent.append(m) or "zero", now=0)
+    assert r["step"] == "zero"
+    assert budget.WHY_VISIBLE in sent[0]
+    assert "passed the job" in budget.WHY_VISIBLE and "do not start" in budget.WHY_VISIBLE
