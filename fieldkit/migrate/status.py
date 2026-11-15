@@ -104,6 +104,8 @@ def compute(t, owner, intents, install_dir, pa=None, journal=None, say=None):
     ctx = build_context(t, owner, install_dir, journal=journal)
     cond = tree_conditionals(t["workdir"])
     rows = {}
+    from . import landed as _landed
+    landed = _landed.load(t["id"]) if t.get("id") else {}
     for e in intents:
         if e.get("retired"):
             continue
@@ -151,6 +153,11 @@ def compute(t, owner, intents, install_dir, pa=None, journal=None, say=None):
             judged = [{"status": "APPLIED" if not (del_st.get(p) or {}).get("present") else "NOT-APPLIED", "explained": False,
                        "detail": p} for p in paths]
             row["origin"] = "applied"
+        if e["id"] in landed:                               # `migrate landed`: the quote is re-read every time
+            lok, lev = _landed.proven(t["workdir"], landed[e["id"]])
+            row["landed"] = lev
+            if lok:
+                judged = [{**j, "explained": True, "detail": lev} if j["status"] not in cl.HUNK_OK else j for j in judged]
         ok_h = [j for j in judged if j["status"] in cl.HUNK_OK]
         bad_h = [j for j in judged if j["status"] not in cl.HUNK_OK and not j.get("explained")]
         row["tree"] = {"verdict": "NOT-IN-TREE" if bad_h else ("EXPLAINED" if not ok_h else "IN-TREE"),
