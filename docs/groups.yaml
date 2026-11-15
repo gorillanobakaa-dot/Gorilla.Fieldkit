@@ -38,7 +38,7 @@ groups:
     sources: [observe/*.py, appcapture/*.py, modelcatalog/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
-    sources: [lifecycle/*.py]
+    sources: [lifecycle/*.py, antigravity/*.py]
   - name: zero
     title: The agent net, the military way - Zero (net control) established with a fencing epoch, a 2IC, check-ins on a lease, roll calls with a fixed sitrep, clocks, an append-only net log
     sources: [zero/*.py]

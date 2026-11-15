@@ -1861,6 +1861,7 @@ def build_parser():
                                       "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
                        ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
                                 "(fieldkit/lifecycle/idle.py)"),
+                       ("antigravity", "talk to Antigravity sessions: sessions, send, stream, station (antigravity/bridge.py); config checks by the Rust agy-tools: check, doors, migrate-workflows (antigravity/__init__.py)"),
                        ("pool", "plan Zero's session pool: keep, recycle idle sessions into a reserve, archive extras, "
                                 "top up; exact app-tool calls in order (fieldkit/lifecycle/pool.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
@@ -1954,10 +1955,6 @@ def build_parser():
                         help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
                              "ahead of time: build [--force], check (fieldkit compileonce)")
     co.add_argument("args", nargs=argparse.REMAINDER)
-    ag = sub.add_parser("antigravity", add_help=False,
-                        help="check agent config files (hooks, MCP doors, plugins), migrate .agent/workflows to "
-                             "skills, with the Rust agy-tools binary (fieldkit antigravity)")
-    ag.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -3215,9 +3212,6 @@ def main(argv=None):
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
-    if args[:1] == ["antigravity"]:                   # agent config checks by the Rust agy-tools (fieldkit/antigravity)
-        from . import antigravity
-        return antigravity.main(args[1:])
     if args[:1] == ["skills"]:                        # Agent Skills: spec checks, doors, installs (fieldkit/skills)
         from . import skills
         return skills.main(args[1:])
@@ -3255,6 +3249,12 @@ def main(argv=None):
     if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
         from .lifecycle import idle
         return idle.main(args[1:])
+    if args[:1] == ["antigravity"]:                   # config checks (Rust agy-tools) or the session bridge
+        if args[1:2] in (["check"], ["doors"], ["migrate-workflows"]):
+            from . import antigravity
+            return antigravity.main(args[1:])
+        from .antigravity import bridge
+        return bridge.main(args[1:])
     if args[:1] == ["pool"]:                          # Zero's session pool: keep / recycle / archive / start (lifecycle/pool.py)
         from .lifecycle import pool
         return pool.main(args[1:])

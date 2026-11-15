@@ -7715,3 +7715,19 @@ tools:
   platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
   e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-bridge
+  title: "Talk to Antigravity coding sessions from Fieldkit: list them, send a message, follow a stream, check one in on Zero's net as antigravity:NAME; replies are fenced as untrusted data, and the bridge only ever binds loopback or the cable (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, antigravity]
+  path: ${FIELDKIT}/fieldkit/antigravity/bridge.py
+  inputs:
+    - {name: command, flag: "", type: str, required: false, help: "sessions | send | stream | station | bind-check"}
+  effects: [reads-files, runs-processes]
+  safety: safe
+  headline: "ANTIGRAVITY: sessions list (source, id), or a fenced reply; NEXT names the follow-up."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-antigravity-linux, windows: e2e-antigravity-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."
