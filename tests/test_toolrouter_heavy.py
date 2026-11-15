@@ -48,7 +48,7 @@ def test_heavy_commands_are_refused_on_windows(cmd):
     "grep -n 'go test' notes.md",
     'grep -n "telemetry\\|mutate\\|go test\\|cargo" COMMON.md',
     "echo 'then go test ./... in CI' >> notes.md",
-    "python -m pytest -q  # toolrouter-ok: none, just a test of the override",
+    "cargo build --release  # toolrouter-ok: none, just a test of the override (a test runner is never opened by it: test_toolrouter_local_tests)",
 ])
 def test_light_guarded_or_remote_commands_pass(cmd):
     r = tr.route(cmd) if "toolrouter-ok" in cmd else tr.heavy_refusal(cmd, platform="win32")
