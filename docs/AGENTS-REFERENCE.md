@@ -172,6 +172,10 @@ The owner speaks radio procedure. Zero = the net control station (the coordinati
   hook and need not run it.
 - "sitrep" / "roll call" from Zero: answer with all six fields, `-` for none: `fieldkit zero checkin --ref R-ID --job ..
   --state WORKING|BLOCKED|WAITING|DONE|IDLE --branch .. --waiting .. --not-verified .. --shared ..`
+- AUTO-REPORT (2026-11-15): a session holding an order from Zero sends Zero one net line at the end of every turn
+  (`REPORT station [working|done|blocked|rotating] order ...`, the Stop hook, `fieldkit/zero/autoreport.py`; nothing when
+  unchanged; Zero is exempt). The keeper rule `silent_child` (`fieldkit/lifecycle/keeper.yaml`, `silent_after_min` 30)
+  wakes Zero when such a worker is silent, or reports `rotating` (then Zero starts the visible successor, never a card).
 - "has Zero been established?" is answered by `fieldkit zero`. Only Zero runs `rollcall`, `handover`, `close`; a
   command with an older `--epoch` is refused. Leaving: `fieldkit zero checkin --off`.
 
@@ -289,9 +293,9 @@ procedure, look there; when you invent one, add it there, and turn it into a too
 OWNER COMMANDS ARE PASTEABLE AS THEY ARE (owner, 2026-10-18). Every command the owner is to paste is a Windows PowerShell block that starts with cd to a full path (cd $HOME; ...), calls every program by its full real path (an MSIX app such as Claude Desktop keeps its files under $env:LOCALAPPDATA\Packages\<package>\LocalCache, not where the app itself sees them), uses PowerShell syntax only (no &&, export, $VAR, ~/), and says in words where anything typed AFTER it goes (for example: type /login inside Claude's prompt, not in PowerShell). Checked by fieldkit.autopilot.ownercmd; in Claude Code a Stop hook sends a failing answer back.
 
 <!-- fieldkit-lifecycle-rule v1 -->
-## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
 
-SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card.
+SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for jobs no human talks to, or when the app refuses; never an `own_initiative` card.
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
 1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
@@ -311,3 +315,5 @@ Every call re-sends the whole conversation, so a long session costs more with ev
 - exit 1 WARN: finish the current job here; the next job starts in a fresh session.
 - exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
 <!-- /fieldkit-rotate-rule -->
+
+- `fieldkit permanence check [--session SID] [--repo R] [--json]` (`fieldkit/lifecycle/permanence.py`): UNCOMMITTED / UNPUSHED / UNMERGED work of every worktree `fieldkit sync` knows; exit 3, each line ends with NEXT. Stop hook blocks once, the tool router refuses `archive_session` while UNCOMMITTED or UNPUSHED, keeper rule `permanence` (keeper.yaml `stale_after_h` 2) tells Zero about stale work.

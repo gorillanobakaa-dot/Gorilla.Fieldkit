@@ -1,0 +1,69 @@
+# Version: 1.0.0 · updated 26-11-11-18-00
+# One command, both systems (P9, owner 2026-11-11: "de câte ori creăm o sculă deterministică ... trebuie să
+# funcționeze automat și pe Linux și pe Windows"). Every fieldkit command whose card names ONE system has a row here
+# that says what the SAME command does on the other system. Read by fieldkit/core/crossos.py at the command line's
+# platform gate, before any tool code runs. tests/test_crossos.py fails when a single-system command in
+# desk/platform_index.json has no row, so a new "X only" command cannot ship without an answer.
+#
+# route:
+#   dispatch  the job has an equivalent here: the same command line runs `fieldkit DISPATCH[platform]` instead
+#             ({args} = the words typed after the command; left out = they are not passed, the row says why)
+#   offload   the job needs the other system's machine: it runs there over the cable (orchestrate job run, the
+#             household device of that system), the result is reported here. Never the MacBook (household: ssh)
+#   none      it cannot exist here at all (a Windows registry, a Linux /sys reader, this machine's own hardware):
+#             the command prints `not-this-platform: WHY` and exits 0, so it never blocks a job (rule 6).
+#             `--on peer` still runs it on the other machine when that is what the person meant.
+#   port: true on a `none` row = it COULD exist on the other system and has not been written yet (docs/PLATFORMS.md
+#             lists them); it is not an excuse, it is the to-do list.
+commands:
+  build-harness build-run:
+    route: dispatch
+    dispatch: {linux: [emerge, run, firefox-debian]}
+    why: "the Linux build of Gorilla Firefox is the firefox-debian recipe (firefox-linux pipeline); the release it builds comes from fieldkit.local.json firefox.version / firefox.src (the newest ported tree), so the task word is not passed"
+  build-harness capture: {route: offload, why: "firefox.exe copies, pktmon and taskkill: the capture of the Windows build runs on the Windows laptop"}
+  build-harness clip-check: {route: offload, why: "the stock control is Mozilla's linux-x86_64 tarball: runs on the Linux machine"}
+  build-harness decode-test: {route: offload, why: "intel_gpu_top and /proc on the Linux machine"}
+  build-harness installer-test: {route: offload, why: "the NSIS installer is Windows-only: tested on the Windows laptop"}
+  build-harness leakgate-selftest: {route: offload, why: "checks the Linux leak-gate runner (root, namespaces, nftables) on the Linux machine"}
+  build-harness night-pack: {route: offload, why: "the scheduler half is Windows Task Scheduler on the Windows laptop"}
+  build-harness pref-bisect: {route: offload, why: "built on decode-test: the Linux machine"}
+  build-harness profile-check: {route: none, port: true, why: "reads THIS machine's Linux Firefox profiles (~/.mozilla); a Windows reader (%APPDATA%\\Mozilla) is not written yet"}
+  build-harness release-roundtrip: {route: offload, why: "a .deb, dpkg and apt-get: the Linux machine"}
+  build-harness release-shots: {route: offload, why: "Linux desktop capture tools: the Linux machine"}
+  macair: {route: offload, why: "the Mac browser is cross-built on Linux and reaches the Mac over SSH from the VAIO"}
+  audio:
+    route: dispatch
+    dispatch: {windows: [laptop, sound, "{args}"]}
+    why: "the Windows sound chain is `fieldkit laptop sound`"
+  laptop sound:
+    route: dispatch
+    dispatch: {linux: [audio, "{args}"]}
+    why: "the Linux sound chain is `fieldkit audio`"
+  laptop video: {route: none, port: true, why: "the Windows display/video driver check; a Linux reader (DRM, mesa, VA-API) is not written yet"}
+  firmware check: {route: none, why: "reads /sys, the kernel log and /lib/modules: a Linux kernel"}
+  gtk-theme check: {route: none, why: "GTK user stylesheets and libraries exist only on a Linux desktop"}
+  leftovers: {route: none, why: "XDG autostart, menu entries, systemd user units and dpkg exist only on a Linux desktop"}
+  net route: {route: none, port: true, why: "reads the Linux routing table (ip route); a Windows reader (Get-NetRoute) is not written yet"}
+  update: {route: none, port: true, why: "compares this machine's Linux installs with what was published; the Windows side is not written yet"}
+  voice: {route: none, port: true, why: "Linux speech (piper / speech-dispatcher); Windows SAPI is not wired yet"}
+  voice clean: {route: none, port: true, why: "Linux speech files"}
+  voice doctor: {route: none, port: true, why: "Linux speech stack check"}
+  voice install: {route: none, port: true, why: "Linux speech install"}
+  voice say: {route: none, port: true, why: "Linux speech"}
+  watchdog install: {route: none, why: "Windows already starts the watchdog from a scheduled task; nothing to install there"}
+  wifi: {route: none, why: "reads this machine's Linux Wi-Fi card (/sys/class/net, iw, dmidecode)"}
+  wifi card: {route: none, why: "reads this machine's Linux Wi-Fi card"}
+  wifi doctor: {route: none, why: "reads this machine's Linux Wi-Fi driver and firmware"}
+  wifi scan: {route: none, why: "Linux iw scan"}
+  wifi upgrade: {route: none, why: "reads Linux DMI and slot data (/sys/class/dmi, dmidecode)"}
+  power audit: {route: none, why: "Security 4688 and Event Log Readers are Windows"}
+  power drift: {route: none, why: "ibmpmsvc.exe is Lenovo's Windows power service"}
+  hdmi diag: {route: none, why: "the HDMI Harness drives this Windows PC's display stack"}
+  hdmi doctor: {route: none, why: "the HDMI Harness helper task is Windows"}
+  hdmi fix: {route: none, why: "the HDMI Harness drives this Windows PC's display stack"}
+  hdmi profile-list: {route: none, why: "the HDMI Harness profiles are Windows display profiles"}
+  hdmi status: {route: none, why: "the HDMI Harness drives this Windows PC's display stack"}
+  hdmi test-quick: {route: none, why: "the HDMI Harness drives this Windows PC's display stack"}
+  hdmi tv-info: {route: none, why: "the HDMI Harness reads the TV through Windows"}
+  hdmi tv-wifi-report: {route: none, why: "the HDMI Harness reads the TV through Windows"}
+  win11: {route: none, why: "the Windows 11 framework changes Windows itself (registry, services, apps)"}

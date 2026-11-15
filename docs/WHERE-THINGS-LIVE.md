@@ -32,6 +32,19 @@ and are not published.
 5. Do not start a new status, to-do or ideas file anywhere else. If a new kind of list is needed, add its row to the
    table above first, in the same change.
 
+## A successor session (rotation)
+
+At 50% of the session budget the hook says so once; at 90% the tool writes the hand-over, the successor's brief
+(`state/rotate/briefs/SID.md`) and its numbered title `[TAG] #NN HH:MM job` (`state/rotate/counter.json`). The successor
+is always a VISIBLE desktop session (`start_session`, initiation `user_asked`). The app allows that only in a turn
+the owner's own message started; a turn started by another session's message is refused. Then run
+`fieldkit rotate successor --brief F --title T --origin session`. It (1) writes the refusal to
+`state/rotate/successors.jsonl`, the line the owner sees. Then it (2) sends Zero, the top-level session the owner
+drives, a flash note asking it to start the session visibly. Only when Zero cannot be reached does it (3) start the
+job headless on Sonnet, pinned. A silent headless or Haiku fallback is never allowed. The model router
+(`fieldkit/lifecycle/routing.yaml`, `floor`) never puts a brief about tests, mutations, rules, hooks or the
+lifecycle below Sonnet.
+
 ## Closing a job
 
 Once a job's pull request is merged, its brief is history. Move it to `state/archive/`; never delete it. The code reads

@@ -255,6 +255,57 @@ def current(t, in_flight_steps=None):
     return None
 
 
+def dedupe_steps(t):
+    """Two steps with one id are one job asked twice. A rewind puts a group's port steps back to pending and the
+    re-run apply step adds the same ids again (firefox-160-linux, 2026-11-10 23:09: the first copy was auto-ported and
+    checkpointed, the stale pending copy became `current` and its submit had nothing to change). Of the copies, the
+    ones with work on them (not pending, or attempts spent) stay; a pending untouched copy goes when another copy
+    exists. With every copy pending and untouched, the first stays. Returns the ids dropped (with repeats)."""
+    seen, kept, dropped = {}, [], []
+    for x in t["steps"]:
+        seen.setdefault(x["id"], []).append(x)
+    for x in t["steps"]:
+        copies = seen[x["id"]]
+        if len(copies) == 1:
+            kept.append(x)
+            continue
+        untouched = x["status"] == "pending" and not x.get("attempts")
+        others_have_work = any(c is not x and (c["status"] != "pending" or c.get("attempts")) for c in copies)
+        if untouched and others_have_work:
+            dropped.append(x["id"])
+            continue
+        first = next(i for i, c in enumerate(copies) if c is x) == 0          # by identity: equal dicts share an index
+        if untouched and not first and all(c["status"] == "pending" and not c.get("attempts") for c in copies):
+            dropped.append(x["id"])
+            continue
+        kept.append(x)
+    if dropped:
+        t["steps"][:] = kept
+    return dropped
+
+
+def owner_wait(t, state):
+    """A job that has nothing left but an owner decision does not sit silently (owner 2026-11-11: a job idle ~6 hours
+    for two commands): the task record names the decision that blocks it (`status` shows `waiting_owner`) and the
+    item is filed once with `fieldkit inbox add`, with the command. Everything else already went on."""
+    steps = state.get("steps") or [state.get("step")]
+    w = state.get("why") or []
+    why = "; ".join(str(x) for x in (w if isinstance(w, list) else [w])[:2]) or state.get("next", "")
+    mark = {"state": state["state"], "steps": steps[:20], "why": why[:300], "next": state.get("next", "")[:300]}
+    old = t.get("waiting_owner") or {}
+    if old.get("steps") != mark["steps"] or old.get("state") != mark["state"]:
+        t["waiting_owner"] = {**mark, "since": time.strftime("%Y-%m-%d %H:%M:%S")}
+        save(t)
+        journal(t, "waiting-owner", **mark)
+        try:
+            from ..autopilot import inbox
+            inbox.add(f"{t['id']}: {state['state']} - {len(steps)} step(s) wait for the owner",
+                      mark["why"] or "an owner decision", mark["next"], kind="decision")
+        except Exception:  # noqa: BLE001 - the record in the task is the source; the inbox is a convenience
+            pass
+    return {**state, "waiting_owner": t["waiting_owner"]}
+
+
 def advance(task_id, in_flight_steps=None):
     """Run script steps until a model step, a blocked step or the end."""
     t = load(task_id)
@@ -267,6 +318,22 @@ def advance(task_id, in_flight_steps=None):
         # Windows, because nothing made a session look. A port with a ledger next to it goes under migration control.
         raise Refused(f"this Firefox port is not under migration control. Read {hr}/MIGRATION-PLAN.md, then run: "
                       f"{settings.self_cmd()} build-harness migrate init {task_id}")
+    dropped = dedupe_steps(t)
+    if dropped:
+        # a task that already carries a rewind's stale copies (firefox-160-linux, 2026-11-10 23:09) heals here
+        journal(t, "dedupe", dropped=dropped)
+        save(t)
+    if not in_flight_steps:
+        # I-04: the harness decides what used to wait for the owner's click (proposals, skip and retry requests,
+        # renamed-upstream steps), by its checks and an independent reviewer (autoport.py, lifecycle/autoaccept.py)
+        from . import autoport
+        try:
+            autoport.sweep(task_id)
+        except Exception as e:  # noqa: BLE001 - a broken sweep never stops the plan; it is journaled, nothing accepted
+            journal(t, "auto-error", why=[f"{type(e).__name__}: {str(e)[:300]}"])
+            if Path(t["workdir"], ".git").exists():
+                revert_to_checkpoint(t)
+        t = load(task_id)
     while True:
         s = current(t, in_flight_steps)
         # A blocked or deferred step is a person's; the rest of the plan goes on (live run 13: one parked CSS hunk
@@ -276,21 +343,24 @@ def advance(task_id, in_flight_steps=None):
                 return {"state": "WAITING"}
             blocked = [x for x in t["steps"] if x["status"] == "blocked"]
             if blocked:
-                return {"state": "BLOCKED", "step": blocked[0]["id"], "why": blocked[0].get("last_why"),
+                return owner_wait(t, {"state": "BLOCKED", "step": blocked[0]["id"], "why": blocked[0].get("last_why"),
                         "steps": [x["id"] for x in blocked],
                         "next": f"{len(blocked)} step(s) wait for a person: fix by hand then `build-harness submit`, "
-                                "or `build-harness unblock ... retry`; the build gate stays closed"}
+                                "or `build-harness unblock ... retry`; the build gate stays closed"})
             proposed = [x["id"] for x in t["steps"] if x["status"] == "proposed"]
             if proposed:
                 journal(t, "done-with-proposals", steps=proposed)
-                return {"state": "PROPOSED", "steps": proposed,
-                        "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go"],
-                        "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"}
+                return owner_wait(t, {"state": "PROPOSED", "steps": proposed,
+                        "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go (the "
+                                "harness could not decide them: auto-accept off, or no reviewer rung; see the journal)"],
+                        "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"})
             parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
             if parked:
                 journal(t, "done-with-deferred", steps=parked)
-                return {"state": "DEFERRED", "step": parked[0], "why": [f"{len(parked)} step(s) are waiting for the owner "
-                                                                    "(upstream removed what they change); the build gate stays closed"]}
+                return owner_wait(t, {"state": "DEFERRED", "step": parked[0], "why": [f"{len(parked)} step(s) are waiting for the owner "
+                                                                    "(upstream removed what they change); the build gate stays closed"]})
+            if t.pop("waiting_owner", None):           # nothing waits for the owner any more
+                save(t)
             journal(t, "done")
             return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
         if s["kind"] == "model":
@@ -354,7 +424,17 @@ def advance(task_id, in_flight_steps=None):
                 at = t["steps"].index(s) + 1
                 for n in new:
                     n.setdefault("status", "pending"), n.setdefault("attempts", 0), n.setdefault("max_attempts", 3)
+                # a step re-run after a rewind adds the same ids again: the old copies (left pending by the rewind)
+                # are dropped, or the port work is asked twice and the second copy has nothing to change (P27, 2026-11-10)
+                fresh = {n["id"] for n in new}
+                kept = [x for x in t["steps"] if x is s or x["id"] not in fresh or x["status"] in ("done", "obsolete")]
+                if len(kept) != len(t["steps"]):
+                    t["steps"][:] = kept
+                at = t["steps"].index(s) + 1
                 t["steps"][at:at] = new
+                dropped = dedupe_steps(t)
+                if dropped:
+                    journal(t, "dedupe", step=s["id"], dropped=dropped)
             checkpoint(t, s["id"]) if Path(t["workdir"], ".git").exists() else None
             journal(t, "script-done", step=s["id"], seconds=round(time.time() - t0, 1), added=len(new),
                     summary=res.get("summary"))
@@ -367,6 +447,20 @@ def advance(task_id, in_flight_steps=None):
             if s["status"] == "failed":
                 continue
         save(t)
+
+
+def offer_text(offer, pol=None):
+    """I-04 B: the harness's earlier finding as a model is shown it, without the old "a person's job" verdict
+    (autoaccept.yaml offer_strip): the packet hands the step to a model, the finding must not refuse it."""
+    if pol is None:
+        from ..lifecycle import autoaccept
+        pol = autoaccept.policy()
+    for rx in pol.get("offer_strip") or []:
+        try:
+            offer = re.sub(str(rx), "", offer, flags=re.I)
+        except re.error:
+            continue
+    return offer.strip()
 
 
 def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
@@ -386,8 +480,16 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     head = [f"TASK {t['id']} - step {pos} of {len(t['steps'])} ({done} done): {s['title']}",
             "IN WORDS: " + describe_step(t, s, with_result=False),
             f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
-    if s.get("last_why"):
+    # the reason a step was parked is shown once, cleaned, as the offer below - not again as a put-back attempt
+    if s.get("last_why") and not (s.get("offer") and " ".join(map(str, s["last_why"]))[:1500] == s["offer"]):
         head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
+    if s.get("offer"):
+        # I-04 B: a step the harness had parked (upstream renamed or removed what it changes) is a model's job now
+        head += ["THE HARNESS PARKED THIS STEP EARLIER AND FOUND: " + offer_text(s["offer"])[:900],
+                 "Port the hunk's MEANING onto the new names or place, then submit with --adapted \"<why>\n"
+                 "renames: OLD -> NEW (one per renamed name)\nlesson: <...>\". The harness checks it and an independent "
+                 "reviewer accepts it; no owner click. If nothing is left to port: "
+                 f"{settings.self_cmd()} build-harness request {t['id']} {s['id']} skip --note \"<why>\nlesson: <...>\""]
     if answer_mode:
         head += [f"The file to change: {', '.join(s.get('allowed', []))}"]
     else:
@@ -660,6 +762,7 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
         raise Refused("PORT AND TEACH: an adapted or hand port must carry one line `lesson: <what the harness should "
                       "learn so the next port does this alone>` in its note")
     _record_lessons(t, s, "\n".join(x for x in (adapted, note) if x), by)
+    check_why, waived_ok = [], False      # the check's own reasons (a tie-break may waive them for this step only)
     changed = changed_files(t)
     allowed = set(s.get("allowed") or [])
     outside = [c for c in changed if c not in allowed]
@@ -690,7 +793,10 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
             _git(t, "reset", "-q")
             pdir = _proposals_dir(t)
             (pdir / f"{s['id']}.diff").write_bytes(diff)
+            from ..method import strikes
+            s.pop("auto_review", None), s.pop("review_refused", None)       # a new proposal gets its own review
             meta = {"step": s["id"], "reason": adapted[:1000], "files": changed, "by": by,
+                    "model": s.get("model") or strikes.attempt_model(),
                     "literal_check_said": list(literal.get("why") or [])[:8],
                     "meaning_check": "holds", "t": time.strftime("%Y-%m-%d %H:%M:%S")}
             (pdir / f"{s['id']}.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
@@ -700,14 +806,26 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
             journal(t, "proposed", step=s["id"], reason=adapted[:500], files=changed,
                     literal=meta["literal_check_said"])
             return {"ok": True, "proposed": True, "step": s["id"], "proposal": str(pdir / f"{s['id']}.diff"),
-                    "next": "saved for the owner's acceptance; the tree was put back; call build_harness_next"}
+                    "next": "saved; the harness reviews it (checks + an independent reviewer) at the next "
+                            "build_harness_next, or the owner accepts it; the tree was put back"}
         why = ["adapted port declared, but the meaning does not hold: " + "; ".join(res.get("why") or [])[:300]]
-    if not why:
+        check_why = list(res.get("why") or [])
+        left, waived = _waived(t, s, check_why)
+        if check_why and not left:           # a tie-break waived exactly these reasons for THIS step (autoaccept.py)
+            why, check_why, waived_ok = [], [], True
+            journal(t, "override", step=s["id"], waived=waived, by=by)
+    if not why and not waived_ok:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
         if by == "hand" and note:
             s["hand_note"] = note                           # `keeps: <line>` declarations live here, journaled with the submit
         res = _call(s["check"], t, s, **(s.get("args") or {}))
         why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
+        check_why = [] if res.get("ok") else list(res.get("why") or [])
+        if check_why:
+            left, waived = _waived(t, s, check_why)
+            if not left:                     # a tie-break waived exactly these reasons for THIS step (autoaccept.py)
+                why = []
+                journal(t, "override", step=s["id"], waived=waived, by=by)
     journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500], by=by)
     if not why:
         s["status"], s["last_why"] = "done", None
@@ -717,14 +835,45 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
                 "next": "call build_harness_next for the next step"}
     s["attempts"] += 1
     s["last_why"] = why
+    if check_why and by != "hand":
+        _keep_refused(t, s, check_why, adapted, note)
     revert_to_checkpoint(t)
-    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    s["status"] = next_status(t, s, by)
     save(t)
     journal(t, "revert", step=s["id"], attempt=s["attempts"], blocked=s["status"] == "blocked")
     return {"ok": False, "step": s["id"], "why": why, "attempts": f"{s['attempts']} of {s['max_attempts']}",
             "reverted": True,
             "next": ("BLOCKED: the owner takes over this step" if s["status"] == "blocked"
                      else "your changes were put back; call build_harness_next and try again")}
+
+
+def _waived(t, s, why):
+    try:
+        from ..lifecycle import autoaccept
+        return autoaccept.overridden(t["id"], s["id"], why)
+    except Exception:                                         # noqa: BLE001 - no ledger: nothing is waived
+        return list(why), []
+
+
+def _keep_refused(t, s, check_why, adapted, note):
+    """The check refused this attempt: keep its diff and reasons (proposals/STEP.refused.*) and tell the auto-accept
+    core, so a checker-vs-reviewer deadlock on this step can be settled by a tie-break (autoport.tiebreaks)."""
+    try:
+        from ..lifecycle import autoaccept
+        from ..method import strikes
+        _git(t, "add", "-A")
+        diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
+                              capture_output=True, timeout=600).stdout
+        _git(t, "reset", "-q")
+        pdir = _proposals_dir(t)
+        (pdir / f"{s['id']}.refused.diff").write_bytes(diff)
+        model = s.get("model") or strikes.attempt_model()
+        (pdir / f"{s['id']}.refused.json").write_text(json.dumps(
+            {"step": s["id"], "why": check_why[:8], "adapted": adapted[:1500], "note": note[:1500], "model": model,
+             "t": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1), encoding="utf-8")
+        autoaccept.refusal("adapted", s["id"], "check", check_why, project=t["id"], author=model)
+    except Exception as e:                                    # noqa: BLE001 - keeping evidence never fails a submit
+        journal(t, "refused-keep-error", step=s["id"], why=[f"{type(e).__name__}: {str(e)[:200]}"])
 
 
 def proposals(task_id):
@@ -740,7 +889,9 @@ def accept(task_id, step_ids=None, who="owner"):
     attempt; nothing is guessed. Called from the command line only, like approve."""
     t = load(task_id)
     # a proposal that failed only at acceptance (2026-10-14: a harness fault, not the port) is offered again
-    wanted = [s for s in t["steps"] if (s["status"] == "proposed" or (s["status"] == "failed" and s.get("accept_failed")
+    # ...and so is one the harness's reviewer refused (I-04): the owner may still accept it by name or with --all
+    wanted = [s for s in t["steps"] if (s["status"] == "proposed" or (s["status"] in ("failed", "blocked")
+              and (s.get("accept_failed") or s.get("review_refused"))
               and (_proposals_dir(t) / f"{s['id']}.diff").is_file())) and (not step_ids or s["id"] in step_ids)]
     out = {"accepted": [], "failed": [], "by": who}
     for s in wanted:
@@ -781,6 +932,11 @@ def accept(task_id, step_ids=None, who="owner"):
             save(t)
             out["failed"].append({"step": s["id"], "why": "; ".join(res.get("why") or [])[:200]})
     return out
+
+
+def terminal_refusal():
+    """-> "" when owner_terminal() holds (the one guard every owner-only action asks), else why not."""
+    return "" if owner_terminal() else (owner_terminal_why() or "not a person's terminal")
 
 
 def owner_terminal():
@@ -874,8 +1030,18 @@ def agent_shell(env=None, ancestors=None, elevated=None):
     return "no path to the desktop (the parent chain is broken or detached)"
 
 
-def unblock(task_id, step_id, how):
-    """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint)."""
+def _mandate_in_force():
+    """-> the names of the owner's mandates in force here ("owner-wide"), or "" (no mandate, or unreadable)."""
+    try:
+        from ..mandate import mandate as M
+        return ", ".join(p.stem for p in M.in_force())
+    except Exception:                                    # noqa: BLE001 - only a label for the journal and the audit
+        return ""
+
+
+def unblock(task_id, step_id, how, force=False, note=""):
+    """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint). force (I-06): with no
+    real terminal the owner proves it with the signing-key passphrase (lifecycle/ownerproof.py); a model cannot."""
     t = load(task_id)
     s = next(x for x in t["steps"] if x["id"] == step_id)
     if how == "retry":
@@ -894,13 +1060,28 @@ def unblock(task_id, step_id, how):
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):
             raise Refused("a check step cannot be skipped: fix what it reports, then retry")
-        if not owner_terminal():
-            raise Refused("skip is for the owner at a real terminal; an agent's shell is not one")
+        # P9 (owner, 2026-11-11: "One single approval ... At the beginning of the job, it's all the reason, all the
+        # motives you ever need"): the owner's own skip needs no note. The owner proof below (a real terminal, or
+        # --force with the passphrase) is the decision; the mandate in force is the reason. --note is still journaled
+        # when given. A skip the HARNESS takes still needs a reviewer's (or the mandate door's) evidence (audit.py).
+        from ..lifecycle import ownerproof
+        ok, proven = ownerproof.owner_or_proof(f"build-harness unblock {task_id} {step_id} skip", force,
+                                               terminal_refusal())
+        if not ok:
+            raise Refused("skip is for the owner at a real terminal (or --force with the owner's passphrase): " + proven)
+        s["owner_proof"] = proven
+        s["skip_reason"] = (note or "").strip()[:2000] or "the owner's decision (the mandate in force is the reason)"
         s["status"] = "done"
         s["skipped_by_owner"] = True
         checkpoint(t, f"{step_id} (done by the owner)")
     save(t)
-    journal(t, "unblock", step=step_id, how=how)
+    extra = {"note": note.strip()[:2000]} if (note or "").strip() else {}
+    if how == "skip":
+        extra.update(by="owner", proof=s.get("owner_proof", "")[:200])
+        m = _mandate_in_force()
+        if m:
+            extra["mandate"] = m
+    journal(t, "unblock", step=step_id, how=how, **extra)
     return t
 
 
@@ -913,7 +1094,40 @@ def status(task_id):
     return {"task": t["id"], "workflow": t["workflow"], "approved": t["approved"], "steps": len(t["steps"]),
             "counts": counts, "current": cur and {"id": cur["id"], "kind": cur["kind"], "title": cur["title"],
                                                   "attempts": cur["attempts"]},
-            "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}
+            "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"],
+            "waiting_owner": t.get("waiting_owner")}
+
+
+def next_status(t, s, by="model"):
+    """P9: the status of a model step whose attempt just failed. Attempts left: failed (retry). Used up: the escalation
+    ladder is asked for the next rung (models.climb: the spend guard decides which rungs exist); a rung found resets
+    the attempts and records the rung change; none (ladder off, a local model not on it, the top allowed rung failed):
+    blocked, with the models that tried in last_why. A person's hand port never climbs."""
+    if s["attempts"] < s["max_attempts"]:
+        return "failed"
+    if by not in ("model", "driver"):                   # a person's try (cli, hand) is not a model's rung
+        return "blocked"
+    try:
+        from ..lifecycle import models
+        from ..method import strikes
+        cur = s.get("model") or strikes.attempt_model()
+        tried = s.setdefault("tried", [])
+        if cur and cur not in tried:
+            tried.append(cur)
+        step = models.climb(cur, s["attempts"])
+        if step["next"] and not step["same"]:
+            s["model"], s["attempts"] = step["next"], 0
+            tried.append(step["next"])
+            models.record_rung(f"{t['id']}:{s['id']}", "build-harness", cur, step["next"],
+                               f"{s['max_attempts']} failed attempts", step["skipped"])
+            journal(t, "rung", step=s["id"], frm=cur, to=step["next"])
+            return "failed"
+        if models.ladder_cfg().get("enabled") and cur:
+            models.record_rung(f"{t['id']}:{s['id']}", "build-harness", cur, None, "park", step["skipped"])
+            s["last_why"] = list(s.get("last_why") or []) + [models.tried_note(tried)]
+    except (OSError, KeyError, ValueError, ImportError):
+        pass
+    return "blocked"
 
 
 def fail_attempt(task_id, why, by="driver", step_id=None):
@@ -925,7 +1139,7 @@ def fail_attempt(task_id, why, by="driver", step_id=None):
     revert_to_checkpoint(t)
     s["attempts"] += 1
     s["last_why"] = [why]
-    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    s["status"] = next_status(t, s)
     save(t)
     journal(t, "submit", step=s["id"], changed=[], outside=[], ok=False, why=[why], note="", by=by)
     return {"ok": False, "step": s["id"], "why": [why], "attempts": f"{s['attempts']} of {s['max_attempts']}"}

@@ -97,5 +97,7 @@ def pretool(call):
 
 def lines(v):
     return [("RETIRE OK: " if v["ok"] else "RETIRE NOT YET: ") + v["reason"],
-            "NEXT: " + ("archive this session (archive_session \"self\")" if v["ok"] else "do the step above, then "
-                        "fieldkit zero retire again")]
+            "NEXT: " + ("check `fieldkit sessions-nested check self` first: when it lists the new Zero (started from "
+                        "this session, detached or not) leave this session idle and do NOT archive it (the app hides "
+                        "the new Zero under an archived parent, 2026-11-01); otherwise archive_session \"self\""
+                        if v["ok"] else "do the step above, then fieldkit zero retire again")]

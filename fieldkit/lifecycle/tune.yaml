@@ -1,0 +1,35 @@
+# P22 rules for `fieldkit models tune` (data first; tune.py reads this). Every number here has a test that flips it.
+context:
+  default: 32768          # the job's need, never the model's maximum
+  minimum: 4096
+  kv_budget_share: 0.15   # the KV cache may hold at most this share of free RAM; the context shrinks until it fits
+  round_to: 1024
+threads:
+  # performance cores only: the efficiency cores slow a memory-bound decode (every thread waits for the slowest)
+  use: performance_cores
+  fallback: physical_cores
+gpu:
+  min_vram_gb: 2.0        # below this an integrated GPU is not worth offloading to
+  vram_reserve_gb: 1.0    # kept free for the display and the KV cache
+  shared_memory_vendors: [intel]   # an Intel iGPU shares system RAM: offload gives no bandwidth
+kv_cache:
+  tight_ram_share: 0.60   # model + KV above this share of total RAM: quantize the KV cache
+  tight_type: q8_0
+  roomy_type: f16
+flash_attention: true
+speculative:
+  mtp: true               # a GGUF with next-token-prediction tensors: use them as the draft
+  min_free_ram_gb: 4.0
+ttl_seconds: 3600
+# lms load flag per setting; a flag the installed `lms load --help` does not print is NOT passed (never guessed)
+lms_flags:
+  context: ["--context-length"]
+  gpu: ["--gpu"]
+  ttl: ["--ttl"]
+  identifier: ["--identifier"]
+  threads: ["--cpu-threads", "--threads"]
+  flash_attention: ["--flash-attention"]
+  kv_cache: ["--kv-cache-type"]
+  mtp: ["--speculative-decoding", "--draft-model"]
+runs:
+  file: model-runs.jsonl   # in state/models/, one line per run

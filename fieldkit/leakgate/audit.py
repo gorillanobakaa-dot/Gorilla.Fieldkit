@@ -27,6 +27,8 @@ A model proposes dispositions (`suggestion`); only the owner approves them, at a
 import io
 import json
 import re
+import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -127,25 +129,40 @@ VENDOR_DOMAINS = ("mozilla.org", "mozilla.com", "mozilla.net", "mozilla.cloudfla
 TEXT_EXT = (".js", ".mjs", ".json", ".ftl", ".properties", ".xhtml", ".html", ".css", ".manifest", ".txt", ".xml")
 
 
-def embedded_hosts(open_member, omni_names=("omni.ja", "browser/omni.ja"), dll="xul.dll", schemes=None):
+def embedded_hosts(open_member, omni_names=("omni.ja", "browser/omni.ja"), dll="xul.dll", schemes=None, loose_root=None):
     """-> {host: [where]}. `open_member(relpath)` returns bytes of a file of the install. `schemes`, when a dict, is
     filled with {host: {scheme}} for the hosts found in the omni.ja archives (vendor_host_check uses it)."""
     out = {}
+
+    def add(where, data):
+        for m in HOST_IN_BYTES.finditer(data):
+            host = m.group(2).decode().lower()
+            out.setdefault(host, set()).add(where)
+            if schemes is not None:
+                schemes.setdefault(host, set()).add(m.group(1).decode().lower())
+    packed = 0
     for ja in omni_names:
-        with zipfile.ZipFile(io.BytesIO(open_member(ja))) as z:
+        try:
+            raw = open_member(ja)
+        except (OSError, KeyError):
+            continue                                   # the Linux build ships its resources unpacked (no omni.ja)
+        packed += 1
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
             for n in z.namelist():
                 if n.endswith(TEXT_EXT):
-                    for m in HOST_IN_BYTES.finditer(z.read(n)):
-                        host = m.group(2).decode().lower()
-                        out.setdefault(host, set()).add(f"{ja}:{n}")
-                        if schemes is not None:
-                            schemes.setdefault(host, set()).add(m.group(1).decode().lower())
-    try:
-        data = open_member(dll)
+                    add(f"{ja}:{n}", z.read(n))
+    if not packed and loose_root is not None:          # unpacked resources: the same text files, read from the folder
+        root = Path(loose_root)
+        for f in sorted(root.rglob("*")):
+            if f.is_file() and f.name.endswith(TEXT_EXT):
+                add(f"loose:{f.relative_to(root).as_posix()}", f.read_bytes())
+    for lib in dict.fromkeys((dll, "libxul.so")):      # Windows xul.dll; the Linux package ships libxul.so
+        try:
+            data = open_member(lib)
+        except (OSError, KeyError):
+            continue
         for m in HOST_IN_BYTES.finditer(data):
-            out.setdefault(m.group(2).decode().lower(), set()).add(dll)
-    except (OSError, KeyError):
-        pass
+            out.setdefault(m.group(2).decode().lower(), set()).add(lib)
     return {h: sorted(w)[:5] for h, w in out.items()}
 
 
@@ -254,7 +271,7 @@ def context_lines(ctx):
 def binary_audit(install_dir, previous_zip, dispositions, allow=None):
     inst = Path(install_dir)
     schemes = {}
-    now = embedded_hosts(lambda rel: (inst / rel).read_bytes(), schemes=schemes)
+    now = embedded_hosts(lambda rel: (inst / rel).read_bytes(), schemes=schemes, loose_root=inst)
     prev = {}
     if previous_zip and Path(previous_zip).is_file():
         z = zipfile.ZipFile(previous_zip)
@@ -292,6 +309,52 @@ def executables(open_member, names):
     return out
 
 
+#: Linux twin of NET_DLLS: shared libraries that carry networking the browser would otherwise do itself (matched on the
+#: soname stem, `libcurl.so.4` -> `libcurl`). The libc socket calls every program has are not imports of a network library.
+NET_LIBS = ("libcurl", "libssl", "libgnutls", "libsoup", "libproxy", "libresolv", "libcares", "libnm", "libavahi-client",
+            "libgio-2.0")
+#: nothing is pre-approved on Linux: which network libraries each shipped binary may need is the owner's decision,
+#: recorded as an `elf:<path>` disposition after the first real scan (the Windows table above was built the same way)
+EXPECTED_NET_LIBS = {}
+_NEEDED = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]")
+
+
+def is_elf(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def elf_needed(path, readelf=None):
+    """-> the DT_NEEDED sonames of an ELF file (readelf -d), or None when readelf is not installed (the caller says
+    not-this-platform; a scan that did not run is never an empty result)."""
+    readelf = readelf or shutil.which("readelf")
+    if not readelf:
+        return None
+    p = subprocess.run([readelf, "-d", str(path)], capture_output=True, text=True, errors="replace")
+    return _NEEDED.findall(p.stdout)
+
+
+def elf_executables(install_dir, readelf=None):
+    """-> ({relpath: {"imports": [network libraries needed]}}, unscanned [relpath]) for every ELF file under the build:
+    the Linux equivalent of executables() (PE imports). `unscanned` lists ELF files when readelf is missing."""
+    inst = Path(install_dir)
+    out, unscanned = {}, []
+    for p in sorted(inst.rglob("*")):
+        if not p.is_file() or p.is_symlink() or not is_elf(p):
+            continue
+        rel = p.relative_to(inst).as_posix()
+        needed = elf_needed(p, readelf)
+        if needed is None:
+            unscanned.append(rel)
+            continue
+        stems = {n.split(".so")[0] for n in needed}
+        out[rel] = {"imports": sorted(st for st in stems if st in NET_LIBS)}
+    return out, unscanned
+
+
 def executable_audit(install_dir, previous_zip, dispositions):
     inst = Path(install_dir)
     names = [p.relative_to(inst).as_posix() for p in inst.rglob("*") if p.suffix.lower() in (".exe", ".dll")]
@@ -306,6 +369,14 @@ def executable_audit(install_dir, previous_zip, dispositions):
         extra = set(info["imports"]) - EXPECTED_NET_IMPORTS.get(Path(rel).name.lower(), set())
         if extra and not (dispositions.get("pe:" + rel) or {}).get("approval"):
             unexpected_net[rel] = sorted(extra)
+    elf, unscanned = elf_executables(inst)
+    for rel, info in elf.items():
+        extra = set(info["imports"]) - EXPECTED_NET_LIBS.get(Path(rel).name.split(".so")[0] + ".so", set())
+        if extra and not (dispositions.get("elf:" + rel) or {}).get("approval"):
+            unexpected_net[rel] = sorted(extra)
+    now = {**now, **elf}
+    for rel in unscanned:                              # fail closed: an ELF file nobody read is not a clean one
+        unexpected_net[rel] = ["not-this-platform: readelf missing, imports not read"]
     unapproved_new = [n for n in new if not (dispositions.get("exe:" + n) or {}).get("approval")]
     return {"binaries": len(now), "new": new, "unapproved_new": unapproved_new, "network_imports": {k: v["imports"] for k, v in now.items() if v["imports"]},
             "unexpected_network_imports": unexpected_net}

@@ -1,0 +1,74 @@
+# The START-CHECK registry (plan P9, owner 2026-11-11/12): every owner-only action a long job may need, asked ONCE,
+# before the job starts, never mid-job. Rule line (rules/CORE.md WORK UNATTENDED): "Every owner-only action a job may
+# need is asked once, before it starts; mid-job a missing one takes its fallback, never a wait."
+#
+# An entry:
+#   id        short name (journal, gap log, the one screen)
+#   what      plain words: what it is and what it lets the harness do
+#   kinds     job kinds that may need it: task | emerge | goal | any   (the entry points of a long job)
+#   check     the name of a read-only pre-check in fieldkit/lifecycle/onestart.py (CHECKS): True present, False missing,
+#             None unknown (unknown counts as missing only when a mid-job gap for it is on record)
+#   apply     argv the owner's one yes runs (user-level; each run journaled), or null when only the owner can do it
+#             (then `manual` says what; the screen still lists it so the owner knows)
+#   manual    the one command the owner types for an action `apply` cannot do (shown on the screen, never mid-job)
+#   commands  substrings an owner command in an `inbox add` may contain for this action: such an `inbox add` made
+#             INSIDE a job is refused (the step takes its fallback, the gap is recorded for the next start)
+#   fallback  what a step does when this is missing, so the job never waits
+version: 1
+ttl_hours: 12            # an owner "no" or an unanswered ask is not repeated sooner than this (the job just goes on)
+actions:
+  - id: claude-cli-login
+    what: "the `claude` command-line login (the desktop app and the CLI log in separately; a headless worker needs the CLI)"
+    kinds: [any]
+    check: claude_cli_login
+    apply: null
+    manual: "claude  (then type /login)"
+    commands: ["/login", "claude login", "claude auth login"]
+    fallback: "the worker runs on the other machine or the step is parked; the job goes on with what does not need a model"
+  - id: mandate-in-force
+    what: "an owner-wide mandate in force (push of feat/ fix/ branches, merge on green CI, release of a tag)"
+    kinds: [task, goal, emerge]
+    check: mandate_in_force
+    apply: null
+    manual: "fieldkit mandate renew ~/.fieldkit/mandate/mandates/owner-wide.yaml --from fieldkit/mandate/owner-wide.prereqs.yaml"
+    commands: ["mandate renew", "mandate approve"]
+    fallback: "the step ends at a local commit on its own branch; the push waits in the job's report"
+  - id: machine-prerequisites
+    what: "the machine prerequisites the mandate lists (long paths, scratch exclusion, link keep-alive ...)"
+    kinds: [task, goal, emerge]
+    check: machine_prereqs
+    apply: [python3, -m, fieldkit, mandate, prereqs, apply]
+    commands: ["mandate prereqs apply"]
+    fallback: "the step that needs one runs the other way (shorter paths, the other machine) and records the gap"
+  - id: models-allowed-top-rungs
+    what: "Opus and Fable named in the mandate's models_allowed (parked repairs and reviews climb to them)"
+    kinds: [task, goal]
+    check: opus_fable_named
+    apply: null
+    manual: "fieldkit mandate renew ~/.fieldkit/mandate/mandates/owner-wide.yaml --from fieldkit/mandate/owner-wide.prereqs.yaml"
+    commands: ["models_allowed", "mandate renew"]
+    fallback: "a failure that needs a higher rung parks the step; the job goes on with the rest"
+  - id: owner-steps-door
+    what: "the mandate's owner_steps door (unblock skip/retry and accept, when every check passed)"
+    kinds: [emerge, goal]
+    check: owner_steps_door
+    apply: null
+    manual: "fieldkit mandate renew ~/.fieldkit/mandate/mandates/owner-wide.yaml --from fieldkit/mandate/owner-wide.prereqs.yaml"
+    commands: ["build-harness unblock", "unblock "]
+    fallback: "the blocked step is marked waiting; every step that does not depend on it goes on"
+  - id: github-ruleset-local-ci
+    what: "the GitHub ruleset lets a locally run CI count (a commit status), so a PR still merges when GitHub's runner is down"
+    kinds: [task, goal]
+    check: unknown
+    apply: null
+    manual: "bash state/owner/ruleset-allow-local-ci.sh"
+    commands: ["ruleset-allow-local-ci", "gh api", "ruleset"]
+    fallback: "the PR waits for GitHub's own runner; the job goes on with the next item"
+  - id: telemetry-machine
+    what: "this machine's telemetry cut-outs (toolchain and OS settings)"
+    kinds: [emerge]
+    check: unknown
+    apply: null
+    manual: "fieldkit telemetry machine --fix OUT.ps1  (then run OUT.ps1 as the owner)"
+    commands: ["telemetry machine"]
+    fallback: "the build runs; the gap is on the release page's NOT verified list"

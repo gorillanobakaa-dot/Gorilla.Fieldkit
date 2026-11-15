@@ -77,3 +77,8 @@ def test_the_report_says_ready_or_not(world):
     assert preflight.lines(preflight.run("p1"))[-1] == "PREFLIGHT: READY"
     (world / "a.txt").write_text("x\n")
     assert "NOT READY" in preflight.lines(preflight.run("p1"))[-1]
+
+
+def test_linux_memtotal_of_a_16gb_laptop_counts_as_16():
+    assert preflight._installed_gb(16154852 / 2 ** 20) == 16.0
+    assert preflight._installed_gb(11.5) == 12.0 < preflight.MIN_RAM_GB

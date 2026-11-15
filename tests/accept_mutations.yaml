@@ -1,0 +1,47 @@
+# fieldkit accept: every judge rule must be CAUGHT.
+#   fieldkit mutate --plan tests/accept_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_accept.py
+- file: fieldkit/accept.py
+  swap:
+  - '            return False, f"{spec[''path'']} still exists"'
+  - '            return True, ""'
+  why: a delete that left the file is a MISS
+- file: fieldkit/accept.py
+  swap:
+  - '    if spec.get("and_absent") and (folder / spec["and_absent"]).exists():'
+  - '    if False:'
+  why: a move that copied is a MISS
+- file: fieldkit/accept.py
+  swap:
+  - '    if spec.get("and_exists") and not (folder / spec["and_exists"]).exists():'
+  - '    if False:'
+  why: a delete that took other files too is a MISS
+- file: fieldkit/accept.py
+  swap:
+  - '        if spec.get("and_key") and spec["and_key"] not in doc:'
+  - '        if False:'
+  why: a JSON edit that dropped a key is a MISS
+- file: fieldkit/accept.py
+  swap:
+  - '    return [] if not need or any(which(n) for n in need) else list(need)'
+  - '    return []'
+  why: a job whose program is absent is SKIP, never a pass
+- file: fieldkit/accept.py
+  swap:
+  - '        ok = str(spec["value"]).lower() in (reply or "").lower()'
+  - '        ok = True'
+  why: the answer judge reads the reply
+- file: fieldkit/accept.py
+  swap:
+  - '        cfg["providers"] = {prefix: src["providers"][prefix]}'
+  - '        cfg["providers"] = dict(src["providers"])'
+  why: a cloud model must carry only its own provider's sign-in
+- file: fieldkit/accept.py
+  swap:
+  - '    return reply[i:i + limit] if i >= 0 else ""'
+  - '    return ""'
+  why: a miss row must keep what the model ran
+- file: fieldkit/accept.py
+  swap:
+  - '+ struct.pack(">I", zlib.crc32(tag + data))'
+  - '+ struct.pack(">I", 0)'
+  why: the fixture PNG must have valid chunk checksums

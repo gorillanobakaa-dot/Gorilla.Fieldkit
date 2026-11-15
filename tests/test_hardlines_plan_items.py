@@ -114,3 +114,22 @@ def test_an_enforcing_file_in_a_commit_is_refused_whatever_the_brief(env, repo):
     git(repo, "add", "-A")
     r = hl.decide("Bash", {"command": "git commit -m x"}, cwd=str(repo), transcript=brief(env, "Do O4."))
     assert r[0] == "deny" and "fieldkit/autopilot/hardlines.py" in r[1]
+
+
+# I10 (2026-11-11): HARD LINE 3 reads the plan's own item letters (fieldkit/plan.py ID), one definition. hardlines.py
+# is an enforcing file no model may change; until the owner applies the one-line change (inbox) this test is skipped.
+SAME_LETTERS = hl.ITEM.pattern == plan.ID.pattern
+
+
+@pytest.mark.skipif(not SAME_LETTERS, reason="hardlines.ITEM awaits the owner's one-line change (I10, inbox)")
+def test_a_p_item_opens_a_guard_commit_only_while_open_and_only_with_a_proof(env, repo, monkeypatch):
+    (plan.ROOT / "docs" / "HARNESS-PLAN.md").write_text(PLAN_MD + "| P7 | wiring | OPEN |\n| P8 | old | DONE (PR #1) |\n",
+                                                        encoding="utf-8")
+    commit = lambda t: hl.decide("Bash", {"command": "git commit -m x"}, cwd=str(repo), transcript=t)  # noqa: E731
+    (repo / "fieldkit" / "autopilot" / "room.py").write_text("A = 2\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    assert "names no open" in commit(brief(env, "Do P8."))[1]               # a done P item never opens it
+    p7 = brief(env, "Do P7.")
+    assert "no mutate proof" in commit(p7)[1]                               # open, but no proof yet
+    prove(repo)
+    assert commit(p7)[0] == "allow"

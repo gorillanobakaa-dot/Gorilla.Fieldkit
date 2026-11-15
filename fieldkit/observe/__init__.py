@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-31
+# Version: 1.1.0 · updated 26-11-09
 """observe: see inside the machine. One question, answered natively on Linux, Windows and macOS. Read-only.
 
     fieldkit observe open-file PATH        who has this file open / locked (so it cannot be deleted)
@@ -8,6 +8,8 @@
     fieldkit observe trace PID SECONDS     files and programs PID opens or starts (needs admin: it says so, asks nothing)
     fieldkit observe usage PID SECONDS     CPU, memory and disk of PID over time
     fieldkit observe events WORDS ...      system log lines holding every word
+    fieldkit observe conns PID             every TCP/UDP connection of PID
+    fieldkit observe dns PID SECONDS       DNS servers PID talks to (socket sampling; Windows adds the resolver cache)
 
 Readers (one module per system, each returns None on any other system): linux.py (/proc, inotify, strace,
 journalctl), windows.py (Restart Manager, GetExtendedTcpTable, Toolhelp, ReadDirectoryChangesW, Get-WinEvent;
@@ -22,7 +24,8 @@ import sys
 # question -> reader function name and the arguments it takes
 QUESTIONS = {"open-file": ("open_file", ["path"]), "port": ("port", ["n"]), "proc": ("proc", ["pid"]),
              "watch": ("watch", ["directory", "seconds"]), "trace": ("trace", ["pid", "seconds"]),
-             "usage": ("usage", ["pid", "seconds"]), "events": ("events", ["words"])}
+             "usage": ("usage", ["pid", "seconds"]), "events": ("events", ["words"]),
+             "conns": ("conns", ["pid"]), "dns": ("dns", ["pid", "seconds"])}
 SYSTEMS = {"linux": "linux", "windows": "windows", "macos": "macos"}
 
 

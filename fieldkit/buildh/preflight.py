@@ -30,6 +30,13 @@ def _running(image):
     return out.split()
 
 
+def _installed_gb(mem_total_gib):
+    """Linux MemTotal leaves out what the kernel and firmware hold back (a 16 GB laptop reads 15.4 GiB, measured
+    2026-11-10, lsmem: 16G online). Round up to the whole GiB that is installed; 12 GB still reads 12."""
+    import math
+    return float(math.ceil(mem_total_gib))
+
+
 def _ram_gb():
     if os.name == "nt":
         class MS(ctypes.Structure):
@@ -42,7 +49,7 @@ def _ram_gb():
         return m.total / 2 ** 30
     for line in open("/proc/meminfo"):
         if line.startswith("MemTotal"):
-            return int(line.split()[1]) / 2 ** 20
+            return _installed_gb(int(line.split()[1]) / 2 ** 20)
     return 0
 
 

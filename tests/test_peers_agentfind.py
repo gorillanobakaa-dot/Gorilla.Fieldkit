@@ -129,3 +129,17 @@ def test_cli_probe_local_prints(capsys):
     assert link.main(["probe", "disk"]) == 0
     assert capsys.readouterr().out.startswith("PROBE disk")
     assert link.main(["probe", "nonsense"]) == 3
+
+
+def test_linux_exe_version_is_the_dpkg_package_version():
+    import subprocess
+    from fieldkit.app import find
+
+    def fake(cmd, **k):
+        out = {"dpkg": "python3.13-minimal: /usr/bin/python3.13\n", "dpkg-query": "3.13.5-1"}[cmd[0]]
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+    assert find._dpkg_version("/usr/bin/python3.13", run=fake) == "3.13.5-1"
+
+    def none(cmd, **k):
+        return subprocess.CompletedProcess(cmd, 1, "", "no path found")
+    assert find._dpkg_version("/opt/x", run=none) == ""

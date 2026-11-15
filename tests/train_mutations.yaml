@@ -22,8 +22,8 @@
   why: no declaration of a head that is not pushed
 - file: fieldkit/method/train.py
   swap:
-  - '    if state != "green":'
-  - '    if state == "none":'
+  - "    _log(repo, st, n, \"ci\", state=state, why=why)\n    if state != \"green\":"
+  - "    _log(repo, st, n, \"ci\", state=state, why=why)\n    if state == \"none\":"
   why: never merged red
 - file: fieldkit/method/train.py
   swap:
@@ -85,3 +85,31 @@
   - '            if parts[2] == top and age < HOOK_FRESH_S:'
   - '            if age < HOOK_FRESH_S:'
   why: another worktree's hook does not block this checkout's declaration
+- file: fieldkit/method/train.py
+  swap: ['                    if gh.pr(n)["headRefOid"] != head:', '                    if True:']
+  why: after GitHub's asynchronous update-branch the train waits for the new head, so it is recorded as the train's own
+- file: fieldkit/method/train.py
+  swap:
+  - '        state, names = required_state(required, gh.check_runs(head))'
+  - '        state, names = "ok", []'
+  why: R17 never merged before the required checks exist and passed on the exact head (#295, #315)
+- file: fieldkit/method/train.py
+  swap:
+  - '    if _depth < 3 and getattr(gh, "behind", None) and gh.behind(n):'
+  - '    if False:'
+  why: R17 the train updates a BEHIND PR first, it never tries the merge
+- file: fieldkit/method/train.py
+  swap:
+  - '    if getattr(gh, "behind", None) and gh.behind(n):    # R17'
+  - '    if False:    # R17'
+  why: R17 ci-wait --merge updates a BEHIND PR first (#315)
+- file: fieldkit/method/train.py
+  swap:
+  - '        if ok or not NOT_REGISTERED.search(msg or ""):'
+  - '        if True:'
+  why: R17 a required-checks refusal is recorded and retried after the wait, not reported NOT-MERGED
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - '    c = _git(repo, *who, "commit", "-m", msg, check=False)'
+  - '    c = _git(repo, "commit", "-m", msg, check=False)'
+  why: R17 the train's local update commit carries its own git identity (#304)

@@ -659,3 +659,224 @@ def test_a_branch_switch_with_the_same_head_is_a_move_too(env):
         "subprocess.run(['git','-C',r'%s','checkout','-q','-b','sibling'],check=True)" % (work, work, work, work)]}
     rep = emerge(recipe(tmp, s)).run()
     assert not rep["ok"] and "sibling" in rep["refused"]
+
+
+def test_a_fix_committed_in_the_repo_holding_the_config_is_seen(env):
+    """2026-11-09: firefox-windows' fix landed in the harness checkout, which is neither the recipe's repo nor a git
+    source; the runner judged it "committed nothing". Repos holding the config files and patch dir are watched."""
+    tmp, work = env
+    harness = make_repo(tmp / "harness")
+    write(harness / "fix.py", "import sys; sys.exit(1)\n")
+    write(harness / "cfg.txt", "c\n")
+    commit_all(harness, "broken")
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, str(harness / "fix.py")]}
+    s["stages"][0]["outputs"] = []
+    s["config"] = {"files": [str(harness / "cfg.txt")]}
+    assert str(harness.resolve()) in [str(Path(x).resolve()) for x in E.fix_repos(recipe(tmp, s))]
+
+    def fix():
+        git(harness, "checkout", "-q", "-b", "fix/emerge-demo-one")
+        write(harness / "fix.py", "print('ok')\n")
+        commit_all(harness, "fix")
+    rep = emerge(recipe(tmp, s), fixer=Fixer(fix)).run()
+    assert rep["fixes"][0]["ok"], rep["fixes"][0]["why"]
+
+
+def _side_fix(work, tmp, name="wt-side"):
+    """A fake model that commits in a side worktree it makes itself (the 2026-11-10 failure)."""
+    side = tmp / name
+
+    def fix():
+        git(work, "worktree", "add", "-q", "-b", "fix/side", str(side))
+        write(side / "fix.py", "print('ok')\n")
+        commit_all(side, "side fix")
+    return side, fix
+
+
+def test_a_fix_committed_in_a_side_worktree_is_named_and_not_called_nothing(env):
+    tmp, work = env
+    s = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+    side, fix = _side_fix(work, tmp)
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=Fixer(fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert "committed nothing" not in why and str(side) in why and "fix/side" in why
+    sha = git(side, "rev-parse", "HEAD").strip()
+    assert sha[:10] in why
+
+
+def test_a_side_fix_is_cherry_picked_when_the_build_tree_is_on_a_branch(env):
+    tmp, work = env
+    git(work, "checkout", "-q", "-b", "build")
+    s = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+    side, fix = _side_fix(work, tmp, "wt-side2")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=Fixer(fix)).run()
+    assert rep["fixes"][0]["ok"], rep["fixes"][0]["why"]
+    assert "cherry-picked onto build" in rep["fixes"][0]["why"]
+    assert "print('ok')" in (work / "fix.py").read_text() and statuses(rep)["one"] == "pass"
+
+
+def test_a_side_fix_that_conflicts_is_aborted_and_the_tree_untouched(env):
+    tmp, work = env
+    git(work, "checkout", "-q", "-b", "build")
+    write(work / "f.txt", "base\n")
+    commit_all(work, "base")
+    git(work, "checkout", "-q", "-b", "side")
+    write(work / "f.txt", "side\n")
+    commit_all(work, "side")
+    sha = git(work, "rev-parse", "HEAD").strip()
+    git(work, "checkout", "-q", "build")
+    write(work / "f.txt", "other\n")
+    commit_all(work, "other")
+    head = git(work, "rev-parse", "HEAD").strip()
+    ok, why = E.bring_in(str(work), [{"sha": sha}])
+    assert not ok and "does not apply cleanly" in why
+    assert git(work, "status", "--porcelain").strip() == "" and git(work, "rev-parse", "HEAD").strip() == head
+
+
+def test_a_side_fix_is_never_put_on_main(env):
+    tmp, work = env
+    ok, why = E.bring_in(str(work), [{"sha": "x"}])
+    assert not ok and "never put on main" in why
+
+
+def test_a_fix_in_another_repository_is_named_with_its_path(env):
+    tmp, work = env
+    other = make_repo(tmp / "other-repo")
+    write(other / "x.txt", "x\n")
+    commit_all(other, "seed")
+    s = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+    s["stages"][0]["run"] = {"cmd": [PY, "-c", f"import sys; print('compare against {other}/x.txt'); sys.exit(1)"]}
+
+    def fix():
+        git(other, "checkout", "-q", "-b", "fix/o")
+        write(other / "x.txt", "y\n")
+        commit_all(other, "fix other")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=Fixer(fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert not rep["fixes"][0]["ok"] and "another repository" in why and str(other) in why
+
+
+def _detached_tree(tmp):
+    """A port work tree: its own repository on a detached HEAD, no branch (firefox-160, 2026-11-11)."""
+    tree = make_repo(tmp / "port-tree")
+    write(tree / "moz.build", "LOCAL_INCLUDES += ['/third_party/gone']\n")
+    commit_all(tree, "pristine")
+    git(tree, "checkout", "-q", "--detach")
+    git(tree, "branch", "-q", "-D", "main")
+    return tree
+
+
+def test_a_fix_committed_on_a_detached_build_tree_named_by_the_log_is_accepted(env):
+    tmp, work = env
+    tree = _detached_tree(tmp)
+    s = failing_spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c", f"import sys; print('error in {tree.as_posix()}/moz.build'); "
+                                     f"sys.exit(0 if 'gone' not in open(r'{tree}/moz.build').read() else 1)"]}
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+
+    def fix():
+        write(tree / "moz.build", "# excised\n")
+        commit_all(tree, "checkpoint: excise gone")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=Fixer(fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert rep["fixes"][0]["ok"], why
+    assert "committed in the build tree" in why and str(tree) in why and "checkpoint: excise gone" in why
+    assert statuses(rep)["one"] == "pass"
+
+
+def test_a_detached_build_tree_reset_backwards_is_not_a_fix(env):
+    tmp, work = env
+    tree = _detached_tree(tmp)
+    write(tree / "x.txt", "x\n")
+    commit_all(tree, "second")
+    before = E.detached_heads([str(tree)])
+    git(tree, "checkout", "-q", "--detach", "HEAD~1")
+    assert E.moved_detached(before) == []
+    git(tree, "checkout", "-q", "--detach", before[str(tree)])
+    write(tree / "y.txt", "y\n")
+    commit_all(tree, "third")
+    assert [c["subject"] for c in E.moved_detached(before)] == ["third"]
+
+
+def test_a_sibling_jobs_wip_ref_and_main_moving_are_not_a_fix(env):
+    """Refs are shared by every worktree: another job's wip/ snapshot and main fast-forwarded by a merged pull request
+    while the fix ran were refused as 'landed in another repository' (2026-11-11)."""
+    tmp, work = env
+    s = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(s))
+    commit_all(work, 'recipe')
+    git(work, "checkout", "-q", "-b", "build")
+
+    def not_a_fix():
+        git(work, "branch", "-q", "wip/T-other-work", "main")
+        git(work, "checkout", "-q", "wip/T-other-work")
+        write(work / "other.txt", "o\n")
+        commit_all(work, "wip T-other")
+        git(work, "checkout", "-q", "main")
+        write(work / "merged.txt", "m\n")
+        commit_all(work, "Merge pull request #1")
+        git(work, "checkout", "-q", "build")
+    rep = emerge(R.Recipe(s, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False),
+                 fixer=Fixer(not_a_fix)).run()
+    why = rep["fixes"][0]["why"]
+    assert not rep["fixes"][0]["ok"] and why == "the fix run committed nothing", why
+
+
+def test_the_fix_brief_names_the_build_tree_and_refuses_side_worktrees(env):
+    tmp, work = env
+    fixer = Fixer()
+    sp = failing_spec(work)
+    write(work / 'demo.yaml', yaml.safe_dump(sp))
+    commit_all(work, 'recipe')
+    emerge(R.Recipe(sp, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=fixer).run()
+    assert "never make a side worktree" in fixer.prompts[0] and str(work) in fixer.prompts[0]
+
+
+# -- failure checks scan the recipe's source tree, never the process cwd (2026-11-14) --------------------------------
+ROLL = "curl https://github.com/x/y/releases/download/latest/z.tgz\n"
+
+
+def test_failure_checks_scan_the_source_not_the_cwd(env, monkeypatch):
+    tmp, work = env
+    other = tmp / "elsewhere"
+    write(other / "state" / "meters.json", '{"u": "%s"}' % ROLL.strip())    # planted in dir A (the cwd)
+    write(work / "docs" / "install.md", ROLL)                                # planted in dir B (the source)
+    monkeypatch.chdir(other)
+    em = emerge(recipe(tmp, failing_spec(work)))
+    passed, _secs, _outs, tail = em._execute({"id": "one"})
+    assert not passed
+    assert "install.md" in tail and "rolling tag" in tail
+    assert "meters.json" not in tail and "elsewhere" not in tail
+
+
+def test_check_findings_come_after_the_real_error_and_are_capped(env, monkeypatch):
+    tmp, work = env
+    for i in range(25):
+        write(work / "docs" / f"r{i}.md", ROLL)
+    monkeypatch.chdir(tmp)
+    sp = failing_spec(work)
+    write(work / "fix.py", "import sys; print('REAL ERROR'); sys.exit(1)\n")
+    em = emerge(recipe(tmp, sp))
+    passed, _s, _o, tail = em._execute({"id": "one"})
+    assert "REAL ERROR" in tail.splitlines()[0] or "REAL ERROR" in tail.split("rolling tag")[0]
+    rows = tail.splitlines()
+    first = next(i for i, l in enumerate(rows) if "rolling tag" in l)
+    assert not passed and first > 0
+    assert 0 < sum("rolling tag" in l for l in rows) < E.CHECK_LINES_MAX + 1
+    assert "more check findings not shown" in tail
+
+
+def test_rolling_url_without_a_root_scans_nothing(tmp_path, monkeypatch):
+    from fieldkit.build import failure_checks as fc
+    write(tmp_path / "a.md", ROLL)
+    monkeypatch.chdir(tmp_path)
+    assert fc.rolling_url({}) == []
+    assert fc.rolling_url({"root": str(tmp_path)})

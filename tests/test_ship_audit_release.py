@@ -130,3 +130,39 @@ def test_audit_finds_what_is_left_behind_locally(tmp_path):
     assert "side" not in r["local-branches"]["say"]                   # checked out in a worktree: reported there
     assert r["worktrees"]["state"] == "DO" and "side: its work is on main" in r["worktrees"]["say"]
     assert sr.audit(w, offline=True)["rows"][-1]["check"] == "release"
+
+
+def test_prune_reports_a_refused_delete_with_gits_words(tmp_path):
+    # 2026-11-09: Gorilla.Opencode's hook refuses every branch delete and prune hid it: ok stayed true
+    w = _origin_and_clone(tmp_path)
+    _g(w, "checkout", "-q", "-b", "done", "main")
+    (w / "d.txt").write_text("d")
+    _g(w, "add", "-A")
+    _g(w, "commit", "-qm", "done")
+    _g(w, "push", "-q", "origin", "done")
+    _g(w, "checkout", "-q", "main")
+    _g(w, "merge", "-q", "--no-ff", "done", "-m", "merge done")
+    _g(w, "push", "-q", "origin", "main")
+    hook = tmp_path / "origin.git" / "hooks" / "pre-receive"
+    hook.write_text('#!/bin/sh\nwhile read o n r; do case "$n" in 0000*) echo "mandate: deletes refused" >&2; exit 1;; esac; done\n',
+                    newline="\n")
+    hook.chmod(0o755)
+    r = sr.prune(w, gh=lambda args, timeout=60: ("", ""))
+    assert not r["ok"] and r["deleted"] == [] and r["refused"][0]["branch"] == "done"
+    row = [x for x in r["rows"] if x["check"] == "refused"][0]
+    assert row["state"] == "DO" and "mandate: deletes refused" in row["say"]
+
+
+def test_prune_deletes_nothing_when_github_is_unreadable(tmp_path, monkeypatch):
+    # an open PR's head looks unproven without GitHub: prune must refuse, not archive or delete it
+    w = _origin_and_clone(tmp_path)
+    _g(w, "checkout", "-q", "-b", "open-pr", "main")
+    (w / "o.txt").write_text("o")
+    _g(w, "add", "-A")
+    _g(w, "commit", "-qm", "open")
+    _g(w, "push", "-q", "origin", "open-pr")
+    _g(w, "checkout", "-q", "main")
+    monkeypatch.setattr(sr, "repo_slug", lambda repo: "o/r")
+    r = sr.prune(w, gh=lambda args, timeout=60: (None, "gh hidden"), archive_unproven=True)
+    assert not r["ok"] and r["archived"] == [] and r["rows"][0]["check"] == "github"
+    assert "refs/heads/open-pr" in _g(w, "ls-remote", "origin")

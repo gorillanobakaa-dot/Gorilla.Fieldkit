@@ -88,6 +88,19 @@ def listed(main, run=subprocess.run):
     return rows
 
 
+def _keep_captures(path):
+    """A job whose checkout predates the shared capture store (2026-11-10) wrote its captures into its own
+    state/capture: bring them into the shared store before the worktree is removed. Never stops the reap."""
+    try:
+        stray = Path(path) / "state" / "capture"
+        if (stray / "journal.jsonl").is_file():
+            from ..capture import store
+            return store.Store().absorb(stray)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def reap(repo, run=subprocess.run, root=None, alive=None):
     """-> {"removed": [paths], "kept": [(path, why)]}."""
     if alive is None:
@@ -119,6 +132,7 @@ def reap(repo, run=subprocess.run, root=None, alive=None):
         if rc != 0 or not on.strip():
             out["kept"].append((str(path), f"HEAD {sha[:10]} is not on origin yet (not shipped)"))
             continue
+        _keep_captures(path)                              # before the folder goes: what the job learned stays
         rc, why = _git(main, "worktree", "remove", str(path), run=run)
         if rc == 0:
             Path(str(path) + ".json").unlink(missing_ok=True)

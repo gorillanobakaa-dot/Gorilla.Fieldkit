@@ -1,0 +1,22 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-sync-other
+intent: sync
+toolchain: other
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 7
+replayed_ok: 3 of 7
+step_families:
+- git fetch
+- git add
+- gh pr
+- fieldkit ship
+- fieldkit size
+side_effects:
+  network_or_remote: 3
+  write_or_release: 1
+  code_execution: 0
+blocker: Combines fetch/PR/ship/size remote operations with git staging. The unknown size command and remote target/branch
+  semantics prevent safe sync; no conflict policy, human approval, or recovery point is recorded.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

@@ -568,7 +568,7 @@ def still_holds(s, file, hunk, before, now):
     if is_cargo_checksum(file):
         return []                                       # derived data, recomputed at the export (D-158-02)
     if s.get("hand_port") or s.get("done_by") == "hand":
-        return hand_port_holds(now, hunk, before, hand_keeps(s.get("hand_note")))
+        return hand_port_holds(now, renamed_hunk(hunk, hand_renames(s.get("hand_note"))), before, hand_keeps(s.get("hand_note")))
     if file.endswith(".ftl"):
         from . import fluent
         try:
@@ -1090,7 +1090,7 @@ def _span(lines, hunk, lo=None):
     return None
 
 
-def hunk_problems(before, after, hunk):
+def hunk_problems(before, after, hunk, siblings=None):
     """What is still wrong in `after` (lines) for the hunk's change, counted against `before`.
 
     For every meaningful line the hunk adds, the file must hold as many copies as before plus
@@ -1120,7 +1120,13 @@ def hunk_problems(before, after, hunk):
         reach = min(len(after), sa[0] + len(hunk["lines"]) + 40)
         last_added = max((i for i in range(sa[0], reach) if _key(after[i]) in add_keys), default=sa[1] - 1)
         sa = (sa[0], max(sa[1], last_added + 1))
+        # the after-span can run further than the before-span (an added line found again far down): copies that
+        # the SAME stretch of the old file already held are not new (P27, 23.REBASE.158/0167 h5: `@media ...`)
+        more = (sa[1] - sa[0]) - (sb[1] - sb[0])
+        extra_old = [l.strip() for l in before[sb[1]:sb[1] + more]] if more > 0 else []
         before, after = before[sb[0]:sb[1]], after[sa[0]:sa[1]]
+    else:
+        extra_old = []
     b = [l.strip() for l in before]
     a = [l.strip() for l in after]
     why = []
@@ -1131,12 +1137,31 @@ def hunk_problems(before, after, hunk):
         want = max(0, b.count(k) + net)
         if net > 0 and a.count(k) < want:
             why.append(f"missing added line: {k[:100]}")
-        elif net < 0 and a.count(k) > want and pinned:
+        elif net < 0 and a.count(k) > want + extra_old.count(k) + _sibling_copies(a, k, siblings) and pinned:
             # a removal is only ever demanded inside the hunk's own span: counted file-wide, a line that lives
             # elsewhere too (`color: inherit;`) refused a correct answer (live run 12, h7); collateral() still
-            # catches removals that were not asked for
+            # catches removals that were not asked for. The patch's OTHER hunks may add the same line back (P27,
+            # 23.REBASE.158/0167 h4 -> h5): the file may then hold as many copies as they add, no more.
             why.append(f"line should be gone: {k[:100]}")
     return why
+
+
+def _sibling_copies(a, k, blocks):
+    """How many copies of `k` in `a` (stripped lines) are another hunk's of the same patch, at most as many as the
+    siblings add: a copy counts when a sibling hunk ADDS `k` and a line of that sibling hunk (not `k`) sits within
+    four lines of the copy. A leftover of the hunk's own removal sits in the old block, among lines no sibling wrote."""
+    owned = 0
+    cap = sum(1 for block in blocks or () for l, new in block if new and l == k)
+    for j, x in enumerate(a):
+        if owned >= cap:
+            break
+        if x != k:
+            continue
+        near = {a[i] for i in range(max(0, j - 4), min(len(a), j + 5)) if i != j and a[i] and not TRIVIAL.match(a[i])}
+        if any(any(new and l == k for l, new in block) and
+               {l for l, _ in block if l != k and not TRIVIAL.match(l)} & near for block in blocks or ()):
+            owned += 1
+    return owned
 
 
 def collateral(before, after, hunk, extra_removals=None):
@@ -1958,6 +1983,11 @@ def obsolete_upstream(body, hunk, css=False):
     anchored = any(len(l.strip()) >= 12 and l.strip() in have for l in context)
     if renamed_near(body, hunk, removed, added):
         return None                                     # still there, renamed: a port, not an obsolete change
+    gone_fn = _anchor_function_gone(body, hunk, removed)
+    if gone_fn:
+        return (f"this hunk only adds lines inside `{gone_fn}`, and no `{gone_fn}` exists anywhere in the new source: "
+                "upstream removed the function the change is anchored to. Nothing to attach it to; resolved as obsolete "
+                "(recorded for the owner's review)")
     if spec_removed and anchored and not any(l in have for l in spec_removed) and not any(l in have for l in spec_added):
         return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
                 "would add are there: upstream removed or replaced this. Not a job for a model; the owner decides whether "
@@ -1975,6 +2005,28 @@ def obsolete_upstream(body, hunk, css=False):
                 "exist in the new source: upstream removed what it changes. Not a job for a model; the owner decides "
                 "whether the Gorilla change is still wanted")
     return None
+
+
+_FN_DECL = re.compile(r"^\s*(?:export\s+)?(?:(?:async|static|get|set)\s+)*(?:function\s*\*?\s*)?([A-Za-z_$][\w$]{5,})\s*\([^)]*\)?[^;=]*\{\s*$")
+
+
+def _anchor_function_gone(body, hunk, removed):
+    """A hunk that only ADDS lines, right after a function header kept as context: the function's name when that
+    name occurs nowhere in the new file (P27, firefox-160 TemporaryMerinoClientShim h2: fetchSportsMatches removed
+    upstream). None when the anchor still exists or the hunk is not of that shape, so every other hunk is unchanged."""
+    if removed or not any(l.startswith("+") for l in hunk["lines"]):
+        return None
+    last_ctx = None
+    for l in hunk["lines"]:
+        if l.startswith("+"):
+            break
+        if l.startswith(" "):
+            last_ctx = l[1:]
+    m = _FN_DECL.match(last_ctx or "")
+    if not m or m.group(1) in ("function", "return", "constructor"):
+        return None
+    name = m.group(1)
+    return None if any(name in l for l in body) else name
 
 
 _COMMENT = re.compile(r"^(/\*|\*|//|#|<!--)")
@@ -2143,6 +2195,45 @@ def hand_removes(note):
     return out
 
 
+def hand_renames(note):
+    """The names upstream renamed that a port follows, declared in the note as `renames: OLD -> NEW` (or `=>`, one
+    per line or `;`-separated). I-04 B: a deferred "renamed upstream" step ported by a model to the new name is
+    judged on the hunk with the names replaced, and the rename itself is checked (rename_problems)."""
+    out = []
+    for chunk in re.split(r"[\n;]", note or ""):
+        m = re.match(r"\s*renames?:\s*(\S.*?)\s*(?:->|=>)\s*(\S.*?)\s*$", chunk)
+        if m and m.group(1) != m.group(2):
+            out.append((m.group(1), m.group(2)))
+    return out
+
+
+def _name_in(name, text):
+    return len(re.findall(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text))
+
+
+def rename_problems(renames, before_text, after_text):
+    """A declared rename must be real: the port adds no new use of the OLD name, and the NEW name is in the file."""
+    why = []
+    for old, new in renames:
+        if _name_in(old, after_text) > _name_in(old, before_text):
+            why.append(f"rename {old} -> {new}: the port adds the old name {old!r} back")
+        if not _name_in(new, after_text):
+            why.append(f"rename {old} -> {new}: the new name {new!r} is not in the file")
+    return why
+
+
+def renamed_hunk(hunk, renames):
+    """The hunk with every declared OLD name replaced by its NEW name (whole names only)."""
+    if not renames or not isinstance(hunk, dict):
+        return hunk
+    lines = []
+    for l in hunk.get("lines") or []:
+        for old, new in renames:
+            l = re.sub(r"(?<![\w-])" + re.escape(old) + r"(?![\w-])", lambda m, n=new: n, l)
+        lines.append(l)
+    return dict(hunk, lines=lines)
+
+
 def hand_keeps(note):
     """The removed lines a hand port keeps on purpose, declared in the submit note as `keeps: <line>` (one per
     line or `;`-separated). ml/moz.build h1 (live run 16): upstream added `"ipc",` inside the `if ... android`
@@ -2181,7 +2272,7 @@ def _facts(lines):
     return f
 
 
-def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True, removes=()):
+def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True, removes=(), siblings=None):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -2233,6 +2324,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_che
         # is no evidence either way: only a line whose every copy in `before` is the hunk's must be gone. What a
         # shared opener left dangling does is caught by the parse check (syntax_problems), not by text.
         if (pristine is not None or before is not after) and cb[k] != n:
+            continue
+        # the patch's OTHER hunks for this file may add the very same line elsewhere (P27, 23.REBASE.158/0167 h5: h4 re-adds
+        # `padding: 20px;` that h5 removes). Count copies: the file may hold as many as those siblings add; more is a leftover.
+        if siblings and ca[k] <= siblings.get(k, 0):
             continue
         why.append(f"line should be gone: {k[:100]}")
     # a line that already existed before the edit cannot be the renamed form of a removed line (02 Oct: the
@@ -2299,6 +2394,32 @@ def deletes_whole_file(hunk):
         re.search(r"\+0,0 @@", str(hunk.get("header", ""))) is not None
 
 
+def sibling_adds(t, patch, file, hunk):
+    """{stripped line: copies} added by the OTHER hunks of `patch` for `file` (empty when the patch cannot be read)."""
+    import collections
+    c = collections.Counter()
+    for block in sibling_blocks(t, patch, file, hunk):
+        c.update(l for l, new in block if new)
+    return c
+
+
+def sibling_blocks(t, patch, file, hunk):
+    """The OTHER hunks of `patch` for `file`, each as [(stripped line, is_added)] over its new side (context and added
+    lines, in order); [] when the patch cannot be read."""
+    try:
+        text = (_policy(t["meta"]["harness_root"])[0] / patch).read_text(encoding="utf-8", errors="replace")
+        files = [f for f in parse_patch(text) if f["file"] == file]
+    except (OSError, KeyError, ValueError, TypeError):
+        return []
+    out = []
+    for f in files:
+        for h in f["hunks"]:
+            if h.get("header") == hunk.get("header") and h.get("lines") == hunk.get("lines"):
+                continue
+            out.append([(l[1:].strip(), l[0] == "+") for l in h["lines"] if l[:1] in (" ", "+")])
+    return out
+
+
 def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
     if deletes_whole_file(hunk):                                       # 2026-10-04: a deletion is done when the file is gone
@@ -2325,8 +2446,11 @@ def check_port(t, s, patch, file, hunk, **kw):
         root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
         pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
-        why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")),
-                              removes=hand_removes(s.get("hand_note")))
+        renames = hand_renames(s.get("hand_note"))
+        bad = rename_problems(renames, "\n".join(before), "\n".join(after))
+        rh = renamed_hunk(hunk, renames)
+        why = bad + hand_port_check(before, after, rh, pristine or None, keeps=hand_keeps(s.get("hand_note")),
+                                    removes=hand_removes(s.get("hand_note")), siblings=sibling_adds(t, patch, file, hunk))
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent
@@ -2352,7 +2476,7 @@ def check_port(t, s, patch, file, hunk, **kw):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)
         return {"ok": True, "why": []}
     # No flag, answer key or other shortcut may skip these checks (the overnight run of 2026-10-01 did).
-    why = hunk_problems(before, after, hunk)
+    why = hunk_problems(before, after, hunk, siblings=sibling_blocks(t, patch, file, hunk))
     extra = list(s.get("question_removals") or []) + list(s.get("renamed_removals") or [])  # driver / tier 2c
     why += collateral(before, after, hunk, extra_removals=extra or None)
     _, added, _ = hunk_sides(hunk)

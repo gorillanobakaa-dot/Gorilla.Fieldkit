@@ -1,0 +1,36 @@
+# Install failures: what a finished install leaves wrong on the machine, as data.
+# `check` names a function in build/failure_checks.py that finds the damage on disk (works on a fake HOME);
+# `sample` is a log line the pattern must name (triage self-test --kind install proves both fire).
+# Add a new one the first time a fix is found by hand: the same failure never costs a session twice.
+success:
+- 'install verify: OK'
+
+signatures:
+- id: icon-shadowed-by-user-copy
+  pattern: 'old icon|icon.*(shadow|still shows)|shows the old icon'
+  check: icon-shadow
+  whole_log: true
+  sample: 'the launcher still shows the old icon after reinstall'
+  cause: >-
+    An old icon in ~/.local/share/icons (user data dir) takes precedence over the one the package put in
+    /usr/share/icons, so the new package's icon is never shown.
+  fix: >-
+    Recycle the user copy named by the check (fieldkit size recycle PATH), then rebuild the icon cache.
+
+- id: icon-cache-stale
+  pattern: 'icon cache|icon-theme\.cache|gtk-update-icon-cache'
+  check: icon-cache
+  whole_log: true
+  sample: 'GNOME shows a blank icon: stale icon cache (icon-theme.cache older than the icons)'
+  cause: >-
+    GNOME on Wayland reads icon-theme.cache; when it is older than the newest icon file in the theme, the new
+    icon is invisible until the cache is rebuilt or the session restarts.
+  fix: Run gtk-update-icon-cache -f -t on the theme directory named by the check, then log out and in once.
+
+- id: desktop-entry-dangling-exec
+  pattern: 'desktop entry.*(Exec|missing)|Exec=.*No such file'
+  check: desktop-exec
+  whole_log: true
+  sample: 'desktop entry Exec target is missing: No such file or directory'
+  cause: A .desktop launcher in the user applications dir points at a program path that no longer exists.
+  fix: Recycle the dangling launcher named by the check, or reinstall the package that owns it.

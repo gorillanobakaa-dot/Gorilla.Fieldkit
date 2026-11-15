@@ -7,3 +7,119 @@ cheap: [sonnet, haiku, local, qwen, gemma, llama]
 review: [opus]                   # the reviewer role only (roles.yaml reviewer.model)
 premium: [fable, mythos, carbon, argon, gpt, gemini, o1, o3, grok]
 ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycle/)
+# Plan P9, escalation ladder (owner idea I-06). Every attempt records the model that made it; a red the branch owns
+# (strikes.whose_red) is an own failure; `own_limit` own failures on one rung climb to the next rung (the same model
+# retries once in between). Stepping onto a rung that is not cheap still passes check_model (mandate / reviewer role).
+# The ladder replaces the flat two-strikes park (ON since 2026-11-11): park only when the top rung the spend guard
+# allows has failed (Fable without a mandate is skipped, the top is then Opus).
+escalation:
+  enabled: true                   # owner order 2026-11-11: climb before parking
+  ladder: [haiku, sonnet, opus, fable]
+  own_limit: 2
+  attempts: escalation.jsonl      # in the lifecycle state folder
+  risky: [guard, hook, fan, security, release, mandate]   # job-type words that get a top-model plan review first
+  review_model: opus
+# P9 (owner, 2026-11-11: a month's budget can be gone): a model that cannot answer is skipped by every choice (task
+# routing, ladder climb, reviewer, tie-breaker) and the harness works with what is left. A call that ends in a
+# budget / limit / quota / rate error, no verdict, or "max turns" marks the model UNAVAILABLE in the lifecycle state
+# folder (availability.json) until the limit's own reset time, else a cooldown. The owner can also pin it here:
+#   unavailable: {fable: "until 2026-12-01"}     (a date, or "always" until the line is removed)
+availability:
+  unavailable: {}
+  file: availability.json         # in the lifecycle state folder
+  cooldown_minutes: 120           # a budget / limit / quota / rate error with no reset time in the message
+  no_verdict_cooldown_minutes: 30 # an answer with no verdict, or "max turns": likely out of budget, look again soon
+  patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage', 'quota', 'rate.?limit',
+             'budget', 'credit balance', 'overloaded', 'too many requests', 'insufficient', '\b429\b', 'max turns']
+# P9 (owner, 2026-11-11: "Unify them, don't leave them scattered"): every "ask a stronger model" path lives in ONE module,
+# fieldkit/lifecycle/counsel.py, tried cheapest first: advise (Claude Code's own advisor in the worker's session, no
+# restart) -> review (independent, higher rung) -> tiebreak (highest allowed rung) -> climb (the job retries a rung up)
+# -> park only past the top. One rung choice for all four: the next usable rung on escalation.ladder above the worker
+# (availability + spend guard + mandate models_allowed); one journal for all four.
+counsel:
+  advisor:
+    enabled: true                 # every headless claude worker gets `--advisor <the next usable rung above it>`;
+                                  # none above (or Fable without a mandate and Opus out of budget): no advisor, no error
+    never: [haiku]                # Claude Code: Haiku can call an advisor but never be one
+  journal: counsel.jsonl          # in the lifecycle state folder; `fieldkit overhead counsel`, `fieldkit review`
+# P35 (owner 2026-11-12: "an opus or a fable wasting millions of API tokens on tool calls or providing a sitrep"): the
+# WORK KIND of a brief picks the cheapest capable model, as data. counsel.work_kind(text) names the kind from the brief
+# (the DONE PROTOCOL tail stripped first); counsel.model_for_kind(kind) gives the rung. routing.yaml's risk score and
+# floor stay the floor and the ceiling: a kind may lower a worker to its rung (never below the floor) or raise a code
+# brief to sonnet; it never goes above the owner's ceiling. A brief with no kind is left to the router.
+#   rung     the model rung the WORKER runs on (a name on the escalation ladder)
+#   fallback tried in order when the rung is unavailable (a name off the ladder, such as local, is never a task-start model)
+#   advisor  true: the worker also gets counsel's --advisor (the stronger model asks only at a hard decision)
+#   words    whole words in the brief that name the kind (the first kind in file order with a hit wins, after `code`)
+# A brief that names any code_words (a test, a .py file, a hook, a mutation: routing.yaml floor.words) is `code`.
+work_kinds:
+  code_words: [test, mutat, hook, rules, core.md, lifecycle, ".py", guard, router, rotate, ci-wait, integration,
+               implement, refactor, commit, branch, pull request, ship push]
+  design_words: [design, architecture, review, tie-break, tiebreak, redesign, threat model]
+  kinds:
+    code:      {rung: sonnet, fallback: [opus], advisor: true}
+    design:    {rung: sonnet, fallback: [opus], advisor: true, why: "opus or fable only as advisor or reviewer"}
+    gather:    {rung: haiku, fallback: [sonnet], words: [gather, collect, status, sitrep, roll call, inventory]}
+    search:    {rung: haiku, fallback: [sonnet], words: [search, find, grep, locate, look up]}
+    summarize: {rung: haiku, fallback: [sonnet], words: [summarize, summarise, summary, digest, tl;dr]}
+    classify:  {rung: haiku, fallback: [sonnet], words: [classify, triage, sort, label, tag]}
+    compact:   {rung: haiku, fallback: [sonnet], words: [compact, condense, shorten, handover note]}
+    report:    {rung: haiku, fallback: [sonnet], words: [report, write up, writeup]}
+# P34 (owner 2026-11-12): Zero's read runs. The room hook counts Zero's read-only Bash calls in a row (lifecycle/readrun.py);
+# past max_run it says "delegate to a haiku subagent", again every `every` calls. Data first: change the numbers here.
+zero_reads:
+  max_run: 4
+  every: 5
+
+# Reasoning / thinking levels supported across coding agents, from lowest to maximum (2026-11-14).
+thinking_levels: [lowest, low, medium, high, max]
+
+# Coding agents, their specific selectable models (never generic "gemini"), Ultra frontier models, and thinking levels.
+agents:
+  antigravity:
+    title: "Google Antigravity Desktop IDE"
+    kind: ide
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
+    ultra_models: [carbon, claude-opus-4-6]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: high
+  agy:
+    title: "Antigravity Terminal CLI (agy)"
+    kind: cli
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
+    ultra_models: [carbon, claude-opus-4-6]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: high
+  codex:
+    title: "OpenAI Codex CLI"
+    kind: cli
+    models: [codex-mini, o4-mini, o3, gpt-5-codex]
+    ultra_models: [o3, gpt-5-codex]
+    default_model: o4-mini
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+  gorilla-opencode:
+    title: "Gorilla OpenCode Agent"
+    kind: cli
+    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, qwen3-coder, local/qwen3, sonnet, opus]
+    ultra_models: [carbon, opus]
+    default_model: argon
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+  claude:
+    title: "Claude Code CLI"
+    kind: cli
+    models: [haiku, sonnet, opus, fable]
+    ultra_models: [opus, fable]
+    default_model: sonnet
+    thinking_levels: [lowest, low, medium, high, max]
+    default_thinking: medium
+
+# Multi-agent quota & block guard (owner 2026-11-14: Claude weekly quota is maxed out at 100%; block claude and
+# support quota/block guards for antigravity, agy, codex, gorilla-opencode, and claude alike).
+agent_availability:
+  cooldown_minutes: 120
+  unavailable:
+    claude: "always"

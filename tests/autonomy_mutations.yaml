@@ -1,0 +1,26 @@
+# P9 e/d: the autonomy loop, "X only" refusals and recipe pins must stay caught:
+#   fieldkit mutate --plan tests/autonomy_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_autonomy_loop.py tests/test_emerge_lint.py tests/test_crossos.py
+- file: fieldkit/core/crossos.py
+  swap: ['return {"action": "dispatch", "args": args', 'return {"action": "refused", "args": args']
+  why: a command with an equivalent on this system dispatches to it, never refuses
+- file: fieldkit/core/crossos.py
+  swap: ['row = {"route": "offload" if build else "none", "why": card_why or "", "unwritten": True}', 'row = {"route": "offload" if build else "none", "why": card_why or ""}']
+  why: a single-system command with no crossos.yaml row fails CI by name
+- file: fieldkit/emerge/runner.py
+  swap: ['if not (fixable and self.allow_fix and n_fix < max_fix) or', 'if True or']
+  why: a failing stage goes to the fix rung, not straight to a person
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ['rec["accepted"], rec["why"] = True,', 'rec["accepted"], rec["why"] = False,']
+  why: checks passed and a higher reviewer said yes -> accepted with no owner click
+- file: fieldkit/emerge/lint.py
+  swap: ['if isinstance(v, str) and VERSION_RE.match(v.strip()) and k not in tpins:', 'if False:']
+  why: a recipe var holding one product version is a PIN
+- file: fieldkit/emerge/lint.py
+  swap: ['if NAME_VERSION.search(str(spec.get("name", name))) and not spec.get("archive"):', 'if False:']
+  why: a recipe named after one version must be general or archived
+- file: fieldkit/emerge/lint.py
+  swap: ['if single and s.get("offload") is False and not s.get("platforms_why"):', 'if False:']
+  why: a one-system stage that refuses offload with no reason is ONE-OS
+- file: fieldkit/emerge/lint.py
+  swap: ['for m in MACHINE_PATH.finditer(text):', 'for m in []:']
+  why: a machine path in a recipe is a PATH finding

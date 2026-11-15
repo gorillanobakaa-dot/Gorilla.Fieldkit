@@ -180,6 +180,30 @@
     "fedora": "sudo dnf install -y alsa-utils"
    },
    "only": "linux"
+  },
+  "tesseract": {
+   "why": "OCR: fieldkit image ocr/privacy and the acceptance check read pictures with it (a model's vision never counts)",
+   "for": [
+    "image"
+   ],
+   "install": {
+    "debian": "micromamba install -y -p \"$HOME/.local\" -c conda-forge tesseract",
+    "fedora": "micromamba install -y -p \"$HOME/.local\" -c conda-forge tesseract",
+    "windows": "scoop install tesseract",
+    "mac": "brew install tesseract"
+   }
+  },
+  "magick": {
+   "why": "ImageMagick: identify, convert, compare for fieldkit image and the acceptance check",
+   "for": [
+    "image"
+   ],
+   "install": {
+    "debian": "micromamba install -y -p \"$HOME/.local\" -c conda-forge imagemagick",
+    "fedora": "micromamba install -y -p \"$HOME/.local\" -c conda-forge imagemagick",
+    "windows": "scoop install imagemagick",
+    "mac": "brew install imagemagick"
+   }
   }
  },
  "lean": {

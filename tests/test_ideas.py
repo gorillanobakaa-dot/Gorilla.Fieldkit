@@ -208,8 +208,9 @@ def test_the_room_hook_shows_the_ideas_line_then_the_brief_once(root, monkeypatc
     assert room._ideas({"session_id": "s9"}, "UserPromptSubmit", "").count("I-01") == 0
     assert room._ideas({"session_id": "s9"}, "PreToolUse", "x") == "x"
     # and the hook's one context builder calls it (new session, so the brief shows again)
-    for f in ("_net", "_hog", "_rotate", "_plan", "_relay"):
+    for f in ("_net", "_hog", "_rotate", "_plan"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
+    monkeypatch.setattr(room, "_ear", lambda call, event: "")
     monkeypatch.setattr(room, "unseen", lambda sid: [])
     assert "parked ideas - fieldkit review" in room._context({"session_id": "s10"}, "UserPromptSubmit")
 
@@ -246,3 +247,14 @@ def test_c7_an_idea_already_built_is_shown_built_and_stays_parked(root):
     assert "ALREADY BUILT" in item["what"] and "already merged" in item["if_approve"]
     with pytest.raises(ideas.Refused):
         ideas.mark_built("I-99", "x", root=root)
+
+
+def test_a_defect_needs_an_agent_and_stays_out_of_every_owner_list(root):
+    with pytest.raises(ideas.Refused):
+        ideas.add("x", "y", defect=True, root=root)               # an owner suggestion is an idea, not a defect
+    ideas.add("Broken thing", "it breaks", source="agent:zero", defect=True, root=root)
+    assert ideas.listing("parked", root) == [] and ideas.parked_count(root) == 0 and ideas.line(root) == ""
+    assert ideas.brief(root) == "No parked ideas."
+    assert [e["id"] for e in ideas.defects(root)] == ["I-01"]
+    ideas.mark_built("I-01", "http://pr/1", root=root)
+    assert ideas.defects(root) == []                              # fixed: leaves the queue

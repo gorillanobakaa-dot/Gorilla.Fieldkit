@@ -57,6 +57,9 @@ def _mins(s):
 
 
 # -- the store: one record per (stage, key), the outputs of every host that built it ------------------------------
+CHECK_LINES_MAX = 10      # failure-check lines kept after the real log tail
+
+
 class Store:
     def __init__(self, root):
         self.root = Path(root)
@@ -143,9 +146,14 @@ def _git(path, *a):
 
 
 def fix_repos(recipe):
-    """The git repositories a fix may change: the recipe's own and every git source."""
+    """The git repositories a fix may change: the recipe's own, every git source, and the repositories holding the
+    patch set and the config files (2026-11-09: the harness checkout that a firefox-windows fix committed in was in
+    none of the first two, so a real fix was judged "committed nothing")."""
     out = []
-    for d in [Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]:
+    c = recipe.config_spec
+    held = [recipe.patches.get("dir"), c.get("decisions"), *(c.get("files") or [])]
+    for d in ([Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]
+              + [Path(h) if Path(h).is_dir() else Path(h).parent for h in held if h]):
         top = _git(d, "rev-parse", "--show-toplevel") if d.exists() else None
         if top and top not in out:
             out.append(top)
@@ -193,12 +201,110 @@ def judge(before, after):
     return True, "committed: " + ", ".join(moved)
 
 
+def log_repos(tail):
+    """Git repositories named by an absolute path in a failing log (a dev copy a test compares against)."""
+    import re
+    out = []
+    for m in re.findall(r"((?:[A-Za-z]:)?[\\/][\w.+@%~-]+(?:[\\/][\w.+@%~ -]+)*)", tail or ""):
+        d = Path(m)
+        while d != d.parent and not d.exists():
+            d = d.parent
+        d = d if d.is_dir() else d.parent
+        if str(d) in ("/", str(Path.home())):
+            continue
+        top = _git(d, "rev-parse", "--show-toplevel")
+        top = str(Path(top)) if top else top            # git says C:/x on Windows; Python says C:\x
+        if top and top not in out:
+            out.append(top)
+    return out
+
+
+def branch_tips(repos):
+    """-> {repo: [sha of every local branch]}: the state a fix run is measured against."""
+    return {r: (_git(r, "for-each-ref", "--format=%(objectname)", "refs/heads") or "").split() for r in repos}
+
+
+def detached_heads(repos):
+    """-> {repo: HEAD sha} for each repository on a detached HEAD (a port work tree has no branch: 2026-11-11 the
+    firefox-160 tree's fix checkpoint was invisible to `git log --branches`)."""
+    out = {}
+    for r in repos:
+        if _git(r, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD":
+            out[r] = _git(r, "rev-parse", "HEAD")
+    return out
+
+
+def moved_detached(before):
+    """-> [{repo, path, branch, sha, subject}] for each detached build tree whose HEAD moved FORWARD since `before`
+    (a commit made on top; a reset or a checkout elsewhere is not a fix)."""
+    found = []
+    for r, old in before.items():
+        new = _git(r, "rev-parse", "HEAD")
+        if old and new and new != old and _git(r, "merge-base", "--is-ancestor", old, new) is not None:
+            found.append({"repo": r, "path": r, "branch": "(detached)", "sha": new,
+                          "subject": _git(r, "log", "-1", "--format=%s", new) or ""})
+    return found
+
+
+#: branches whose new commits are never a fix: main/master move by a sync or a merged pull request (a fix there is
+#: refused anyway), wip/* are the harness's snapshot refs of OTHER jobs (refs are shared by every worktree).
+#: 2026-11-11: a firefox-debian fix was refused as "landed in another repository" for a sibling job's wip ref,
+#: its stash commit and main fast-forwarded by PR 463 while the fix ran.
+NOT_A_FIX = ("main", "master", "wip/*")
+
+
+def elsewhere(repos, tips):
+    """-> [{repo, path, branch, sha, subject}]: commits on any branch of these repositories that no branch tip in
+    `tips` (taken before the run) reaches, with the worktree that has the branch checked out (else the repository itself)."""
+    found, seen = [], set()
+    for r in repos:
+        trees, cur = {}, {}
+        for line in (_git(r, "worktree", "list", "--porcelain") or "").splitlines():
+            if line.startswith("worktree "):
+                cur = {"path": str(Path(line[9:]))}
+            elif line.startswith("branch "):
+                trees[line[7:].removeprefix("refs/heads/")] = cur["path"]
+        excl = [f"--exclude={b}" for b in NOT_A_FIX]
+        log = _git(r, "log", *excl, "--branches", "--format=%H%x09%s%x09%D",
+                   *(["--not", *tips[r]] if tips.get(r) else [])) or ""
+        for row in log.splitlines():
+            sha, _, rest = row.partition("\t")
+            subject, _, refs = rest.partition("\t")
+            if sha in seen:
+                continue
+            seen.add(sha)
+            names = [x.strip().removeprefix("HEAD -> ") for x in refs.split(",") if x.strip()]
+            br = next((n for n in names if n in trees), names[0] if names else "?")
+            found.append({"repo": r, "path": trees.get(br, r), "branch": br, "sha": sha, "subject": subject})
+    return found
+
+
+def bring_in(build_repo, commits):
+    """Cherry-pick (oldest first) commits made elsewhere onto the build tree's branch, only when the tree is clean,
+    not on main/master, and every pick applies cleanly (else the pick is aborted and the tree is as it was).
+    -> (ok, why)."""
+    br = _git(build_repo, "rev-parse", "--abbrev-ref", "HEAD")
+    if br in (None, "HEAD", "main", "master"):
+        return False, f"the build tree is on {br}: a fix is never put on main"
+    if _git(build_repo, "status", "--porcelain", "--untracked-files=no"):
+        return False, "the build tree has uncommitted edits"
+    head = _git(build_repo, "rev-parse", "HEAD")
+    for c in reversed(commits):
+        if _git(build_repo, "cherry-pick", c["sha"]) is None:
+            _git(build_repo, "reset", "--hard", head)
+            return False, f"{c['sha'][:10]} does not apply cleanly to {br}"
+    return True, f"cherry-picked onto {br}"
+
+
 def fix_prompt(recipe, sid, key, attempt, max_fix, tail, repos):
     stage = recipe.by_id[sid]
     return (f"fieldkit emerge: recipe {recipe.name} ({recipe.source}), stage {sid} failed (fix attempt {attempt} of "
             f"{max_fix}; key {key[:16]}).\nThe stage: {json.dumps(stage.get('run'))}\nIts log ends:\n{tail}\n\n"
             f"Find the cause and fix it AS A CHANGE TO THE RECIPE OR ITS PATCH SET, committed on the branch "
             f"fix/emerge-{recipe.name}-{sid} (never main) in the repository it belongs to: {', '.join(repos)}. "
+            f"Commit in the checkout that is already open there (build tree {repos[0] if repos else '?'}, its current "
+            "branch or a new fix/ branch made in it); never make a side worktree or a clone: a commit anywhere else "
+            "is refused. "
             "Never leave an uncommitted edit in a build tree, never weaken a check, remove a stage or change a pin, "
             "never run the stage yourself: the runner runs it again. If only the owner can fix it (a decision, a "
             "credential, hardware), add it with `fieldkit inbox add` and change nothing. Say what you changed in "
@@ -447,6 +553,15 @@ class Emerge:
             self.say(f"  inbox not written: {e}")
             return None
 
+    def _source_root(self):
+        """The folder the checks scan: the recipe's first git source, else its `src` var; never the process cwd.
+        A recipe with neither gets an empty folder name so a check finds nothing instead of scanning cwd."""
+        for src in self.recipe.sources:
+            if src.get("git"):
+                return str(src["git"])
+        v = (self.recipe.vars or {}).get("src")
+        return str(v) if v else str(self.recipe.state_dir / "no-source-tree")
+
     def _execute(self, s):
         """Run one stage here through the pipeline engine. -> (passed, seconds, outputs, tail)."""
         t0 = self.clock()
@@ -466,6 +581,16 @@ class Emerge:
         tail += "".join(f"\n{m}" for m in entry.get("verify") or [] if m.startswith("FAIL"))
         if entry.get("triage"):
             tail += f"\ntriage: {json.dumps(entry['triage'], default=str)[:1500]}"
+        if not passed:
+            from ..build import failure_checks
+            # the checks read the recipe's SOURCE tree, never the process cwd; the real tail stays first and the
+            # findings after it are capped so they cannot push the real error out of the stored report
+            root = self._source_root()
+            found = [ln for kind in ("install", "release")
+                     for ln in failure_checks.lines(failure_checks.run(kind, {"branch": "", "root": root}))]
+            tail += "".join("\n" + ln for ln in found[:CHECK_LINES_MAX])
+            if len(found) > CHECK_LINES_MAX:
+                tail += f"\n... {len(found) - CHECK_LINES_MAX} more check findings not shown"
         outs = []
         if passed:
             try:
@@ -477,8 +602,38 @@ class Emerge:
     def run(self, only=None):
         # under a liveness beacon: heartbeat + every stage's container members (fieldkit liveness check sees it)
         from ..core import liveness
-        with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
-            return self._run_all(only)
+        cap = self._capture_begin()
+        try:
+            with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
+                return self._run_all(only)
+        finally:
+            self._capture_end(cap)
+
+    def _capture_begin(self):
+        """Capture is on for the whole build (owner 2026-11-10); a switch someone else turned on is never ours to turn off."""
+        if os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):
+            return None
+        try:
+            from ..capture import loop
+            tok = loop.begin(f"emerge {self.recipe.name} {self.mode} {os.getpid()}-{int(time.time())}",
+                             f"emerge:{self.recipe.name}:{os.getpid()}")
+            self.say(f"capture: {tok['note']}" + (" (switched on by this run)" if tok["owner"] else ""))
+            return tok
+        except Exception as e:  # noqa: BLE001  capture must never fail a build
+            self.say(f"capture: not switched on ({e})")
+            return None
+
+    def _capture_end(self, tok):
+        if not tok:
+            return
+        try:
+            from ..capture import loop
+            r = loop.end(tok)
+            d = r["distil"]
+            self.say(f"capture: {r['off']}; distil {d['episodes']} episode(s), {len(d['candidates'])} candidate(s), "
+                     f"{len(d['adopted'])} adopted, {len(d['ledger'])} ledger")
+        except Exception as e:  # noqa: BLE001
+            self.say(f"capture: end step failed ({e})")
 
     def _run_all(self, only=None):
         t_start, wall0 = _now(), self.clock()
@@ -631,6 +786,8 @@ class Emerge:
             fixes[sid] = n_fix + 1
             repos = fix_repos(self.recipe)
             before = snapshot(repos)
+            tips = branch_tips(list(repos) + [r for r in log_repos(tail) if r not in repos])
+            detached = detached_heads(tips)
             self.say(f"    fix attempt {fixes[sid]}/{max_fix}: one autopilot model run with the log tail")
             t = self.clock()
             self.llm_calls += 1
@@ -641,6 +798,8 @@ class Emerge:
                 self.say(f"    the fix run failed: {e}")
             b["llm"] += self.clock() - t
             ok, why = judge(before, snapshot(repos))
+            if not ok and why == "the fix run committed nothing":
+                ok, why = self._found_elsewhere(repos, tail, tips, detached)
             report["fixes"].append({"stage": sid, "attempt": fixes[sid], "ok": ok, "why": why})
             self.say(f"    fix {'accepted' if ok else 'REFUSED'}: {why}")
             if not ok:
@@ -650,6 +809,39 @@ class Emerge:
                                               f"{why}\nLog tail:\n{tail[-1500:]}")
                 return
             self.recipe = self.recipe.reload()
+
+    def _found_elsewhere(self, repos, tail, tips, detached=None):
+        """The model committed, but not where the build reads: name the commit(s); bring them in when they apply.
+        A build tree on a detached HEAD (a port work tree, named by the failing log) that moved forward IS where the
+        build reads: that commit is the fix."""
+        own = repos[0] if repos else None
+        lr = [r for r in log_repos(tail) if r not in repos]
+        found = elsewhere(list(repos) + lr, tips)
+        trees = moved_detached(detached or {})
+        if trees:
+            desc = "; ".join(f"{c['path']} {c['branch']} {c['sha'][:10]} {c['subject']}" for c in trees)
+            more = "; ".join(f"{c['path']} ({c['branch']}) {c['sha'][:10]} {c['subject']}" for c in found)
+            self._agent_ledger("fix committed in the build tree", desc + (f" (also: {more})" if more else ""))
+            return True, f"committed in the build tree: {desc}" + (f"; also committed: {more}" if more else "")
+        if not found:
+            return False, "the fix run committed nothing"
+        desc = "; ".join(f"{c['path']} ({c['branch']}) {c['sha'][:10]} {c['subject']}" for c in found)
+        mine = [c for c in found if c["repo"] == own]
+        other = [c for c in found if c["repo"] != own]
+        if other:
+            self._agent_ledger("fix in another repository", desc)
+            return False, f"the fix landed in another repository, not the build tree: {desc}"
+        ok, how = bring_in(own, mine)
+        self._agent_ledger("fix committed elsewhere", f"{desc}: {how}")
+        if ok:
+            return True, f"committed elsewhere, {how}: {desc}"
+        return False, f"the fix was committed outside the build tree and {how}: {desc}"
+
+    def _agent_ledger(self, title, text):
+        try:
+            self._journal("emerge-fix-elsewhere", title=title, text=text)
+        except Exception:  # noqa: BLE001 - the ledger line is a record, never a reason to fail
+            pass
 
     def _always(self, report, failed_sid):
         """The stages marked `always: true` after the failed one still run (putting the power scheme back)."""

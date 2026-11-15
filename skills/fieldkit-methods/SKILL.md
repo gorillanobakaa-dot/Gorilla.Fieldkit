@@ -1,7 +1,7 @@
 ---
 name: fieldkit-methods
 description: >-
-  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, check that a new function or feature is built in - carried, known to the AI, visible, on the release page, on every system, tested (integration), ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux. Works offline; no network access unless a step says so."
 ---
@@ -23,7 +23,9 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ## A test you wrote: prove it can fail
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
-fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost staged                                       names the covering tests; GitHub CI (Linux and Windows) runs them, never this computer (--local only when the owner asks)
+fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
+fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
@@ -34,8 +36,12 @@ In Git Bash, a swap argument that starts with `/` reaches Python already rewritt
 front of the command, or use a `--plan` file (2026-10-25).
 CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fails. The file is always restored.
 
-## An xz archive you made or ship (.xz, .tar.xz, a .deb)
+## An xz archive or program you made or ship (.xz, .tar.xz, a .deb, an unpacked app)
 ```
+fieldkit compileonce build [--force] | check   pre-compile all Python modules in fieldkit/ and kits/ to .pyc ahead of time; check verifies 0 stale/missing
+fieldkit install app SRC --name APP [--replace] [--apply] [--peer]   install a program on Linux or Windows (or on the peer over the cable) with icons, .desktop / .lnk, caches, and verification
+fieldkit install purge APP [--dir PATH] [--apply] [--peer]           completely remove/quarantine a program on Linux or Windows (processes, folders, shortcuts, registry keys, icon caches)
+fieldkit install verify PRODUCT [--peer|--host macair] | self-test [--os all]   installed as its release says on Linux (GNOME), Windows (shortcuts, .ico, exe icon) and macOS (bundle, .icns): binary, every icon size, caches, nothing older shadowing; parity align and the release cycle call it
 fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
 ```
 Never "improve" compression with a bigger `dict=`: past the content's size it adds no bytes saved, only memory every
@@ -56,10 +62,21 @@ Learned 2026-10-18/19: a telemetry scan that read only the source passed a progr
 times; the static theme check cannot see a white popup background (white is a theme colour; only the rendered
 contrast check sees that failure).
 
+## Before you call a feature done: is it built in? (docs/INTEGRATION.md)
+```
+fieldkit integration check --repo PATH [--changed BASE]   one line per missing surface, with the file to fix; exit 3 = gaps
+fieldkit integration self-test --kind opencode|fieldkit   seeds one omission per surface; exit 0 = every one caught
+fieldkit pins check --repo OPENCODE   refuses rolling (latest, nightly, master) or sha256-unpinned helper URLs; exit 3 = findings
+fieldkit pins self-test               seeds each break kind in a fixture; exit 0 = every one refused
+```
+Rules per surface are data: `fieldkit/integration/surfaces.yaml`. Run `--changed origin/main` before committing a new
+helper, tool or command.
+
 ## Before a test, a measurement or a benchmark: the same ground on every machine
 ```
 fieldkit parity manifest [--hash]                  this machine: versions + sha256, capabilities, OS (stable JSON)
 fieldkit parity compare                            against every household device over the link: SAME / PARTIAL / DRIFT
+fieldkit parity os [--write|--briefs DIR|--since REF|--live]  Windows-Linux gaps: one record each (action, target, mechanism, effort, proof), exit 3 while gaps exist
 fieldkit parity align [--apply]                    to releases/parity-pin.yaml FROM THE RELEASE (sha256 + SHA256SUMS);
                                                    Windows installs (old exe kept); Linux/macOS get the root line to run
 fieldkit parity preflight --kind bench             the run guard's check alone: pin, other sessions' processes in this
@@ -104,6 +121,12 @@ fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
 fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit ship prune [--archive-unproven]   delete remote branches proven merged; a delete a hook refuses is a DO row with git's words
+fieldkit ship tags [--repo R | --all] [--fix-local]   every tag classed (release / version-no-release / archive / other), only real
+                            candidates flagged (unreachable, duplicate, local-only); GitHub tags are never deleted by an agent: the
+                            owner command is printed; --fix-local removes only local tags never pushed
+fieldkit ship prune|audit|tags --all   every non-archived repo of the owner (local clone, else scratch), one before/after table
+fieldkit strikes recount BRANCH   whose red: own / main / unproven per head (a failed test run on the merge base with main); a strike is only an own one
 fieldkit mandate doctor     the owner-wide mandate: in force, days left, keys, every covered hook honoring the gate
 ```
 Under the owner-wide mandate (owner, 2026-10-26) these ARE the owner's yes: every covered repository's pre-push hook
@@ -139,8 +162,16 @@ fieldkit ship train               Zero: merge the declared PRs one at a time (gh
                                   --match-head-commit), never red, never a head nobody declared; resumable
 fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
 fieldkit ship train --modes       every failure mode this closes, with its check
+fieldkit ship batch run           many ready PRs, one branch (night/batch-STAMP), one CI, one merge (SOP for 100 machines):
+                                  `batch collect` takes only PRs green on every required check at their head; `build`
+                                  joins them (a generated-file conflict is regenerated, a real one leaves that PR out);
+                                  red -> the culprit from the failing test names (infra re-runs, never bisects), dropped
+                                  with its log + brief, the rest re-run. `batch status|select`. Tests are sharded per OS.
 fieldkit ship ci-wait PR [--merge]   one PR: run it in the BACKGROUND, one wake when CI ends (green, or red with
-                                  the failed log tail); --merge merges on green and checks the PR reads MERGED
+                                  the failed log tail); --merge merges on green and checks the PR reads MERGED.
+                                  A red that is the runner's own outage (DNS, apt fetch, network: signatures in
+                                  fieldkit/build/signatures/ci-infra.yaml, no failed test) is re-run by itself with
+                                  backoff, 3 times per head, journaled, never a strike (state INFRA when it gives up)
 ```
 Never `gh pr checks --watch && gh pr merge` or an `until gh pr checks ...; sleep` loop by hand (the tool router
 refuses both): the exit code of a watch is not the CI of the head (a re-run still running read as green).

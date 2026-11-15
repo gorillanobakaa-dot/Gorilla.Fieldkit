@@ -63,6 +63,11 @@ _os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
 _os.environ["FIELDKIT_TESTCOST_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-testcost-")
 for _k in ("EMAIL", "GIT_EDITOR"):
     _os.environ.pop(_k, None)
+# 2026-11-11: a headless job's session (fieldkit task start) exports FIELDKIT_JOB_DIR and its model in ANTHROPIC_MODEL;
+# the pre-commit hook inherited both and three tests failed only inside a job (the zero hook read the live job, the
+# spawn guard refused "opus" before the fake ran), never on CI. Tests run as on the GitHub runners: neither is set.
+for _k in ("FIELDKIT_JOB_DIR", "ANTHROPIC_MODEL"):
+    _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
 # C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
@@ -157,6 +162,16 @@ def _no_real_cable():
             pytest.fail("this test tried to reach the REAL cable: " + ", ".join(f.read().split()))
 
 
+# A test never starts the real machine governor (keeper.refusal would spawn it), the build guard's own tests included;
+# tests of the keeper are marked `real_keeper` and inject their own spawn and lease folder.
+@pytest.fixture(autouse=True)
+def _no_real_keeper(request, monkeypatch):
+    if not request.node.get_closest_marker("real_keeper"):
+        from fieldkit.thermal import keeper
+        monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "")
+    yield
+
+
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
 # no-op for every test, except tests marked `real_build_guard`, which test the guard itself on fake status files.
 # There is deliberately NO runtime switch to skip the guard (2026-10-13: fail closed; an agent could flip a switch).
@@ -176,8 +191,22 @@ def _no_real_build_guard(request, monkeypatch):
     yield
 
 
+# P9 f: tests never ask the real `claude` CLI whether it is logged in (a logged-out machine would turn every task
+# start into `waiting-auth`); tests of the login check itself are marked `real_modelauth` and inject their runner.
+@pytest.fixture(autouse=True)
+def _no_real_modelauth(request, monkeypatch):
+    if not request.node.get_closest_marker("real_modelauth"):
+        from fieldkit.lifecycle import modelauth
+        monkeypatch.setattr(modelauth, "check", lambda *a, **k: {"ok": True, "why": "test", "fix": "",
+                                                                  "cached": True})
+        monkeypatch.setattr(modelauth, "mark_failed", lambda *a, **k: None)
+    yield
+
+
 def pytest_configure(config):
+    config.addinivalue_line("markers", "real_modelauth: run the real claude login check on an injected runner")
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
+    config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
 
 
 # ============================================================================
@@ -382,8 +411,8 @@ def _plan_state_in_tmp(tmp_path, monkeypatch):
 def _room_in_tmp(tmp_path, monkeypatch):
     from fieldkit.autopilot import room
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room-state")
-    # the relay line depends on whether THIS computer's relay listens: off in tests, except the test of it
-    monkeypatch.setattr(room, "_relay", lambda call, event, ctx: ctx)
+    # the ear line (I-27) depends on whether THIS computer's household and ears exist: off in tests, except its test
+    monkeypatch.setattr(room, "_ear", lambda call, event: "")
     # the parked-ideas line depends on the checkout's real state/ideas: off in tests, except the test of it
     monkeypatch.setattr(room, "_ideas", lambda call, event, ctx: ctx)
     yield
@@ -398,3 +427,36 @@ def _no_real_worktrees(monkeypatch):
     monkeypatch.setattr(worktrees, "make", lambda repo, name, **k: (None, "tests: in place"))
     monkeypatch.setattr(worktrees, "reap", lambda repo, **k: {"removed": [], "kept": []})
     yield
+
+
+# Tests never write the real task ledger (2026-11-10: two "[TEST-LNX] PLAN ITEM: P23" rows reached
+# state/lifecycle/tasks.jsonl from tasks.start in a test and showed as started jobs). A test may set its own.
+@pytest.fixture(autouse=True)
+def _isolated_lifecycle(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path_factory.mktemp("lifecycle")))
+    yield
+
+
+# A test that runs an emerge Runner must not switch the real capture on (hooks in ~/.claude); tests of the loop itself
+# call fieldkit.capture.loop with a sandbox store and home (tests/capture/test_loop.py).
+_os.environ["FIELDKIT_EMERGE_NO_CAPTURE"] = "1"
+
+# I-04: auto-accept is ON by default (fieldkit/lifecycle/autoaccept.yaml), and its reviewer is a real model command.
+# Tests never start a model and never write the real lifecycle ledger: every test sees auto-accept OFF (the owner
+# path the older tests prove) unless it points FIELDKIT_AUTOACCEPT_POLICY at its own policy.
+_aa_dir = _tempfile.mkdtemp(prefix="fieldkit-test-autoaccept-")
+_os.environ["FIELDKIT_AUTOACCEPT_POLICY"] = _os.path.join(_aa_dir, "off.yaml")
+with open(_os.environ["FIELDKIT_AUTOACCEPT_POLICY"], "w", encoding="utf-8") as _f:
+    _f.write("auto_accept:\n  enabled: false\n")
+_os.environ["FIELDKIT_REVIEWER_CMD"] = '["false"]'
+# Never a real passphrase prompt or desktop dialog from a test (Zero order M-1d6f4489): the owner proof asks nobody.
+_os.environ["FIELDKIT_OWNERPROOF_ASK"] = "off"
+_os.environ["FIELDKIT_ONESTART"] = "off"          # P9: no start check (claude CLI probe, dialog) from a test
+
+
+@pytest.fixture(autouse=True)
+def _release_gate_sees_no_release(monkeypatch):
+    """One release per batch (fieldkit/method/releasegate.py) asks GitHub for the last release; no test may reach it.
+    tests/test_releasegate.py passes `last=` to guard() itself."""
+    from fieldkit.method import releasegate
+    monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)

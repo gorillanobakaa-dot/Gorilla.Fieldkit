@@ -144,3 +144,27 @@ def test_an_obsolete_change_resolves_by_default_and_the_gate_counts_it_as_done_b
     rows = {x["check"]: x for x in cg.gate("ob", write=False)}
     assert rows["every step is done"]["ok"] and "2:" in rows["obsolete changes listed for review (upstream removed their target; nothing was ported)"]["evidence"]
     assert all(e["event"] != "deferred" for e in map(json.loads, (task.STATE / "ob" / "journal.jsonl").read_text(encoding="utf-8").splitlines()))
+
+
+H2_SPORTS = {"lines": [
+    "    *   (deliberate skip).",
+    "    */",
+    "   async fetchSportsMatches({ source, endpointUrl, date }) {",
+    "+    // GORILLA UNLEASHED - PHYSICAL LOCK: no Merino sports lookup, whatever the endpoint says",
+    "+    if (true) {",
+    "+      return { data: null, error: null };",
+    "+    }",
+    "     if (!endpointUrl) {",
+    "       return { data: null, error: null };",
+    "     }"]}
+SHIM_160 = ["export class TemporaryMerinoClientShim {", "  async fetchWeather({ a }) {", "    if (!a) {", "    }", "  }", "}"]
+
+
+def test_an_added_lock_in_a_function_upstream_removed_is_obsolete():
+    """P27, firefox-160 2026-11-11: fetchSportsMatches is gone from the 160 file; nothing to attach the lock to."""
+    why = firefox.obsolete_upstream(SHIM_160, H2_SPORTS)
+    assert why and "fetchSportsMatches" in why and "obsolete" in why
+
+
+def test_an_added_lock_in_a_function_that_still_exists_is_not_called_obsolete():
+    assert firefox.obsolete_upstream(SHIM_160 + ["  async fetchSportsMatches({ x }) {", "  }"], H2_SPORTS) is None

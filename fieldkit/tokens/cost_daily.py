@@ -25,6 +25,7 @@ import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from ..core import settings
 from . import session_cost as sc
 
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -165,6 +166,67 @@ def peer_numbers(day, mine, files):
     return None, None
 
 
+FRESH_S = 86400        # a cable answer (or the copy of one) older than a day is not counted (row 20)
+
+
+def answer(req, now=None):
+    """The listener's read-only verb `cost`: this machine's own numbers for the other side's report/daily."""
+    try:
+        if req.get("kind") == "daily":
+            data = measure_day(date.fromisoformat(str(req.get("date"))))
+        elif req.get("kind") == "report":
+            from . import cost_report
+            data = cost_report.measure(sc.when(str(req.get("since"))), sc.when(str(req.get("until"))))
+        else:
+            return {"ok": False, "error": "cost: kind is daily or report"}
+    except (ValueError, TypeError) as e:
+        return {"ok": False, "error": "cost: %s" % e}
+    return {"ok": True, "measured_at": now if now is not None else datetime.now().timestamp(), "data": data}
+
+
+def peer_name():
+    """The other machine's name for 'not counted' (the household's other device), never invented."""
+    try:
+        from ..peers import link
+        o = link.others(link.household())
+        return (o[0].get("name") or "") if o else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def from_cable(req, call=None, now=None, cache_dir=None):
+    """Ask the other machine for its numbers over the link (`fieldkit cost ... --json` there), keep the answer in
+    state/cost and use it when it is fresher than a day. No cable: the kept copy, if it is fresher than a day.
+    -> (path of a JSON file holding the peer's numbers, measured_at epoch) or (None, None). Never a guess (row 20)."""
+    now = datetime.now().timestamp() if now is None else now
+    key = "-".join(str(req[k]).replace(":", "").replace("/", "-") for k in sorted(req) if k != "verb")
+    cdir = Path(cache_dir) if cache_dir else settings.state_root() / "state" / "cost"
+    f = cdir / ("cable-%s.json" % key)
+    try:
+        if call is None:
+            from ..peers import link
+            call = link.call
+        r = call(dict(req, verb="cost"), timeout=120)
+    except Exception as e:  # noqa: BLE001 - no link on this machine / not paired: the kept copy below
+        r = {"ok": False, "error": str(e)}
+    if r.get("ok") and isinstance(r.get("data"), dict) and isinstance(r.get("measured_at"), (int, float)):
+        try:
+            cdir.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(dict(r["data"], measured_at=r["measured_at"])), encoding="utf-8")
+        except OSError:
+            pass
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        at = float(d["measured_at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, None
+    return (str(f), at) if 0 <= now - at < FRESH_S else (None, None)
+
+
+def when_text(at):
+    return datetime.fromtimestamp(at).strftime("%Y-%m-%d %H:%M")
+
+
 def line(r):
     tag = r["machine"] or "this machine"
     head = "cost %s %s: $%.2f in %d session(s)" % (r["date"], tag, r["usd"], r["sessions"])
@@ -179,8 +241,11 @@ def line(r):
     p = r.get("peer")
     if p:
         head += "; both machines $%.2f (%s $%.2f)" % (r["usd_both"], p["machine"] or "other", p["usd"])
+        if p.get("measured_at"):
+            head += "; the other machine measured it %s" % when_text(p["measured_at"])
     else:
-        head += "; the other machine's numbers have not come over the cable"
+        head += "; %s not counted: the other machine's numbers have not come over the cable" % (
+            r.get("peer_name") or "the other machine")
     return head
 
 
@@ -213,9 +278,16 @@ def main(argv=None):
         print("cost: not found: " + ", ".join(missing), file=sys.stderr)
         return 2
     r = measure_day(day)
-    peer, where = peer_numbers(day, r["machine"], [Path(f) for f in a.peer] or peer_candidates())
-    r["peer"] = {"machine": peer.get("machine") or "", "usd": round(float(peer["usd"]), 2), "file": where} if peer \
-        else None
+    peer, where, at = None, None, None
+    if not a.peer:                                    # the other machine's own answer over the cable, fresher than a day
+        cab, at = from_cable({"kind": "daily", "date": day.isoformat()})
+        peer, where = peer_numbers(day, r["machine"], [Path(cab)]) if cab else (None, None)
+    if not peer:
+        peer, where = peer_numbers(day, r["machine"], [Path(f) for f in a.peer] or peer_candidates())
+        at = None
+    r["peer"] = {"machine": peer.get("machine") or "", "usd": round(float(peer["usd"]), 2), "file": where,
+                 "measured_at": at} if peer else None
+    r["peer_name"] = peer_name()
     r["usd_both"] = round(r["usd"] + r["peer"]["usd"], 2) if peer else None
     if a.json:
         print(json.dumps(r))

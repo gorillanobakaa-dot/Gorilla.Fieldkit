@@ -79,8 +79,21 @@ def settings(path=None):
                   "PostToolUse": [{"matcher": "*", "hooks": [
                       {"type": "command", "command": hook + " --post", "timeout": 30}]}]},
     }
+    capture_hooks(data)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
+
+
+def capture_hooks(data):
+    """P26: while capture is on, the run's own settings carry the capture hooks too. A worker's hooks must not depend on
+    ~/.claude/settings.json being in the state `capture on` left it (a build's `capture off` strips it, a session
+    started in that window never had them: 2026-11-10, sessions in the scan's GAP list). Added only when on; a run
+    started with capture off has none, and the hook itself records nothing once the switch is off. -> hooks added."""
+    try:
+        from ..capture import switch
+        return switch.add_hooks(data, "claude", sys.executable) if switch.is_on() else 0
+    except Exception:  # noqa: BLE001 - capture never stops a job
+        return 0
 
 
 CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
@@ -273,6 +286,12 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
         return {"ok": False, "rc": 1, "why": f"model refused: {e}", "refused": True}
     if missing:  # after the guard: a premium model is refused even where no executable exists (CI)
         return {"ok": False, "why": "no Claude Code executable found"}
+    # I10 (counsel path 1, lifecycle/counsel.py): the worker gets Claude Code's own advisor, the next usable rung above
+    # its model, so a hard decision is asked up the ladder in this session instead of failing the whole job. A launch
+    # the CLI refuses because of the advisor is retried once without it (journaled): an advisor never stops a job.
+    from ..lifecycle import counsel
+    worker = next((args[i + 1] for i, x in enumerate(args[:-1]) if x == "--model"), None)
+    args, advisor, adv_why = counsel.launch_args(args, env)
     # In a container (fieldkit/core/contain.py): the timeout stops the WHOLE tree, orphans included, output goes to
     # files (a leftover child can never hold a pipe open), and what the run leaves behind is stopped when it ends.
     # stream-json makes progress visible: no output and no CPU for idle_minutes is a STALL (FM-9, 2026-10-26: a relief
@@ -286,12 +305,22 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
     try:
         o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
                         stdin_text=prompt if via_stdin else None, popen=popen, idle_s=idle)
+        if advisor and not o.timed_out and counsel.advisor_rejected(o.rc, o.out, o.err):
+            counsel.journal("advise", model=advisor, author=worker, outcome="rejected",
+                            why=f"the CLI refused --advisor {advisor}: {((o.err or '') + (o.out or ''))[-160:]}")
+            adv_why = f"--advisor {advisor} refused by the CLI; ran without it"
+            args, advisor = counsel.drop_advisor(args), None
+            o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
+                            stdin_text=prompt if via_stdin else None, popen=popen, idle_s=idle)
     finally:
         if own:
             own.close()
+    calls = counsel.advisor_calls(o.out) if advisor else 0
+    counsel.journal("advise", model=advisor or "", author=worker, outcome="on" if advisor else "off", why=adv_why,
+                    calls=calls, seconds=round(time.time() - t0))
     so, se, timed_out = o.out, o.err, o.timed_out
     out = {"ok": o.rc == 0 and not timed_out, "rc": 124 if timed_out else o.rc,
-           "seconds": round(time.time() - t0), "timed_out": timed_out}
+           "seconds": round(time.time() - t0), "timed_out": timed_out, "advisor": advisor, "advisor_calls": calls}
     if o.stalled:
         out["stalled"] = True
         out["why"] = o.why
@@ -310,27 +339,126 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
 
 def antigravity_exe():
     cand = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "antigravity" / "Antigravity.exe"
-    return str(cand) if cand.is_file() else shutil.which("antigravity")
+    if cand.is_file():
+        return str(cand)
+    w = shutil.which("antigravity")
+    if w:
+        return w
+    from ..peers import agentfind
+    return agentfind.find_path("antigravity")
 
 
-def antigravity(popen=subprocess.Popen, psutil=None):
-    """Start Antigravity for an autopilot run: the guard's autopilot mode on, and the app started with no GitHub or
-    git credential in its environment (its terminals inherit it). Refused while Antigravity already runs: Electron
-    hands a second launch to the open instance, which keeps its old environment."""
+def agent_exe(agent: str) -> str | None:
+    if agent == "claude":
+        return claude_exe()
+    if agent == "antigravity":
+        return antigravity_exe()
+    w = shutil.which(agent)
+    if w:
+        return w
+    from ..peers import agentfind
+    return agentfind.find_path(agent)
+
+
+def antigravity(popen=subprocess.Popen, psutil=None, model=None, thinking=None, cwd=None):
+    """Start Antigravity Desktop IDE for an autopilot run on Windows or Linux: the guard's autopilot mode on, and the
+    app started with no GitHub or git credential in its environment (its terminals inherit it)."""
     if psutil is None:
         import psutil
+    from ..lifecycle import models
+    avail_ok, avail_why = models.agent_availability("antigravity")
+    if not avail_ok:
+        return {"ok": False, "refused": True, "why": avail_why}
     exe = antigravity_exe()
     if not exe:
         return {"ok": False, "why": "Antigravity not found"}
-    open_ = [p.pid for p in psutil.process_iter(["name"]) if (p.info.get("name") or "").lower() == "antigravity.exe"]
+    open_ = [p.pid for p in psutil.process_iter(["name"])
+             if (p.info.get("name") or "").lower() in ("antigravity.exe", "antigravity")]
     if open_:
         return {"ok": False, "why": f"Antigravity is open (PID {open_[0]}): close it first, then run this again; "
                                     "an open instance keeps its environment, credential included"}
     switch(True, "antigravity autopilot")
-    flags = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-    p = popen([exe], env=isolated_env(), creationflags=flags, close_fds=True)
-    return {"ok": True, "pid": p.pid, "autopilot": True,
+    env = isolated_env()
+    if sys.platform.startswith("linux"):
+        from ..app import start as app_start
+        env.update(app_start.linux_gui_env(env))
+    if model:
+        env["AGY_MODEL"] = str(model)
+    if thinking:
+        env["AGY_THINKING_LEVEL"] = str(thinking)
+    argv = [exe] + ([str(cwd)] if cwd else [])
+    if sys.platform == "win32":
+        flags = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        p = popen(argv, env=env, creationflags=flags, close_fds=True)
+    else:
+        p = popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                  start_new_session=True)
+    return {"ok": True, "pid": p.pid, "autopilot": True, "agent": "antigravity", "model": model, "thinking": thinking,
             "note": "the guard's autopilot mode is on; `fieldkit autopilot off` returns it to normal"}
+
+
+def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None, thinking=None,
+              popen=subprocess.Popen, idle_minutes=None, role="worker", require_explicit=True):
+    """Run any supported coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`) with explicit
+    model and thinking level, guarded by the multi-agent quota/block guard and the spend guard."""
+    from ..lifecycle import models
+    chk = models.validate_agent_choice(agent=agent, model=model, thinking=thinking, require_explicit=require_explicit,
+                                       role=role, origin="autopilot")
+    if not chk["ok"]:
+        return {"ok": False, "rc": 2 if chk.get("needs_choice") else 1, "why": chk["why"], "refused": True,
+                "needs_choice": chk.get("needs_choice", False), "prompt": chk.get("prompt", models.CHOICE_PROMPT)}
+    ag = chk["agent"]
+    chosen_model = chk["model"]
+    chosen_thinking = chk["thinking"]
+    if ag == "claude":
+        return claude(prompt, cwd=cwd, timeout=timeout,
+                      env_extra={**(env_extra or {}), "CLAUDE_THINKING_LEVEL": chosen_thinking},
+                      model=chosen_model, popen=popen, idle_minutes=idle_minutes, role=role)
+    exe = agent_exe(ag)
+    if not exe:
+        return {"ok": False, "rc": 1, "why": f"no {ag} executable found on this machine"}
+    fk_root = str(Path(__file__).resolve().parents[2])
+    env = isolated_env()
+    env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
+    env["FIELDKIT_AGENT"] = ag
+    env["FIELDKIT_MODEL"] = chosen_model
+    env["FIELDKIT_THINKING"] = chosen_thinking
+    env.update(env_extra or {})
+    if ag in ("agy", "antigravity"):
+        env["AGY_MODEL"] = chosen_model
+        env["AGY_THINKING_LEVEL"] = chosen_thinking
+        args = [exe, "chat", "--mode", "agent", "--model", chosen_model, "--thinking", chosen_thinking, "-"]
+    elif ag == "codex":
+        env["OPENAI_MODEL"] = chosen_model
+        args = [exe, "exec", "--model", chosen_model, "-c", f'model_reasoning_effort="{chosen_thinking}"', "-"]
+    elif ag == "gorilla-opencode":
+        env["OPENCODE_MODEL"] = chosen_model
+        env["OPENCODE_THINKING"] = chosen_thinking
+        args = [exe, "run", "--model", chosen_model, "--thinking", chosen_thinking, "-"]
+    else:
+        return {"ok": False, "rc": 1, "why": f"unsupported agent {ag!r}"}
+    from ..core import contain, liveness
+    idle = float(os.environ.get("FIELDKIT_IDLE_MINUTES") or idle_minutes or IDLE_MINUTES) * 60
+    label = f"{ag} {Path(cwd or os.getcwd()).name}"
+    t0 = time.time()
+    own = liveness.beacon("autopilot", Path(cwd or os.getcwd()).name, label).start() if liveness.current() is None else None
+    try:
+        o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
+                        stdin_text=prompt, popen=popen, idle_s=idle)
+    finally:
+        if own:
+            own.close()
+    return {
+        "ok": o.rc == 0 and not o.timed_out,
+        "rc": 124 if o.timed_out else o.rc,
+        "agent": ag,
+        "model": chosen_model,
+        "thinking": chosen_thinking,
+        "seconds": round(time.time() - t0),
+        "timed_out": o.timed_out,
+        "stdout": (o.out or "")[-2000:],
+        "stderr": (o.err or "")[-1000:],
+    }
 
 
 def switch(on, why=""):

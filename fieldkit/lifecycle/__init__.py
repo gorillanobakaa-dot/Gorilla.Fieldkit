@@ -7,8 +7,10 @@
     fieldkit friction jobs [--since DATE] [--json]   owner actions per job, counted, with each cause (target 0;
                                                  WARN above it; exit 3 when any): what DID wait on the owner
     fieldkit task start BRIEF.md [--on DEVICE] [--cwd DIR] [--wall MIN] [--title T]
-                                                 a headless job from a brief: autopilot here, the peer's link
-                                                 listener with --on; never a desktop card
+                                                 a headless job (no human talks to it, or the app refused a
+                                                 visible session): autopilot here, the peer's link listener
+                                                 with --on. A side job otherwise starts as a visible desktop
+                                                 session (start_session user_asked, fresh), never a card
     fieldkit task start --on DEVICE --run --tree DIR [--artefact GLOB] [--wall MIN] -- LINE
                                                  no AI: a build or test line run on a copy of DIR there, the
                                                  worker's signed result checked by `task status`
@@ -43,7 +45,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import friction, owner_actions, protocol, sweep, tasks
+from . import friction, owner_actions, protocol, routing, sweep, tasks
 
 
 def _gb(n):
@@ -79,15 +81,17 @@ def cmd_friction(argv):
 def cmd_task(argv):
     ap = argparse.ArgumentParser(prog="fieldkit task", description=tasks.__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["start", "status", "report", "watch", "lint"])
+    ap.add_argument("action", choices=["start", "status", "report", "watch", "lint", "stop"])
     ap.add_argument("arg", nargs="?", help="start: the brief file; report: the task id")
     ap.add_argument("--on", help="start: a device of the household (the job runs there, over the cable)")
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
     ap.add_argument("--plan", help="start, lint: the plan item (a row id of docs/HARNESS-PLAN.md) the brief serves")
-    ap.add_argument("--model", help="start: the worker's model (default: roles.yaml worker.default; Opus/Fable "
-                                    "are reviewers and refused as workers)")
+    ap.add_argument("--agent", help="start: the coding agent to run (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--model", help="start: the worker's specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
+    ap.add_argument("--thinking", help="start: the reasoning/thinking level (lowest, low, medium, high, max)")
+    ap.add_argument("--pin", action="store_true", help="start: keep --model exactly; the router does not go down from it")
     ap.add_argument("--allow-expensive", action="store_true", help="start: let the worker be an expensive model")
     ap.add_argument("--accept", help="start: the acceptance command; done needs a passing reviewer verdict on it")
     ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
@@ -117,12 +121,18 @@ def cmd_task(argv):
         i = argv.index("--")
         argv, line = argv[:i], argv[i + 1:]
     a = ap.parse_args(argv)
+    if a.action == "start":
+        from . import onestart
+        onestart.at_start("task", job=str(a.arg or ""))
     if a.action == "start" and a.run:
         try:
             rec = tasks.start_run(line, a.on, a.tree, a.project, a.artefact, a.wall, again=a.again)
         except (ValueError, tasks.AlreadyStarted) as e:
             print(f"NOT STARTED  {e}")
             return 3 if isinstance(e, tasks.AlreadyStarted) else 2
+        for w in ([] if a.json else rec.get("warnings") or []):
+            if w.startswith("WASTEFUL"):               # P35: said once, never a refusal
+                print(w)
         print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
               f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec['how']}): job {rec['job'] or '-'}: "
               f"{rec['answer']}\nNEXT: fieldkit task status (done or failed once the worker's signed result is here)")
@@ -139,19 +149,27 @@ def cmd_task(argv):
         return 3 if found else 0
     if a.action == "start":
         if not a.arg:
-            print("task start BRIEF.md [--on DEVICE]")
+            print("task start BRIEF.md --agent AGENT --model MODEL --thinking LEVEL [--on DEVICE]")
             return 2
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan,
-                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark)
+                              model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark,
+                              pin=a.pin, agent=a.agent, thinking=a.thinking, require_choice=True)
+        except (routing.ModeRefused, routing.ModelParked, tasks.DefectOpen) as e:   # the mode / router answered; not a defect
+            print(f"NOT STARTED  {e}")
+            return 3
         except (tasks.AlreadyStarted, tasks.Parked) as e:
             print(f"NOT STARTED  {e}")
+            from .. import refusals              # a refusal repeated becomes a defect row (plan R14)
+            refusals.record("task", f"not started: {e}")
             return 3
         except ValueError as e:
             print(f"NOT STARTED  {e}")
+            from .. import refusals
+            refusals.record("task", f"not started: {e}")
             return 2
         print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
-              f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec.get('how')}): "
+              f"TASK {rec['id']}  {rec['status']} on {rec['on']} model {rec.get('model') or '-'} ({rec.get('how')}): "
               f"{rec.get('answer') or rec.get('log') or rec.get('runbook') or ''}")
         return 0 if rec["status"] == "started" else 3
     if a.action == "report":
@@ -162,6 +180,22 @@ def cmd_task(argv):
         print(f"TASK {rec['id']}  {rec['status']}" + (f"  verdict {rec['verdict']}: {rec['verdict_why']}"
                                                        if rec.get("verdict") else ""))
         return 0 if rec["status"] == a.status else 3
+    if a.action == "stop":
+        if not a.arg:
+            print("task stop ID: stops the task's runner and its worker (process group and worktree)")
+            return 2
+        from . import taskstop
+        t = tasks.ledger().get(a.arg)
+        if not t:
+            print(f"task stop: no task {a.arg}")
+            return 2
+        r = taskstop.stop(t)
+        if t.get("status") == "started":
+            tasks.report(a.arg, "failed", note="closed by task stop")
+        print(f"STOPPED {a.arg}: signalled {len(r['signalled'])} process(es), force-killed {len(r['killed'])}, "
+              f"still alive {len(r['left'])}\nNEXT: " + ("a process survived SIGKILL: look at it by PID" if r["left"]
+                                                       else "fieldkit task status"))
+        return 3 if r["left"] else 0
     if a.action == "watch":
         from . import watch
         return watch.main(a)
@@ -171,11 +205,14 @@ def cmd_task(argv):
     gone = worktrees.reap(a.cwd or os.getcwd())          # job worktrees whose work is on origin
     led = tasks.ledger()
     tasks.settle(led)
+    resumed = tasks.resume_waiting(led)                  # P9 f: a job that waited for the claude login goes on
     tasks.attach_owner_actions(led)
     if a.json:
         print(json.dumps(list(led.values()), indent=1, ensure_ascii=False))
     else:
         print("\n".join(tasks.lines(led)))
+        for tid in resumed:
+            print(f"{tid}: resumed - the claude login works again (it waited as waiting-auth)")
         if new:
             print(f"{len(new)} report(s) came over the cable")
         if done:

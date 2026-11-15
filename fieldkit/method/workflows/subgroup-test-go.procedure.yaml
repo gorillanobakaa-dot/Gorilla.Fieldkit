@@ -1,0 +1,24 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-test-go
+intent: test
+toolchain: go
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 32
+replayed_ok: 6 of 32
+step_families:
+- go build
+- go test
+- python -m pytest
+- go vet
+- git add
+- python -m fieldkit size
+- python -m fieldkit telemetry
+side_effects:
+  network_or_remote: 0
+  write_or_release: 1
+  code_execution: 4
+blocker: Build/test/vet and pytest execute repository code; staging mutates the index, while Fieldkit size/telemetry are unknown.
+  No selected package set, pass threshold, data-scope policy, or mutation guard exists.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

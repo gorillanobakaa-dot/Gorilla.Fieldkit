@@ -143,7 +143,11 @@ def pid_alive(pid):
         return True
     except OSError:
         return False
-    return True
+    try:                                   # a killed child nobody reaped is a zombie: the pid exists, nothing runs
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as fh:
+            return fh.read().rpartition(")")[2].split()[0] != "Z"
+    except (OSError, IndexError):
+        return True
 
 
 def _read_entry(d, key, pid):

@@ -97,7 +97,7 @@ def test_friction_lists_a_session_without_a_row(env, monkeypatch):
     _transcript(root, "cccc3333-0000-0000-0000-000000000000", _brief("[VAIO-LNX] new job"))
     monkeypatch.setattr(sc, "ClaudeCode", lambda: ads[0])
     for name in ("desktop_rows", "untagged_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows",
-                 "unread_rows", "inbox_rows"):
+                 "unread_rows", "inbox_rows", "sweep_rows"):
         monkeypatch.setattr(friction, name, lambda *a, **k: [])
     monkeypatch.setattr(friction.desktop, "sessions", lambda dirs=None: [])
     monkeypatch.setattr(friction, "acked", lambda: set())

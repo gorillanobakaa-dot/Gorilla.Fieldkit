@@ -272,6 +272,9 @@ def lines(st):
     out = [f"ADMISSION  {st['held']} of {st['offered']} slot(s) held ({st['slots']} on this computer"
            + (f"; {st['temp_c']:.0f} C >= {st['hot']:.0f} C, one fewer offered" if st["offered"] < st["slots"] else "")
            + f"), {len(st['waiting'])} waiting"]
+    if st["held"] > st["offered"]:      # not a bug (2026-11-09): both slots were taken while cool, then it got hot
+        out.append(f"  note: {st['held']} held but {st['offered']} offered - they started before the heat; "
+                   "nothing new is admitted until the count is below the offer")
     out += [f"  slot {h['slot']}: {h.get('kind', '?')} {h.get('label', '')} (pid {h.get('pid')}, since {h.get('since')})"
             for h in st["holders"]]
     out += [f"  waiting: {w.get('kind')} {w.get('label', '')} (pid {w.get('pid')}, since {w.get('since')})"

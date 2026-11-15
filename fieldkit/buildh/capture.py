@@ -64,11 +64,31 @@ def tls_failed_client(data):
 '''
 
 
+WIN = sys.platform == "win32"
+LINUX_BINARIES = ("gorilla-unleashed", "firefox")
+
+
 def is_admin():
+    """Windows: an elevated shell (pktmon). Linux: root or a sudo that asks no password (tcpdump)."""
+    if not WIN:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return True
+        try:
+            return subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=10).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+def browser_exe(copy):
+    """The browser binary inside an unpacked build: firefox.exe on Windows, gorilla-unleashed (or firefox) on Linux."""
+    copy = Path(copy)
+    if WIN:
+        return copy / "firefox.exe"
+    return next((copy / n for n in LINUX_BINARIES if (copy / n).is_file()), copy / LINUX_BINARIES[0])
 
 
 def _free_port():
@@ -79,20 +99,51 @@ def _free_port():
     return p
 
 
+def _unpack_linux(pack, dest):
+    """A Linux build into `dest`: the .deb (dpkg-deb -x, the usr/lib/<browser> folder) or a tarball (its one top-level
+    folder). Nothing is installed: the owner's installed browser is never touched."""
+    pack = Path(pack)
+    if pack.suffix == ".deb":
+        tmp = Path(tempfile.mkdtemp(prefix="gcap-deb-", dir=str(dest.parent)))
+        try:
+            subprocess.run(["dpkg-deb", "-x", str(pack), str(tmp)], capture_output=True, check=True)
+            lib = next((p for p in sorted((tmp / "usr" / "lib").glob("*"))
+                        if p.is_dir() and any((p / n).exists() for n in LINUX_BINARIES)), None)
+            if lib is None:
+                raise FileNotFoundError(f"{pack.name}: no browser folder under usr/lib")
+            shutil.copytree(lib, dest, dirs_exist_ok=True, symlinks=True)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        return
+    import tarfile
+    with tarfile.open(pack) as t:
+        top = t.getmembers()[0].name.split("/")[0]
+        for m in t.getmembers():
+            rel = m.name[len(top) + 1:]
+            if not rel or not (m.isfile() or m.isdir()):
+                continue
+            m.name = rel
+            t.extract(m, dest, filter="data")           # "data": no absolute paths, no .., no special files
+
+
 def test_copy(zip_path, dest, policies=None):
-    """The build from its hashed zip, unpacked into `dest`, optionally with distribution/policies.json."""
+    """The build from its hashed package (Windows zip; Linux .deb or tarball), unpacked into `dest`, optionally with
+    distribution/policies.json."""
     dest = Path(dest)
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
-    with zipfile.ZipFile(zip_path) as z:
-        names = [n for n in z.namelist() if not n.endswith("/")]
-        top = names[0].split("/")[0]
-        for n in names:
-            t = dest / n[len(top) + 1:]
-            t.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(n) as a, open(t, "wb") as b:
-                shutil.copyfileobj(a, b)
+    if str(zip_path).endswith((".deb", ".tar.xz", ".tar.gz", ".tar.bz2", ".tar.zst", ".tar")):
+        _unpack_linux(zip_path, dest)
+    else:
+        with zipfile.ZipFile(zip_path) as z:
+            names = [n for n in z.namelist() if not n.endswith("/")]
+            top = names[0].split("/")[0]
+            for n in names:
+                t = dest / n[len(top) + 1:]
+                t.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(n) as a, open(t, "wb") as b:
+                    shutil.copyfileobj(a, b)
     if policies:
         (dest / "distribution").mkdir(exist_ok=True)
         (dest / "distribution" / "policies.json").write_text(json.dumps({"policies": policies}, indent=1), encoding="utf-8")
@@ -105,6 +156,12 @@ def _profile():
 
 
 def _tree_pids(root_pid):
+    if not WIN:
+        import psutil
+        try:
+            return {root_pid} | {c.pid for c in psutil.Process(root_pid).children(recursive=True)}
+        except psutil.Error:
+            return {root_pid}
     ps = subprocess.run(["powershell", "-NoProfile", "-Command",
                          "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"],
                         capture_output=True, text=True).stdout.split("\n")
@@ -124,6 +181,19 @@ def _tree_pids(root_pid):
 
 def _sockets(pids):
     """-> set of (proto, local_port, remote) for the given processes."""
+    if not WIN:
+        import psutil
+        out = set()
+        for pid in pids:
+            try:
+                for c in psutil.Process(pid).net_connections(kind="inet"):
+                    if c.type == socket.SOCK_STREAM and c.raddr:
+                        out.add(("tcp", str(c.laddr.port), f"{c.raddr.ip}:{c.raddr.port}"))
+                    elif c.type == socket.SOCK_DGRAM:
+                        out.add(("udp", str(c.laddr.port), c.laddr.ip))
+            except psutil.Error:
+                continue
+        return out
     ids = ",".join(str(p) for p in pids)
     ps = subprocess.run(["powershell", "-NoProfile", "-Command",
                          f"$ids=@({ids}); Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object {{ $ids -contains $_.OwningProcess }} | "
@@ -131,6 +201,30 @@ def _sockets(pids):
                          "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | "
                          "ForEach-Object { \"udp $($_.LocalPort) $($_.LocalAddress)\" }"], capture_output=True, text=True).stdout
     return {tuple(l.split(" ", 2)) for l in ps.splitlines() if l.count(" ") >= 2}
+
+
+def _stop_tree(pid):
+    """Stop exactly the process this run started and its children (taskkill /T on Windows; psutil by PID elsewhere)."""
+    if WIN:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        return
+    import psutil
+    try:
+        root = psutil.Process(pid)
+        procs = root.children(recursive=True) + [root]
+    except psutil.Error:
+        return
+    for p in procs:
+        try:
+            p.terminate()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(procs, timeout=5)
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
 
 
 def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True, prof=None):
@@ -152,7 +246,7 @@ def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True, prof=Non
             except Exception:
                 pass
         time.sleep(2)
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    _stop_tree(proc.pid)
     time.sleep(1)
     if own:
         throwaway.discard(prof)
@@ -187,7 +281,8 @@ def mitm_run(zip_path, workdir, scenarios=SCENARIOS, say=print):
     confdir.mkdir(exist_ok=True)
     addon = work / "gorilla_mitm_addon.py"
     addon.write_text(ADDON, encoding="utf-8")
-    mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe")
+    mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent
+                                               / ("Scripts/mitmdump.exe" if WIN else "mitmdump"))
     port = _free_port()
     results = {}
     for name, url, secs in scenarios:
@@ -204,8 +299,8 @@ def mitm_run(zip_path, workdir, scenarios=SCENARIOS, say=print):
             "Certificates": {"Install": [str(ca)]},
             "Proxy": {"Mode": "manual", "HTTPProxy": f"127.0.0.1:{port}", "UseHTTPProxyForAllProtocols": True, "Locked": True}})
         say(f"  mitm {name}: {url} for {secs} s")
-        run_browser(copy / "firefox.exe", url, secs, sample_sockets=False)
-        subprocess.run(["taskkill", "/PID", str(m.pid), "/T", "/F"], capture_output=True)
+        run_browser(browser_exe(copy), url, secs, sample_sockets=False)
+        _stop_tree(m.pid)
         flows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()] if out.is_file() else []
         results[name] = {"url": url, "flows": flows}
     return results
@@ -282,10 +377,89 @@ def parse_pcapng(path, local_ports):
     return out
 
 
+def parse_pcap(path, local_ports):
+    """Linux twin of parse_pcapng: a tcpdump -i any file (Linux cooked SLL/SLL2 frames, or Ethernet) read with dpkt.
+    -> the same {"sni", "dns", "udp", "tcp"} shape for the browser's local ports."""
+    import dpkt
+    out = {"sni": set(), "dns": set(), "udp": set(), "tcp": set()}
+    with open(path, "rb") as f:
+        rd = dpkt.pcap.Reader(f)
+        link = rd.datalink()
+        for _ts, buf in rd:
+            try:
+                if link == dpkt.pcap.DLT_LINUX_SLL:
+                    ip = dpkt.sll.SLL(buf).data
+                elif link == getattr(dpkt.pcap, "DLT_LINUX_SLL2", 276):
+                    ip = dpkt.sll2.SLL2(buf).data
+                elif link == dpkt.pcap.DLT_RAW:
+                    ip = dpkt.ip.IP(buf)
+                else:
+                    ip = dpkt.ethernet.Ethernet(buf).data
+            except Exception:
+                continue
+            if not isinstance(ip, (dpkt.ip.IP, dpkt.ip6.IP6)):
+                continue
+            l4 = ip.data
+            dst = socket.inet_ntop(socket.AF_INET if isinstance(ip, dpkt.ip.IP) else socket.AF_INET6, ip.dst)
+            if isinstance(l4, dpkt.tcp.TCP) and l4.sport in local_ports:
+                out["tcp"].add((dst, l4.dport))
+                s = _sni(bytes(l4.data))
+                if s:
+                    out["sni"].add(s)
+            elif isinstance(l4, dpkt.udp.UDP) and l4.sport in local_ports:
+                out["udp"].add((dst, l4.dport))
+                if l4.dport == 53:
+                    try:
+                        out["dns"].update(q.name for q in dpkt.dns.DNS(l4.data).qd)
+                    except Exception:
+                        pass
+    return out
+
+
+def _packet_run_linux(exe, work, scenarios, say):
+    """tcpdump (root or sudo -n) writes every frame on every interface; the browser's own local ports, sampled from its
+    process tree's sockets, select its traffic. The capture is stopped by PID: only the one this run started."""
+    results = {}
+    sudo = [] if hasattr(os, "geteuid") and os.geteuid() == 0 else ["sudo", "-n"]
+    for name, url, secs in scenarios:
+        pcap = work / f"pkt-{name}.pcap"
+        pcap.unlink(missing_ok=True)
+        cap = subprocess.Popen(sudo + ["tcpdump", "-i", "any", "-s", "0", "-U", "-n", "-w", str(pcap)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+        say(f"  packets {name}: {url} for {secs} s")
+        _, socks = run_browser(exe, url, secs)
+        time.sleep(1)
+        try:                                       # a sudo child cannot be killed by us: ask tcpdump to finish itself
+            subprocess.run(sudo + ["kill", "-INT", str(_child_pid(cap.pid) or cap.pid)], capture_output=True, timeout=10)
+            cap.wait(timeout=15)
+        except (subprocess.TimeoutExpired, OSError):
+            cap.kill()
+        ports = {int(s[1]) for s in socks if s[1].isdigit()}
+        got = parse_pcap(pcap, ports) if pcap.is_file() else {"sni": set(), "dns": set(), "udp": set(), "tcp": set()}
+        results[name] = {"url": url, **{k: sorted(v) for k, v in got.items()}, "ports": len(ports)}
+    return results
+
+
+def _child_pid(pid):
+    """The tcpdump under `sudo -n` (sudo's child), or None when the parent is tcpdump itself."""
+    import psutil
+    try:
+        p = psutil.Process(pid)
+        if p.name() == "tcpdump":
+            return pid
+        kids = [c.pid for c in p.children(recursive=True) if c.name() == "tcpdump"]
+        return kids[0] if kids else None
+    except psutil.Error:
+        return None
+
+
 def packet_run(exe, workdir, scenarios=SCENARIOS, say=print):
     if not is_admin():
         return None
     work = Path(workdir)
+    if not WIN:
+        return _packet_run_linux(exe, work, scenarios, say)
     results = {}
     for name, url, secs in scenarios:
         etl, pcap = work / f"pkt-{name}.etl", work / f"pkt-{name}.pcapng"
@@ -331,6 +505,7 @@ def rows(task_id, zip_path, exe, workdir, say=print, packets=True):
                         "bad": sorted(pv | ptr)})
     if pk is None and packets:
         out.append({"check": "capture/packets: frame-level capture (pktmon) of every scenario", "ok": False,
-                    "evidence": "needs an elevated shell; run in an admin PowerShell: fieldkit build-harness capture " + task_id + " --packets-only",
+                    "evidence": ("needs root or a passwordless sudo (tcpdump); run: sudo -v, then: fieldkit build-harness capture "
+                                 if not WIN else "needs an elevated shell; run in an admin PowerShell: fieldkit build-harness capture ") + task_id + " --packets-only",
                     "bad": ["not elevated"]})
     return out

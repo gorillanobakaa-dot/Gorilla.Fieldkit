@@ -683,8 +683,61 @@ def cmd_purge(a):
 
 
 def cmd_purge_dir(a):
-    print("NEXT: the program is not registered; remove its folder by hand after checking it")
-    return 1
+    target_dir = str(Path(a.dir).resolve()) if a.dir else ""
+    if not target_dir:
+        print("NEXT: the program is not registered; pass --dir PATH to purge an unregistered folder")
+        return 1
+    variants = name_variants(a.name, target_dir)
+    dirs = known_dirs()
+    procs = processes_under(target_dir) if Path(target_dir).is_dir() else []
+    paths = leftover_paths(variants, target_dir, dirs)
+    keys = sorted(set(app_keys(target_dir)), key=str.lower)
+    cache = []
+    for ck in CACHE_KEYS:
+        try:
+            with open_key(ck) as k:
+                for n, d, t in enum_values(k):
+                    if target_dir.lower() + "\\" in (n or "").lower():
+                        cache.append({"op": "delete-value", "key": ck, "name": n, "type": t, "data": jsonable(d)})
+        except OSError:
+            pass
+    ops = [{"op": "stop", **p} for p in procs]
+    ops += [{"op": "recycle", "path": p} for p in paths]
+    ops += [{"op": "delete-key", "key": k} for k in keys] + cache
+    print(f"unregistered program: {a.name}  folder {target_dir}  name(s) {', '.join(variants)}")
+    for o in ops:
+        print(describe(o))
+    if not ops:
+        print("nothing found to purge")
+        return 0
+    if not a.apply:
+        print("dry run: nothing changed. NEXT: add --apply")
+        return 0
+    folder = backup_root(a.backup_dir)
+    man = Manifest(folder, "purge-dir", {"name": a.name, "dir": target_dir})
+    bad = 0
+    for o in ops:
+        try:
+            if o["op"] == "stop":
+                subprocess.run(["taskkill", "/PID", str(o["pid"]), "/F"], capture_output=True)
+                man.add(o)
+            elif o["op"] == "recycle":
+                if Path(o["path"]).exists():
+                    recycle(o["path"])
+                man.add(o)
+            elif o["op"] == "delete-key":
+                if get_key_exists(o["key"]):
+                    apply_op(o, folder, man)
+            else:
+                if get_value(o["key"], o["name"])[1] is not None:
+                    apply_op(o, folder, man)
+        except OSError as e:
+            bad += 1
+            print(f"FAILED  {describe(o).splitlines()[0]}: {e}")
+    left = [p for p in paths if Path(p).exists()] + [k for k in keys if get_key_exists(k)]
+    print(f"done; failed {bad}; still present {len(left)}" + "".join(f"\n  {x}" for x in left))
+    print(f"manifest (registry undo): profilefix undo \"{man.path}\"; files are in the Recycle Bin")
+    return 1 if bad or left else 0
 
 
 def get_key_exists(path):

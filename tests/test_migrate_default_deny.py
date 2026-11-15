@@ -16,3 +16,16 @@ def test_default_cut_items_are_not_open_questions():
     open_ = intake.open_clusters(data, decided={})
     assert [c["id"] for c in open_] == ["c1"] and open_[0]["open"] == ["b"]
     assert [i["id"] for i in intake.default_cuts(data)] == ["a"]
+
+
+def test_owner_2026_11_10_services_addons_and_doors_are_cut_without_asking():
+    # the Firefox 160 intake left these as questions; the owner's standing rule closes them
+    for name in ("browser.ipProtection.siteInclusionPromptShown", "services.sync.engine.tabs",
+                 "identity.fxaccounts.enabled", "signon.firefoxRelay.feature", "extensions.getAddons.cache.enabled",
+                 "dom.push.window_pushmanager.enabled", "dom.speculation_rules.prefetch.dry_run",
+                 "devtools.debugger.remote-enabled"):
+        assert intake.deny_class(name), name
+    for name in ("dom.performance.monitor.enabled", "media.relay.buffer", "dom.links.sync_fragment_navigation",
+                 "browser.tabs.loadInBackground"):                    # local things are not swept up by a loose word
+        assert intake.deny_class(name) is None, name
+

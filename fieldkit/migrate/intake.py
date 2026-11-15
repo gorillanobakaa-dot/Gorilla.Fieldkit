@@ -60,7 +60,19 @@ DENY = [
     ("telemetry and reporting", r"(telemetry|glean|fog\b|ping|crash-?report|usage-?report|attribution|metrics)"),
     ("translations and other languages", r"(translat|langpack|language-?pack|locale-?switch|intl\.locale)"),
     ("themes and colorways", r"(colorway|theme-?(store|picker|gallery)|lightweight-?theme)"),
+    # owner 2026-11-10: "Anything that can open a door, any telemetry, any experiments, any AI implementations, AI chat,
+    # any weather, translations, any addons with the exception of uBlock Origin we are using, any services, any
+    # suggestions ... should receive the recommendation of cut", "so the users don't have to be asked in the future".
+    ("Mozilla services and accounts", r"(ipprotection|ip-?protection|\bvpn\b|mozilla-?vpn|firefox-?relay|fxrelay|email-?mask|"
+                                      r"firefox-?monitor|fxmonitor|fxaccounts|identity\.fxaccounts|\bfxa\b|services\.sync)"),
+    ("add-ons and the add-on store (uBlock Origin excepted)", r"(addons?(\.|-|_|\b)|amo\b|webextensions?\.(store|"
+                                      r"discovery)|extensions\.(getaddons|webservice|recommendations|htmlaboutaddons))"),
+    ("network doors (push, prefetch, remote debugging)", r"(\bpush|pushmanager|prefetch|preconnect|speculati|"
+                                      r"predictor|beacon|debugger-?server|remote-?debug|devtools\.debugger\.remote)"),
 ]
+# owner 2026-11-10: new upstream code that can reach the network and fits no class above is closed by default too:
+# cut without asking (D-158-03 + D-157-00). Only what fits no class AND cannot reach the network is a question.
+NETWORK_DEFAULT = "network-capable, fits no class: closed by default (owner 2026-11-10)"
 _DENY_RX = [(c, re.compile(rx, re.I)) for c, rx in DENY]
 
 
@@ -164,7 +176,8 @@ def compute(old, new, dispositions=None, allow=None, say=None):
     def add(category, name, where, detail, network, ai, auto=None, hosts=()):
         items.append({"id": _iid(category, name), "category": category, "name": name, "where": where,
                       "detail": str(detail)[:300], "network": bool(network), "ai": bool(ai), "auto": auto,
-                      "hosts": sorted(hosts)[:10], "default_cut": deny_class(name, where)})
+                      "hosts": sorted(hosts)[:10],
+                      "default_cut": deny_class(name, where) or (NETWORK_DEFAULT if network and not auto else None)})
     say and say(f"  intake: listing files of {old.commit[:12]} and {new.commit[:12]} ...")
     of, nf = old.files(), new.files()
     op, np_ = _prefs(old), _prefs(new)

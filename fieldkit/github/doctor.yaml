@@ -1,0 +1,51 @@
+# What `fieldkit github doctor` says when a prerequisite is missing: the exact step, per system. The harness never
+# handles a token or a password: `gh auth login` is typed by the person.
+steps:
+  git:
+    ok: "git is installed."
+    missing: "git is not installed. It is the program that records your project's history."
+    fix:
+      windows: "Install it: winget install --id Git.Git -e   (then close and reopen this window)"
+      linux: "Install it with your package manager, for example: sudo apt install git"
+      darwin: "Install it: xcode-select --install"
+  gh:
+    ok: "gh (the GitHub command line) is installed."
+    missing: "gh is not installed. It is GitHub's own program; this tool talks to GitHub only through it."
+    fix:
+      windows: "Install it: winget install --id GitHub.cli -e   (then close and reopen this window)"
+      linux: "Install it from https://cli.github.com (Debian/Ubuntu: sudo apt install gh)"
+      darwin: "Install it: brew install gh   (Homebrew, https://brew.sh)"
+  login:
+    ok: "gh is logged in to GitHub."
+    missing: "gh is not logged in to GitHub."
+    fix:
+      any: "Type this yourself in this window: gh auth login   (choose GitHub.com, HTTPS, log in with a web browser). This tool never sees your password or token."
+  remote:
+    ok: "This folder has a repository on GitHub."
+    missing: "This folder has no GitHub repository yet (no remote named origin pointing at github.com)."
+    fix:
+      any: "Choose the profile 'First Repository' in the menu: it creates a private one for you, asking before every step. Or pass --repo OWNER/NAME to work on a repository elsewhere."
+  admin:
+    ok: "You are an admin of the repository, so you can change its settings."
+    missing: "You are not an admin of this repository. GitHub refuses every setting change without admin rights; reading is still possible (plan, check)."
+    fix:
+      any: "Ask the repository owner for admin rights, or work on a repository you own."
+first_repo:
+  gitignore:
+    - ".env"
+    - ".env.*"
+    - "*.pem"
+    - "*.key"
+    - "*.pfx"
+    - "id_rsa*"
+    - "id_ed25519*"
+    - "credentials*"
+    - "secrets/"
+    - "node_modules/"
+    - "__pycache__/"
+    - "*.pyc"
+    - "dist/"
+    - "build/"
+    - "target/"
+    - ".venv/"
+    - "*.log"

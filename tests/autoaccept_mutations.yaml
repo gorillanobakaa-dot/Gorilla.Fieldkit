@@ -1,0 +1,99 @@
+# I-04 / I-06: every new check must be caught when broken.
+# fieldkit mutate --plan tests/autoaccept_mutations.yaml -- python -m pytest -q tests/test_lifecycle_autoaccept.py tests/test_ownerproof.py tests/test_buildh_autoport.py
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if failed:\n", "    if False:\n"]
+  why: "a failing deterministic check must refuse"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not checks:\n", "    if False:\n"]
+  why: "no check at all must refuse (fail closed)"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if ans.get(\"yes\"):", "    if True:"]
+  why: "the reviewer saying no must refuse"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if (author or \"\").lower() and pk[\"reviewer\"].lower() in (author or \"\").lower() and not pk.get(\"same_rung\"):", "    if False:"]
+  why: "the reviewer is never the author's own model"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    above = rungs[(at + 1 if at is not None else 0):]", "    above = rungs[(at if at is not None else 0):]"]
+  why: "the reviewer is on a HIGHER rung than the author"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if kind not in (pol.get(\"kinds\") or []):", "    if False:"]
+  why: "a kind the policy does not list waits for the owner"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    yes = found[-1].upper() == \"YES\"", "    yes = found[0].upper() == \"YES\""]
+  why: "the reviewer's LAST verdict counts"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if r.returncode != 0 or not found:", "    if not found:"]
+  why: "a reviewer that fails is a no"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not ok:                      # the after-the-fact review", "    if False:                      # the after-the-fact review"]
+  why: "a model cannot mark acceptances seen"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if pinned.get(fp) != raw:", "    if False:"]
+  why: "only a key pinned as the owner's proves the owner"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if not pw:\n", "    if False:\n"]
+  why: "no way to ask the passphrase refuses"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if not force:\n", "    if False:\n"]
+  why: "without --force an agent's shell is refused as before"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        ok, ev = not left, ", "        ok, ev = True, "]
+  why: "a skip is refused while a removed line is still in the file"
+- file: fieldkit/buildh/autoport.py
+  swap: ["    changed = bool(failed_at and head_t.isdigit() and int(head_t) > failed_at)", "    changed = True"]
+  why: "a retry needs a commit after the failure"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        if not any(p in why.lower() for p in pats):", "        if False:"]
+  why: "only renamed / removed-upstream deferred steps go to a model"
+- file: fieldkit/buildh/firefox.py
+  swap: ["        if _name_in(old, after_text) > _name_in(old, before_text):", "        if False:"]
+  why: "a port that adds the old name back breaks its declared rename"
+- file: fieldkit/buildh/firefox.py
+  swap: ["        if not _name_in(new, after_text):", "        if False:"]
+  why: "a declared rename's new name must be in the file"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if os.environ.get(\"FIELDKIT_OWNERPROOF_ASK\", \"\").lower() == \"off\":", "    if False:"]
+  why: "under tests the owner proof never opens a prompt or a dialog"
+- file: fieldkit/buildh/task.py
+  swap: ["    for rx in pol.get(\"offer_strip\") or []:", "    for rx in []:"]
+  why: "the offer must lose the old a-person's-job verdict"
+- file: fieldkit/buildh/task.py
+  swap: ["offer_text(s[\"offer\"])[:900]", "s[\"offer\"][:900]"]
+  why: "the packet shows the cleaned offer"
+- file: fieldkit/buildh/task.py
+  swap: ["    if s.get(\"last_why\") and not (s.get(\"offer\") and", "    if s.get(\"last_why\") and not (False and"]
+  why: "the parked reason is not repeated as a put-back attempt"
+# Tie-break (checker vs reviewer deadlock): every rule must be caught when broken.
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if _norm(q) not in _norm(evidence):", "    if False:"]
+  why: "a tie-breaker's quote must be found in the evidence it was shown"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if len(_norm(q)) < 12:", "    if False:"]
+  why: "a tie-breaker that names a side without quoting the evidence is unsure"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if side == \"unsure\":", "    if False:"]
+  why: "an unsure tie-breaker parks the item"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["        if r.get(\"tiebreak\") and r.get(\"accepted\") and r.get(\"project\") == project and r.get(\"item\") == item:", "        if r.get(\"tiebreak\") and r.get(\"accepted\"):"]
+  why: "an override waives the check for THIS item only"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if holds == \"reviewer\":\n        rec[\"override\"]", "    if True:\n        rec[\"override\"]"]
+  why: "the check's side holding never overrides the check"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    for r in (reversed(above) if how == \"top\" else above):", "    for r in above:"]
+  why: "the tie-breaker is above the author's rung"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not done:\n", "    if False:\n"]
+  why: "a tie-break the harness could not apply parks"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if ok and not (pol.get(\"tiebreak\") or {}).get(\"enabled\", True):", "    if False:"]
+  why: "the owner's tiebreak switch turns it off"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    return last if {\"check\", \"reviewer\"} <= set(last) else None", "    return last or None"]
+  why: "a disagreement needs both a check refusal and a reviewer refusal"
+- file: fieldkit/buildh/autoport.py
+  swap: ["    if problems:\n        task.revert_to_checkpoint(t)", "    if False:\n        task.revert_to_checkpoint(t)"]
+  why: "an override applies only when the check's remaining reasons are all waived"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        if rec.get(\"park\"):\n            s[\"status\"], s[\"last_why\"] = \"blocked\"", "        if False:\n            s[\"status\"], s[\"last_why\"] = \"blocked\""]
+  why: "an unsettled tie-break parks the step with both reasons"

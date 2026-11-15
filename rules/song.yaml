@@ -1,0 +1,53 @@
+# One song sheet (P37, owner 2026-11-13): every project's agent instructions identical on both laptops, lean, no
+# duplicates, no conflicts. Read by `fieldkit rules inventory|lint --files|sync|hooks` (fieldkit/rules_song.py).
+# Tokens are estimated as bytes / 4 (no tokenizer is shipped; the same estimate everywhere, so before/after compare).
+bytes_per_token: 4
+budget:                     # tokens per file. limit = a finding (exit 3); target = what the cut should reach
+  global:  {target: 1500, limit: 2200}     # ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md
+  project: {target: 1000, limit: 1400}     # a project's CLAUDE.md / AGENTS.md / GEMINI.md / copilot-instructions
+  memory:  {target: 600,  limit: 900}      # the memory index loaded every session
+# Managed projects: folder under $HOME (a path with "/"), instruction files looked for at its top level only.
+projects:
+  - Documents/Scripts/Fieldkit
+  - Documents/Gorilla.Opencode
+  - Documents/Debian.Kernel.Work
+  - Documents/FIREFOX.WORK
+  - Documents/Gorilla.Firefox
+files: [CLAUDE.md, AGENTS.md, GEMINI.md, .github/copilot-instructions.md]
+# Which agent loads a file, and when.
+loaders:
+  CLAUDE.md: "Claude Code: at session start, every call re-sends it"
+  AGENTS.md: "Codex, OpenCode, Cursor, Copilot agent: at session start (Claude Code reads CLAUDE.md only)"
+  GEMINI.md: "Gemini CLI: at session start"
+  copilot-instructions.md: "GitHub Copilot: every request"
+  SKILL.md: "frontmatter (name, description) at session start; the body only when the skill is invoked"
+  MEMORY.md: "Claude Code auto-memory: the index at session start"
+# A sentence shorter than this is not compared (headings, "Yes.").
+min_sentence_chars: 45
+# Files that are loaded in the SAME session are compared; two global files of different agents never are (each
+# agent reads only its own), so the shared core in CLAUDE.md and GEMINI.md is not a duplicate.
+# Known contradicting pairs: a finding when a file set loaded together carries both patterns (regex, case-insensitive).
+conflicts:
+  - why: one rule says ask the owner, another says never ask
+    a: '\bask the owner (first|before|for approval|a yes)\b'
+    b: '\b(do not|never) ask\b'
+  - why: one rule allows pushing to main, another forbids it
+    a: '\bpush(es)? (straight )?to main\b'
+    b: '\bnever (push|commit)[^.]{0,30}\bmain\b'
+  - why: one rule runs the full suite per change, another says once at the end
+    a: '\brun the full (test )?suite (on|after) every (change|commit)\b'
+    b: '\bfull suite runs once\b'
+  - why: one rule re-runs passed tests, another forbids it
+    a: '\bre-?run (all|every) tests?\b'
+    b: '\bpassed test is never re-run\b'
+# Same-subject different-verb: "always X" in one place and "never X" in another (X = up to 6 words).
+polarity: true
+# Hook text injected into the conversation (bytes per event). Only the NOTE riders are on a budget: a line that starts
+# with one of capped_prefixes (or with a count, "13 parked ideas", "44 repeated refusals") is cut to line_max bytes and
+# the notes of one turn to cap_bytes together. Everything else (NET, ROOM, EAR, SESSION ROTATION, MACHINE, rules the hook
+# enforces) is never cut: it is what the hook is for. `fieldkit rules hooks` reads state/hook-bytes.jsonl.
+hooks:
+  cap_bytes: {UserPromptSubmit: 600, PreToolUse: 300, SessionStart: 1200}
+  line_max: 220
+  capped_prefixes: ["hog:", "WORKFLOW", "PLAN:", "parked", "ideas"]
+  ear_short: "EAR NOT RUNNING: restart your relay listen (line given earlier this session)"

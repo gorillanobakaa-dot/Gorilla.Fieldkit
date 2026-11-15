@@ -1,0 +1,62 @@
+# Everyday jobs a Gorilla OpenCode run must manage on Windows AND Linux with any tool-calling model (HARNESS-PLAN P5a).
+# Same jobs on both systems (parity, P5d): a job has no per-OS field except `needs` (any-of programs that must be on PATH).
+# setup: files made in the job's folder; the value starts with a kind: "text:" literal, "json:" a JSON document,
+# "zip:" a YAML map name -> text packed into a zip, "png:" a 1x1 picture, "png-text:" / "mp4-seconds:" need ImageMagick / ffmpeg.
+# serve: files offered on a throwaway local web server; {url} in the prompt is its address.
+# judge: kind answer_has | file_absent | file_exists | file_text | json_value, checked on the disk or the final reply.
+- id: see-file
+  prompt: "Read notes.txt in this folder and tell me the code word written in it."
+  setup: {notes.txt: "text:the code word is MARMALADE\n"}
+  judge: {kind: answer_has, value: MARMALADE}
+- id: delete-file
+  prompt: "Delete the file junk.tmp from this folder."
+  setup: {junk.tmp: "text:x\n", keep.txt: "text:keep\n"}
+  judge: {kind: file_absent, path: junk.tmp, and_exists: keep.txt}
+- id: move-file
+  prompt: "Move report.txt into a new sub-folder named archive."
+  setup: {report.txt: "text:r\n"}
+  judge: {kind: file_exists, path: archive/report.txt, and_absent: report.txt}
+- id: tail-file
+  prompt: "Show me the last 2 lines of server.log (do not follow it)."
+  setup: {server.log: "text:one\ntwo\nthree\nFOUR-LINE\nFIVE-LINE\n"}
+  judge: {kind: answer_has, value: FIVE-LINE}
+- id: find-file
+  prompt: "Which file in this folder tree is named target.cfg? Give its relative path."
+  setup: {a/b/target.cfg: "text:c\n", a/other.cfg: "text:o\n"}
+  judge: {kind: answer_has, value: target.cfg}
+- id: grep-text
+  prompt: "Which file under src contains the word NEEDLE? Give its name."
+  setup: {src/one.py: "text:x = 1\n", src/two.py: "text:# NEEDLE\n"}
+  judge: {kind: answer_has, value: two.py}
+- id: unzip
+  prompt: "Unzip bundle.zip into a folder named out."
+  setup: {bundle.zip: "zip:{inner.txt: unzipped ok}"}
+  judge: {kind: file_text, path: out/inner.txt, value: unzipped ok}
+- id: json-read
+  prompt: "In data.json, what is the value of the key answer? Reply with just the value."
+  setup: {data.json: 'json:{"answer": "forty-two", "n": 1}'}
+  judge: {kind: answer_has, value: forty-two}
+- id: json-edit
+  prompt: "In data.json set the key count to 7 and keep every other key."
+  setup: {data.json: 'json:{"count": 1, "name": "x"}'}
+  judge: {kind: json_value, path: data.json, key: count, value: 7, and_key: name}
+- id: download
+  prompt: "Download {url}/hello.txt and save it in this folder as hello.txt."
+  setup: {}
+  serve: {hello.txt: "fetched ok\n"}
+  judge: {kind: file_text, path: hello.txt, value: fetched ok}
+- id: image-convert
+  prompt: "Convert logo.png to logo.jpg."
+  setup: {logo.png: "png:"}
+  needs: [magick, convert]
+  judge: {kind: file_exists, path: logo.jpg}
+- id: ocr
+  prompt: "What text is written in the picture words.png?"
+  setup: {words.png: "png-text:HELLO42"}
+  needs: [tesseract]
+  judge: {kind: answer_has, value: HELLO42}
+- id: probe-video
+  prompt: "How long is clip.mp4 in seconds? Reply with the number."
+  setup: {clip.mp4: "mp4-seconds:2"}
+  needs: [ffprobe]
+  judge: {kind: answer_has, value: "2"}

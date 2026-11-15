@@ -1,4 +1,7 @@
 """Firefox on Linux: the stages, run against fakes (no mach, no build, nothing on the machine touched)."""
+import sys
+
+import pytest
 from pathlib import Path
 import time
 from types import SimpleNamespace
@@ -116,3 +119,50 @@ def test_one_build_date_for_the_whole_build_and_the_binaries_agree_with_applicat
     assert fl.verify_build(c, run=run)["ok"]
     (d / "libxul.so").write_bytes(b"\0" + b"20261023170000" + b"\0")   # libxul not relinked: its id may be older
     assert fl.verify_build(c, run=run)["ok"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the deps stage is Linux-only (firefox-linux.yaml platforms: [linux]); Windows finds tools by PATHEXT")
+def test_toolchain_which_finds_rustup_and_mozbuild_tools_a_non_login_path_lacks(tmp_path, monkeypatch):
+    """A runner started without a login shell has no ~/.cargo/bin on PATH; the deps stage must still find cargo there."""
+    cargo = tmp_path / ".cargo" / "bin"
+    cargo.mkdir(parents=True)
+    tool = cargo / "cbindgen-test-tool"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setattr(fl.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert fl._toolchain_which("cbindgen-test-tool") == str(tool)
+    assert fl._toolchain_which("no-such-tool-xyz") is None
+
+
+def _font_tree(root, name, fonts=(), listed=("consola.ttf", "segoeui.ttf", "TwemojiMozilla.ttf")):
+    d = root / name / "browser" / "fonts"
+    d.mkdir(parents=True)
+    (d / "moz.build").write_text("FINAL_TARGET_FILES.fonts += [\n" + "".join(f'    "{f}",\n' for f in listed) + "]\n")
+    for f in fonts:
+        (d / f).write_bytes(b"font:" + f.encode())
+    return d
+
+
+def test_fonts_copies_the_missing_microsoft_fonts_from_an_earlier_tree_and_hides_them_from_git(tmp_path):
+    c = ctx(tmp_path, src=str(tmp_path / "work" / "firefox-160.0"))
+    _font_tree(tmp_path / "work", "firefox-158.0", fonts=("consola.ttf", "segoeui.ttf", "TwemojiMozilla.ttf"))
+    _font_tree(tmp_path / "work", "firefox-160.0", fonts=("TwemojiMozilla.ttf",))
+    exclude = tmp_path / "work" / "firefox-160.0" / ".git" / "info" / "exclude"
+    run = lambda cmd, **k: (0, ".git/info/exclude\n") if "rev-parse" in cmd else (1, "")
+    assert not fl.verify_fonts(c)["ok"]
+    r = fl.stage_fonts(c, run=run)
+    assert r["ok"] and sorted(r["copied"]) == ["consola.ttf", "segoeui.ttf"], r
+    assert (tmp_path / "work" / "firefox-160.0" / "browser" / "fonts" / "segoeui.ttf").read_bytes() == b"font:segoeui.ttf"
+    assert exclude.read_text().splitlines() == ["browser/fonts/consola.ttf", "browser/fonts/segoeui.ttf"]
+    assert fl.verify_fonts(c)["ok"]
+
+
+def test_fonts_fails_and_names_the_fix_when_no_tree_holds_them(tmp_path, monkeypatch):
+    monkeypatch.delenv("ISO_URL", raising=False)
+    monkeypatch.delenv("FIREFOX_FONTS_FROM", raising=False)
+    c = ctx(tmp_path, src=str(tmp_path / "work" / "firefox-160.0"))
+    _font_tree(tmp_path / "work", "firefox-160.0", fonts=("TwemojiMozilla.ttf",))
+    r = fl.stage_fonts(c, run=lambda cmd, **k: (1, ""))
+    assert not r["ok"] and r["missing"] == ["consola.ttf", "segoeui.ttf"]
+    assert "FIREFOX_FONTS_FROM" in r["detail"] and "get-microsoft-fonts.sh" in r["detail"]

@@ -1,0 +1,237 @@
+# The OS parity inventory (owner, 2026-11-12: "the same capabilities on Linux as on Windows").
+# One row per tool card limited to ONE system (platforms: [windows] or [linux]). `fieldkit parity os` checks it
+# against the cards; docs/PLATFORMS.md is generated from it (`fieldkit parity os --write`).
+#   status EQUIVALENT  -> `counterpart`: the card id or `fieldkit ...` command that does the job on the other system
+#   status PORT        -> `mechanism`: the other system's way to do it; `order`: 1 = port first (most used)
+#   status NATIVE-ONLY -> `reason`: a hardware or OS feature that truly does not exist on the other system
+# A port deletes its row in the same commit that widens the card's `platforms`. A NEW single-system card with no row
+# fails CI (fieldkit/desk/platformcheck.py).
+rows:
+  # ---- Windows-only cards: what Linux gets -----------------------------------------------------------------------
+  install-ps1: {status: EQUIVALENT, counterpart: install-sh}
+  laptop-sound: {status: EQUIVALENT, counterpart: fieldkit-audio}
+  laptop-video: {status: NATIVE-ONLY, reason: "the missing NVIDIA Control Panel is a Microsoft Store (DCH) packaging problem; on Linux nvidia-settings ships in the distro driver package"}
+  power-drift: {status: PORT, order: 3, mechanism: "journalctl -u systemd-logind and systemd-sleep for sleep events plus /sys/power; Lenovo ibmpmsvc has no Linux twin, the sleep-during-work proof does"}
+  power-audit: {status: PORT, order: 3, mechanism: "auditd execve rules (ausearch -k) or journalctl _AUDIT_TYPE=EXECVE for who ran a program"}
+  hdmi-status: {status: PORT, order: 4, mechanism: "/sys/class/drm/card*-HDMI-*/status + enabled + modes (xrandr --verbose, wlr-randr)"}
+  hdmi-doctor: {status: PORT, order: 4, mechanism: "drm sysfs + xrandr/wlr-randr + journalctl -k for the link"}
+  hdmi-diag: {status: PORT, order: 4, mechanism: "drm sysfs, EDID via /sys/class/drm/*/edid and edid-decode, journalctl -k"}
+  hdmi-profile-list: {status: PORT, order: 4, mechanism: "same profile data, applied with xrandr/wlr-randr"}
+  hdmi-tv-info: {status: PORT, order: 4, mechanism: "EDID of the connected sink (edid-decode) and cec-ctl --show-topology"}
+  hdmi-tv-wifi-report: {status: PORT, order: 4, mechanism: "nmcli / iw dev for the TV-side wifi facts the report reads"}
+  hdmi-fix: {status: PORT, order: 4, mechanism: "xrandr --output HDMI-n --mode/--auto, with the same undo record"}
+  hdmi-test-quick: {status: PORT, order: 4, mechanism: "mode set through xrandr plus a short ffplay/mpv clip"}
+  hdmi-tv-wake: {status: PORT, order: 4, mechanism: "HDMI-CEC: cec-ctl --tv --image-view-on, or xrandr --output off/auto"}
+  win11-visual-effects-check: {status: NATIVE-ONLY, reason: "read-only check of the same: sets Windows registry UI-effect keys (DWM animations); Linux desktops keep these in a theme, not in OS policy"}
+  win11-update-distribution-check: {status: NATIVE-ONLY, reason: "read-only check of the same: Windows Update delivery optimization; apt and dnf have no peer-distribution feature to turn off"}
+  win11-copilot-check: {status: NATIVE-ONLY, reason: "read-only check of the same: turns off the Windows Copilot component, which does not exist on Linux"}
+  win11-recommendations-check: {status: NATIVE-ONLY, reason: "read-only check of the same: Start-menu and Settings ad recommendations of Windows 11 only"}
+  win11-xbox-services-check: {status: NATIVE-ONLY, reason: "read-only check of the same: the Xbox Windows services only"}
+  win11-services-check: {status: NATIVE-ONLY, reason: "read-only check of the same: Windows service profiles (light, moderate, super); the Linux counterpart is `fieldkit leftovers` (dead and unwanted user units)"}
+  win11-update-deferral-check: {status: NATIVE-ONLY, reason: "read-only check of the same: Windows Update deferral policy; Linux updates are pulled by the owner (apt) with no forced channel"}
+  win11-app-debloat-check: {status: NATIVE-ONLY, reason: "read-only check of the same: removes Microsoft Store (AppX) apps pre-loaded by Windows"}
+  win11-onedrive-check: {status: NATIVE-ONLY, reason: "read-only check of the same: OneDrive integration is a Windows shell component"}
+  win11-text-input-guard-check: {status: NATIVE-ONLY, reason: "read-only check of the same: Windows text-input service (CTF/TSF) telemetry guard"}
+  win11-fit: {status: NATIVE-ONLY, reason: "judges Windows 11 service-profile entries (SIM, WSL, shares, printers); no Windows services exist on Linux"}
+  win11-oem: {status: NATIVE-ONLY, reason: "reads the Windows 11 OEM pre-load state; Linux has no OEM image layer"}
+  win11-visual-effects: {status: NATIVE-ONLY, reason: "sets Windows registry UI-effect keys (DWM animations); Linux desktops keep these in a theme, not in OS policy"}
+  win11-update-distribution: {status: NATIVE-ONLY, reason: "Windows Update delivery optimization; apt and dnf have no peer-distribution feature to turn off"}
+  win11-copilot: {status: NATIVE-ONLY, reason: "turns off the Windows Copilot component, which does not exist on Linux"}
+  win11-recommendations: {status: NATIVE-ONLY, reason: "Start-menu and Settings ad recommendations of Windows 11 only"}
+  win11-xbox-services: {status: NATIVE-ONLY, reason: "the Xbox Windows services only"}
+  win11-services: {status: NATIVE-ONLY, reason: "Windows service profiles (light, moderate, super); the Linux counterpart is `fieldkit leftovers` (dead and unwanted user units)"}
+  win11-update-deferral: {status: NATIVE-ONLY, reason: "Windows Update deferral policy; Linux updates are pulled by the owner (apt) with no forced channel"}
+  win11-app-debloat: {status: NATIVE-ONLY, reason: "removes Microsoft Store (AppX) apps pre-loaded by Windows"}
+  win11-onedrive: {status: NATIVE-ONLY, reason: "OneDrive integration is a Windows shell component"}
+  win11-text-input-guard: {status: NATIVE-ONLY, reason: "Windows text-input service (CTF/TSF) telemetry guard"}
+  profilefix: {status: NATIVE-ONLY, reason: "repairs registry and Windows uninstall entries left by a renamed profile; Linux has neither (usermod -d -m moves a home)"}
+  wintrace: {status: PORT, order: 2, mechanism: "read-only intrusion triage: ss -tupn, systemctl list-units, journalctl, /proc walk, debsums for modified binaries, auditd"}
+  bh-build-run: {status: PORT, order: 2, mechanism: "the Linux build runs through fieldkit emerge; port the power/governor proof as /sys/devices/system/cpu/*/cpufreq plus cpupower in place of powercfg"}
+  # ---- Linux-only cards: what Windows gets -----------------------------------------------------------------------
+  update-check: {status: PORT, order: 5, mechanism: "not tied to Linux: compare installed versions with what was published; widen once the package-manager probe skips apt on Windows"}
+  debian-kernel-project: {status: NATIVE-ONLY, reason: "patch data and config change-set for the Debian kernel; there is no Windows kernel to build"}
+  sensors-gorilla: {status: EQUIVALENT, counterpart: "fieldkit hog"}
+  thermal-profile-daemon: {status: NATIVE-ONLY, reason: "drives the Sony VAIO embedded-controller fan profile through Linux sysfs; ThinkPad fans have TPFanControl (see fieldkit repair)"}
+  fieldkit-audio: {status: EQUIVALENT, counterpart: laptop-sound}
+  fieldkit-macair: {status: NATIVE-ONLY, reason: "the old-Mac browser is cross-built with a Linux toolchain; Windows reaches the Mac only over SSH (`fieldkit mac`)"}
+  install-sh: {status: EQUIVALENT, counterpart: install-ps1}
+  fieldkit-firmware-check: {status: NATIVE-ONLY, reason: "reads the Linux kernel log and /lib/modules for missing firmware blobs; Windows drivers carry firmware inside the driver package"}
+  fieldkit-leftovers: {status: NATIVE-ONLY, reason: "XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop (Windows twin: profilefix)"}
+  fieldkit-gtk-theme-check: {status: NATIVE-ONLY, reason: "GTK and libadwaita user stylesheets exist only on a Linux desktop"}
+  speaker-loudness-fix: {status: PORT, order: 6, mechanism: "Windows Loudness Equalization enhancement (APO registry flag) in place of a PipeWire filter, with the same undo"}
+  speaker-loudness-status: {status: PORT, order: 6, mechanism: "read the Windows Loudness Equalization flag of the render endpoint"}
+  dual-track-cleanup: {status: PORT, order: 5, mechanism: "pure file moves after git checks; nothing Linux-specific, widen once the tests run on Windows"}
+  voice: {status: PORT, order: 5, mechanism: "Windows OneCore/SAPI neural voices, or the same Piper model through a Windows build"}
+  voice-doctor: {status: PORT, order: 5, mechanism: "list SAPI/OneCore voices and the Piper runtime"}
+  voice-install: {status: PORT, order: 5, mechanism: "fetch Piper for Windows into the user profile"}
+  voice-say: {status: PORT, order: 5, mechanism: "Piper or System.Speech through PowerShell"}
+  voice-clean: {status: PORT, order: 5, mechanism: "remove unused voice model files (same logic)"}
+  watchdog-install: {status: EQUIVALENT, counterpart: "the Windows scheduled task the watchdog already registers"}
+  wifi: {status: PORT, order: 5, mechanism: "netsh wlan show interfaces, drivers and networks in place of iw and nmcli"}
+  net-route: {status: PORT, order: 5, mechanism: "Get-NetRoute / route print for the default interface"}
+  wifi-card: {status: PORT, order: 5, mechanism: "netsh wlan show drivers (radio types, bands)"}
+  wifi-doctor: {status: PORT, order: 5, mechanism: "netsh wlan show interfaces plus wlanreport"}
+  wifi-scan: {status: PORT, order: 5, mechanism: "netsh wlan show networks mode=bssid"}
+  wifi-upgrade: {status: PORT, order: 5, mechanism: "Get-PnpDevice for the card; the replaceability facts are data"}
+  bh-clip-check: {status: PORT, order: 6, mechanism: "same screenshots and stock-Firefox control with the Windows stock zip"}
+  bh-profile-check: {status: PORT, order: 6, mechanism: "%APPDATA%\\Mozilla profiles.ini and Start-menu .lnk launchers"}
+  bh-leakgate-selftest: {status: NATIVE-ONLY, reason: "checks root, network namespaces and nftables, which the Linux runner needs; the Windows gate has its own preflight (leak gate job, do not touch)"}
+  bh-decode-test: {status: PORT, order: 6, mechanism: "wpr/GPU engine counters (fieldkit-gpudecode) in place of intel_gpu_top"}
+  bh-pref-bisect: {status: PORT, order: 6, mechanism: "same halving over the Windows decode-test"}
+  bh-release-roundtrip: {status: PORT, order: 6, mechanism: "published .exe: download, check, silent setup, verify, uninstall (installer-test pieces)"}
+  bh-release-shots: {status: PORT, order: 6, mechanism: "Windows screen capture (PrintWindow) in place of gnome-screenshot"}
+
+# ---- everything else single-system (owner spec 2026-11-12): key = kind:name, found by `fieldkit parity os` scanners
+# (stage = pipeline/recipe, skill, workflow step, hook, module = a sys.platform guard that returns nothing on one side).
+# status MISSING|PARTIAL|INCOMPATIBLE need action (CREATE|PORT|ADAPT|WRAP|DOCUMENT), target, mechanism, effort S|M|L,
+# proof, order (DOCUMENT needs only target); NATIVE-ONLY needs a reason.
+items:
+  hook:wait-for-hook.sh:
+    action: DOCUMENT
+    status: PARTIAL
+    target: git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin
+  module:fieldkit/build/kernel.py:
+    reason: a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows has no kernel to build
+    status: NATIVE-ONLY
+  module:fieldkit/buildh/task.py:
+    reason: UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes through sudo -n, never an elevated token
+    status: NATIVE-ONLY
+  module:fieldkit/core/longpath.py:
+    reason: the Windows 260-character path limit and its registry switch have no Linux twin; Linux PATH_MAX is 4096 with no setting to turn on
+    status: NATIVE-ONLY
+  module:fieldkit/desk/adopt.py:
+    action: PORT
+    effort: M
+    mechanism: dpkg-query -W, `which`, and the ~/.local/share/applications .desktop entries
+    order: 4
+    proof: test with a fake dpkg-query and a tmp applications folder
+    status: PARTIAL
+    target: adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux
+  module:fieldkit/leakgate/sensors.py:
+    action: ADAPT
+    effort: L
+    mechanism: ss -tupn, nft counters, /proc/net, readelf; not touched by this audit
+    order: 8
+    proof: the leakgate parity job's own tests
+    status: PARTIAL
+    target: the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgate-linux-parity-2026-11-12.md)
+  module:fieldkit/lifecycle/nested.py:
+    action: ADAPT
+    effort: S
+    mechanism: the Claude desktop app's per-user state under ~/.config/Claude (xdg config home)
+    order: 3
+    proof: test with a tmp XDG_CONFIG_HOME holding fake session JSON
+    status: PARTIAL
+    target: nested.records_glob finds the Claude desktop session records on Linux
+  module:fieldkit/power/drift.py:
+    action: PORT
+    effort: M
+    mechanism: /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor + cpupower frequency-info + powerprofilesctl get
+    order: 2
+    proof: tests/test_power_drift.py case with a fixture /sys tree and a fake powerprofilesctl
+    status: PARTIAL
+    target: power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and power-profiles daemon
+  module:fieldkit/thermal/sensors.py:
+    reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
+    status: NATIVE-ONLY
+  skill:fieldkit-evidence:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-evidence/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-icons:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-icons/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-lifecycle:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-lifecycle/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-linux-leftovers:
+    reason: XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on a Linux desktop
+    status: NATIVE-ONLY
+  skill:fieldkit-repair:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-repair/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-scratch:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-scratch/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-tools:
+    action: ADAPT
+    effort: S
+    mechanism: 'edit the description: Windows and Linux wording side by side'
+    order: 7
+    proof: fieldkit skills check passes and the description names both systems
+    status: PARTIAL
+    target: skills/fieldkit-tools/SKILL.md description names Linux too (the commands already run on both)
+  skill:fieldkit-win11:
+    reason: the Windows 11 tweaks framework (registry, services, AppX) has no Linux twin
+    status: NATIVE-ONLY
+  stage:black-gorilla-theme:
+    reason: a GTK/libadwaita theme exists only on a Linux desktop
+    status: NATIVE-ONLY
+  stage:debian-kernel:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:firefox-linux:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: the firefox-windows pipeline is the Windows counterpart (same stages, Windows tools)
+  stage:firefox-windows:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools)
+  stage:gorilla-hdmi-harness:
+    action: PORT
+    effort: L
+    mechanism: drm sysfs, xrandr/wlr-randr, cec-ctl (the PORT rows of the hdmi-* cards)
+    order: 4
+    proof: the recipe's stages pass with fixtures on Linux
+    status: PARTIAL
+    target: the hdmi-harness recipe stages run on Linux once the hdmi cards are ported
+  stage:gorilla-tpfancontrol:
+    reason: TPFanControl is a Windows ThinkPad fan program built with MSBuild; the VAIO fan profile is thermal-profile-daemon
+    status: NATIVE-ONLY
+  stage:kernel-6.19.13-ultimate:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:kernel-7.0.5-release:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:kernel-7.0.9-unleashed:
+    reason: the Linux kernel is built only on Linux; Windows has no kernel to build
+    status: NATIVE-ONLY
+  stage:sensors-gorilla:
+    action: DOCUMENT
+    status: INCOMPATIBLE
+    target: gorilla-tpfancontrol and fieldkit hog read the sensors on Windows
+  stage:windows-11-tweaks:
+    reason: the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX)
+    status: NATIVE-ONLY
+  workflow:release.yml:desktop-file-validate for fieldkit insta:
+    reason: desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Windows verifies its shortcuts in the installer test
+    status: NATIVE-ONLY
+  workflow:tests.yml:desktop-file-validate for fieldkit insta:
+    reason: desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Windows verifies its shortcuts in the installer test
+    status: NATIVE-ONLY

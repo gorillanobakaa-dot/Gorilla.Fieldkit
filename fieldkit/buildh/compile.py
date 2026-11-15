@@ -16,10 +16,11 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
-from ..core import settings
+from ..core import host, settings
 from . import audit, task
 
 MIN_ARTIFACT_MB = 50
@@ -38,12 +39,26 @@ def _git(wd, *args):
 
 
 def mozconfig_path(harness_root=None):
-    return Path(harness_root or settings.expand("${LOCAL:firefox.root}")) / "config" / "mozconfig.win64"
+    """The mozconfig the build reads. Windows: config/mozconfig.win64 of the owner's repo. Linux: the patch set's own
+    mozconfig at the root of the harness folder (stage_mozconfig copies it into the tree). 2026-11-11: the gate asked
+    a Linux task for the Windows file and failed it."""
+    root = Path(harness_root or settings.expand("${LOCAL:firefox.root}"))
+    if sys.platform != "win32":
+        return root / "mozconfig"
+    return root / "config" / "mozconfig.win64"
 
 
-def objdir(mozconfig):
+LINUX_OBJDIR = "obj-x86_64-pc-linux-gnu"      # mach's default objdir inside the source tree
+
+
+def objdir(mozconfig, workdir=None):
+    """MOZ_OBJDIR from the mozconfig; where none is named, on Linux mach's default inside the source tree."""
     m = re.search(r"MOZ_OBJDIR=(\S+)", Path(mozconfig).read_text(encoding="utf-8", errors="replace"))
-    return Path(m.group(1)) if m else None
+    if m:
+        return Path(m.group(1))
+    if sys.platform != "win32" and workdir:
+        return Path(workdir) / LINUX_OBJDIR
+    return None
 
 
 def _record_path(task_id):
@@ -180,7 +195,7 @@ def gate(task_id, harness_root=None, write=True):
         row(name, ok, evidence)
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))
-    od = objdir(moz) if moz.is_file() else None
+    od = objdir(moz, wd) if moz.is_file() else None
     row("object directory named in the mozconfig", od is not None, str(od))
     ok = all(r["ok"] for r in rows)
     if ok and write:
@@ -212,40 +227,73 @@ def verify(task_id, run_binary=True):
         "unchanged since the gate" if same_commit and not dirty else
         "; ".join(x for x in ("the committed source changed after the gate" if not same_commit else "",
                               f"{len(dirty)} file(s) edited and not committed: {', '.join(dirty[:4])}" if dirty else "") if x))
+    # 2026-11-12: "newer than the gate" judged a package from the build of this very tree stale once the gate was run again
+    # after the build (00:08 package, 00:54 re-gate, same tree). A package is current when it is newer than the commit
+    # of the gated tree, which the row above proves is still the tree on disk; an older package is still stale.
+    built_after = rec["at"]
+    if same_commit and not dirty:
+        try:
+            built_after = min(built_after, float(_git(wd, "show", "-s", "--format=%ct", "HEAD")))
+        except ValueError:
+            pass
     moz = mozconfig_path()
     row("mozconfig unchanged since the gate", moz.is_file() and _sha(moz) == rec["mozconfig_sha256"],
         "unchanged" if moz.is_file() and _sha(moz) == rec["mozconfig_sha256"] else "mozconfig differs from what was gated")
     dist = Path(rec["objdir"]) / "dist"
     found = {}
+    win, lnx = ("windows",), ("linux",)
     for kind, pattern in (("installer", "*.installer.exe"), ("zip", "*.zip")):
+        found[kind] = []
+        if not host.platform_ok(win):                   # Windows artefacts: the Linux twin is the .deb row below
+            host.os_row(rows, win, f"{kind} was produced", lambda: (True, ""))
+            continue
         found[kind] = sorted(dist.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)[:1] if dist.is_dir() else []
         if not found[kind]:
             row(f"{kind} was produced", False, f"none in {dist}")
             continue
         f = found[kind][0]
-        fresh = f.stat().st_mtime >= rec["at"]
+        fresh = f.stat().st_mtime >= built_after
         big = f.stat().st_size >= MIN_ARTIFACT_MB * 2 ** 20
         row(f"{kind} is from THIS build", fresh, f"{f.name} {'newer' if fresh else 'OLDER (stale dist?)'} than the gate")
         row(f"{kind} has a real size", big, f"{f.stat().st_size / 2 ** 20:.0f} MB, need at least {MIN_ARTIFACT_MB}")
-    exe = dist / "bin" / "firefox.exe"
+    exe = dist / "bin" / ("firefox.exe" if host.platform_ok(win) else "firefox")
+
+    def _version_row():
+        if not exe.is_file():
+            return False, str(exe)
+        out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
+        return rec["version"] in out, out.strip() or "no output"
     if run_binary:
-        if exe.is_file():
-            out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
-            row("built firefox.exe reports the pinned version", rec["version"] in out, out.strip() or "no output")
-        else:
-            row("built firefox.exe exists", False, str(exe))
+        host.os_row(rows, win, "built firefox.exe exists and reports the pinned version", _version_row)
+        host.os_row(rows, lnx, "built dist/bin/firefox exists and reports the pinned version", _version_row)
+        # the Linux package is the .deb (build_deb.sh into Build.Work/firefox/release-<version>): there, deb-check
+        def _deb_row():
+            from . import vault
+            rel = vault.root().parent / "Build.Work" / "firefox" / f"release-{rec['version']}"
+            debs = sorted(rel.glob("*.deb"), key=lambda x: x.stat().st_mtime) if rel.is_dir() else []
+            if not debs:
+                return False, f"no .deb in {rel}"
+            deb = debs[-1]
+            if deb.stat().st_mtime < built_after:
+                return False, f"{deb.name} is OLDER than the gated tree (stale package)"
+            from ..build import deb_check
+            brand = Path(rec["workdir"]) / "browser" / "branding" / "gorilla"
+            r = deb_check.check(deb, brand)
+            return r["ok"], " | ".join(deb_check.lines(r))[-300:]
+        host.os_row(rows, lnx, "the .deb was produced and passes deb-check", _deb_row)
     # the icons: the gorilla inside firefox.exe, the crisp logo, the installer's outer icon (icons.py)
     t = task.load(task_id)
     from . import icons, ownercheck
     root = ownercheck._owner_root(t)
     brand_rel = icons.branding_dir(moz.read_text(encoding="utf-8", errors="replace")) if moz.is_file() else None
     brand = wd / brand_rel if brand_rel else None
-    if exe.is_file():                                    # (a missing exe already fails its own row above)
-        if brand and brand.is_dir():
-            for name, hits, total, detail in icons.embedded(exe, brand):
-                row(f"branding {name} is embedded in firefox.exe", hits == total and total > 0, f"{hits} of {total} image(s): {detail}")
-        else:
-            row("branding icons embedded in firefox.exe", False, "no --with-branding dir found from the mozconfig")
+    if exe.is_file() or not host.platform_ok(win):        # (a missing exe already fails its own row above; the icon is a Windows resource)
+        def _embedded():
+            if not (brand and brand.is_dir()):
+                return False, "no --with-branding dir found from the mozconfig"
+            bad = [(n, h, t, d) for n, h, t, d in icons.embedded(exe, brand) if not (h == t and t > 0)]
+            return not bad, "; ".join(f"{n} {h} of {t} image(s): {d}" for n, h, t, d in (bad or icons.embedded(exe, brand)))[:300]
+        host.os_row(rows, win, "branding icons are embedded in firefox.exe", _embedded)
     if found.get("installer") and brand and (brand / "firefox.ico").is_file():
         # the owner's verify_installer.py, as a row: the branding icon's pixel data inside the packaged installer
         inst = found["installer"][0]
@@ -257,8 +305,10 @@ def verify(task_id, run_binary=True):
         ok, text = icons.logo_provenance(root)
         row("internal-pages logo is crisp (owner's Crisp Icon Doctrine gates)", bool(ok), (text.splitlines() or ["ok"])[-1][:160]
             if ok is not None else "tool missing: " + text)
-        ok, text = icons.installer_stub_check(root)
-        row("installer SFX stub carries this build's icon", bool(ok), (text.splitlines() or ["ok"])[0][:160] if ok is not None else "tool missing: " + text)
+        def _stub():
+            ok, text = icons.installer_stub_check(root)
+            return bool(ok), (text.splitlines() or ["ok"])[0][:160] if ok is not None else "tool missing: " + text
+        host.os_row(rows, win, "installer SFX stub carries this build's icon", _stub)
     # the owner's own preflight, after the build: the checks that needed an objdir must pass now
     if root and run_binary:
         rc, text = ownercheck.run_preflight(root)
@@ -282,7 +332,7 @@ def verify(task_id, run_binary=True):
         from . import aboutpages, buildstamp
         from . import ownercheck as _oc
         _root = _oc._owner_root(t)
-        srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None,
+        srows, built_id = buildstamp.built_rows(rec["objdir"], built_after, say=lambda m: None,
                                                 pinned=buildstamp.pinned_build_date(_root) if _root else None, about=False)
         rows.extend(srows)
         # 2026-10-09: the checks that read only the browser's own files run ONCE, here, on the zip that ships (not on

@@ -1,0 +1,13 @@
+# Proof that each check can fail (fieldkit mutate): break one rule in core.py or cli.py, tests/pins must fail.
+#   python -m fieldkit mutate --plan fieldkit/pins/mutations.yaml -- python -m pytest -q -x tests/pins
+- {file: fieldkit/pins/core.py, swap: ['if rx.search(url):', 'if not rx.search(url):'], why: "a rolling pattern refuses the URL"}
+- {file: fieldkit/pins/core.py, swap: ['and not _VERSION.search(url):', 'and _VERSION.search(url):'], why: "an unversioned download is refused"}
+- {file: fieldkit/pins/core.py, swap: ['if _HEX.search(line) or any(', 'if True or any('], why: "a download needs a sha256 pin"}
+- {file: fieldkit/pins/core.py, swap: ['if not _ARCHIVE.search(path):', 'if True:'], why: "downloads are held to the pin"}
+- {file: fieldkit/pins/core.py, swap: ['if rel in SCRIPTS and raw.lstrip().startswith("#"):', 'if False:'], why: "a commented URL is not a source"}
+- {file: fieldkit/pins/core.py, swap: ['if s and not s.startswith("#") and not re.fullmatch', 'if False and not re.fullmatch'], why: "SHA256SUMS lines must carry a sha256"}
+- {file: fieldkit/pins/core.py, swap: ['findings.append({"kind": "missing-file"', 'pass; _x = ({"kind": "missing-file"'], why: "a missing pin file is a finding"}
+- {file: fieldkit/pins/core.py, swap: ['(master|main|HEAD|trunk|develop)(?![\w.-]*\d)', '(master2|main2)(?![\w.-]*\d)'], why: "master/main/HEAD archives are rolling"}
+- {file: fieldkit/pins/cli.py, swap: ['return 3 if findings else 0', 'return 0'], why: "check exits 3 on findings"}
+- {file: fieldkit/pins/cli.py, swap: ['    return 0 if ok else 3', '    return 0'], why: "self-test exits 3 when a kind was missed"}
+- {file: fieldkit/pins/selftest.py, swap: ['            good = rc == want', '            good = True'], why: "self-test compares exit codes"}

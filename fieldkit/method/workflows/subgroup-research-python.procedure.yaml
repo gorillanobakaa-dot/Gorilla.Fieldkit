@@ -1,0 +1,18 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-research-python
+intent: research
+toolchain: python
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 6
+replayed_ok: 0 of 6
+step_families:
+- python -m fieldkit tools
+side_effects:
+  network_or_remote: 0
+  write_or_release: 0
+  code_execution: 0
+blocker: Only `python -m fieldkit tools` is recorded and marked unknown. Its arguments, effects, and expected output are absent;
+  no research task or verifiable completion condition can be inferred.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

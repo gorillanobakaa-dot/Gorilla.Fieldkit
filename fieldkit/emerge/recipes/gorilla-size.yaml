@@ -14,6 +14,9 @@ sources:
   - {id: src, git: "{src}", track: tree}
 config:
   files: ["{src}/Cargo.toml", "{src}/Cargo.lock", "{src}/.cargo/config.toml"]
+toolenv:                            # Linux and macOS (Windows: nothing): no hand-set PATH or TMPDIR (plan W6)
+  path_if_missing: {cargo: ["~/.cargo/bin"]}
+  tmpdir: {min_free_gb: 2, fallback: "~/.cache/fieldkit-scratch/tmp"}   # /tmp too small or noexec
 toolchain:
   - [cargo, --version]
   - [rustc, --version]

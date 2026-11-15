@@ -10,6 +10,15 @@ import pytest
 from fieldkit.buildh import install as inst, task
 
 
+@pytest.fixture(autouse=True)
+def _windows_world(monkeypatch):
+    """These tests describe the Windows verify rows (firefox.exe, installer, zip, registry); on another system those
+    rows are `not-this-platform` by design (P9, tests/test_os_aware_rows.py holds that half)."""
+    from fieldkit.core import host
+    real = host.host()
+    monkeypatch.setattr(host, "host", lambda: dict(real, system="Windows", is_windows=True, is_linux=False, is_mac=False))
+
+
 def _fake_install(d, version="155.0.1"):
     d.mkdir(parents=True)
     (d / "application.ini").write_text(f"[App]\nVendor=Mozilla\nName=Firefox\nCodeName=Gorilla Unleashed\nVersion={version}\nBuildID=20260914\n", encoding="utf-8")
@@ -113,6 +122,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     searched = []
     monkeypatch.setattr(inst, "_search_rows", lambda target, say=print: searched.append(target) or [])  # test_buildh_searchstrip.py
     monkeypatch.setattr(inst, "_mozlinks_rows", lambda target: [])                 # its own tests: test_buildh_mozilla_links.py
+    monkeypatch.setattr(inst, "_doors_rows", lambda target: [])                   # its own tests: test_buildh_doors.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -254,6 +264,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "_satellite_rows", lambda target, say=print: [])     # its own tests: test_buildh_satellite.py
     monkeypatch.setattr(inst, "_search_rows", lambda target, say=print: [])          # its own tests: test_buildh_searchstrip.py
     monkeypatch.setattr(inst, "_mozlinks_rows", lambda target: [])                 # its own tests: test_buildh_mozilla_links.py
+    monkeypatch.setattr(inst, "_doors_rows", lambda target: [])                   # its own tests: test_buildh_doors.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})

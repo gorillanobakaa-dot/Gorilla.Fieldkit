@@ -1,0 +1,21 @@
+# Desktop apps appcapture knows (data first). Anything else: --exe PATH [--kind electron|go|node|generic].
+# kind decides how the proxy reaches the app: every kind gets HTTPS_PROXY/HTTP_PROXY and a CA bundle in SSL_CERT_FILE,
+# REQUESTS_CA_BUNDLE and NODE_EXTRA_CA_CERTS; electron also gets --proxy-server (Chromium ignores the env proxy).
+kinds:
+  electron:
+    args: ["--proxy-server=http://127.0.0.1:{port}"]
+    # Chromium keeps its own trust store (NSS on Linux): it does not read SSL_CERT_FILE. Only the throwaway captured
+    # instance gets this flag; it is never written to the app's own settings.
+    chromium_ca_flag: "--ignore-certificate-errors"
+  go: {args: []}
+  node: {args: []}
+  generic: {args: []}
+apps:
+  antigravity:
+    kind: electron
+    exe:
+      linux: ["~/Downloads/Antigravity/Antigravity-x64/antigravity", "/opt/Antigravity/antigravity", "/usr/share/antigravity/antigravity"]
+      windows: ["%LOCALAPPDATA%/Programs/Antigravity/Antigravity.exe"]
+      darwin: ["/Applications/Antigravity.app/Contents/MacOS/Electron"]
+    note: "Its Go language_server (a child) calls the backend and honours HTTPS_PROXY + SSL_CERT_FILE, not --proxy-server."
+    hosts: [daily-cloudcode-pa.googleapis.com, cloudcode-pa.googleapis.com, aicode.googleapis.com]

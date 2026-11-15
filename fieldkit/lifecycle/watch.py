@@ -29,6 +29,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 from . import tasks
 
@@ -73,9 +74,32 @@ def _followed(t, led):
     return False
 
 
+def worker_activity(t, home=None):
+    """-> the newest sign the worker itself is working (epoch s), not only the runbook log (idea I-08, 2026-11-11: a
+    worker committing and editing was flagged silent 120 min because only the runbook log was read): the worktree's own
+    git files (HEAD, index, its reflog) and folder, and the newest Claude transcript of that worktree."""
+    wt = t.get("worktree")
+    if not wt:
+        return 0.0
+    seen = [_mtime(wt)]
+    try:
+        gitfile = Path(wt) / ".git"
+        gd = Path(gitfile.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()) if gitfile.is_file() else gitfile
+        seen += [_mtime(gd / n) for n in ("HEAD", "index", "logs/HEAD")]
+    except (OSError, IndexError, ValueError):
+        pass
+    try:                                    # the transcript folder is the worktree path with / and . turned into -
+        tr = Path(home or Path.home()) / ".claude" / "projects" / re.sub(r"[/.\\]", "-", str(Path(wt).resolve()))
+        seen += [_mtime(f) for f in tr.glob("*.jsonl")]
+    except (OSError, ValueError, RuntimeError):
+        pass
+    return max(seen)
+
+
 def silence(t, notes=()):
-    """-> the newest sign of life (epoch s): start, report, log, a cable note naming the task or from its device."""
-    seen = [_t(t.get("at")), _t(t.get("reported")), _mtime(t.get("log"))]
+    """-> the newest sign of life (epoch s): start, report, log, the worker's own activity, a cable note naming the task
+    or from its device."""
+    seen = [_t(t.get("at")), _t(t.get("reported")), _mtime(t.get("log")), worker_activity(t)]
     for n in notes:
         if t["id"] in (n.get("text") or "") or (t.get("on") not in (None, "here") and n.get("from_host") == t.get("on")):
             seen.append(_t(n.get("at")))
@@ -91,6 +115,11 @@ def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), aliv
     ids: only these tasks (and no note findings)."""
     now = time.time() if now is None else now
     tasks.settle(led, alive)
+    if alive is None:                    # a real watch (not a test's fake): a job waiting for the login goes on
+        try:
+            tasks.resume_waiting(led)
+        except Exception:  # noqa: BLE001 - the watch reports; a failed relaunch stays waiting
+            pass
     out = []
     for t in led.values():
         st, tid, title = t.get("status"), t["id"], (t.get("title") or "")[:50]
@@ -248,6 +277,11 @@ def _once(a, ledger, notes):
     ids = {x.strip() for x in (getattr(a, "arg", None) or "").split(",") if x.strip()} or None
     found = findings(led, stalled_min=a.stalled, hours=a.hours, notes=notes, ids=ids)
     done = act(found, led=led) if a.act else []
+    if a.act:                                   # the keeper's pass also reaps Fieldkit's own process trees (P37)
+        from ..core import procs
+        line = procs.pass_line(act=True)
+        if not line.startswith("procs: OK") and not a.json:
+            print(line)
     over = ended(led, ids) if ids else None
     if a.json:
         print(json.dumps({"findings": found, "done": done, "new_reports": len(new), "ended": over},

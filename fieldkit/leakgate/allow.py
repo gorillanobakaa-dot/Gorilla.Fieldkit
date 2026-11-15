@@ -47,6 +47,11 @@ def problems(data):
     return out
 
 
+def _bare(name):
+    """A program name without Windows' .exe suffix (the Linux runner reports `firefox`, the Windows one `firefox.exe`)."""
+    return name[:-4] if name.endswith(".exe") else name
+
+
 def match(data, kind, value, scenario, port=None):
     """-> the first entry covering this observation, or None."""
     v = (value or "").lower()
@@ -60,6 +65,8 @@ def match(data, kind, value, scenario, port=None):
             continue
         if any(fnmatch.fnmatch(v, g.lower()) for g in e.get("values", [])):
             return e
+        if kind == "process" and any(fnmatch.fnmatch(_bare(v), _bare(g.lower())) for g in e.get("values", [])):
+            return e                                    # firefox == firefox.exe: the same program on Linux and Windows
     return None
 
 

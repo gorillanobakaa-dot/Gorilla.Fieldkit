@@ -1,0 +1,32 @@
+# P20 (2026-11-09): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/power_investigate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_power_investigate.py
+- file: fieldkit/power/investigate.py
+  swap:
+  - '    if bat["health_pct"] < MIN_HEALTH:'
+  - '    if False:'
+  why: a worn battery is a suspect
+- file: fieldkit/power/investigate.py
+  swap:
+  - '        if sum(vend.values()) >= STORM_MIN:'
+  - '        if False:'
+  why: a reset storm by the vendor daemons is a suspect
+- file: fieldkit/power/investigate.py
+  swap:
+  - '    if peak_c is not None and peak_c >= HOT_C:'
+  - '    if False:'
+  why: a hot cut is a heat suspect
+- file: fieldkit/power/investigate.py
+  swap:
+  - '    running = [t for t, s in at if s == "running"]'
+  - '    running = []'
+  why: fan control running at a cut is a suspect
+- file: fieldkit/power/investigate.py
+  swap:
+  - '        if first_cut is not None and c["t"] < lo:'
+  - '        if False:'
+  why: changes older than the first cut minus 7 days do not count
+- file: fieldkit/power/investigate.py
+  swap:
+  - '(30 if others else 90) if unknown else 0'
+  - '30'
+  why: hardware is the residual suspect, first when nothing else is

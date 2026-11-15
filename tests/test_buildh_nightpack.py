@@ -93,3 +93,50 @@ def test_the_condition_says_what_is_really_checked(env):
     p = np.prepare("t", release="v2", gate=False, say=lambda m: None)
     assert "no leak gate" in p["actions"][0]["condition"] and "leak gate release PASS" not in p["actions"][0]["condition"]
     assert "leak gate release PASS" in np.prepare("t", release="v2", say=lambda m: None)["actions"][0]["condition"]
+
+
+# ---- Linux: the systemd user timer is the scheduled task's twin (P9, owner 2026-11-12) -------------------------------
+
+class _R:
+    def __init__(self, rc=0, out="", err=""):
+        self.returncode, self.stdout, self.stderr = rc, out, err
+
+
+def test_linux_arm_registers_a_user_timer_and_an_expiry_stop(env):
+    calls = []
+    ok, out = np._systemd_register("t", 12, runner=lambda c, **k: calls.append(c) or _R())
+    assert ok and out == "registered"
+    runs = [c for c in calls if c[0] == "systemd-run"]
+    assert len(runs) == 2 and all("--user" in c for c in runs)          # user level: no root
+    first, expire = runs
+    assert "--unit=gorilla-night-pack" in first and "--on-unit-active=600" in first       # every 10 minutes
+    assert "--property=RuntimeMaxSec=7200" in first
+    assert first[-6:] == ["-m", "fieldkit", "build-harness", "night-pack", "t", "run"]
+    assert "--on-active=43200" in expire and expire[-4:] == ["--user", "stop", "gorilla-night-pack.timer",
+                                                             "gorilla-night-pack.service"]
+    assert calls[0][:3] == ["systemctl", "--user", "stop"]             # a re-arm replaces the old timers
+
+
+def test_linux_arm_fails_closed_when_the_expiry_timer_is_refused(env):
+    calls = []
+
+    def runner(c, **k):
+        calls.append(c)
+        return _R(1, "", "no bus") if "--unit=gorilla-night-pack-expire" in c else _R()
+    ok, out = np._systemd_register("t", 1, runner=runner)
+    assert not ok and "no bus" in out
+    assert calls[-1][:3] == ["systemctl", "--user", "reset-failed"]      # the first timer was taken back
+
+
+def test_linux_arm_reports_a_refused_timer(env):
+    ok, out = np._systemd_register("t", 1, runner=lambda c, **k: _R(1, "", "Failed to connect to bus") if c[0] == "systemd-run" else _R())
+    assert not ok and "bus" in out
+
+
+def test_scheduler_picks_systemd_off_windows(monkeypatch):
+    seen = []
+    monkeypatch.setattr(np, "_systemd_register", lambda *a, **k: seen.append("reg") or (True, "registered"))
+    monkeypatch.setattr(np, "_systemd_remove", lambda *a, **k: seen.append("rm"))
+    monkeypatch.setattr(np.sys, "platform", "linux")
+    assert np._scheduler_register("t", 1)[0] and np._scheduler_remove() is None
+    assert seen == ["reg", "rm"]

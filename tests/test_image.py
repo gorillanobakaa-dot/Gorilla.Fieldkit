@@ -41,7 +41,7 @@ def test_report_lists_missing_tools_with_the_install_command_and_source():
     assert by["magick"]["present"] and by["magick"]["version"] == "Version: 7"
     assert not by["cwebp"]["present"] and by["cwebp"]["install"] == "scoop install libwebp"
     assert by["cwebp"]["source"].startswith("https://")
-    assert tools.report(local={}, which=lambda p: None, platform="linux")[0]["install"].startswith("sudo apt")
+    assert tools.report(local={}, which=lambda p: None, platform="linux")[0]["install"].startswith("micromamba")
 
 
 def test_doctor_exit_is_3_when_a_required_tool_is_missing(monkeypatch, capsys):

@@ -237,9 +237,11 @@ def drive(tid, a):
                 return "BLOCKED"
 
             before = step_submits(step)
+            cur_model = next((x.get("model") for x in task.load(tid)["steps"] if x["id"] == step), None)  # P9 rung
             t0 = time.time()
+            step_env = dict(env, ANTHROPIC_MODEL=cur_model, FIELDKIT_ATTEMPT_MODEL=cur_model) if cur_model else env
             r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
-                        "-q"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+                        "-q"], env=step_env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             answer = (r.stdout or r.stderr).strip()
 
             with lock:
@@ -579,6 +581,62 @@ def run(a, emit):
                               "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
                               "fieldkit build-harness leakgate-selftest"))
         return 0 if r["ok"] else 3
+    if act == "leakgate-ci":
+        # leakgate-ci pack TASK [deb=F] [out=DIR] | run CONTEXT.tar.gz DEB OUT [release=1] (on the runner, as root) |
+        # record TASK ARTIFACT_DIR: the Linux gate on a GitHub ubuntu runner (fieldkit/leakgate/ci.py, P27)
+        from ..leakgate import ci as lci, gate as lg
+        sub, rest = (a.args[0] if a.args else ""), a.args[1:]
+        kv = dict(x.split("=", 1) for x in rest if "=" in x)
+        pos = [x for x in rest if "=" not in x]
+        if sub == "run":
+            if len(pos) != 3:
+                raise task.Refused("usage: leakgate-ci run CONTEXT.tar.gz DEB OUT [release=1]")
+            ctx, deb, out = pos
+            try:
+                result, events = lci.run(ctx, deb, out, release=kv.get("release") == "1", say=lambda m: print(m, flush=True))
+            except Exception as ex:                      # a late crash keeps the runs already done (P27)
+                art = lci.collect_partial(out, f"{type(ex).__name__}: {ex}")
+                print(f"fieldkit: the gate crashed: {ex}\n  partial results kept in {art}", flush=True)
+                return 1
+            info = lci.runner_info(deb, lci.sha256(ctx))
+            (Path(out) / "runner.json").write_text(json.dumps(info, indent=1), encoding="utf-8")
+            art = lci.collect(out, result, events, Path(out) / "runner.json")
+            for p in lg.POLICIES:
+                print(f"  {p:24s} {result[p]}")
+            print(f"FINAL_RESULT {result['FINAL_RESULT']}  (artifact {art})")
+            return 0 if result["FINAL_RESULT"] == "PASS" else 3
+        if sub not in ("pack", "record"):
+            raise task.Refused("usage: leakgate-ci pack TASK | run CONTEXT DEB OUT | record TASK ARTIFACT_DIR")
+        from . import installertest as _it, verify as vf
+        from .ownercheck import gate_root
+        t = task.load(current_id(pos[0] if pos else None))
+        owner = gate_root(t)
+        if owner is None:
+            raise task.Refused("leakgate-ci: the task has no harness root to read the allowlist from")
+        if sub == "pack":
+            try:
+                deb = kv.get("deb") or _it.gate_artifact({}, t)
+            except RuntimeError as e:
+                raise task.Refused(str(e))
+            n1 = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"])
+            out = kv.get("out") or str(task.STATE / t["id"] / "leakgate-ci")
+            r = lci.pack(deb, owner, t["workdir"], t["meta"]["upstream"], out, n_minus_1_tree=n1,
+                         previous_lock=lg.previous_cargo_lock(n1, t["workdir"]))
+            emit(r, lambda r: print("\n".join(lci.lines(r))))
+            print("NEXT: put the .deb and the context archive in a DRAFT release, then run the leakgate-linux workflow "
+                  "(docs/LEAKGATE-GITHUB.md)")
+            return 0
+        if len(pos) != 2:
+            raise task.Refused("usage: leakgate-ci record TASK ARTIFACT_DIR")
+        try:
+            deb = kv.get("deb") or _it.gate_artifact({}, t)
+            r = lci.record(pos[1], lci.sha256(deb), t["meta"]["upstream"]["version"], lg.POLICIES, owner)
+        except RuntimeError as e:
+            raise task.Refused(str(e))
+        task.journal(t, "leakgate", final=r["FINAL_RESULT"], release=False, ran_on=r["ran_on"],
+                     failed=[p for p, v in r["policies"].items() if v != "PASS"], artifacts=r["artifacts"])
+        emit(r, lambda r: print("\n".join(lci.lines(r))))
+        return 0 if r["FINAL_RESULT"] == "PASS" else 3
     if act == "migrate":                                      # migration control: plan, gates, SITREP (fieldkit/migrate)
         from ..migrate import cli as mc
         return mc.run(a, emit, current_id)
@@ -610,6 +668,13 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "request":
+        # request TASK STEP skip|retry --note "why": a model asks the HARNESS (I-04); the next `next` decides it
+        from . import autoport
+        if len(a.args) < 3:
+            raise task.Refused("request TASK STEP skip|retry --note \"why\"")
+        r = autoport.request(tid, a.args[1], a.args[2], a.note or "")
+        return emit(r, lambda r: print(f"requested {r['how']} of {r['step']}: {r['next']}")) or 0
     if act == "withdraw":
         if len(a.args) < 2 or not (a.note or "").strip():
             raise task.Refused("withdraw TASK STEP --note \"why\"")
@@ -889,7 +954,7 @@ def run(a, emit):
                                                            [f"  {i}  ({w})" for i, w in rows] +
                                                            ["", "to read the explanation for one: fieldkit build-harness deferred TASK STEP"]))) or 0
         if getattr(a, "do", None):
-            print(deferred.apply_drop(tid, rest[0], a.do))
+            print(deferred.apply_drop(tid, rest[0], a.do, force=bool(getattr(a, "force", False))))
             return 0
         b = deferred.build(tid, rest[0])
         emit(b, lambda b: print("\n".join(deferred.show(b, plain=not a.technical))))
@@ -949,8 +1014,15 @@ def run(a, emit):
         if not owner:
             raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        write = opts.get("write", "0") not in ("0", "no", "false", "")
+        left = _rb.unfinished(t.get("steps"))
+        if write and left:
+            raise task.Refused(f"rebase-set write=1 REFUSED: the port is not finished ({len(left)} step(s) not done, first: "
+                               f"{', '.join(left[:3])}). It supersedes every patch that fails on the new release, so run "
+                               "before the port it hides them instead of queuing them for S3. Finish the steps "
+                               "(build-harness next), then run it; without write=1 it only reports.")
         r = _rb.run(owner, t["workdir"], t["meta"]["upstream"]["version"].split(".")[0],
-                    write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
+                    write=write, say=lambda m: print(m, flush=True))
         task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
         return 0 if r["ok"] else 3
     if act == "carry":
@@ -1276,7 +1348,8 @@ def run(a, emit):
         # installer-test TASK: the shipped installer installed silently into a temp folder (no shortcuts, no service),
         # checked file by file against the proved zip, uninstalled by its own uninstaller, machine as before (2026-10-19)
         from . import installertest
-        r = installertest.run(tid, say=lambda m: print(m, flush=True))
+        r = installertest.run(tid, say=lambda m: print(m, flush=True),
+                              opts=dict(x.split("=", 1) for x in a.args[1:] if "=" in x))
         print("INSTALLER TEST " + ("OK" if r["ok"] else "NOT OK: " + "; ".join(x["check"] for x in r["rows"] if not x["ok"])))
         return 0 if r["ok"] else 3
     if act == "stops":
@@ -1577,7 +1650,12 @@ def run(a, emit):
         from . import buildrun, verify as vf
         import json as _js
         t = task.load(tid)
-        owner = Path(buildrun._owner_root(t))
+        from .ownercheck import gate_root
+        owner = gate_root(t)
+        if owner is None:
+            raise task.Refused(f"the leak gate cannot find where its allowlist and result live for task {tid}: the task has no "
+                               "meta.harness_root folder and no owner repository beside it")
+        owner = Path(owner)
         say = lambda m: print(m, flush=True)
         if act == "leakgate-approve":
             ids = set(x for x in a.args[1:]) or {"*proposed*"}
@@ -1672,13 +1750,18 @@ def run(a, emit):
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         backups = Path.home() / "Documents" / "Gorilla.Firefox.Backups"
         prev = None
-        for b in sorted(backups.glob("*/manifest.json"), reverse=True):
+        for b in (sorted(backups.glob("*/manifest.json"), reverse=True) if __import__("sys").platform == "win32" else []):   # Windows zip backups only
             m = _js.loads(b.read_text(encoding="utf-8"))
             if m.get("installed", {}).get("version") and m["installed"]["version"] != t["meta"]["upstream"]["version"]:
                 prev = b.parent / m["files"]["install"]["zip"]
                 break
+        from . import installertest as _it
+        try:
+            artifact = _it.gate_artifact(res, t)
+        except RuntimeError as e:
+            raise task.Refused(str(e))
         only = set(a.only.split(",")) if getattr(a, "only", None) else None
-        result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
+        result, events, st, bi = lg.run(artifact, owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
                                         n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,   # 2026-10-18: no older-upstream stand-in; the owner's release N-1 or a stated "no baseline"
@@ -1712,14 +1795,17 @@ def run(a, emit):
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         work = task.STATE / tid / f"capture-{time.strftime('%Y%m%d-%H%M%S')}"
         work.mkdir(parents=True)
-        zp = work / "build.zip"                                   # a copy: a later package step rewrites dist/
-        _sh.copyfile(res["artifacts"]["zip"]["file"], zp)
+        art = res["artifacts"].get("zip") or res["artifacts"].get("deb") or res["artifacts"].get("tarball")
+        if not art:
+            raise task.Refused("capture: build-result.json names no zip, deb or tarball to unpack")
+        zp = work / ("build" + ("".join(Path(art["file"]).suffixes[-2:]) if Path(art["file"]).suffix != ".zip" else ".zip"))
+        _sh.copyfile(art["file"], zp)                              # a copy: a later package step rewrites dist/
         plain = capture.test_copy(zp, work / "browser-plain")
         say = lambda m: print(m, flush=True)
         if getattr(a, "packets_only", False):
-            pk = capture.packet_run(plain / "firefox.exe", work, say=say)
+            pk = capture.packet_run(capture.browser_exe(plain), work, say=say)
             if pk is None:
-                print("not elevated: run this in an administrator PowerShell")
+                print("no packet-capture rights: Windows, an administrator PowerShell; Linux, root or sudo -n")
                 return 3
             (work / "packets.json").write_text(_js.dumps(pk, indent=1), encoding="utf-8")
             for name, r in pk.items():
@@ -1727,7 +1813,7 @@ def run(a, emit):
                 print(f"  [{'ok' if not v and not tr else 'FAIL'}] packets {name}: vendor {sorted(v)} trackers {sorted(tr)} other {sorted(un)[:10]} udp {r['udp'][:6]}")
             task.journal(t, "capture-packets", dir=str(work), scenarios=list(pk))
             return 0
-        rows = capture.rows(tid, zp, plain / "firefox.exe", work, say=say, packets=True)
+        rows = capture.rows(tid, zp, capture.browser_exe(plain), work, say=say, packets=True)
         (work / "capture.json").write_text(_js.dumps(rows, indent=1, default=str), encoding="utf-8")
         for r in rows:
             print(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:400]}")
@@ -1872,7 +1958,7 @@ def run(a, emit):
     if act == "rewind":
         return emit(task.rewind(tid, a.args[1]), None) or 0
     if act == "unblock":
-        task.unblock(tid, a.args[1], a.args[2])
+        task.unblock(tid, a.args[1], a.args[2], force=bool(getattr(a, "force", False)), note=a.note or "")
         return emit(task.status(tid), None) or 0
     if act in ("report", "watch"):
         from . import recorder

@@ -389,20 +389,28 @@ def verify(install_dir, version, marker=None):
     info = installed(install_dir)
     rows.append({"check": "application.ini says the pinned version", "ok": bool(info) and info["version"] == version,
                  "evidence": str(info)})
-    exe = Path(install_dir) / "firefox.exe"
-    out = ""
-    if exe.is_file():
-        try:
-            out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
-        except (OSError, subprocess.TimeoutExpired) as e:
-            out = f"failed: {e}"
-    rows.append({"check": "installed firefox.exe reports the pinned version", "ok": version in out, "evidence": out or "no firefox.exe"})
+    from ..core import host
+    win = ("windows",)
+
+    def _exe_row(name):
+        exe = Path(install_dir) / name
+        out = ""
+        if exe.is_file():
+            try:
+                out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
+            except (OSError, subprocess.TimeoutExpired) as e:
+                out = f"failed: {e}"
+        return version in out, out or f"no {name}"
+    host.os_row(rows, win, "installed firefox.exe reports the pinned version", lambda: _exe_row("firefox.exe"))
+    host.os_row(rows, ("linux",), "installed firefox reports the pinned version", lambda: _exe_row("firefox"))
     if marker:
         rows.append(marker_row(install_dir, marker))
         return rows
-    reg = find_install()
-    rows.append({"check": "the uninstall entry points at this install", "ok": reg is not None and Path(reg).resolve() == Path(install_dir).resolve(),
-                 "evidence": str(reg)})
+
+    def _reg():
+        reg = find_install()
+        return reg is not None and Path(reg).resolve() == Path(install_dir).resolve(), str(reg)
+    host.os_row(rows, win, "the uninstall entry points at this install", _reg)
     return rows
 
 
@@ -535,7 +543,7 @@ POST_INSTALL = (
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
 PROOF_CHECKS = frozenset({"profile", "prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
-                          "about", "stamp", "satellite", "search", "mozlinks"})
+                          "about", "stamp", "satellite", "search", "mozlinks", "doors"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -625,6 +633,12 @@ def _mozlinks_rows(target):
     return mozlinks.rows(target)
 
 
+def _doors_rows(target):
+    """P11 on the installed build: the DevTools debugger server's remote door refused five ways (doors.py)."""
+    from . import doors
+    return doors.rows(target)
+
+
 def _search_rows(target, say=print):
     """D-158-13 on the browser as people run it: Google is the only engine on a fresh profile AND on a copy of the
     profile this install opens (2026-10-18: a profile carried over from 157 still offered Perplexity, and every
@@ -700,6 +714,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
                 "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
                 "search": lambda: _search_rows(target, say),
                 "mozlinks": lambda: _mozlinks_rows(target),
+                "doors": lambda: _doors_rows(target),
                 "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
         # every group post-install knows, not only the package groups build-run carries (2026-10-18: "search" was
         # in runs and PROOF_CHECKS but never planned, so D-158-13 on the real-profile copy never ran)

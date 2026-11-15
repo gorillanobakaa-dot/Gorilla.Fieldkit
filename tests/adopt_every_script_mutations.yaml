@@ -1,0 +1,42 @@
+# every script becomes a tool or is ignored with a reason (2026-11-01); each rule must be CAUGHT:
+#   fieldkit mutate --plan tests/adopt_every_script_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_adopt_every_script.py
+- file: fieldkit/parity_goal.py
+  swap:
+  - '    missing = {s: sorted(names - per.get(s, set())) for s in SYSTEMS if names - per.get(s, set())}'
+  - '    missing = {}'
+  why: a helper one system lacks is a finding
+- file: fieldkit/parity_goal.py
+  swap:
+  - '    backlog = blk.group(1).split() if blk and "true" in blk.group(1) else []'
+  - '    backlog = []'
+  why: a non-empty parityBacklog is a finding
+- file: fieldkit/parity_goal.py
+  swap:
+  - '        if v != newest:'
+  - '        if False:'
+  why: a computer behind the newest release is a finding
+- file: fieldkit/parity_goal.py
+  swap:
+  - '    if not peers:'
+  - '    if False:'
+  why: with no peer the two computers are not compared, which cannot pass
+- file: fieldkit/desk/sweep.py
+  swap:
+  - '    return [r for r in rows if r["status"] in ("untracked", "no-test")]'
+  - '    return []'
+  why: the unadopted count the friction row reports
+- file: fieldkit/desk/sweep.py
+  swap:
+  - '        if name in ignore or name in _skip_for(root) or name.startswith("."):'
+  - '        if name.startswith("."):'
+  why: an ignored script is not named by honesty
+- file: fieldkit/lifecycle/friction.py
+  swap:
+  - '    if not todo:'
+  - '    if True:'
+  why: the friction row is not ok while N > 0
+- file: fieldkit/desk/sweep.py
+  swap:
+  - '            if (entry / ".git").exists():'
+  - '            if False:'
+  why: another session's git worktree is not an unadopted script

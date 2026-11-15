@@ -1,5 +1,5 @@
-"""The words every brief ends with, and the standing rule every agent reads: start side jobs headless, never as a
-card; when the job is done, clean up and archive yourself.
+"""The words every brief ends with, and the standing rule every agent reads: start side jobs as visible desktop sessions (headless
+only for jobs no human talks to, or when the app refuses); when the job is done, clean up and archive yourself.
 
 Owner, 2026-10-26 (verbatim): "along with the instructions you send, you also have to tell them (this needs to be
 implemented in the harness in a deterministic way via tools and checks) that from there they also have to archive

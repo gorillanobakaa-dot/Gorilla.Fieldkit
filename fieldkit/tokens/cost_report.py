@@ -163,8 +163,12 @@ def text(r):
     tot = "  total  %s $%.2f" % (me, r["usd_mine"])
     if r["peer_machine"]:
         tot += "  %s $%.2f  both $%.2f" % (peer, r["usd_peer"], r["usd_both"])
+    if r.get("peer_measured_at"):
+        tot += "  (%s measured %s)" % (peer, cd.when_text(r["peer_measured_at"]))
+    if not r["peer_machine"]:
+        tot += "  (%s not counted: no cable)" % (r.get("peer_name") or "the other machine")
     if r["peer_days_missing"]:
-        tot += "  (the other machine's numbers are missing for %s)" % ", ".join(r["peer_days_missing"])
+        tot +="  (the other machine's numbers are missing for %s)" % ", ".join(r["peer_days_missing"])
     out.append(tot)
     if r["unpriced_calls"]:
         out.append("  %d call(s) on models without a price are not in these dollars" % r["unpriced_calls"])
@@ -206,8 +210,16 @@ def main(argv=None):
     if a.mine:
         print(json.dumps(mine) if a.json else text(combine(mine, "", {})))
         return 0
-    pm, peer = peer_numbers(set(mine["days"]), mine["machine"], [Path(f) for f in a.peer] or peer_candidates())
+    pm, peer, at = "", {}, None
+    if not a.peer:                                    # the other machine's own answer over the cable, fresher than a day
+        cab, at = cd.from_cable({"kind": "report", "since": since.isoformat(), "until": until.isoformat()})
+        if cab:
+            pm, peer = peer_numbers(set(mine["days"]), mine["machine"], [Path(cab)])
+    if not peer:
+        pm, peer = peer_numbers(set(mine["days"]), mine["machine"], [Path(f) for f in a.peer] or peer_candidates())
+        at = None
     r = combine(mine, pm, peer, a.bill)
+    r["peer_measured_at"], r["peer_name"] = at, cd.peer_name()
     print(json.dumps(r) if a.json else text(r))
     return 0
 

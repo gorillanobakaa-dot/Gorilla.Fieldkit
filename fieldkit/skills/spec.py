@@ -29,6 +29,32 @@ STRICT_WARNS = {"description-brackets", "name-ascii"}       # portability notes 
 LINK = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """Reject duplicate frontmatter keys instead of silently choosing one value."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark, "unhashable mapping key", key_node.start_mark
+            ) from None
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark,
+                f"duplicate key {key!r}", key_node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+
+
 def find_skill_md(skill_dir):
     """SKILL.md, else skill.md, by the name as stored (Windows and macOS would open either for both)."""
     try:
@@ -160,7 +186,7 @@ def validate(skill_dir, strict=False):
         return out + [("encoding", "error", "SKILL.md is not UTF-8")]
     try:
         fm, body = split_frontmatter(text.lstrip("﻿"))
-        meta = yaml.safe_load(fm)
+        meta = yaml.load(fm, Loader=UniqueKeyLoader)
     except ValueError as e:
         return out + [("frontmatter", "error", str(e))]
     except yaml.YAMLError as e:

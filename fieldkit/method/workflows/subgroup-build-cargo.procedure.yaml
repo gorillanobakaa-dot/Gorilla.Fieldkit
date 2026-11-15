@@ -1,0 +1,19 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-build-cargo
+intent: build
+toolchain: cargo
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 5
+replayed_ok: 0 of 5
+step_families:
+- cargo build
+- git add
+side_effects:
+  network_or_remote: 0
+  write_or_release: 1
+  code_execution: 1
+blocker: '`cargo build` has no selected workspace/target/features and may run build scripts; `git add` is a repository mutation
+  with no reviewed path list. No PASS condition or revert plan was recorded.'
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

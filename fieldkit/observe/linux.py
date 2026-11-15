@@ -254,3 +254,21 @@ def events(words, limit=2000):
     if r.returncode and not r.stdout:
         out["error"] = (r.stderr or "journalctl failed").strip()[:200]
     return out
+
+
+def conns(pid):
+    """Connections of PID (psutil, shared)."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    return _common.conns(pid)
+
+
+def dns(pid, seconds):
+    """DNS servers PID talks to (socket sampling, shared)."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    r = _common.dns(pid, seconds)
+    return r
+

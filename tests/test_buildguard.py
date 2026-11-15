@@ -108,3 +108,58 @@ def test_under_pythonw_the_guarded_command_s_output_is_kept(tmp_path):
         rc = subprocess.call([pyw, "-c", script], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
                              env=env, timeout=120)
     assert rc == 0 and "inner said it" in out.read_text(encoding="utf-8", errors="replace")
+
+
+def test_linux_guard_registers_a_hold_so_the_brake_can_pause_the_job(tmp_path, monkeypatch):
+    """R11: on Linux the guard returned before brake.hold, so a hot machine never paused a guarded job."""
+    from fieldkit.thermal import brake, keeper
+    monkeypatch.setattr(buildguard.sys, "platform", "linux")
+    monkeypatch.setattr(brake, "_dir", lambda: tmp_path)
+    monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "")
+    with buildguard._fan_and_governor(lambda *_: None, "t", None, False, None, None):
+        assert [h["pid"] for h in brake.holds(tmp_path, alive=lambda p: True)] == [os.getpid()]
+    assert brake.holds(tmp_path, alive=lambda p: True) == []
+
+
+@pytest.mark.parametrize("cmd,commit", [
+    (["git", "commit", "-m", "x"], True), (["git.exe", "-C", "repo", "commit", "-q"], True),
+    (["git", "-c", "a.b=c", "commit"], True), (["git", "status"], False), (["git", "log", "commit"], False),
+    (["cargo", "build"], False), ([], False)])
+def test_only_a_git_commit_is_a_commit(cmd, commit):
+    assert buildguard.is_commit(cmd) is commit
+
+
+def test_a_guarded_commit_takes_no_slot_so_its_hook_can_not_queue_behind_it(tmp_path, monkeypatch):
+    # I-18 (2026-11-03, 2026-11-08): `guard -- git commit` held the slot while hooks/pre-commit waited for one
+    import contextlib
+    seen = []
+
+    @contextlib.contextmanager
+    def guard(say, **k):
+        seen.append(k.get("slot"))
+        yield None
+    monkeypatch.setattr(buildguard, "guard", guard)
+    ok = [sys.executable, "-c", "pass"]
+    assert buildguard.run(ok) == 0 and seen == [True]
+    monkeypatch.setattr(buildguard.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0})())
+    assert buildguard.run(["git", "commit", "-m", "x"]) == 0 and seen == [True, False]
+
+
+def test_without_a_slot_the_guard_does_not_wait_when_every_slot_is_held(tmp_path, monkeypatch):
+    from fieldkit import admission
+    from fieldkit.core import preflight
+    monkeypatch.setenv("FIELDKIT_ADMISSION_HOME", str(tmp_path / "adm"))
+    monkeypatch.setattr(admission, "base_slots", lambda *a, **k: 1)
+    monkeypatch.setattr(admission, "temperature", lambda: None)
+    monkeypatch.setattr(preflight, "skipped", lambda: True)
+    monkeypatch.setattr(buildguard, "_fan_and_governor", lambda *x, **k: __import__("contextlib").nullcontext())
+    held = admission.try_take(1, "build", "parent")
+    assert held is not None
+    try:
+        with buildguard.guard(lambda s: None, check_fan=False, slot=False) as gov:
+            assert held.f is not None             # reached the body without waiting for the held slot
+        with pytest.raises(TimeoutError):
+            with admission.admitted("build", "child", wait=0, say=lambda s: None):
+                pass
+    finally:
+        held.release()

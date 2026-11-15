@@ -269,6 +269,17 @@
    "academic-words"
   ]
  },
+ "accept": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "accept"
+  ]
+ },
  "admit": {
   "platforms": [
    "linux",
@@ -290,6 +301,16 @@
    "app"
   ]
  },
+ "appcapture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Proxy variables and CA bundles work the same on both; the app profile names the per-OS executable. Not run on Windows or macOS yet.",
+  "ids": [
+   "appcapture"
+  ]
+ },
  "audio": {
   "platforms": [
    "linux"
@@ -297,6 +318,16 @@
   "why": "",
   "ids": [
    "fieldkit-audio"
+  ]
+ },
+ "autoaccept": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "autoaccept"
   ]
  },
  "autopilot": {
@@ -501,9 +532,10 @@
  },
  "build-harness capture": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner",
+  "why": "",
   "ids": [
    "bh-capture"
   ]
@@ -718,9 +750,10 @@
  },
  "build-harness installer-test": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks",
+  "why": "",
   "ids": [
    "installer-test"
   ]
@@ -763,6 +796,16 @@
   "why": "",
   "ids": [
    "bh-leakgate-baseline"
+  ]
+ },
+ "build-harness leakgate-ci": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-ci"
   ]
  },
  "build-harness leakgate-context": {
@@ -936,9 +979,10 @@
  },
  "build-harness night-pack": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer",
+  "why": "",
   "ids": [
    "night-pack"
   ]
@@ -1177,6 +1221,16 @@
   "why": "",
   "ids": [
    "bh-repro"
+  ]
+ },
+ "build-harness request": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-request"
   ]
  },
  "build-harness rewind": {
@@ -1439,6 +1493,68 @@
    "canary"
   ]
  },
+ "capture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture"
+  ]
+ },
+ "capture project firefox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-firefox"
+  ]
+ },
+ "capture project kernel": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-kernel"
+  ]
+ },
+ "capture project opencode": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-opencode"
+  ]
+ },
+ "ciaudit": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ciaudit"
+  ]
+ },
+ "compileonce": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "compileonce"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1634,6 +1750,17 @@
    "friction"
   ]
  },
+ "github": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "github"
+  ]
+ },
  "goal": {
   "platforms": [
    "linux",
@@ -1806,6 +1933,28 @@
    "ideas"
   ]
  },
+ "idle report": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "idle-report"
+  ]
+ },
+ "image accept": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-accept"
+  ]
+ },
  "image compare": {
   "platforms": [
    "darwin",
@@ -1863,12 +2012,34 @@
  },
  "inbox": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
   "why": "",
   "ids": [
    "inbox"
+  ]
+ },
+ "install": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "install-verify"
+  ]
+ },
+ "integration": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "integration"
   ]
  },
  "jobs": {
@@ -1879,6 +2050,17 @@
   "why": "",
   "ids": [
    "fieldkit-jobs"
+  ]
+ },
+ "keeper tick": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keeper-tick"
   ]
  },
  "laptop alerts say": {
@@ -2129,6 +2311,38 @@
    "metrics"
   ]
  },
+ "modelcatalog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Pure Python reading files; no OS-specific call.",
+  "ids": [
+   "modelcatalog"
+  ]
+ },
+ "models gguf": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-gguf"
+  ]
+ },
+ "models tune": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-tune"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",
@@ -2176,7 +2390,7 @@
    "linux",
    "windows"
   ],
-  "why": "one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run",
+  "why": "one reader per system, each returns nothing elsewhere; live fixtures (a held file, listening and connected sockets, the test PID) run on Linux and Windows 2026-11-09; the macOS reader is tested by CI and was not run on a Mac",
   "ids": [
    "observe"
   ]
@@ -2211,6 +2425,61 @@
    "office-deliver"
   ]
  },
+ "office fillable-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-fillable-check"
+  ]
+ },
+ "office form-bbox-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-bbox-check"
+  ]
+ },
+ "office pptx-chart-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-chart-check"
+  ]
+ },
+ "office pptx-master-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-master-check"
+  ]
+ },
+ "office pptx-schema-verdict": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-schema-verdict"
+  ]
+ },
  "office read": {
   "platforms": [
    "linux",
@@ -2229,6 +2498,17 @@
   "why": "",
   "ids": [
    "office-scrub"
+  ]
+ },
+ "onestart": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "onestart"
   ]
  },
  "orchestrate": {
@@ -2321,6 +2601,39 @@
   "why": "",
   "ids": [
    "parity"
+  ]
+ },
+ "parity helpers": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-helpers"
+  ]
+ },
+ "parity installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-installed"
+  ]
+ },
+ "parity os": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-os"
   ]
  },
  "peers link": {
@@ -2504,6 +2817,28 @@
    "peers-wait"
   ]
  },
+ "permanence check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "permanence-check"
+  ]
+ },
+ "pins": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pins"
+  ]
+ },
  "pipeline": {
   "platforms": [
    "linux",
@@ -2544,6 +2879,46 @@
    "plan"
   ]
  },
+ "power audit": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-audit"
+  ]
+ },
+ "power drift": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-drift"
+  ]
+ },
+ "power incidents": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-incidents"
+  ]
+ },
+ "power investigate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-investigate"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",
@@ -2565,6 +2940,16 @@
    "privacy-scan"
   ]
  },
+ "procs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Linux: zombies and the child subreaper (contain.reap_orphans). Windows: no zombies; orphaned trees and the job object give the same verdicts. macOS has no subreaper (prctl) and no test runner here: not claimed.",
+  "ids": [
+   "procs"
+  ]
+ },
  "publish": {
   "platforms": [
    "linux",
@@ -2575,6 +2960,17 @@
    "publish"
   ]
  },
+ "pyliterals": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pyliterals"
+  ]
+ },
  "refcheck": {
   "platforms": [
    "linux",
@@ -2583,6 +2979,16 @@
   "why": "",
   "ids": [
    "refcheck"
+  ]
+ },
+ "refusals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refusals"
   ]
  },
  "regress": {
@@ -2645,6 +3051,127 @@
    "release-cycle"
   ]
  },
+ "repair brace-parity-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "brace-parity-check"
+  ]
+ },
+ "repair cp1252-stdout-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cp1252-stdout-fix"
+  ]
+ },
+ "repair evidence-macho-extract": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-macho-extract"
+  ]
+ },
+ "repair keep-both": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keep-both"
+  ]
+ },
+ "repair missing-import-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "missing-import-fix"
+  ]
+ },
+ "repair pid-guarded-stop": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pid-guarded-stop"
+  ]
+ },
+ "repair plan-row-insert": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "plan-row-insert"
+  ]
+ },
+ "repair pwsh-parent-chains": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-parent-chains"
+  ]
+ },
+ "repair pwsh-syntax-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-syntax-check"
+  ]
+ },
+ "repair tpfan-config-verify": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tpfan-config-verify"
+  ]
+ },
+ "repair worktree-classify-recycle": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "worktree-classify-recycle"
+  ]
+ },
  "repro compare": {
   "platforms": [
    "linux",
@@ -2677,6 +3204,17 @@
    "rotate"
   ]
  },
+ "route": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "route"
+  ]
+ },
  "rules": {
   "platforms": [
    "linux",
@@ -2684,7 +3222,8 @@
   ],
   "why": "",
   "ids": [
-   "rules"
+   "rules",
+   "rules-song"
   ]
  },
  "runbook": {
@@ -2752,6 +3291,56 @@
    "ship"
   ]
  },
+ "ship batch build": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-build"
+  ]
+ },
+ "ship batch collect": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-collect"
+  ]
+ },
+ "ship batch run": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-run"
+  ]
+ },
+ "ship batch select": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-select"
+  ]
+ },
+ "ship batch status": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-batch-status"
+  ]
+ },
  "ship gh-release": {
   "platforms": [
    "darwin",
@@ -2772,6 +3361,17 @@
   "why": "",
   "ids": [
    "ship-push-tag"
+  ]
+ },
+ "ship tags": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-tags"
   ]
  },
  "ship train": {
@@ -3029,6 +3629,17 @@
    "skills"
   ]
  },
+ "skills package": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-package"
+  ]
+ },
  "skills sets": {
   "platforms": [
    "darwin",
@@ -3038,6 +3649,17 @@
   "why": "",
   "ids": [
    "skill-sets"
+  ]
+ },
+ "skills validate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-frontmatter-check"
   ]
  },
  "snapshot diff": {
@@ -3145,6 +3767,16 @@
    "testcost"
   ]
  },
+ "thermal ensure": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "macOS (the MacBook Air) runs no heavy work and cools in firmware",
+  "ids": [
+   "thermal-ensure"
+  ]
+ },
  "thermal monitor": {
   "platforms": [
    "linux",
@@ -3174,6 +3806,17 @@
   "why": "",
   "ids": [
    "token-audit"
+  ]
+ },
+ "tools external": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tools-external"
   ]
  },
  "triage": {

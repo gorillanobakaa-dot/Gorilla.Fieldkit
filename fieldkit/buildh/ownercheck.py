@@ -93,6 +93,19 @@ def patchset_owner(t):
     return _owner_root(t)
 
 
+def gate_root(t):
+    """The folder the leak gate keeps its allowlist, dispositions and result in: the owner's repo (_owner_root) when it
+    has the Windows script, else the task's harness root (Linux: gorilla-firefox has no harness/gorilla_build.py, so
+    the gate crashed on None, 2026-11-12). Returns None when neither exists as a folder: the caller refuses."""
+    from . import buildrun                   # the name callers (and tests) already patch
+    root = buildrun._owner_root(t)
+    if root is None:
+        hr = t.get("meta", {}).get("harness_root")
+        if hr and Path(hr).is_dir():
+            root = Path(hr)
+    return root
+
+
 def step_owner_preflight(t, owner_root=None, **kw):
     """Harness step: the owner's preflight; every BLOCKER becomes an owner step after this one."""
     root = owner_root or _owner_root(t)

@@ -16,6 +16,7 @@ even then it only changes the task record, never a file in the tree.
 import hashlib
 import json
 import re
+import sys
 import subprocess
 from pathlib import Path
 
@@ -67,7 +68,21 @@ def superseded_by_hand(steps, step, now, w=None, checkpoints=None):
     removed_later, added_later, last = set(), set(), None
     for later in steps[after:]:
         la = later.get("args") or {}
-        if later.get("status") != "done" or la.get("file") != f or not (later.get("done_by") == "hand" or later.get("hand_port")):
+        # a done owner step carries no file of its own; the repair edits committed under it (the Fluent orphan repair
+        # put back messages that code still names, 2026-11-11 P27 160) count when their diff on THIS file covers the lines
+        if later.get("kind") == "owner" and later.get("status") == "done" and w is not None:
+            oc = next((x.get("commit") for x in reversed(checkpoints or [])
+                       if x.get("label") == later["id"] or str(x.get("label", "")).startswith(later["id"] + " (")), None)
+            ol = _commit_diff_lines(w, oc, f) if oc else []
+            if ol:
+                removed_later |= {l[1:].strip() for l in ol if l.startswith("-")}
+                added_later |= {l[1:].strip() for l in ol if l.startswith("+")}
+                last = later["id"]
+            continue
+        # a later step the harness applied exactly counts too: its lines ARE in the tree (2026-11-11, P27 160: 22.EGRESS 008 h1
+        # put the chrome:// UrlbarResult import back on purpose; 07.TOOLKIT h1 wanted the older moz-src one)
+        if later.get("status") != "done" or la.get("file") != f or not (
+                later.get("done_by") in ("hand", "harness") or later.get("hand_port")):
             continue
         lines = list((la.get("hunk") or {}).get("lines", []))
         # what the hand step really did to the file, not only the hunk it was asked for (2026-10-16: 027's hand port
@@ -520,15 +535,17 @@ def verify(task_id):
             before_edit = shown("show", f"{hc}^:{a['file']}") if hc else None
             if not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")):
                 keeps = firefox.hand_keeps(s.get("hand_note"))
+                # a rename the port declared (`renames: OLD -> NEW`) is judged on the hunk with the new name
+                hunk_r = firefox.renamed_hunk(a["hunk"], firefox.hand_renames(s.get("hand_note")))
                 if hc:
                     # a line this edit removed in one hunk and added in another was moved, not removed (2026-10-08:
                     # restoring tokens-shared.css removed two copies of --panel-background-color and kept one elsewhere)
                     keeps = tuple(keeps) + tuple(l[1:].strip() for l in shown("diff", f"{hc}^", hc, "--", a["file"])
                                                  if l.startswith("+") and not l.startswith("+++") and l[1:].strip())
-                why = firefox.hand_port_holds(b, a["hunk"], pristine or None, keeps) if b is not None else ["the file does not exist"]
+                why = firefox.hand_port_holds(b, hunk_r, pristine or None, keeps) if b is not None else ["the file does not exist"]
                 # each reference misjudges one kind of edit: pristine one made on top of earlier changes, the file
                 # before the edit a line a later step legitimately put back (2026-10-08); both must say "not there"
-                if why and b is not None and before_edit and not firefox.hand_port_holds(b, a["hunk"], before_edit, keeps):
+                if why and b is not None and before_edit and not firefox.hand_port_holds(b, hunk_r, before_edit, keeps):
                     why = []
                 v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
@@ -544,6 +561,39 @@ def verify(task_id):
                 held = held_until_later_hand_edit(w, t["steps"], s, root[0] if root else None, t.get("checkpoints"))
                 if held:
                     v, d = "SUPERSEDED", f"held until the later hand edit {held} changed the file on purpose"
+        if v in ("NOT-APPLIED", "PARTIAL") and s["status"] == "obsolete" and isinstance((s.get("args") or {}).get("hunk"), dict):
+            # closed as obsolete because the function the hunk hangs on is gone: judged by that anchor, not by a generic
+            # line (`return { data: null ... };`) that lives elsewhere (2026-11-11, P27 160: fetchSportsLive, fetchWatchLive)
+            ctx = [l[1:] for l in s["args"]["hunk"].get("lines", []) if l.startswith(" ")]
+            anchors = [l.strip() for l in ctx if re.match(r"\s*(?:async\s+|static\s+|function\s+)*(?!if\b|for\b|while\b|switch\b|catch\b)"
+                                                         r"[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{\s*$", l)]    # the declaration lines
+            have_all = {l.strip() for l in (body(s["args"]["file"]) or [])}
+            if anchors and not any(x in have_all for x in anchors):
+                v, d = "TARGET-GONE", "the context the hunk hangs on is gone from the file: obsolete, as recorded"
+        if v in ("NOT-APPLIED", "PARTIAL") and s.get("kind") == "model" and not s.get("skipped_by_owner"):
+            # the final checks' own rule for the same question (firefox.final_checks regression pass): the step's result
+            # judged the way its tier judges it, file-wide, or replaced on purpose by a LATER commit. verify read the
+            # raw lines and so called 18 steps false that the final checks had already proved fine (2026-11-11, P27 160)
+            sa = s.get("args") or {}
+            bc = next((c["commit"] for c in t.get("checkpoints", []) if c["label"] == s["id"]), None)
+            if bc and sa.get("file") and isinstance(sa.get("hunk"), dict):
+                now_l = body(sa["file"])
+                before_l = _git(w, "show", f"{bc}~1:{sa['file']}").splitlines()
+                if before_l:
+                    lost = firefox.still_holds(s, sa["file"], sa["hunk"], before_l, now_l)
+                    if not lost:
+                        v, d = "APPLIED", "the step's own result holds (judged as its tier judges it)"
+                    elif firefox.holds_file_wide(sa["hunk"], now_l, before_l):
+                        v, d = "APPLIED", "the change stands file-wide"
+                    else:
+                        by = firefox.superseded_by(w, bc, sa["file"])
+                        if by:
+                            v, d = "SUPERSEDED", f"a later commit replaced it on purpose: {by}"
+        if v in ("NOT-APPLIED", "PARTIAL") and s.get("done_by") == "harness-override" and s.get("override_by"):
+            # the stronger-model tie-break (autoport.override, journal `override` + `tie-break` with a ledger) judged this
+            # very check wrong for this step: upstream renamed the message and dropped words the literal text wants back
+            rep.setdefault("waived_by_tiebreak", []).append({"step": s["id"], "by": s["override_by"], "was": d})
+            v, d = "WAIVED", f"the tie-break ruled the text check wrong here: {s['override_by']}"
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file
@@ -593,6 +643,28 @@ def verify(task_id):
         rf = pset / g / "REPLACE_FILES"
         if spec.get("status") == "enabled" and rf.is_dir():
             named.update(p.relative_to(rf).as_posix() for p in rf.rglob("*") if p.is_file())
+    # a patch the set keeps for the OTHER operating system (`exclude_on`) names its files: a file the tree holds exactly as
+    # that patch leaves it is not an edit nobody asked for (2026-11-11, P27 160 Linux: widget/windows/moz.build, applied
+    # by the 22.EGRESS apply step, is what 23.REBASE.160/0122 carries for Windows). Judged by the patch's own lines.
+    for g, spec in groups.items():
+        if spec.get("status") != "enabled":
+            continue
+        for plat, names_ in (spec.get("exclude_on") or {}).items():
+            if plat == ("linux" if sys.platform.startswith("linux") else "windows" if sys.platform == "win32" else sys.platform):
+                for pn in names_:
+                    pf = pset / g / pn
+                    for f in (firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace")) if pf.is_file() else []):
+                        cur = body(f["file"])
+                        if cur is None or not f["file"] in changed:
+                            continue
+                        have_f = {l.strip() for l in cur}
+                        ok = True
+                        for h in f["hunks"]:
+                            rem_h, add_h, _ = firefox.hunk_sides(h)
+                            ok &= all(x.strip() in have_f for x in add_h if x.strip()) and \
+                                not any(x.strip() in have_f for x in _judgeable(rem_h, SPECIFIC) if x.strip() not in {a.strip() for a in add_h})
+                        if ok:
+                            named.add(f["file"])
     rep["stray_edits"] = [rel for rel in changed if rel not in named]
     # 5. new files not in the tree. A new file a recorded hand step then changed (2026-10-02: AIWindowStub gained a
     # method 157 asks for) is judged by that step, not by the byte-identity with the patch set's copy.

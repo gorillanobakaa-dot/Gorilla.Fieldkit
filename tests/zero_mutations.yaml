@@ -78,3 +78,9 @@
 - file: fieldkit/zero/channels.py
   swap: ["    i = (text or \"\").find(NET1 + \"{\")", "    i = 0 if (text or \"\").startswith(NET1) else -1"]
   why: "the envelope is found behind the link's [FROM ...] stamp"
+- file: fieldkit/zero/net.py
+  swap: ["        if int(cur.get(\"epoch\") or 0) != int(net[\"epoch\"]) - 1:", "        if False:"]
+  why: "the epoch is re-checked inside the lock: only one assume wins"
+- file: fieldkit/zero/net.py
+  swap: ["        out.extend(_auto_assume(me, net, event, now))", "        pass"]
+  why: "the room hook of a live session takes over a MISSING Zero"

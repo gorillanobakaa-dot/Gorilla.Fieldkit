@@ -1,0 +1,24 @@
+# P26 (owner 2026-11-10): each project's know-how has its own harness section. A tool the capture loop distils is named
+# with the project's prefix, so it lands in that section; the section's entry card lists its workflows in order.
+# prefix   tool ids of the project start with it (a captured candidate gets it)
+# families extra tool ids (exact) that belong to the section
+# recipes  fieldkit emerge recipes of the project, in the order a job runs them
+# entry    the entry card in fieldkit/desk/tools.yaml: `fieldkit capture project NAME` is its command
+firefox:
+  title: Gorilla Firefox
+  prefix: bh-
+  families: []
+  recipes: [firefox-debian, firefox-windows]
+  entry: harness-firefox
+kernel:
+  title: Gorilla Debian kernel
+  prefix: kernel-
+  families: [debian-kernel-project]
+  recipes: [debian-kernel]
+  entry: harness-kernel
+opencode:
+  title: Gorilla OpenCode
+  prefix: opencode-
+  families: []
+  recipes: [gorilla-opencode]
+  entry: harness-opencode

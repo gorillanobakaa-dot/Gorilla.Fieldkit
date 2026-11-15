@@ -28,7 +28,7 @@ ARCH = {"tool_name": "mcp__ccd_session_mgmt__archive_session", "tool_input": {"s
 def test_the_incident_archive_self_with_a_nested_child_is_refused(tmp_path):
     t = transcript(tmp_path, START)
     why = nested.pretool({**ARCH, "transcript_path": t}, ok=set(), recs={})
-    assert why and CHILD in why and "detach_session" in why
+    assert why and CHILD in why and "leave this session idle" in why
     import fieldkit.lifecycle.nested as nm
     nm_load, nm.load_records = nm.load_records, lambda pattern=None: {}
     try:
@@ -38,10 +38,11 @@ def test_the_incident_archive_self_with_a_nested_child_is_refused(tmp_path):
     assert v and v["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-def test_a_detached_child_or_one_recorded_ok_lets_the_archive_through(tmp_path):
+def test_a_detached_child_still_blocks_and_one_recorded_ok_lets_the_archive_through(tmp_path):
+    # 2026-11-01: Zero 21 detached itself, Zero 20 archived itself, and Zero 21 vanished from the sidebar with it
     t = transcript(tmp_path, START, ("mcp__ccd_session_mgmt__detach_session", {"session_id": CHILD},
                                      "This session is now a top-level session."))
-    assert nested.pretool({**ARCH, "transcript_path": t}, ok=set(), recs={}) is None
+    assert nested.pretool({**ARCH, "transcript_path": t}, ok=set(), recs={})
     t2 = transcript(tmp_path, START)
     assert nested.pretool({**ARCH, "transcript_path": t2}, ok={CHILD}, recs={}) is None
 
@@ -82,7 +83,9 @@ def world(**kw):
 def test_the_real_incident_from_the_app_records_zero16_archiving_itself_is_refused():
     why = nested.verdict("self", "02951f75-0000", world(), zero_cli="a522dfa2", now=NOW)
     assert len(why) == 1 and why[0].startswith("NESTED") and CHILD in why[0]
-    assert nested.verdict("self", "02951f75-0000", world(detached=True), "a522dfa2", NOW) == []
+    why = nested.verdict("self", "02951f75-0000", world(detached=True), "a522dfa2", NOW)  # detached: still listed
+    assert len(why) == 1 and why[0].startswith("NESTED") and "leave" in why[0]
+    assert nested.verdict("self", "02951f75-0000", world(archived=True), "a522dfa2", NOW) == []
 
 
 def test_never_archive_the_zero_seat_or_a_running_session_by_id():
@@ -95,6 +98,8 @@ def test_never_archive_the_zero_seat_or_a_running_session_by_id():
 
 def test_zero_may_archive_finished_sessions_one_by_one():
     r = world(detached=True)
+    assert nested.verdict(PARENT, "a522dfa2-0000", r, zero_cli="a522dfa2", now=NOW)   # its child is still listed
+    r = world(archived=True)
     assert nested.verdict(PARENT, "a522dfa2-0000", r, zero_cli="a522dfa2", now=NOW) == []
     assert nested.verdict("local_unknown", "a522dfa2-0000", r, "a522dfa2", NOW) == []
 

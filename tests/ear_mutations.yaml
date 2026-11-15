@@ -1,0 +1,23 @@
+# I-27: each mutation must make tests/test_peers_link_ear.py, tests/test_autopilot_room.py or tests/test_zero_net.py
+# fail (fieldkit mutate --plan tests/ear_mutations.yaml -- python -m pytest -q THOSE FILES)
+- file: fieldkit/peers/link_relay.py
+  swap: ["    if pid and int(pid) != os.getpid() and alive(int(pid)):\n        return 2, [], []", "    if False:\n        return 2, [], []"]
+  why: "a second ear for the same station must be refused"
+- file: fieldkit/peers/link_relay.py
+  swap: ["            got = [e for _, e in net.entries(off) if net._addressed(e, station)] if size > off else []", "            got = [e for _, e in net.entries(off)] if size > off else []"]
+  why: "the ear wakes only for traffic addressed to its station"
+- file: fieldkit/peers/link_relay.py
+  swap: ["    if other_listener(alive):\n        return False\n    try:", "    if False:\n        return False\n    try:"]
+  why: "the ear takes the relay's duty only while no relay runs"
+- file: fieldkit/autopilot/room.py
+  swap: ["    return \"\\n\".join(x for x in (rows, only_new(call.get(\"session_id\"), ctx), _ear(call, event)) if x)", "    return \"\\n\".join(x for x in (rows, only_new(call.get(\"session_id\"), ctx + _ear(call, event))) if x)"]
+  why: "the ear line must not be deduped: an ended ear is restarted every time"
+- file: fieldkit/autopilot/room.py
+  swap: ["    if \"relay listen\" in str(", "    if \"relay listen-never\" in str("]
+  why: "no nag on the call that starts the ear"
+- file: fieldkit/zero/net.py
+  swap: ["             or deaf(rows) else OK)", "             else OK)"]
+  why: "a deaf station is a finding of the comms check"
+- file: fieldkit/zero/net.py
+  swap: ["        elif to.startswith(\"opencode:\") and machine_of(to) == machine():", "        elif to.startswith(\"opencode:\") or True:"]
+  why: "only notes for an OpenCode station here (or everyone) are pushed to OpenCode"

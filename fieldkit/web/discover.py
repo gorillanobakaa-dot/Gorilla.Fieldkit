@@ -50,9 +50,29 @@ def major(version):
     return int(m.group(1)) if m else 0
 
 
-def method_for(engine, version, have_geckodriver=False, platform=None):
+GORILLA_WHY = ("Gorilla build: its remote agent (Marionette, WebDriver BiDi, CDP) is locked off in code on purpose "
+               "(patches 0188/0189, measured in P6); it is not drivable")
+
+
+def is_gorilla(name, path=""):
+    """An owner-built Gorilla Firefox: by name, by gorilla-install.json, or CodeName=Gorilla in application.ini."""
+    if "gorilla" in f"{name} {Path(path).stem}".lower():
+        return True
+    try:
+        d = Path(path).parent
+        if (d / "gorilla-install.json").is_file():
+            return True
+        ini = d / "application.ini"
+        return ini.is_file() and bool(re.search(r"^CodeName=.*gorilla", ini.read_text(errors="replace"), re.M | re.I))
+    except OSError:
+        return False
+
+
+def method_for(engine, version, have_geckodriver=False, platform=None, gorilla=False):
     """-> (method, why-not). One method per engine; the doctor explains a missing one."""
     platform = platform or sys.platform
+    if gorilla and engine == "gecko":
+        return "", GORILLA_WHY
     if engine == "chromium":
         return "chromium-dump-dom", ""
     if engine == "gecko":
@@ -105,7 +125,7 @@ def row(name, path, source, version=None, run=subprocess.run, have_geckodriver=F
     path = str(path)
     eng = engine_of(name, path)
     ver = version if version is not None else version_of(path, run, platform)
-    method, nope = method_for(eng, ver, have_geckodriver, platform)
+    method, nope = method_for(eng, ver, have_geckodriver, platform, gorilla=is_gorilla(name, path))
     return {"name": name, "path": path, "version": ver, "engine": eng, "method": method, "why": why or nope,
             "source": source}
 

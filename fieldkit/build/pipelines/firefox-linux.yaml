@@ -12,7 +12,9 @@ description: >-
   bootstrap, build, package. Stages that need a Linux desktop say so; the plan runs anywhere.
 vars:
   harness: "${LOCAL:firefox.root}"               # the gorilla-firefox clone (mozconfig, patches/, scripts/)
-  version: "158.0"                               # the vaulted stable release to build
+  # the release to build; set firefox.version beside firefox.src in fieldkit.local.json when src is a newer port
+  # (2026-11-11, P27: src was the 160 port while this said 158.0, so the source stage refused the tree)
+  version: "${LOCAL:firefox.version=158.0}"
   work: "${LOCAL:vault.root}/../Build.Work/firefox"
   # the tree to BUILD: the port's work tree (firefox.src in fieldkit.local.json); preflight "source-is-the-port"
   # refuses a src that is not the work tree of the harness task holding this version's port (2026-10-15)
@@ -51,6 +53,14 @@ stages:
     run: {python: "fieldkit.build.firefox_linux:stage_patches"}
     verify:
       - {python: {target: "fieldkit.build.firefox_linux:verify_patches"}}
+    triage: firefox-linux
+
+  # 2026-11-11: the Microsoft fonts (never in git, EULA) copied from an earlier build tree before preflight checks them
+  - id: fonts
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_fonts"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_fonts"}}
     triage: firefox-linux
 
   - id: preflight

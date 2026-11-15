@@ -818,6 +818,41 @@ def install_windows(new, dest, old_version, want_sha, run=_run, in_use=_in_use):
     return {"ok": True, "version": ver, "sha256": got, "backup": str(backup), "path": str(dest)}
 
 
+def icon_path(home=None):
+    """The 256px icon `gorilla-opencode install` writes per user on Linux and macOS."""
+    return Path(home or Path.home()) / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps" / "gorilla-opencode.png"
+
+
+def install_program_files(dest, want_icon, run=_run, home=None):
+    """After the binary is in place: run its own `install` (per user: hicolor icons, .desktop entry, icon cache) and
+    check the installed 256px icon's sha256 against the release's (the pin's icon_sha256). -> {ok, why?, icon_sha256}.
+    A pin with no icon_sha256 runs the install and says the icon was not checked."""
+    rc, out, err = run([str(dest), "install"], timeout=120)
+    if rc != 0:
+        return {"ok": False, "why": f"`{dest.name} install` exited {rc}: {(err or out)[:200]}"}
+    ic = icon_path(home)
+    got = sha256(ic) if ic.is_file() else None
+    if not want_icon:
+        return {"ok": True, "icon_sha256": got, "icon_checked": False}
+    if got != want_icon:
+        return {"ok": False, "icon_sha256": got,
+                "why": f"after `install` the icon {ic} has sha256 {got}, the release's is {want_icon}"}
+    return {"ok": True, "icon_sha256": got, "icon_checked": True}
+
+
+def install_verify(tag, run=_run, product="gorilla-opencode"):
+    """After the install step: `fieldkit install verify` proves this computer's installed state against the release
+    itself (binary on PATH = the one the menu entry launches, every icon size, caches, no older install shadowing).
+    -> {ok, why?}: the first failing line and its fix."""
+    rc, out, err = run([sys.executable, "-m", "fieldkit", "install", "verify", product, "--tag", tag], timeout=600)
+    if rc == 0:
+        return {"ok": True, "verified": True}
+    fails = [l.strip() for l in out.splitlines() if l.startswith("FAIL")]
+    fix = next((l.strip() for l in out.splitlines() if l.strip().startswith("FIX")), "")
+    return {"ok": False, "why": f"install verify exit {rc}: {fails[0] if fails else (err or out)[-300:]} {fix}".strip(),
+            "verify_failures": len(fails)}
+
+
 def _record_align(row):
     state_dir().mkdir(parents=True, exist_ok=True)
     with open(state_dir() / "align.jsonl", "a", encoding="utf-8") as f:
@@ -825,7 +860,7 @@ def _record_align(row):
 
 
 def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn=fetch_public, install_fn=install_windows,
-          user_install_fn=install_user):
+          user_install_fn=install_user, verify_fn=install_verify):
     """-> {state ALIGNED | PLAN | DONE | TODO | FAILED, ...}. TODO = the line the session on that machine runs."""
     p = pin().get("gorilla-opencode") or {}
     tag = version or p.get("version")
@@ -855,21 +890,36 @@ def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn
         return {**base, "state": "FAILED", "why": str(e)}
     base.update(downloaded=str(f), sha256=sha)
     if s == "windows":
-        if cur and cur["version"] == want and cur["sha256"] == sha:
-            return {**base, "state": "ALIGNED", "why": "installed bytes equal the release's"}
         dest = path or Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Gorilla OpenCode" / "gorilla-opencode.exe"
-        r = install_fn(f, dest, (cur or {}).get("version"), sha, run=run)
-        out = {**base, **r, "state": "DONE" if r["ok"] else "FAILED"}
+        r, same_bytes = {"ok": True}, bool(cur and cur["version"] == want and cur["sha256"] == sha)
+        if not same_bytes:
+            r = install_fn(f, dest, (cur or {}).get("version"), sha, run=run)
+        if r["ok"]:                     # the program's own install (shortcuts, .ico, PATH), then the proof
+            rc, o, e = run([str(dest), "install"], timeout=120)
+            r = {**r, **({"ok": False, "why": f"`{dest.name} install` exited {rc}: {(e or o)[:200]}"} if rc != 0 else verify_fn(tag, run))}
+        out = {**base, **r, "state": ("ALIGNED" if same_bytes else "DONE") if r["ok"] else "FAILED"}
         _record_align(out)
         return out
-    if cur and cur["version"] == want and cur["sha256"] == sha:
-        return {**base, "state": "ALIGNED", "why": "installed bytes equal the release's"}
     if kind not in ("linux", "darwin"):
         return {**base, "state": "FAILED", "why": f"no installer for {s}"}
     dest = user_dest(s)
+    want_icon = p.get("icon_sha256")
+    if cur and cur["version"] == want and cur["sha256"] == sha:
+        # the binary is right, but the per-user icons and launcher may still be an older release's
+        ic = install_program_files(Path(path), want_icon, run=run)
+        if ic["ok"]:
+            ic = {**ic, **verify_fn(tag, run)}
+        out = {**base, **ic, "state": "ALIGNED" if ic["ok"] else "FAILED"}
+        out["why"] = "installed bytes equal the release's" if ic["ok"] else ic["why"]
+        if not ic["ok"]:
+            _record_align(out)
+        return out
     r = user_install_fn(f, dest, (cur or {}).get("version"), sha, run=run)
     if r["ok"] and kind == "darwin":
         r["sha256"] = sha256(dest)      # the zip's hash is the download; the installed file is the binary inside
+    if r["ok"]:
+        ic = install_program_files(dest, want_icon, run=run)
+        r = {**r, **ic, **(verify_fn(tag, run) if ic["ok"] else {})}
     out = {**base, **r, "state": "DONE" if r["ok"] else "FAILED"}
     if r["ok"]:
         out["why"] = f"installed per user in {dest.parent} (no sudo); put it first on PATH if an older copy shadows it"
@@ -936,7 +986,8 @@ def _diff_lines(r, indent="  "):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit parity", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["manifest", "compare", "align", "preflight", "baseline", "doctor"])
+    ap.add_argument("action", choices=["manifest", "compare", "align", "preflight", "baseline", "doctor", "helpers", "installed"])
+    ap.add_argument("repo", nargs="?", help="helpers: the Gorilla.Opencode clone (default: sync.repos)")
     ap.add_argument("--set", action="store_true", help="baseline: record this machine's state now")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--hash", action="store_true", help="manifest: print only the hash")
@@ -948,7 +999,13 @@ def main(argv=None):
     ap.add_argument("--rollback", action="store_true", help="align: put back the binary the last align replaced")
     ap.add_argument("--label", default="parity preflight")
     ap.add_argument("--kind", default="test", help="preflight: test, build, gate, bench, measure (bench/measure: strict)")
+    if argv and argv[0] == "os":                       # single-system cards: port, equivalent or native
+        from .desk import osparity
+        return osparity.main(argv[1:])
     a = ap.parse_args(argv)
+    if a.action in ("helpers", "installed"):
+        from . import parity_goal
+        return parity_goal.run(a.action, a.repo, a.json)
     if a.action == "manifest":
         m = manifest()
         print(m["hash"] if a.hash else json.dumps(m, indent=1, sort_keys=True, ensure_ascii=False))

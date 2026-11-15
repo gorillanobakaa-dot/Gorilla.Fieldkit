@@ -171,3 +171,26 @@ def test_c1_a_watch_on_ids_returns_when_they_end_done(monkeypatch, capsys):
     assert watch._once(a, led, []) == (0, True)             # both ended: wake, exit 0
     assert "ENDED T-1 done" in capsys.readouterr().out
     assert watch.ended({}, {"T-typo"}) == ["UNKNOWN T-typo: no such task in the ledger"]
+
+
+def test_a_worker_active_in_its_worktree_is_not_stalled(tmp_path):
+    # I-08 (2026-11-11): a worker committing was flagged silent 120 min because only the runbook log was read
+    import os
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / "x.py").write_text("1")
+    led = {"T-1": task("T-1", ago=120, worktree=str(wt))}
+    old = NOW - 3 * 3600
+    os.utime(wt, (old, old))
+    assert find(led) == {"T-1": "STALLED"}
+    os.utime(wt, (NOW - 60, NOW - 60))
+    assert find(led) == {}
+    os.utime(wt, (old, old))
+    gd = tmp_path / "gd"
+    gd.mkdir()
+    (gd / "HEAD").write_text("ref")
+    os.utime(gd / "HEAD", (NOW - 60, NOW - 60))
+    (wt / ".git").write_text(f"gitdir: {gd}\n")
+    os.utime(wt, (old, old))
+    os.utime(wt / ".git", (old, old))
+    assert find(led) == {}                                         # a commit/checkout in its git dir counts too

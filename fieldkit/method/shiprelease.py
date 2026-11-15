@@ -43,7 +43,7 @@ MAX_DAYS = 7
 
 def _gh(args, timeout=60):
     try:
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)
     return (r.stdout if r.returncode == 0 else None), (r.stderr or "").strip()
@@ -94,7 +94,7 @@ def content_on_base(repo, ref, base="main"):
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(d) / "index")}
         subprocess.run(["git", "-C", str(repo), "read-tree", f"origin/{base}"], env=env, capture_output=True)
         r = subprocess.run(["git", "-C", str(repo), "apply", "--cached", "--check", "-R", "-"], input=diff, env=env,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")   # cp1252 crashed on emoji (2026-11-09)
     return r.returncode == 0
 
 
@@ -234,6 +234,13 @@ def _local_leftovers(repo, base, row):
         "unpushed: push and open a pull request (fieldkit ship push); merged: git branch -d NAME (refuses unmerged)")
 
 
+def _why(r):
+    """git's own words for a refused push (git's generic 'failed to push' line dropped)."""
+    ls = [l.strip() for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
+    ls = [l for l in ls if not l.startswith(("error: failed to", "To "))] or ls
+    return " | ".join(ls)[:300] or f"exit {r.returncode}"
+
+
 def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
     """One source of truth (owner 2026-10-16: 'only what is necessary, too many branches, a single source of truth').
     Deletes on the remote: branches fully merged into origin/<base> (git proves it), and branches whose pull request
@@ -243,6 +250,14 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
     removed with git branch -d (git refuses an unmerged one). Never touches the base. -> {"ok", "deleted", "archived",
     "kept", "local"}"""
     git(repo, "fetch", "--quiet", "--prune", "origin")
+    slug0 = repo_slug(repo)
+    if slug0:
+        out, err = gh(["pr", "list", "-R", slug0, "--state", "open", "--limit", "1", "--json", "number"])
+        if out is None:             # without GitHub an open PR's head looks unproven: delete nothing (2026-11-09)
+            why = ghhidden.explain(err[:160])
+            return {"ok": False, "deleted": [], "archived": [], "kept": [], "local": [], "refused": [],
+                    "rows": [{"check": "github", "state": "DO", "say": f"pull requests not readable ({why}): nothing was deleted",
+                              "run": "run it where gh is signed in (not inside an autopilot run)"}]}
     r = audit(repo, base, offline=False, max_commits=10 ** 9, gh=gh)
     merged = [x.split("/", 1)[1] for x in git(repo, "branch", "-r", "--merged", f"origin/{base}",
                                               "--format=%(refname:short)").stdout.split()
@@ -259,10 +274,13 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
         if "OPEN" in states:
             continue
         (stale if "MERGED" in states or content_on_base(repo, line, base) else unproven).append(name)
-    deleted, archived, kept = [], [], []
+    deleted, archived, kept, refused = [], [], [], []
     for b in merged + stale:
-        if git(repo, "push", "--quiet", "origin", "--delete", b).returncode == 0:
+        r = git(repo, "push", "--quiet", "origin", "--delete", b)
+        if r.returncode == 0:
             deleted.append(b)
+        else:                                               # a hook or GitHub refused: say so, never drop it (2026-11-09)
+            refused.append((b, _why(r)))
     for b in unproven:
         if not archive_unproven:
             kept.append(b)
@@ -287,7 +305,11 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
              f"{len(kept)} branch(es) with work not proven on {base}, kept: {', '.join(kept)}",
              "run": "" if not kept else "look at each, or: fieldkit ship prune --archive-unproven"},
             {"check": "local", "state": "OK", "say": f"{len(local)} merged local branch(es) removed"}]
-    return {"ok": not kept, "rows": rows, "deleted": deleted, "archived": archived, "kept": kept, "local": local}
+    for b, why in refused:
+        rows.append({"check": "refused", "state": "DO", "say": f"delete of {b} on the remote was refused: {why}",
+                     "run": "a repository hook or GitHub rule refuses it (owner mandate): never bypassed; the owner deletes it"})
+    return {"ok": not kept and not refused, "rows": rows, "deleted": deleted, "archived": archived, "kept": kept,
+            "local": local, "refused": [{"branch": b, "why": w} for b, w in refused]}
 
 
 def package_version(repo):
@@ -321,7 +343,7 @@ def scaffold(repo, tag, base="main"):
     return made
 
 
-def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable):
+def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable, hotfix="", gate=None):
     """-> {"ok", "rows": [...], "next"}"""
     rows = []
 
@@ -382,6 +404,10 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                (chk.stdout or chk.stderr).strip()[-200:] + ("" if committed else "; the composed page differs from the "
                                                             "committed one: commit it through a pull request first")):
         return {"ok": False, "rows": rows}
+    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
+    g = (gate or releasegate.guard)(repo_slug(repo), tag, hotfix)
+    if not row("batch-window", g["ok"], g.get("error") or g["state"]):
+        return {"ok": False, "rows": rows, "next": g.get("next", "")}
     if not row("tag-free", not _rev(repo, f"refs/tags/{tag}"), f"{tag} {'already exists' if _rev(repo, f'refs/tags/{tag}') else 'is free'}"):
         return {"ok": False, "rows": rows}
     git(repo, *_ident(repo), "tag", "-a", tag, "-m", f"Release {tag}", head, check=True)

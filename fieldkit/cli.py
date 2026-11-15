@@ -3,10 +3,16 @@
     fieldkit host                                  what machine is this
     fieldkit tools list [--harness H] [--all]      registered tools (+ every toolbox script)
     fieldkit tools check [--run-tests] [--id ...]  exists? safe to probe? tested?
+    fieldkit tools external CATALOG_DIR            inspect external cards as data; never runs them
 
     fieldkit office read FILE [--engine builtin|markitdown|docling] [--out F]
     fieldkit office create SPEC.(json|yaml) OUT [--force]
     fieldkit office check FILE...
+    fieldkit office form-bbox-check FIELDS.json     form overlaps and entry-height findings
+    fieldkit office fillable-check FILE.pdf         count fillable fields without exposing their names
+    fieldkit office pptx-chart-check FILE.pptx       known chart XML failure patterns (read-only)
+    fieldkit office pptx-master-check FILE.pptx      known shared-theme master pattern (read-only)
+    fieldkit office pptx-schema-verdict ERRORS.txt   classify known fatal schema diagnostics
     fieldkit office scrub FILE... [--check] [--term WORD...] [--no-backup]
     fieldkit office deliver FILE...              check, scrub names, recheck, privacy scan: safe to send?
 
@@ -16,7 +22,10 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release|agent-shell]
+    fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
+    fieldkit repair ACTION ...              11 small repair/check tools (cp1252, imports, conflicts, braces, ps1, pids, worktrees, Mach-O)
+    fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
     fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
@@ -31,9 +40,13 @@
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
+    fieldkit compileonce [build|check] [--force] pre-compile all Python modules to .pyc bytecode ahead of time
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
+    fieldkit appcapture start|show|stop|recycle|status APP   a desktop app's real requests via a local proxy, tokens redacted
+    fieldkit modelcatalog verify --provider P ...  a client's model ids, headers, catalogue vs the backend's real reply (exit 3)
+    fieldkit procs check|reap [--json]           every process tree Fieldkit started: zombies, orphans, CPU, age (exit 3)
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
@@ -45,7 +58,7 @@
     fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor|task|release|orders]   the agent net: is Zero
                                                  established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
-    fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
+    fieldkit sitrep template|check|render|example|doctor|gather [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
     fieldkit teach propose LOG.md --out DIR [--name N]   a pipeline draft, signature stubs and card candidates from a teaching log
     fieldkit terminal doctor|ask|run|history [-- COMMAND ...]   open a terminal window in front of a person with the command ready; history = every window's outcome (fieldkit/terminal)
@@ -71,7 +84,11 @@
     fieldkit rules check|install                 the one core in every agent's rules file; size limit; no repeats
     fieldkit plan next [--write]                 where the harness plan stands: phase, open items, what merges finished
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
+    fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
+    fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
+    fieldkit pins check|self-test                helper sources immutable and sha256-pinned? check --repo PATH [--json]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
+    fieldkit accept list|run|report              everyday-jobs acceptance suite for Gorilla OpenCode (any model, both OSes)
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
@@ -445,6 +462,34 @@ def tools_find(words, rows):
 
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "external":
+        from .desk import external
+        if len(a.words) != 1:
+            raise SystemExit("fieldkit tools external CATALOG_DIR")
+        try:
+            report = external.inspect(a.words[0])
+        except (FileNotFoundError, NotADirectoryError, OSError, RuntimeError, ValueError) as exc:
+            print(f"REFUSED: {exc}")
+            return 2
+
+        def human(d):
+            for tool in d["tools"]:
+                print(f"{tool['status']:<14} {tool['id']:<32} {tool['title']}")
+                for issue in tool.get("issues", []):
+                    print(f"  - {issue}")
+            for workflow in d["workflows"]:
+                print(f"{workflow['status']:<14} {workflow['path']}")
+                for issue in workflow["issues"]:
+                    print(f"  - {issue}")
+            counts = d["counts"]
+            print(f"\n{counts['tools']} card(s), {counts['compatible_untrusted']} compatible but untrusted, "
+                  f"{counts['incompatible']} incompatible, {counts['workflows']} workflow file(s); "
+                  f"{counts['runnable']} runnable")
+            if d["scan_limited"]:
+                print("inventory truncated at a safety limit")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if report["counts"]["incompatible"] or report["counts"]["workflows"] or report["scan_limited"] else 0
     if a.action == "find":
         if not a.words:
             raise SystemExit("fieldkit tools find WORDS")
@@ -490,6 +535,50 @@ def cmd_tools(a):
 
 def cmd_office(a):
     from .office import check, create, read, scrub
+    if a.action == "form-bbox-check":
+        from .office import forms
+        report = forms.check_bbox_file(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_bbox_report(d))
+        return 1 if report.get("error") else 0 if report["ok"] else 3
+    if a.action == "fillable-check":
+        from .office import forms
+        report = forms.check_fillable_pdf(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_fillable_report(d))
+        return 1 if report.get("error") else 0 if report["field_count"] else 3
+    if a.action in ("pptx-chart-check", "pptx-master-check", "pptx-schema-verdict"):
+        from .office import pptx_checks
+        try:
+            if a.action == "pptx-chart-check":
+                report = pptx_checks.check_charts(a.files[0])
+            elif a.action == "pptx-master-check":
+                report = pptx_checks.check_masters(a.files[0])
+            else:
+                report = pptx_checks.check_schema_diagnostics(a.files[0])
+        except (OSError, pptx_checks.PptxCheckError) as exc:
+            report = {"ok": False, "error": str(exc), "next": "provide a readable local input within the safety limits"}
+            _emit(report, a.json, lambda d: print(f"FAIL: {d['error']}\nNEXT: {d['next']}"))
+            return 1
+        if a.action == "pptx-chart-check":
+            has_findings = bool(report["findings"])
+            name, count = "chart", report["chart_count"]
+        elif a.action == "pptx-master-check":
+            has_findings = bool(report["shared_theme_findings"])
+            name, count = "master", report["master_count"]
+        else:
+            has_findings = bool(report["findings"])
+            name, count = "known fatal schema issue", sum(report["findings"].values())
+
+        def human(d):
+            if a.action == "pptx-schema-verdict":
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name}(s)")
+                for category, number in sorted(d["findings"].items()):
+                    print(f"- {category}: {number}")
+            else:
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name} part(s), "
+                      f"{d.get('shared_theme_findings', sum(d.get('findings', {}).values()))} finding(s)")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if has_findings else 0
     if a.action == "render":
         from .office import render
         try:
@@ -647,7 +736,28 @@ def cmd_pipeline(a):
     return 0 if rep["ok"] else 3
 
 
+def cmd_triage_kind(a):
+    """triage self-test|checks --kind install|release: the stored checks of a failure kind."""
+    from .build import failure_checks
+    if a.kind not in ("install", "release"):
+        print("triage self-test|checks needs --kind install or --kind release")
+        return 2
+    if a.log == "self-test":
+        ok, rows = failure_checks.self_test(a.kind)
+        _emit({"ok": ok, "kind": a.kind, "rows": rows}, a.json, lambda r: (
+            [print(f"{'PASS' if x['ok'] else 'FAIL'} {a.kind}/{x['id']}: {x['why']}") for x in r["rows"]],
+            print(f"triage self-test --kind {a.kind}: {'OK' if r['ok'] else 'FAILED'}")))
+        return 0 if ok else 3
+    ctx = {k: v for k, v in (("home", a.home), ("root", a.root or "."), ("branch", a.branch)) if v}
+    hits = failure_checks.run(a.kind, ctx)
+    _emit({"kind": a.kind, "hits": hits}, a.json, lambda r: print(
+        chr(10).join(failure_checks.lines(r["hits"])) or f"{a.kind}: every stored check is clean"))
+    return 3 if hits else 0
+
+
 def cmd_triage(a):
+    if a.log in ("self-test", "checks"):
+        return cmd_triage_kind(a)
     from .build import triage
     rep = triage.triage_file(a.log, a.set)
 
@@ -664,6 +774,16 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_pyliterals(a):
+    from .build import pyliterals
+    return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
+
+
+def cmd_repair(a):
+    from . import repair
+    return repair.run(a.action, a.args + (["--json"] if a.json else []))
 
 
 def cmd_triage_learn(a):
@@ -1025,7 +1145,18 @@ def cmd_autopilot(a):
     elif a.action == "workspace":
         r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
     elif a.action == "antigravity":
-        r = run.antigravity()
+        if a.rest:
+            r = run.agent_run("antigravity", " ".join(a.rest), cwd=a.cwd, model=a.model,
+                              thinking=getattr(a, "thinking", None))
+        else:
+            r = run.antigravity()
+    elif a.action in ("agy", "codex", "gorilla-opencode"):
+        if not a.rest:
+            print(f"autopilot {a.action} PROMPT [--cwd DIR] [--model MODEL] [--thinking LEVEL]")
+            return 2
+        r = run.agent_run(a.action, " ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
+                          timeout=a.wall_minutes * 60 if a.wall_minutes else None,
+                          model=a.model, thinking=getattr(a, "thinking", None))
     elif a.action == "login":
         if "--check" in a.rest or "check" in a.rest:
             r = {"logged_in": run.logged_in(), "command": run.paste_command()}
@@ -1035,6 +1166,11 @@ def cmd_autopilot(a):
         if not a.rest:
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
+        from .lifecycle import models as _models
+        ag_avail = _models.agent_availability("claude")
+        if not ag_avail["available"]:
+            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_avail['reason']})"}, indent=1))
+            return 3
         job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
         if job_dir:
             # a budgeted job: checkpoints, resumes, exit 75 = paused-resumable (fieldkit/autopilot/job.py)
@@ -1079,8 +1215,35 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
-                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
+        from .lifecycle import onestart
+        it = onestart.guard_inbox(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "") or \
+            inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                      what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "refused":
+            print("REFUSED: " + it["why"])
+            return 3
+        if it.get("routed") == "ledger":
+            print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
+                  "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
+        return 0
+    if a.action == "self-test":
+        from .autopilot import inbox_selftest
+        rc = inbox_selftest.run()
+        print("NEXT: " + ("none, the owner inbox is empty by construction" if rc == 0 else
+                          "fix the refusal named FAIL in fieldkit/autopilot/inbox.py or fieldkit/zero/net.py"))
+        return rc
+    if a.action == "ledger":
+        rows = []
+        if inbox.ledger_file().is_file():
+            for line in inbox.ledger_file().read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        for r in rows[-int(a.rest[0]) if a.rest else 0:] if rows else []:
+            print(f"  {r.get('added')}  {r.get('kind'):<9} {r.get('title')}")
+        print(f"agent ledger: {len(rows)} row(s) in {inbox.ledger_file()} (never shown to the owner)")
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1237,8 +1400,25 @@ def cmd_goal(a):
             return 2
         print("STOPPED: " + (", ".join(goal.stop(gid, " ".join(x[1:]) or "the owner said stop")) or "nothing"))
         return 0
+    if a.action == "resume":
+        if not x:
+            print("goal resume ID WHY (only a goal the stall check blocked)")
+            return 2
+        ok, text = goal.resume(x[0], " ".join(x[1:]))
+        print(("RESUMED: " if ok else "NOT RESUMED: ") + text)
+        print(f"NEXT: fieldkit goal run {x[0]}" if ok else "NEXT: read fieldkit goal status " + x[0])
+        return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
+    if a.action == "reverify":
+        if len(x) < 2:
+            print("goal reverify GOAL JOB (re-run one job's checks on a fresh origin/main tree and record the verdict)")
+            return 2
+        from .autopilot import goal_fresh
+        ok, text = goal_fresh.reverify(x[0], x[1])
+        print(text)
+        print("NEXT: fieldkit goal status " + x[0] if ok else "NEXT: read the FAIL lines above; the worker's branch must be merged to origin/main")
+        return 0 if ok else 3
     if a.action == "report":
         goal.report(x[0])
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
@@ -1254,11 +1434,16 @@ def cmd_goal(a):
         ps, xml = goal.supervisor_script(out)
         print(f"written: {ps} and {xml}\n  the owner runs it once: powershell -NoProfile -ExecutionPolicy Bypass -File \"{ps}\"")
         return 0
+    if a.action == "run":
+        from .lifecycle import onestart
+        onestart.at_start("goal", job=x[0] if x else "")
     return goal.supervise(x or None, once=a.once)
 
 
 def cmd_sync(a):
     from .core import sync
+    from . import refusals                      # P23: the refusals ledger of both computers meets at every sync
+    refusals.sync_quiet()
     rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
     print(json.dumps(sync.as_json(rows), indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
     return sync.exit_code(rows)
@@ -1450,6 +1635,8 @@ METHODS = {
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
                      "merge into main only under a project mandate; never forces"),
+    "ci-steps": ("cisteps", "the CI workflow's job for this OS, run in this tree: the step runner `fieldkit ship "
+                            "ci-local` sends over the cable when GitHub's runner is down (--os --base --report)"),
     "strikes": ("strikes", "TWO STRIKES: a branch or PR that failed CI twice is parked, never tried a third time "
                            "(list | park ID | unpark ID | check BRANCH)"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
@@ -1462,6 +1649,7 @@ METHODS = {
     "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
                                "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
+    "install": ("installverify", "a program is installed, purged or verified on Linux and Windows: binary, .desktop/.lnk, icons, caches, registry (verify PRODUCT | self-test | app SRC --name APP | purge APP)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
 }
 
@@ -1627,6 +1815,14 @@ def build_parser():
                         help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
                              "harness's own orphans and overdue steps (fieldkit liveness)")
     lv.add_argument("args", nargs=argparse.REMAINDER)
+    pr_ = sub.add_parser("procs", add_help=False,
+                         help="every process tree Fieldkit started: zombies, orphans, CPU share, age; check, reap "
+                              "(only Fieldkit's own, by PID + creation time; fieldkit procs)")
+    pr_.add_argument("args", nargs=argparse.REMAINDER)
+    for _n, _h in (("appcapture", "capture a desktop app's real requests through a local proxy, tokens redacted: start, show, stop, recycle, status (fieldkit appcapture)"),
+                   ("modelcatalog", "verify a client's model ids, headers and catalogue against the backend's real reply (fieldkit modelcatalog verify)")):
+        _p = sub.add_parser(_n, add_help=False, help=_h)
+        _p.add_argument("args", nargs=argparse.REMAINDER)
     zr = sub.add_parser("zero", add_help=False,
                         help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
                              "net log (fieldkit zero; also fieldkit net VERB)")
@@ -1646,10 +1842,25 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
+                                 "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
+                       ("onestart", "the one ask at the start: every owner-only action a job may need, checked and "
+                                    "approved once before it begins (onestart check|ask --kind K; "
+                                    "fieldkit/lifecycle/onestart.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
-                                  "(models report; fieldkit/lifecycle/models.py)"),
+                                  "(models report); models gguf FILE|URL: dense or MoE, active parameters and the expected "
+                                  "tokens/s on this machine before a local model is loaded; models tune MODEL [--apply]: "
+                                  "the load settings that suit this host, loaded through lms "
+                                  "(fieldkit/lifecycle/models.py, gguf.py, tune.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
+                       ("keeper", "work never waits for a model turn: a timer-run pass updates BEHIND PRs, starts one fix job for "
+                                  "a red PR, restarts a died job once, starts queued briefs, wakes Zero; tick, status, "
+                                  "install (fieldkit/lifecycle/keeper.py)"),
+                       ("permanence", "check: a session's work that is uncommitted, unpushed or unmerged; blocks the turn end "
+                                      "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
+                       ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
+                                "(fieldkit/lifecycle/idle.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
@@ -1664,6 +1875,10 @@ def build_parser():
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
                              "(fieldkit emerge)")
     em.add_argument("args", nargs=argparse.REMAINDER)
+    ca = sub.add_parser("ciaudit", add_help=False,
+                        help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
+                             "to the whole suite (fieldkit ciaudit)")
+    ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -1685,10 +1900,18 @@ def build_parser():
                         help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
                              "items, the ones merged pull requests finished (fieldkit plan next)")
     pl.add_argument("args", nargs=argparse.REMAINDER)
+    aap = sub.add_parser("autoaccept", add_help=False,
+                         help="what the harness accepted by itself (checks + an independent higher-rung reviewer), "
+                              "the policy switch, and the owner's after-the-fact review (fieldkit autoaccept status)")
+    aap.add_argument("args", nargs=argparse.REMAINDER)
     idp = sub.add_parser("ideas", add_help=False,
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
     rvp = sub.add_parser("review", add_help=False,
                          help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
                               "once at a terminal; --open opens state/REVIEW.md")
@@ -1698,6 +1921,10 @@ def build_parser():
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
                              "failures; what cannot be read is listed, never estimated (fieldkit metrics)")
     mt.add_argument("args", nargs=argparse.REMAINDER)
+    gh = sub.add_parser("github", add_help=False,
+                        help="guided, verified GitHub setup with profiles: doctor, profiles, explain, plan, apply, "
+                             "check, undo, menu; asks before every change (fieldkit github)")
+    gh.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -1706,6 +1933,25 @@ def build_parser():
                         help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
                              "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
     pa.add_argument("args", nargs=argparse.REMAINDER)
+    ac = sub.add_parser("accept", add_help=False,
+                        help="everyday-jobs acceptance suite for Gorilla OpenCode: list, run --model M, report (fieldkit accept)")
+    ac.add_argument("args", nargs=argparse.REMAINDER)
+    cp = sub.add_parser("capture", add_help=False,
+                        help="zero-loss capture of every script and command an agent makes or runs: hook, find, "
+                             "ledger, verify, status, self-test (fieldkit capture)")
+    cp.add_argument("args", nargs=argparse.REMAINDER)
+    ig = sub.add_parser("integration", add_help=False,
+                        help="is a capability built in? carried, known to the AI, visible, on the release page, on "
+                             "every system, tested: check a repo (--changed BASE), self-test (fieldkit integration)")
+    ig.add_argument("args", nargs=argparse.REMAINDER)
+    pn = sub.add_parser("pins", add_help=False,
+                        help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
+                             "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
+    pn.add_argument("args", nargs=argparse.REMAINDER)
+    co = sub.add_parser("compileonce", add_help=False,
+                        help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
+                             "ahead of time: build [--force], check (fieldkit compileonce)")
+    co.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -1738,8 +1984,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check", "find"])
-    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
+    t.add_argument("action", choices=["list", "check", "find", "external"])
+    t.add_argument("words", nargs="*", help="find: words to search; external: catalog directory to inspect")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -1747,7 +1993,9 @@ def build_parser():
     t.set_defaults(fn=cmd_tools)
 
     o = sub.add_parser("office", parents=[common])
-    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render"])
+    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render",
+                                      "form-bbox-check", "fillable-check", "pptx-chart-check",
+                                      "pptx-master-check", "pptx-schema-verdict"])
     o.add_argument("files", nargs="+")
     o.add_argument("--engine", default="builtin", choices=["builtin", "markitdown", "docling"])
     o.add_argument("--out")
@@ -1778,7 +2026,22 @@ def build_parser():
     tr = sub.add_parser("triage", parents=[common])
     tr.add_argument("log")
     tr.add_argument("--set", default="auto")
+    tr.add_argument("--kind", help="with `self-test` or `checks` as LOG: install or release")
+    tr.add_argument("--home", help="checks: the HOME to inspect (default: this user's)")
+    tr.add_argument("--root", help="checks: the folder or repo to inspect")
+    tr.add_argument("--branch", help="checks: the branch to judge against the push mandate")
     tr.set_defaults(fn=cmd_triage)
+
+    pl = sub.add_parser("pyliterals", parents=[common], help="stray backslashes in Python strings; --apply makes them raw only when the value stays the same")
+    pl.add_argument("files", nargs="+")
+    pl.add_argument("--apply", action="store_true")
+    pl.set_defaults(fn=cmd_pyliterals)
+
+    rp = sub.add_parser("repair", parents=[common], help="small repair and check tools: cp1252, missing imports, conflict markers, brace parity, ps1 syntax, pid-guarded stop, worktrees, Board rows, Mach-O, TPFan ini")
+    from . import repair as _repair
+    rp.add_argument("action", choices=sorted(_repair.ACTIONS))
+    rp.add_argument("args", nargs=argparse.REMAINDER, help="the tool's own arguments (fieldkit repair ACTION --help)")
+    rp.set_defaults(fn=cmd_repair)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
     tl.add_argument("--set", default="auto")
@@ -1877,14 +2140,16 @@ def build_parser():
     sw.set_defaults(fn=cmd_sweep)
 
     apl = sub.add_parser("autopilot", parents=[common])
-    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
-    apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
-    apl.add_argument("--cwd", help="claude: the folder the run works in")
+    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet",
+                                        "antigravity", "agy", "codex", "gorilla-opencode", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude/agy/codex/gorilla-opencode: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude/agy/codex/gorilla-opencode: the folder the run works in")
     apl.add_argument("--max-turns", type=int, default=None, help="claude: turns per session (10000)")
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
     apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
-    apl.add_argument("--model", help="claude: the model the run uses (a worker: sonnet, haiku; roles.yaml)")
+    apl.add_argument("--model", help="the specific model the run uses (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, sonnet, haiku)")
+    apl.add_argument("--thinking", help="reasoning/thinking level: lowest, low, medium, high, max")
     apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
@@ -1893,7 +2158,9 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger", "self-test"], nargs="?", default="list")
+    ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
+                                                         "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
     ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
@@ -1935,8 +2202,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "reverify", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID; reverify GOAL JOB")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
@@ -2156,7 +2423,7 @@ def build_parser():
     st = sub.add_parser("sitrep", parents=[common],
                         help="a situation report a reader can take in a few seconds at a time: template, check, "
                              "render, example, doctor (fieldkit/sitrep)")
-    st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
+    st.add_argument("action", choices=["template", "check", "render", "example", "doctor", "gather"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
     st.add_argument("--session", help="check: also back every claim with this session's tool output "
                                       "(fieldkit honesty; rule HONESTY)")
@@ -2164,6 +2431,9 @@ def build_parser():
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
     st.add_argument("--md", action="store_true", help="render as markdown instead of plain text")
+    st.add_argument("--render", action="store_true", help="gather: the facts as a checked report, no model")
+    st.add_argument("--words", action="store_true", help="gather: one Haiku call writes the prose (never above haiku)")
+    st.add_argument("--hours", type=int, default=24, help="gather: tasks that ended within this many hours")
     st.set_defaults(fn=cmd_sitrep)
 
     sh = sub.add_parser("shot", parents=[common], help="read numbers off a screenshot: read, "
@@ -2182,7 +2452,8 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal", "ensure"])
+    th.add_argument("--install", action="store_true", help="ensure: also install the keeper (Task Scheduler / systemd user timer) that runs ensure at logon, every 5 min and on resume")
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2194,12 +2465,21 @@ def build_parser():
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
 
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check; investigate ranks the suspects of an unexplained cut")
+    pw.add_argument("action", choices=["incidents", "drift", "audit", "investigate"])
+    pw.add_argument("--write-fix", action="store_true", help="audit: write the one self-elevating script for the missing admin steps")
+    pw.add_argument("--callers", help="audit: who started PROCESS (e.g. powercfg.exe), from Security 4688")
+    pw.add_argument("--since", help="incidents, investigate: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
+    pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
+    pw.set_defaults(fn=cmd_power)
+
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
+                                       "unblock", "request", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
+                                       "leakgate-proposal", "leakgate-selftest", "leakgate-ci", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
@@ -2213,7 +2493,7 @@ def build_parser():
     bh.add_argument("--compare", action="store_true", help="repro: only compare a second build already made")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
-    bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
+    bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail; unblock skip / deferred --do: the owner away from a terminal proves it with the signing-key passphrase (a model cannot)")
     bh.add_argument("--no-backup", action="store_true", dest="no_backup", help="install: skip the backup (never the default)")
     bh.add_argument("--drive", action="store_true", help="post-install: allow the checks that take the keyboard (announced, 20 s countdown)")
     bh.add_argument("--strict", action="store_true", help="decisions: a pending decision counts as not done (release, baseline); "
@@ -2250,7 +2530,7 @@ def build_parser():
     bh.add_argument("--budget", type=int, default=100_000, help="the model's context window, in tokens")
     bh.add_argument("--workdir")
     bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
-    bh.add_argument("--note", help="submit: a note for the log")
+    bh.add_argument("--note", help="submit: a note for the log; request: why; unblock skip: the reason, journaled (the audit row \x27no step skipped without a reason\x27 reads it)")
     bh.add_argument("--all", action="store_true", help="accept: every waiting proposal, in one go (the command the harness prints for the owner)")
     bh.add_argument("--dry-run", action="store_true", help="submit: run the check only; no attempt spent, nothing changed (try it before every submit)")
     bh.add_argument("--hand", action="store_true", help="submit: a PERSON ported this hunk by hand; judge it by meaning (removed lines gone, added text's tokens present), not by the letter")
@@ -2549,6 +2829,9 @@ def cmd_sitrep(a):
             [f"  languages: {', '.join(x['languages'])}"] + [f"  {p}" for p in x["problems"]] +
             ["  OK: sitrep can run here" if x["ok"] else "  NEXT: fix the lines above"])))
         return 0 if d["ok"] else 3
+    if a.action == "gather":
+        from .sitrep import gather
+        return gather.main(a)
     if a.action == "template":
         print(sitrep.template(a.lang, a.order), end="")
         return 0
@@ -2742,7 +3025,33 @@ def cmd_repro(a):
     return 0 if r["identical"] else 3
 
 
+def cmd_power(a):
+    from .power import drift, incidents
+    if a.action == "audit":
+        from .power import audit
+        return audit.run_cmd(write_fix=a.write_fix, proc=a.callers, since=a.since, as_json=a.json)
+    if a.action == "drift":
+        return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    if a.action == "investigate":
+        from .power import investigate
+        return investigate.run(since=a.since, as_json=a.json)
+    return incidents.run(since=a.since, as_json=a.json)
+
+
 def cmd_thermal(a):
+    if a.action == "ensure":
+        from .thermal import keeper
+        inst = keeper.install() if a.install else None
+        r = keeper.ensure()
+        k = keeper.installed()
+        def human(d):
+            print(keeper.line(d, k))
+            if inst is not None:
+                print(f"  install: {'OK' if inst['ok'] else 'FAILED'} {inst.get('detail') or inst.get('error') or ''}")
+            print("NEXT: " + ("nothing to do" if d["ok"] and k else "fieldkit thermal ensure --install" if d["ok"]
+                              else "read state/thermal/watch-*.log, fix, run ensure again"))
+        _emit(dict(r, keeper=k, install=inst), a.json, human)
+        return 0 if r["ok"] and k and (inst is None or inst["ok"]) else 3
     if a.action == "journal":
         from .thermal import journal
         return 0 if journal.run() else 1
@@ -2817,17 +3126,16 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+    from .core import asuser
+    asuser.adopt()                                   # under sudo: act for the invoking user (P27), files chowned back at exit
     args = sys.argv[1:] if argv is None else list(argv)
-    # The platform gate (2026-10-20): a command whose card says it runs on another system stops here, before any
-    # parser or tool code runs, with the card's reason and what to use instead (core/platform_gate.py).
-    from .core import platform_gate
-    refused = platform_gate.refusal(args)
-    if refused:
-        if "--json" in args:
-            print(json.dumps({"ok": False, "refused": "platform", "why": refused}))
-        else:
-            print("REFUSED: " + refused, file=sys.stderr)
-        return 2
+    # The platform gate (2026-10-20), never a refusal since P9 (2026-11-11): a command whose card names another
+    # system runs its equivalent here, runs on the other machine over the cable, or says not-this-platform and exits
+    # 0 (core/crossos.py, the rows in core/crossos.yaml).
+    from .core import crossos
+    routed = crossos.handle(args, main)
+    if routed is not None:
+        return routed
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
@@ -2889,6 +3197,15 @@ def main(argv=None):
     if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
         from . import app as app_cli
         return app_cli.main(args[1:])
+    if args[:1] == ["appcapture"]:                    # the real client's requests, tokens redacted (fieldkit/appcapture)
+        from . import appcapture
+        return appcapture.main(args[1:])
+    if args[:1] == ["modelcatalog"]:                  # model ids checked against the backend's reply (fieldkit/modelcatalog)
+        from . import modelcatalog
+        return modelcatalog.main(args[1:])
+    if args[:1] == ["procs"]:                         # every process tree Fieldkit started (fieldkit/core/procs)
+        from .core import procs
+        return procs.main(args[1:])
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
@@ -2911,15 +3228,33 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["route"]:                         # solo / multiplayer and the model router (lifecycle/routing.py)
+        from .lifecycle import routing
+        return routing.main(args[1:])
     if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
         from .lifecycle import models
         return models.main(args[1:])
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
+    if args[:1] == ["keeper"]:                        # P9: work never waits for a model turn (lifecycle/keeper.py)
+        from .lifecycle import keeper
+        return keeper.main(args[1:])
+    if args[:1] == ["permanence"]:                    # no session's work is lost when it ends (lifecycle/permanence.py)
+        from .lifecycle import permanence
+        return permanence.main(args[1:])
+    if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
+        from .lifecycle import idle
+        return idle.main(args[1:])
+    if args[:1] == ["onestart"]:                      # one ask at the start (P9)
+        from .lifecycle import onestart
+        return onestart.main(args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
+        from .method import ciaudit
+        return ciaudit.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
@@ -2941,18 +3276,42 @@ def main(argv=None):
     if args[:2] == ["inbox", "review"]:
         from . import review
         return review.main(args[2:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["autoaccept"]:                  # I-04: what the harness accepted by itself, for the owner's review
+        from .lifecycle import autoaccept
+        return autoaccept.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
         from . import metrics
         return metrics.main(args[1:])
+    if args[:1] == ["github"]:                        # guided GitHub setup: profiles, plan, apply with consent, check, undo
+        from . import github
+        return github.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
+    if args[:1] == ["capture"]:                       # append-only journal of agent work, preserved before processing
+        from .capture import cli as capture_cli
+        return capture_cli.main(args[1:])
+    if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
+        from .integration import cli as integration_cli
+        return integration_cli.main(args[1:])
+    if args[:1] == ["accept"]:                        # everyday jobs through gorilla-opencode, judged on the disk
+        from . import accept
+        return accept.main(args[1:])
+    if args[:1] == ["pins"]:                          # helper sources: immutable and sha256-pinned
+        from .pins import cli as pins_cli
+        return pins_cli.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["compileonce"]:                   # ahead-of-time .pyc bytecode compilation and check
+        from . import compileonce
+        return compileonce.main(args[1:])
     if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
         from .image import cli as image_cli
         return image_cli.main(args[1:])

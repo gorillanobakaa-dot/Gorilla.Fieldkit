@@ -32,7 +32,9 @@ UPDATE_HOSTS = ("aus5.mozilla.org", "aus*.mozilla.org", "download.mozilla.org", 
                 "versioncheck*.addons.mozilla.org")
 TELEMETRY_FILES = ("datareporting/*", "saved-telemetry-pings/*", "crashes/*", "minidumps/*", "ExperimentStoreData.json",
                    "shield-preference-experiments.json", "storage/permanent/chrome/idb/*remote-settings*",
-                   "*pending_pings*", "*glean*")
+                   "*pending_pings*", "*glean*",
+                   # Linux paths are absolute (~/.mozilla/firefox/Crash Reports/...); only ever adds findings
+                   "*/Crash Reports/*", "*/datareporting/*", "*/saved-telemetry-pings/*", "*/minidumps/*", "*.dmp")
 POLICIES = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", "FILESYSTEM_POLICY", "SOCKET_POLICY",
             "WEBRTC_POLICY", "LAN_POLICY", "PROXY_POLICY", "IPV6_POLICY", "CANARY_POLICY", "SHUTDOWN_POLICY", "REPRODUCIBILITY_POLICY",
             "SOURCE_POLICY", "BINARY_POLICY", "DEPENDENCY_POLICY", "TLS_POLICY", "REGRESSION_POLICY", "ALLOWLIST_POLICY")
@@ -70,7 +72,7 @@ def build_manifest(copy_dir, workdir_tree, upstream, allow_path, spec_path):
         "BUILD": cp.get("App", "BuildID", fallback=None), "VERSION": cp.get("App", "Version", fallback=None),
         "SOURCE": {"tree_head": _cmd(["git", "-C", str(workdir_tree), "rev-parse", "HEAD"]), "upstream": upstream,
                    "platform_source_stamp": pl.get("Build", "SourceStamp", fallback=None)},
-        "BINARY_SHA256": {n: _sha(Path(copy_dir) / n) for n in ("firefox.exe", "xul.dll", "omni.ja", "browser/omni.ja") if (Path(copy_dir) / n).is_file()},
+        "BINARY_SHA256": {n: _sha(Path(copy_dir) / n) for n in ("firefox.exe", "xul.dll", "firefox", "libxul.so", "omni.ja", "browser/omni.ja") if (Path(copy_dir) / n).is_file()},
         "OS": platform.platform(), "KERNEL": platform.version(), "ARCHITECTURE": platform.machine(),
         "TOOLCHAIN": {"clang-cl": _cmd([str(clang), "--version"]) if clang.is_file() else "not found", "rustc": _cmd(["rustc", "--version"]),
                       "python": sys.version.split()[0]},
@@ -79,7 +81,9 @@ def build_manifest(copy_dir, workdir_tree, upstream, allow_path, spec_path):
         "SPEC_SHA256": _sha(spec_path) if Path(spec_path).is_file() else None,
         "CONFIGURE": configure_record(),
         "PROFILE_CONFIGURATION": "fresh throwaway profile per scenario and mode; user.js: no default-browser check, no about:welcome, downloads into the profile",
-        "NETWORK_CONFIGURATION": "Windows host network (NOT the spec's namespace); direct and mitmproxy-pinned runs",
+        "NETWORK_CONFIGURATION": ("Linux network namespace behind nftables (output policy DROP); direct and mitmproxy-pinned runs"
+                                  if sys.platform.startswith("linux") else
+                                  "Windows host network (NOT the spec's namespace); direct and mitmproxy-pinned runs"),
     }
 
 
@@ -204,7 +208,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for e in events:
         if e["kind"] == "dns-attribution":
             (asked_by_build if e.get("in_build") else asked_by_other).setdefault(window(e), set()).add(e["value"].rstrip("."))
-        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") not in ("pktmon", "doh-server"):
+        elif e["kind"] in ("dest", "dns", "sni") and canon(e.get("sensor")) not in ("pktmon", "doh-server"):
             asked_by_build.setdefault(window(e), set()).add(str(e["value"]).rstrip("."))
     # owner 2026-10-19 (proposal F): the controlled resolver serves only the build copies, so every name it was asked
     # was asked BY THE BUILD in each dns-controlled window of the run (its log is kept under "(dns-controlled)", not
@@ -241,7 +245,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                              "PENDING_APPROVAL")}
     fail = {p: [] for p in POLICIES}
     # a `coverage` event says a sensor ran in one scenario (gate.action_checks); it is not an observation
-    sensors_seen = {e["sensor"] for e in events if e["kind"] != "coverage"}
+    sensors_seen = {canon(e["sensor"]) for e in events if e["kind"] != "coverage"}
 
     def note(policy, listname, e, why):
         item = f"[{e['scenario']}/{e['mode']}/{e['sensor']}] {e['kind']} {e['value']}" + (f":{e['port']}" if e.get("port") else "") + f" - {why}"
@@ -392,7 +396,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for pol, sens in need.items():
         missing = sorted(s for s in sens if s not in sensors_seen)
         if missing:
-            fail[pol].append(f"required sensor(s) did not collect: {missing}")
+            fail[pol].append(f"required sensor(s) did not collect: {shown(missing)}")
     if not packets:
         for pol in ("NETWORK_POLICY", "DNS_POLICY", "SHUTDOWN_POLICY", "WEBRTC_POLICY", "IPV6_POLICY"):
             fail[pol].append("packet-level sensor not run (needs an elevated shell): wire traffic unverified")
@@ -440,10 +444,37 @@ def video_rule(host, scen):
     return out
 
 
-def required_coverage(mode, packets, linux=False):
-    """Sensors that must show they ran in every user-action scenario run (fail closed per scenario)."""
-    if linux:
-        return {"strace", "tcpdump"}
+#: sensor names that stand for a sensor class in the judge: tcpdump is the packet-level sensor on Linux, pktmon on
+#: Windows. One vocabulary, one rule: the judge never asks which OS it ran on.
+SENSOR_ALIASES = {"tcpdump": "pktmon"}
+
+
+def canon(sensor):
+    return SENSOR_ALIASES.get(sensor, sensor)
+
+
+def sensors_required():
+    """-> the per-OS sensor data (sensors_required.yaml)."""
+    import yaml
+    return yaml.safe_load((Path(__file__).parent / "sensors_required.yaml").read_text(encoding="utf-8"))
+
+
+def os_key():
+    return "linux" if sys.platform.startswith("linux") else "windows"
+
+
+def packet_sensor_name():
+    """-> the packet sensor of THIS OS (tcpdump on Linux, pktmon on Windows), for messages."""
+    return sensors_required()["packet_sensor"][os_key()]
+
+
+def shown(names):
+    """The sensor names of a failure message as this OS calls them (the judge's class `pktmon` is tcpdump on Linux)."""
+    return [packet_sensor_name() if n == "pktmon" else n for n in names]
+
+
+def required_coverage(mode, packets):
+    """Sensors that must show they ran in every user-action scenario run (fail closed per scenario), on every OS."""
     need = {"process-tree", "filesystem", "sockets"}
     if mode == "direct":
         need |= {"necko-http", "necko-dns"} | ({"pktmon"} if packets else set())
@@ -462,7 +493,7 @@ def _lan_left(e, closed_ports):
     return True
 
 
-def action_checks(ran, events, results, requests, packets, linux=False):
+def action_checks(ran, events, results, requests, packets):
     """Fail-closed checks of the user-action scenarios (scenarios.ACTION_SCENARIOS) that ran. -> (fail, lists):
     fail {"NETWORK_POLICY": [...], "LAN_POLICY": [...]}, lists {"LAN_REQUESTS_LEFT": [...]}.
       - every mode of every such scenario: each required sensor shows it ran (coverage or any event), else FAIL;
@@ -476,7 +507,7 @@ def action_checks(ran, events, results, requests, packets, linux=False):
     results = [r for r in results if isinstance(r, dict)]
     by = {}
     for e in events:
-        by.setdefault((e.get("scenario"), e.get("mode")), set()).add(e.get("sensor"))
+        by.setdefault((e.get("scenario"), e.get("mode")), set()).add(canon(e.get("sensor")))
     for scen in sc.ACTION_SCENARIOS:
         if scen not in ran:
             continue
@@ -484,9 +515,9 @@ def action_checks(ran, events, results, requests, packets, linux=False):
         if not modes:
             fail["NETWORK_POLICY"].append(f"[{scen}] no sensor collected anything: the scenario did not run")
         for m in modes:
-            missing = sorted(required_coverage(m, packets, linux) - by[(scen, m)])
+            missing = sorted(required_coverage(m, packets) - by[(scen, m)])
             if missing:
-                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {missing}")
+                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {shown(missing)}")
         if scen in sc.REPORTING and not any(r.get("scenario") == scen for r in results):
             fail["NETWORK_POLICY"].append(f"[{scen}] the page never reported: the user action was not exercised")
         for path in sc.SERVED.get(scen, ()):
@@ -581,6 +612,16 @@ def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
     return None
 
 
+def _write_partial(work, events, artifacts):
+    """events.jsonl and artifacts.json as they stand; the final write replaces them. Never raises."""
+    try:
+        (work / "events.jsonl").write_text("\n".join(json.dumps(e, default=str) for e in events) + "\n", encoding="utf-8")
+        (work / "artifacts.json").write_text(json.dumps(artifacts, indent=1, default=str), encoding="utf-8")
+        (work / "partial.txt").write_text(f"partial: {len(artifacts)} runs done, the gate has not finished\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def run(*args, say=print, **kw):
     """The gate under the one run guard (2026-10-26): observation and the safe reclaim only, before and during; it
     changes no allowlist, judgment or verdict. A STOP (free RAM under the floor after reclaiming) waits up to 10 min,
@@ -592,6 +633,17 @@ def run(*args, say=print, **kw):
         raise RuntimeError(f"leakgate: the preflight refused the run: {why}")
     return preflight.call("leak gate", "gate", functools.partial(_run, *args, say=say, **kw), say=say, wait_s=600,
                           refused=refused)
+
+
+def unpack_deb(deb, dest, runner=subprocess.run):
+    """-> the folder of an unpacked .deb that holds the browser (the one with application.ini). No root, nothing installed."""
+    r = runner(["dpkg-deb", "-x", str(deb), str(dest)], capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f"leakgate: dpkg-deb could not unpack {Path(deb).name}: {(r.stderr or '').strip()[:200]}")
+    ini = sorted(Path(dest).rglob("application.ini"), key=lambda q: len(q.parts))
+    if not ini:
+        raise RuntimeError(f"leakgate: no application.ini in {Path(deb).name}: not a browser package")
+    return ini[0].parent
 
 
 def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
@@ -610,7 +662,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     if release:
         repeat, quick = max(repeat, 3), False
-    work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
+    work = Path(workroot).resolve() / time.strftime("%Y%m%d-%H%M%S")      # absolute: /proc reports absolute paths (P27)
     work.mkdir(parents=True)
     if linux:
         packets, dns_prev = True, None
@@ -638,7 +690,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             f"{len(talking)} system process(es) talking, named in quiet-start.json")
     except Exception as e:  # noqa: BLE001 - a gate that cannot quiet the machine says so, it does not guess
         raise RuntimeError(f"leakgate: the machine could not be quieted ({e}); refusing to measure a noisy machine")
-    zp = work / "build.zip"
+    is_deb = str(zip_path).endswith(".deb")
+    zp = work / ("build.deb" if is_deb else "build.zip")
     shutil.copyfile(zip_path, zp)
     if linux:
         import tarfile
@@ -646,9 +699,12 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             dest = Path(dest)
             shutil.rmtree(dest, ignore_errors=True)
             dest.mkdir(parents=True)
-            with tarfile.open(zp) as tf:
-                tf.extractall(dest / "_x")
-            inner = next((dest / "_x").iterdir())
+            if is_deb:                                 # the Linux artifact: the .deb's install tree (dpkg-deb -x, no install)
+                inner = unpack_deb(zp, dest / "_x")
+            else:
+                with tarfile.open(zp) as tf:
+                    tf.extractall(dest / "_x")
+                inner = next((dest / "_x").iterdir())
             for item in inner.iterdir():
                 shutil.move(str(item), dest / item.name)
             shutil.rmtree(dest / "_x")
@@ -660,18 +716,31 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     direct = se.build_copy(zp, work / "build-direct")
     ca = ensure_ca(work)
     port = se.free_port()
+    # Linux: the browser runs in a network namespace where 127.0.0.1 is its own; the gate's proxy, test server,
+    # certificate pages and resolver listen on the veth's host side instead (linux.HOST_IP) and nft opens exactly them
+    host = lx.HOST_IP if linux else "127.0.0.1"
+    sport = se.free_port() if linux else None
+    if linux:
+        lx.netns_up(port, sport)                       # the veth host address exists only after this
+        lx.snapshot_namespace(work)
     proxied = se.build_copy(zp, work / "build-proxied", {
         "Certificates": {"Install": [str(ca)]},
-        "Proxy": {"Mode": "manual", "HTTPProxy": f"127.0.0.1:{port}", "UseHTTPProxyForAllProtocols": True, "Locked": True}})
+        "Proxy": {"Mode": "manual", "HTTPProxy": f"{host}:{port}", "UseHTTPProxyForAllProtocols": True, "Locked": True}})
     from . import extras
     approved_names = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") and e.get("approval") for v in e.get("values", [])]
-    doh = extras.DohServer(work, ca, approved_names + [h for s in sc.SCENARIOS for h in s[4]])
+    doh = extras.DohServer(work, ca, approved_names + [h for s in sc.SCENARIOS for h in s[4]], bind=host)
     dnsctl = se.build_copy(zp, work / "build-dns", {
         "Certificates": {"Install": [str(ca)]},
         "DNSOverHTTPS": {"Enabled": True, "ProviderURL": doh.url(), "Locked": True, "Fallback": False}})
-    certsrv = extras.CertServers(work, ca)
+    certsrv = extras.CertServers(work, ca, bind=host)
+    if linux:
+        lx.allow_tcp_ports([doh.port, *certsrv.ports().values()])
     fw_name = None
-    if firewall and packets:
+    if firewall and linux:
+        # the per-program outbound block is a Windows Firewall rule (PowerShell); on Linux the always-on equivalent is
+        # the namespace's nftables output policy DROP (linux.netns_up), which blocks every run, not only this flag's
+        say("  firewall: Linux - the namespace's nftables output policy DROP is always on (nothing but the gate's own servers is reachable); no PowerShell rule is made")
+    elif firewall and packets:
         fw_name = f"leakgate-{work.name}"
         extras.firewall_block(str(direct / "firefox.exe"), fw_name)
         say(f"  firewall: outbound block for the direct build copy ({fw_name}); removed at the end")
@@ -686,12 +755,18 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
         "runs": planned_runs(repeat, quick, only)}, indent=1), encoding="utf-8")
     canaries = list(sc.CANARIES.items())
     if linux:
-        sport = se.free_port()
-        lx.netns_up(port, sport)                       # the veth host address exists only after this
-        lx.snapshot_namespace(work)
         server = sc.Server(bind=lx.HOST_IP, port=sport)
     else:
         server = sc.Server()
+    if linux:                                          # the browser must show a page before 55 minutes of scenarios are spent
+        try:
+            lx.smoke(direct, server, work, say=say)
+        except Exception:
+            server.close()
+            doh.close()
+            certsrv.close()
+            lx.netns_down()
+            raise
     events, artifacts, scen_hosts = [], {}, {}
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
@@ -718,7 +793,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
-                                             f"{name}-r{rep}", mode, canaries, port, watch, allowed, say=say, prefs=prefs)
+                                             f"{name}-r{rep}", mode, canaries, port, watch, allowed, say=say, prefs=prefs,
+                                             graceful=name in sc.GRACEFUL, poison=mode == "poisoned", confdir=ca.parent)
                     else:
                         ev, art = se.run_one(bdir, server.url(target), secs, args, work / "runs", f"{name}-r{rep}", mode, canaries,
                                              proxy_port=port, watch=watch, packets=packets and mode == "direct", say=say,
@@ -727,6 +803,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                         e["scenario"], e["rep"] = name, rep
                     events.extend(ev)
                     artifacts[f"{name}-r{rep}-{mode}"] = art
+                    _write_partial(work, events, artifacts)     # a late crash never loses the runs already done
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
                         events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
                                        "detail": "the page itself never reached mitmproxy"})
@@ -750,7 +827,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns-a",
                            "value": q["name"], "ip": ip, "rep": 0})
     fail, lists = judge(events, allow, scen_hosts, [direct, proxied, dnsctl], server.results, repeat, packets, quick)
-    afail, alists = action_checks(set(scen_hosts), events, server.results, server.requests, packets, linux)
+    afail, alists = action_checks(set(scen_hosts), events, server.results, server.requests, packets)
     for pol, items in afail.items():
         fail[pol].extend(items)
     lists.update(alists)
@@ -856,6 +933,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     result["FINAL_RESULT"] = "PASS" if all(result[p] == "PASS" for p in POLICIES) else "FAIL"
     result["ARTIFACTS"] = str(work)
 
+    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     (work / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
     (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     (work / "build-manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")

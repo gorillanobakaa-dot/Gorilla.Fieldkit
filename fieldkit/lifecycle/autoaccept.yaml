@@ -1,0 +1,54 @@
+# I-04 (owner, 2026-11-11: "Long horizon tasks are autonomous, automatical. Why do I have to ... click"): the harness
+# itself accepts a model's work that would otherwise wait for the owner's click, when ALL of these hold:
+#   1. every deterministic check the caller (a project's plug-in) runs on the work item passes, and
+#   2. an independent reviewer model on a HIGHER rung of the escalation ladder than the author (models.yaml
+#      escalation.ladder; reviewer != author; the spend guard decides which rungs exist) answers VERDICT: YES.
+# A rung that is out of budget (models.yaml availability) is skipped; an author already on the top available rung is
+# re-authored one rung down and the top rung reviews (P9). Nothing available: parked with a retry time, not refused.
+# Any check failing or the reviewer saying no: not accepted; the caller climbs the ladder and parks only at the top.
+# Every acceptance is journaled (both models, the evidence, a one-line rewind command) and listed for the owner's
+# after-the-fact review (`fieldkit review`). Models still never run an owner command themselves (HARD LINE 4).
+# Data first: the owner turns it off here (enabled: false); a project turns off one kind by leaving it out of kinds.
+auto_accept:
+  enabled: true                    # owner order 2026-11-11 (I-04 accepted)
+  kinds: [adapted, skip, retry]    # what the harness may accept by itself; a kind not listed waits for the owner
+  deferred_to_model: true          # a step parked as "renamed / no longer exists upstream" is offered to a model
+  deferred_patterns: ["renamed", "no longer exist"]   # words in the parked reason that make it a model's job
+  # The parked reason was written when such a step was a person's job; its old verdict ("never by a model", "Not a job
+  # for a model; the owner decides ...") contradicted the packet that now hands it to a model (2026-11-11: all 18
+  # firefox-160-linux offers carried it). Each regex is cut out of the finding when the packet shows it.
+  offer_strip:
+    - ';?\s*its added lines must be rewritten with the new names by a person, never by a model'
+    - '\.?\s*Not a job for a model; the owner decides[^.]*\.?'
+  max_retries: 2                   # automatic retries of one blocked step: a model's retry request (checks + reviewer),
+                                   # or a blocked CHECK step re-run by the harness after a commit (P9: running a check
+                                   # again cannot weaken it; the same check decides, so no reviewer is asked)
+  # P9 (owner, 2026-11-11: "the harness has a pre-approval at the beginning of the session ... And you just do it"):
+  # when no independent reviewer can be had (none usable, out of budget, not answering) and every check passed, a
+  # mandate in force whose owner_steps door grants the step (fieldkit/mandate/owner-wide.yaml, owner_steps:) lets the
+  # harness take it, journaled "pre-approved by mandate <name> (seal ...)". A reviewer's NO is never overruled.
+  # false: such an item waits for the owner, as before. No mandate granting it: no change either.
+  mandate_door: true
+  reviewer:
+    # The reviewer is asked through this command; the question goes on stdin, the answer comes back on stdout and
+    # must carry one line `VERDICT: YES` or `VERDICT: NO` (anything else is a no: fail closed). {model} is the ladder
+    # rung. No tools: the reviewer reads the evidence it is given and edits nothing. `--tools ""` turns off every
+    # built-in tool and --strict-mcp-config every MCP server: with only --disallowedTools a reviewer could still call
+    # Read or Grep, and under --max-turns 1 that one call ended the run with "Reached max turns (1)" and no verdict
+    # (2026-11-11, firefox-160-linux: two port attempts lost to it, both counted as a refusal).
+    cmd: [claude, -p, --model, "{model}", --max-turns, "1", --tools, "", --strict-mcp-config,
+          --disallowedTools, "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Agent,Task"]
+    timeout: 900                   # seconds
+    unknown_author: top            # author model unknown: top = the top rung the spend guard allows reviews;
+                                   # refuse = nothing is accepted without a known author
+    when_top_unavailable: same_rung  # no usable rung above the author: same_rung = the author's own rung reviews in a
+                                   # separate fresh session (owner rule 2026-11-11) | reauthor = the next rung down
+                                   # authors again and the author's rung reviews
+    max_evidence_chars: 24000      # the question is cut at this length (the reviewer is told it was cut)
+  # A deterministic check and the reviewer refusing the same item for opposite reasons (2026-11-11, firefox-160-linux:
+  # the check wanted a sentence the hunk adds, the reviewer refused it because upstream dropped it) is settled by the
+  # highest allowed rung above the author, which may only name the side that holds and quote the evidence. A check
+  # it overrules is waived for that one item (journal `override`, listed for the owner's review); never changed.
+  tiebreak:
+    enabled: true                  # false: such an item parks with both reasons, as before
+  ledger: auto-accepted.jsonl      # in the lifecycle state folder (state/lifecycle/); `fieldkit review` lists it

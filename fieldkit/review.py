@@ -2,6 +2,7 @@
 """fieldkit review: ONE list of everything that waits on the owner, answered once (owner, 2026-10-31).
 
     fieldkit review            the owner's, at a real terminal: main goal, everyday problems, then parked ideas, numbered 1..N
+    fieldkit review --inbox    write state/INBOX.md (waiting items with why + command, and the agent ledger) and open it
     fieldkit review --open     write state/REVIEW.md (the same list) and open it in the default viewer
     fieldkit review --list     print the list, change nothing
 
@@ -18,6 +19,7 @@ state/REVIEW.md is rewritten on every inbox or ideas change.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +29,7 @@ from .core.settings import state_root
 
 ROOT = ideas.ROOT
 CHOICE_KINDS = ("choice", "decision")
+NL = "\n"
 
 
 class Refused(Exception):
@@ -84,40 +87,129 @@ def plan_of(it, titles):
     return ""
 
 
+HARD_LINES = {"1": "the safety rule on pushing, merging and releasing", "2": "the safety rule against permanent deletes",
+              "3": "the safety rule that protects the guard and hook files", "4": "the rule that only you give some approvals",
+              "5": "the rule that keeps passwords and key files closed"}
+JARGON = (("owner_steps", "the list of approval steps in your signed permission file"),
+          ("mutate proof", "a test that is shown to fail when the code is broken"),
+          ("fieldkit mutate", "the check that proves a test can fail"))
+
+
+def plain(text, titles=None):
+    """The item's own words with the harness's inner names spelled out: HARD LINE N, owner_steps, a bare plan row id
+    (2026-11-12, owner: items must read in plain words). Nothing is invented; a name only gains its meaning."""
+    t = str(text or "")
+    t = re.sub(r"HARD LINE (\d)", lambda m: HARD_LINES.get(m.group(1), m.group(0)), t)
+    for k, v in JARGON:
+        t = t.replace(k, v)
+    titles = titles or {}
+    return re.sub(r"(?<!plan row )(?<![\w-])([RLOCIWPZ]\d+)\b(?! \()",
+                  lambda m: f"plan row {m.group(1)} ({titles[m.group(1)][:60]})" if m.group(1) in titles else m.group(0), t)
+
+
 def entries(root=None):
     """The page's items in page order (main-goal inbox items, everyday inbox items, parked ideas):
     [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
     titles = plan_titles(root)
     out = []
-    for it in _inbox().items("open"):
+    ib = _inbox()
+    ib.migrate_legacy()                               # 2026-11-10: only a kind that reaches the owner is his to answer
+    for it in ib.items("open"):
+        if it.get("kind") not in ib.OWNER_KINDS:
+            continue
         row = plan_of(it, titles)
+        w = dict(ib.words_for(it))
+        if w["if_approve"].startswith("It is closed as approved. The review runs nothing"):
+            w["if_approve"] = approve_words(it)           # 2026-11-12: an approval runs its command, right there
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
-                    "title": it["title"], "what": it.get("what", ""), "if_approve": it.get("if_approve", ""),
-                    "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
+                    "title": plain(it["title"], titles), "what": plain(w["what"], titles),
+                    "if_approve": plain(w["if_approve"], titles), "if_leave": plain(w["if_leave"], titles), "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
+    in_plan = ideas_in_plan(root)
     for e in ideas.listing("parked", root or ROOT):
         built = ideas.built_note(e)
-        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"],
+        row = idea_row(in_plan, e)
+        if row and not built:                         # 2026-11-10: I-01/I-02 were built as P23/P24 and still said
+            built = (f"ALREADY BUILT as plan row {row['row']} ({row['pr']}): accepting it closes it as done"   # "becomes a row"
+                     if row["pr"] else f"ALREADY IN THE PLAN as row {row['row']}: accepting it closes the idea")
+        appr = ("It is closed as done: the work is already merged; no new plan row and no brief are made."
+                if built.startswith("ALREADY BUILT") else
+                f"It is closed: plan row {row['row']} already carries it and stays as it is; no new row is made."
+                if built else "It becomes a new row in the plan, with a brief a worker can start.")
+        out.append({"type": "idea", "group": "idea", "plan": row["row"] if row else "", "ref": e["id"], "title": e["title"],
                     "what": e["what"] + (f" {built}." if built else ""),
-                    "if_approve": "It is closed: the work is already merged." if built else
-                                  "It becomes a row in the plan, with a brief a worker can start.",
+                    "if_approve": appr,
                     "if_leave": "It stays parked here; the running plan does not change.", "command": "", "words": False,
                     "raw": e})
     out.sort(key=lambda e: [g for g, _ in GROUPS].index(e["group"]))
     return out
 
 
-def where_we_are(root=None):
-    """Plain lines: the phase now and its rows, each id spelled out."""
+def ideas_in_plan(root=None):
+    """-> {idea id: [{"row", "pr", "line"}]} for every plan row that names an idea ("idea I-01"), with the PR that merged it
+    (plan.merged, or a DONE (PR #N) status) or "" when it is not built yet."""
+    import re as _re
+    from . import plan
+    p = Path(root or ROOT) / plan.PLAN
+    if not p.is_file():
+        return {}
+    text = p.read_text(encoding="utf-8")
+    st, mg = plan.items(text), plan.merged(Path(root or ROOT))
+    out = {}
+    for line in text.splitlines():
+        m = plan.ROW_ID.match(line)
+        if not m:
+            continue
+        for idea in _re.findall(r"\bidea (I-\d+)", line):
+            done = _re.search(r"PR (#\d+)", st.get(m.group(1), ""))
+            out.setdefault(idea, []).append({"row": m.group(1), "line": line,
+                                             "pr": (done and done.group(1)) or mg.get(m.group(1), "")})
+    return out
+
+
+def idea_row(in_plan, e):
+    """The plan row for this idea: one that names its id AND its date (ids were reused: an October I-01 is row P2,
+    the 2026-11-10 I-01 is P23), else None - never a guess."""
+    day = str(e.get("date") or "")[:10]
+    return next((r for r in in_plan.get(e["id"], []) if day and day in r["line"]), None)
+
+
+def running_rows(root=None):
+    """-> [(plan row id or "", job title)] of the jobs running now (the task ledger, a dead process not counted): the
+    truth about what is being worked on, not a fixed order table (2026-11-12: the line said P5 while P27/P9 ran)."""
+    try:
+        from .lifecycle import tasks
+        led = tasks.ledger()
+        tasks.settle(led)
+        return [(t.get("plan") or "", (t.get("title") or t["id"])[:90]) for t in led.values()
+                if t.get("status") == "started"]
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+
+
+def where_we_are(root=None, running=None):
+    """Plain lines: what is running now (open plan rows with a live job), else the next open row; held rows apart."""
     from . import plan
     r = plan.next_(root or ROOT)
-    if not r.get("ok") or not r.get("phase"):
+    if not r.get("ok"):
         return ["Where we are: the plan file is not readable here."]
     titles = plan_titles(root)
-    out = [f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"]
-    for ph in r["phases"]:
-        for i in ph["open"]:
-            out.append(f"  - {i} - {titles.get(i, '(no title)')} [phase {ph['phase']}]")
+    running = running_rows(root) if running is None else running
+    if running:
+        out = [f"Where we are: {len(running)} job(s) are running right now:"]
+        for row, title in running:
+            out.append(f"  - {('plan row ' + row + ' - ' + titles.get(row, '(no title)')) if row else 'no plan row'}: {title}")
+    else:
+        out = ["Where we are: no job is running now."]
+        opened = [i for ph in r["phases"] for i in ph["open"]][:5]
+        if opened:
+            out.append("Next in the plan:")
+            out += [f"  - {i} - {titles.get(i, '(no title)')}" for i in opened]
+    # 2026-11-10 (owner): a row the owner holds (W10, the final goal) is never shown as work to do
+    held = [i for ph in r["phases"] for i in ph.get("held", [])]
+    if held:
+        out.append("Held by the owner, not work to do (only when you say so, at the very end):")
+        out += [f"  - {i} - {titles.get(i, '(no title)')} [held]" for i in held]
     return out
 
 
@@ -136,9 +228,54 @@ def _item_lines(k, e, titles):
     return out
 
 
+def accepted_by_harness():
+    """-> (rows, lines): what the harness accepted by itself (I-04) that the owner has not reviewed yet, with the undo
+    line of each. Shown, never answered: an acceptance stands unless the owner runs its undo line."""
+    try:
+        from .lifecycle import autoaccept
+        rs = [r for r in autoaccept.unseen() if r.get("accepted")]
+    except Exception:                                        # noqa: BLE001 - the review never fails on the ledger
+        return [], []
+    if not rs:
+        return [], []
+    head = [f"Accepted by the harness while you were away ({len(rs)}): every check passed and an independent reviewer "
+            "said yes, or (TIE-BREAK / OVERRIDE) a higher rung settled a check-vs-reviewer deadlock on that one item. "
+            "Review after the fact; undo any with its line."]
+    return rs, head + autoaccept.lines(rs)[1:]
+
+
+def unavailable_models_lines():
+    """P9: models the harness is not using now (out of budget or pinned by the owner), with the time they are back."""
+    try:
+        from .lifecycle import models
+        ls = models.unavailable_lines()
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+    return (["Models the harness is routing around (out of budget, or marked by you); they return by themselves:"]
+            + [f"    {x}" for x in ls]) if ls else []
+
+
+def counsel_lines():
+    """P9: every stronger-model call the harness made (advisor, reviewer, tie-break, climb), from the counsel journal."""
+    try:
+        from .lifecycle import counsel
+        return counsel.lines()
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+
+
 def render(es, root=None):
     titles = plan_titles(root)
     out = [GOAL, FINAL, ""] + where_we_are(root)
+    _, aa = accepted_by_harness()
+    if aa:
+        out += [""] + aa
+    ua = unavailable_models_lines()
+    if ua:
+        out += [""] + ua
+    cl = counsel_lines()
+    if cl:
+        out += [""] + cl
     if not es:
         return out + ["", "Nothing waits for you."]
     out += ["", f"{len(es)} item(s) wait for you, in three groups."]
@@ -152,8 +289,64 @@ def render(es, root=None):
             k += 1
             out += _item_lines(k, e, titles)
     out += ["", "Answer once: a = approve all, p or Enter = keep all waiting, f = forget/dismiss all,",
-            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (2 a: core embedded)."]
+            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (for example 2 a: yes, go ahead)."]
     return out
+
+
+def inbox_page_path(root=None):
+    return state_root(root or ROOT) / "state" / "INBOX.md"
+
+
+def ledger_rows(limit=30):
+    """-> the last `limit` rows of the agent ledger (items `fieldkit inbox add` routed away from the owner)."""
+    import json
+    rows = []
+    f = _inbox().ledger_file()
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows[-limit:]
+
+
+def render_inbox(root=None):
+    """The owner's readable inbox: what waits on the owner (why + exact command), then what agents handled alone."""
+    its = _inbox().items("open")
+    out = ["# Inbox", "", "Rewritten on every inbox change. Read-only: answer at a terminal with `fieldkit review`.", "",
+           f"## Waiting on you ({len(its)})", ""]
+    if not its:
+        out.append("Nothing waits for you.")
+    for it in its:
+        out += [f"### [{it['n']}] {it['title']}", f"- Kind: {it['kind']}, added {it.get('added', '')}",
+                f"- Why: {it.get('why', '')}"]
+        if it.get("command"):
+            out += ["- Command:", "", f"      {it['command']}", ""]
+    _, aa = accepted_by_harness()
+    if aa:
+        out += ["", "## Accepted by the harness (after-the-fact review)", ""] + [f"    {x}" for x in aa]
+    rows = ledger_rows()
+    out += ["", f"## Handled by the agents, no action from you ({len(rows)} latest)", "",
+            "Only a hard line reaches you; everything else is filed here for Zero and the next agent.", ""]
+    if not rows:
+        out.append("Nothing filed.")
+    for r in reversed(rows):
+        out.append(f"- {r.get('added', '')} [{r.get('kind', '')}] {r.get('title', '')}: {str(r.get('why', ''))[:200]}")
+        if r.get("command"):
+            out.append(f"  - command: {r['command']}")
+    return out
+
+
+def write_inbox_page(root=None):
+    """Rewrite state/INBOX.md. -> the path, or None (never breaks the change that triggered it)."""
+    try:
+        p = inbox_page_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(NL.join(render_inbox(root)) + NL, encoding="utf-8", newline=NL)
+        return p
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def write_page(root=None):
@@ -172,6 +365,7 @@ def write_page(root=None):
 
 
 def refresh(root=None):
+    write_inbox_page(root)
     return write_page(root)
 
 
@@ -189,7 +383,61 @@ def split_answer(text):
     return head, " ".join(words.split())
 
 
-def apply(chosen, action, words, root=None, now=None, say=print):
+def approve_words(it):
+    cmd = str(it.get("command") or "").strip()
+    return "It is closed as approved" + (f" and its command runs at once, here, in your terminal: {cmd}" if cmd
+                                         else "; nothing is run, there is no command") + "."
+
+
+def runnable(cmd):
+    """True when the item's `command` is a command, not prose: its first word is a program on PATH or a file here."""
+    import shlex
+    try:
+        w = shlex.split(cmd, posix=os.name != "nt")
+    except ValueError:
+        return False
+    if not w:
+        return False
+    return w[0] in ("cd", "bash", "sh", "fieldkit") or bool(shutil.which(w[0])) or Path(w[0]).expanduser().is_file()
+
+
+RUNNER = None          # tests put a recorder here; None = subprocess.run
+
+
+def run_approved(raw, say=print, run=None):
+    """An approval given at the owner's own terminal runs its command right there, in the same step (owner, 2026-11-12:
+    "this is yet another example of bottleneck which has to be eliminated"; the review recorded 'a' and ran nothing, so
+    the owner then ran state/owner/approved-2026-11-12.sh by hand). The caller (`review`) passed `_owner_only`, so this
+    is the owner's terminal. Journaled in state/review-ran.jsonl; the result is shown. -> the journal row, or None."""
+    import json
+    import time
+    run = run or RUNNER or subprocess.run
+    cmd = str(raw.get("command") or "").strip()
+    if not cmd:
+        return None
+    row = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "item": raw.get("n"), "command": cmd, "ran": False, "rc": None}
+    if not runnable(cmd):
+        say(f"  not run: {cmd!r} is not a command a program can run; type it yourself if you meant it")
+        row["why"] = "not runnable"
+    else:
+        say(f"  running now: {cmd}")
+        try:
+            r = run(cmd, shell=True, capture_output=True, text=True, timeout=1800, cwd=str(state_root(ROOT)))
+            row.update(ran=True, rc=r.returncode, tail=((r.stdout or "") + (r.stderr or "")).strip()[-600:])
+        except (OSError, subprocess.TimeoutExpired) as x:
+            row.update(ran=True, rc=-1, tail=f"{type(x).__name__}: {x}")
+        say(f"  result: exit {row['rc']}" + (f"\n{row['tail']}" if row["tail"] else ""))
+    try:
+        p = state_root(ROOT) / "state" / "review-ran.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return {"id": f"#{raw.get('n')}", "status": "ran" if row["ran"] else "not-run", "brief": None, "plan_id": None, "rc": row["rc"]}
+
+
+def apply(chosen, action, words, root=None, now=None, say=print, run=None):
     """Record one action ('a' or 'f') on the chosen entries. -> [result dicts]."""
     res = []
     ib = _inbox()
@@ -203,16 +451,19 @@ def apply(chosen, action, words, root=None, now=None, say=print):
         if e["type"] != "inbox":
             continue
         n = e["raw"]["n"]
+        ran = None
         if action == "a":
             if e["words"] and not words:
                 say(f"{e['ref']} needs a choice: answer again with words after ':' (left open)")
                 continue
             ib.done(n, "approved by the owner at a terminal" + (f": {words}" if words else ""), approved=True, answer=words)
             say(f"{e['ref']} approved")
+            ran = run_approved(e["raw"], say=say, run=run)
         else:
             ib.done(n, "dismissed by the owner" + (f": {words}" if words else ""), approved=False, answer=words)
             say(f"{e['ref']} dismissed")
-        res.append({"id": e["ref"], "status": "approved" if action == "a" else "dismissed", "brief": None, "plan_id": None})
+        res.append({"id": e["ref"], "status": "approved" if action == "a" else "dismissed", "brief": None, "plan_id": None,
+                    "ran": (ran or {}).get("status") if action == "a" else None, "rc": (ran or {}).get("rc")})
     return res
 
 
@@ -222,6 +473,10 @@ def review(root=None, ask=input, say=print, now=None):
     es = entries(root)
     write_page(root)
     say("\n".join(render(es, root)))
+    seen, _ = accepted_by_harness()
+    if seen:                                    # shown to the owner at their terminal: reviewed after the fact
+        from .lifecycle import autoaccept
+        autoaccept.mark_seen([r["id"] for r in seen])
     if not es:
         return []
     for _ in range(5):
@@ -252,8 +507,8 @@ def review(root=None, ask=input, say=print, now=None):
     return res
 
 
-def open_page(root=None, run=None):
-    p = write_page(root)
+def open_page(root=None, run=None, inbox=False):
+    p = write_inbox_page(root) if inbox else write_page(root)
     if p is None:
         raise Refused("the page could not be written")
     if run is not None:
@@ -269,10 +524,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit review", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--open", action="store_true", help="write state/REVIEW.md and open it")
+    ap.add_argument("--inbox", action="store_true", help="write state/INBOX.md (waiting items + agent ledger) and open it")
     ap.add_argument("--list", action="store_true", help="print the list, change nothing")
     a = ap.parse_args(argv)
     try:
-        if a.open:
+        if a.inbox:
+            print(f"opened {open_page(inbox=True)}")
+        elif a.open:
             print(f"opened {open_page()}")
         elif a.list:
             write_page()

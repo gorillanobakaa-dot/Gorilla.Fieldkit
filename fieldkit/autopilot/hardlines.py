@@ -72,7 +72,9 @@ PUBLISH = [
     (r"\b(twine|npm|pnpm|yarn|cargo|poetry|flit)\b[^\n]*\bpublish\b|\btwine\b[^\n]*\bupload\b", "publishing a package"),
     (r"\bgit\b[^\n]*\bremote\b[^\n]*\b(add|set-url)\b", "changing where git pushes"),
     # 2026-10-23: ship push/merge/release/prune push through git inside the tool, which the line above never saw
-    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune|gh-release)\b", "publishing through fieldkit ship"),
+    # 2026-11-09: (?![\w-]) not \b: `ship release-ready` (a read-only dry run) matched `release` at the hyphen and
+    # blocked the v0.9.0 readiness check in jobs T-20261109-204139 and -233546
+    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune|gh-release)(?![\w-])", "publishing through fieldkit ship"),
     # 2026-10-23: release-cycle run publishes a GitHub release inside the tool (plan, next and reset only read)
     (r"\bfieldkit\b[^\n]*\brelease-cycle\s+\S+\s+run\b", "publishing a release (fieldkit release-cycle run)"),
 ]
@@ -161,7 +163,9 @@ def _strings(obj):
 HOOK_WHAT = "a hook or this guard"
 PLAN_GUARD = re.compile(r"fieldkit/autopilot/|(^|[/\s\"'])(?<!\.git/)hooks/(pre-|post-)[a-z-]+")
 ENFORCING = re.compile(r"fieldkit/autopilot/(hardlines|claude_hook|budget|breaker)\.py|fieldkit/method/mutate\.py")
-ITEM = re.compile(r"\b([RLOCI]\d+)\b")
+# I10 (2026-11-11): the plan's own item letters, one definition (fieldkit/plan.py ID). [RLOCI] never read a P or W
+# item, so with every open item a P or W no job could commit a guard file (inbox #51).
+from ..plan import ID as ITEM  # noqa: E402
 
 
 def plan_item(transcript):
@@ -216,7 +220,11 @@ def _commit_gate(seg, cwd, transcript):
     for c in dash_c:
         repo = repo / c.strip("\"'")
     every = re.search(r"\scommit\b[^\n]*(\s-[a-zA-Z]*a[a-zA-Z]*\b|\s--all\b)", seg)
-    names = _git(repo, *(["diff", "HEAD", "--name-only"] if every else ["diff", "--cached", "--name-only"]))
+    # I-11 (2026-11-12): a merge of main carries main's own guard files, already proven there. While a merge is being
+    # committed (MERGE_HEAD exists) only what differs from the branch merged in is this commit's own change.
+    merging = _git(repo, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+    names = _git(repo, *(["diff", "--cached", "--name-only", merging.decode().strip()] if merging else
+                         ["diff", "HEAD", "--name-only"] if every else ["diff", "--cached", "--name-only"]))
     if names is None:
         return None
     guard = [f for f in names.decode("utf-8", "replace").splitlines() if _protected(f) == HOOK_WHAT]

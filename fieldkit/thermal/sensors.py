@@ -126,11 +126,21 @@ def tpfan_csv(path=None):
 
 
 def _ps(cmd, timeout=60):
+    """-> PowerShell's output, or "" when it gave none in time. 2026-11-02 13:2x: a Get-Counter call hung 60 s under
+    load, TimeoutExpired killed the governor's thread and the guarded job ran with no governor; a reading that does
+    not come is a missing reading (the governor's STALE_S rule handles it), never a dead governor."""
     if sys.platform != "win32":                  # PowerShell is a Windows reader; elsewhere there is no reading
         return ""
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
-                       encoding="utf-8", errors="replace", timeout=timeout)
+    try:
+        r = _run_ps(cmd, timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
     return (r.stdout or "").strip()
+
+
+def _run_ps(cmd, timeout):
+    return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
+                       encoding="utf-8", errors="replace", timeout=timeout)
 
 
 def thermalzone():
@@ -265,7 +275,22 @@ def perf_percent():
 
 
 def _load(n):
-    return [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(n)]
+    return [subprocess.Popen([sys.executable, "-m", "fieldkit.thermal.burn"]) for _ in range(n)]
+
+
+def _stop_load(procs):
+    """Kill AND collect: a killed child nobody wait()s for stays a zombie for as long as this process lives.
+    (2026-11-13: `thermal watch --forever` held four defunct python children for 83 hours.)"""
+    for p in procs:
+        try:
+            p.kill()
+        except OSError:
+            pass
+    for p in procs:
+        try:
+            p.wait(timeout=5)
+        except Exception:
+            pass
 
 
 DIE_RISE = 10.0       # a package sensor climbs this much within a minute of twelve busy threads; a skin sensor does not
@@ -306,8 +331,7 @@ def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, lo
                 seen.append(t)
             time.sleep(interval)
     finally:
-        for p in procs:
-            p.kill()
+        _stop_load(procs)
     if not seen:
         return False, "no reading under load"
     hi, lo = max(seen), min(seen)

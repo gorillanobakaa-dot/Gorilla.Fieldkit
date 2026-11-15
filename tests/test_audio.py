@@ -192,8 +192,8 @@ def test_cli_json_and_exit_code():
                        env={**os.environ, "PYTHONPATH": os.getcwd()})
     r = json.loads(p.stdout)
     if not sys.platform.startswith("linux"):
-        # 2026-10-20 platform gate: the card says linux only, so the command line refuses before the tool runs
-        assert p.returncode == 2 and r["refused"] == "platform", r
+        # P9 2026-11-11: never a refusal; on Windows `fieldkit audio` dispatches to `fieldkit laptop sound`
+        assert p.returncode in (0, 3) and "refused" not in r, r
         return
     assert p.returncode == (0 if r["ok"] else 3)
     assert r["status"] in ("clean", "problems", "not-this-platform")

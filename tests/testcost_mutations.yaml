@@ -12,3 +12,48 @@
 - file: fieldkit/testcost.py
   swap: ["        if q.startswith(NON_CODE_TREES) or is_version_only(", "        if is_version_only("]
   why: "state/ selects no tests"
+- file: hooks/pre-commit
+  swap: ['echo "pre-commit: ${TC_WHY:-no test covers the staged files} - nothing runs here', 'echo "pre-commit: no test covers the staged files - nothing runs here']
+  why: the hook prints testcost's own reason when nothing runs, never a false "no test covers"
+# tests: narrow local, wide on CI (I-19, 2026-11-12): every rule of the local selector broken once
+- file: fieldkit/testcost.py
+  swap: ["            direct |= hits\n        if not hits:", "            pass\n        if not hits:"]
+  why: a test that imports the changed module is a direct cover and runs here
+- file: fieldkit/testcost.py
+  swap: ["    local = todo[:cap]", "    local = todo"]
+  why: the local list never exceeds the YAML budget (a hub change defers the rest to CI)
+- file: fieldkit/testcost.py
+  swap: ["    todo = [r for r in direct if file_check(r) not in passed]", "    todo = direct"]
+  why: a test that already passed on this exact tree is not run again
+- file: fieldkit/testcost.py
+  swap: ['            record("deferred", "skipped", 0', '            record("deferred-x", "skipped", 0']
+  why: what is deferred to CI is journaled
+- file: fieldkit/testcost.py
+  swap: ["    cap = max(1, min(int(policy[\"max_files\"]), int(policy[\"budget_seconds\"] // max(policy[\"est_seconds_per_file\"], 0.1))))", "    cap = max(1, int(policy[\"max_files\"]))"]
+  why: the time budget caps the list as well as the file count
+# every file mapped (2026-11-02)
+- file: fieldkit/testcost.py
+  swap: ['        if rows:                                       # a mapped file', '        if False:                                       # a mapped file']
+  why: tests/testmap.yaml globs select their tests
+- file: fieldkit/testcost.py
+  swap: ['        if not hits and q.startswith("fieldkit/"):     # no test names it', '        if False:     # no test names it']
+  why: a file inside a package no test names selects the package's tests, not the whole suite
+- file: fieldkit/testcost.py
+  swap: ['        if MUTATION_PLAN.search(q):', '        if False:']
+  why: a mutation plan selects the test it mutates
+- file: fieldkit/testcost.py
+  swap: ['tests_dir.rglob("test_*.py")', 'tests_dir.glob("test_*.py")']
+  why: tests in subfolders (tests/capture/) are found
+- file: fieldkit/testcost.py
+  swap: ['        return 3 if u else 0', '        return 0']
+  why: testcost unmapped exits 3 when any file is unmapped
+# shared registries select only what changed (Worker 5, 2026-11-03: cli.py + tools.yaml selected 142 test files)
+- file: fieldkit/testcost.py
+  swap: ["        if q in REGISTRY_INTEGRITY:  ", "        if False:  "]
+  why: a registry edit selects the tests of what changed in it, not every importer
+- file: fieldkit/testcost.py
+  swap: ["    if set(olds) - set(news):", "    if False:"]
+  why: a removed tools entry cannot be proven safe, so the wide mapping stays
+- file: fieldkit/testcost.py
+  swap: ["    changed = [i for i, e in news.items() if olds.get(i) != e]", "    changed = []"]
+  why: the tests of the entry that changed are selected

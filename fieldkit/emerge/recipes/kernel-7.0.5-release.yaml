@@ -11,6 +11,7 @@ description: >-
   The archived kernel 7.0.5 release from its tree: every shell script parses, the config is present, a telemetry
   scan. No compile (debian-kernel builds the maintained kernel).
 baseline_minutes: 1
+archive: "the archived 7.0.5 release folder, checked, never built: the kernel is built by the general debian-kernel recipe (any version)"
 vars:
   src: "${DOCUMENTS}/kernel-7.0.5-release"
 sources:

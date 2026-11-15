@@ -279,7 +279,38 @@ def runs():
     return out
 
 
-def assess(rec, now=None, same=contain.same):
+ZOMBIE_LIMIT = 50                      # P37: a supervisor with more zombie children than this is not reaping
+CPU_SHARE_LIMIT = 0.30                 # ... or burns more than this share of a core over
+CPU_SPAN_S = 600                       # ... at least this long (CPU time / age of the process)
+
+
+def owner_load(pid):
+    """-> (zombie children, CPU share of one core since it started, age s) of a live supervisor; (0, 0.0, 0) if unknown."""
+    try:
+        p = contain.psutil.Process(int(pid))
+        t = p.cpu_times()
+        age = max(1.0, time.time() - p.create_time())
+        return contain.zombie_children(int(pid)), (t.user + t.system) / age, age
+    except Exception:  # noqa: BLE001
+        return 0, 0.0, 0
+
+
+def hog_findings(rec, who, load):
+    """P37: a supervisor that piles up zombies or burns a core for hours is a finding (HOG), never killed here."""
+    zombies, share, age = load
+    out = []
+    if zombies > ZOMBIE_LIMIT:
+        out.append({"state": "HOG", "run": rec.get("id"), "kill": [],
+                    "line": f"HOG {who}: {zombies} zombie children (limit {ZOMBIE_LIMIT}): the supervisor does not "
+                            f"reap its orphans (fieldkit/core/contain.py reap_orphans)"})
+    if age >= CPU_SPAN_S and share > CPU_SHARE_LIMIT:
+        out.append({"state": "HOG", "run": rec.get("id"), "kill": [],
+                    "line": f"HOG {who}: {share * 100:.0f} % of a core on average over {int(age / 60)} min "
+                            f"(limit {int(CPU_SHARE_LIMIT * 100)} % over {CPU_SPAN_S // 60} min)"})
+    return out
+
+
+def assess(rec, now=None, same=contain.same, load=owner_load):
     """One beacon -> findings [{state, line, kill: [[pid, ctime]], forget}]. Pure apart from `same`."""
     now = time.time() if now is None else now
     owner = same(rec.get("pid"), rec.get("ctime"))
@@ -298,6 +329,7 @@ def assess(rec, now=None, same=contain.same):
             out.append({"state": "GONE", "run": rec.get("id"), "line": f"gone {who}: nothing left running",
                         "forget": rec.get("_path")})
         return out
+    out += hog_findings(rec, who, load(rec.get("pid")))
     age = now - float(rec.get("heartbeat") or 0)
     if age > float(rec.get("stale_s") or STALE_MIN_S):
         out.append({"state": "STALLED", "run": rec.get("id"),
@@ -384,7 +416,7 @@ def check(act=False, now=None, same=contain.same, stopper=None, inbox_add=None, 
                  "why": f["line"]}
             log_action(a)
             acted.append(a)
-    real = [f for f in found if f["state"] in ("STALLED", "ORPHAN")]
+    real = [f for f in found if f["state"] in ("STALLED", "ORPHAN", "HOG")]
     if acted and inbox_add is not False:
         ok_n = sum(1 for a in acted if a["ok"])
         line = (f"liveness: stopped {ok_n} of {len(acted)} harness process(es) - "
@@ -402,7 +434,7 @@ def check(act=False, now=None, same=contain.same, stopper=None, inbox_add=None, 
 
 
 def summary(res):
-    real = [f for f in res["findings"] if f["state"] in ("STALLED", "ORPHAN")]
+    real = [f for f in res["findings"] if f["state"] in ("STALLED", "ORPHAN", "HOG")]
     if not real:
         return f"liveness: OK ({res['runs']} run(s))"
     return "liveness: " + "; ".join(f["line"] for f in real)

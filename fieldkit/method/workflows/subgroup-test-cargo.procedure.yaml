@@ -1,0 +1,21 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-test-cargo
+intent: test
+toolchain: cargo
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 23
+replayed_ok: 1 of 23
+step_families:
+- cargo test
+- cargo build
+- fieldkit size
+- git add
+side_effects:
+  network_or_remote: 0
+  write_or_release: 1
+  code_execution: 2
+blocker: Cargo test/build execute project build/test code, `git add` stages changes, and `fieldkit size` semantics are unknown.
+  No package/feature filters, required result counts, clean-tree guard, or staging verification is recorded.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

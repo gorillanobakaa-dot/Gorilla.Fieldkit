@@ -101,7 +101,7 @@ def test_a_sensor_that_collected_nothing_in_a_scenario_fails():
     # packets on: pktmon is required in direct mode too
     events, results, requests = _ok_world(packets=False)
     fail, _ = gate.action_checks(set(NEW), events, results, requests, packets=True)
-    assert any("pktmon" in x for x in fail["NETWORK_POLICY"])
+    assert any(gate.packet_sensor_name() in x for x in fail["NETWORK_POLICY"])
 
 
 def test_a_scenario_that_ran_with_no_events_at_all_fails():
@@ -122,8 +122,8 @@ def test_a_page_that_never_reported_or_a_download_never_served_fails():
     assert any("never served /tiny.exe" in x for x in fail["NETWORK_POLICY"])
 
 
-def test_linux_coverage_names_its_own_sensors():
-    assert gate.required_coverage("direct", True, linux=True) == {"strace", "tcpdump"}
+def test_linux_requires_the_same_sensors_as_windows():
+    assert gate.required_coverage("direct", True) == {"process-tree", "filesystem", "sockets", "necko-http", "necko-dns", "pktmon"}
 
 
 def test_lan_probe_requests_that_left_fail_lan_policy():

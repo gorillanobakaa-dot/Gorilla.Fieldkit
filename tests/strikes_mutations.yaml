@@ -1,0 +1,53 @@
+# F4 whose red: every rule must be CAUGHT (2026-11-02):
+#   fieldkit mutate --plan tests/strikes_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_strikes.py
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if passed:'
+  - '    if False:'
+  why: a failed id that passes on the merge base makes the red the branch's own
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if all(got.get(i) == "fail" for i in ids):'
+  - '    if False:'
+  why: every failed id also failing on the merge base is main's red
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if not ids:'
+  - '    if False:'
+  why: no readable ids is unproven, never own or main
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT}'
+  - '    return {"unproven": len(un), "counted": False}'
+  why: the unproven round past FLAKE_LIMIT counts (fail closed)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if kind == "main":'
+  - '    if False:'
+  why: main's red is never recorded as a strike
+- file: fieldkit/method/strikes.py
+  swap:
+  - '            "would_unpark": parked and own < LIMIT}'
+  - '            "would_unpark": False}'
+  why: recount reports a parked branch whose own count is below two
+# P9 infra classifier (2026-11-11, PR 461): every rule must be CAUGHT
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if not text.strip() or failed_tests(lines) or PYTEST_SUMMARY.search(text):'
+  - '    if not text.strip():'
+  why: a failed test or a pytest failure summary is never infrastructure (a test failure stays a strike)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '            if s["_rx"].search(x):'
+  - '            if True:'
+  why: only a line matching a signature is infrastructure
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    except Exception:  # noqa: BLE001 - no data, no infrastructure verdict'
+  - '    except ImportError:  # noqa: BLE001 - no data, no infrastructure verdict'
+  why: an unreadable signature set gives no infrastructure verdict
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    return min(600, 60 * 2 ** max(0, k - 1))'
+  - '    return 60 * 2 ** max(0, k - 1)'
+  why: the backoff is capped at 10 minutes

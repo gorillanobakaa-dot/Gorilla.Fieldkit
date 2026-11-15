@@ -1,0 +1,22 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-other-other
+intent: other
+toolchain: other
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 93
+replayed_ok: 1 of 93
+step_families:
+- git fetch
+- fieldkit guard
+- fieldkit zero
+- fieldkit wait
+- fieldkit ship
+side_effects:
+  network_or_remote: 2
+  write_or_release: 0
+  code_execution: 1
+blocker: '`fieldkit wait` and `fieldkit zero` are unknown commands, alongside fetch/guard/ship families. With only 1/93 replay
+  and no argument or outcome contract, steps cannot be promoted into an executable recipe.'
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

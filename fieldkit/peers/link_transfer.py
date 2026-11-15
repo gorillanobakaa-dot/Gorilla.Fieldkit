@@ -449,7 +449,8 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
                to_desktop=False):
     """Send a file or a folder; resume after a drop (up to `retries` more tries). -> the receiver's answer, plus
     attempts, seconds and MB/s measured here."""
-    if man is None:
+    own = man is None                                 # a manifest we made ourselves may be made again
+    if own:
         man, root, skipped = manifest_for(path)
     else:
         man, root, skipped = man
@@ -458,6 +459,9 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
     t0 = time.time()
     for attempt in range(1, retries + 2):
         try:
+            if own and attempt > 1 and "changed while it was being sent" in str(last):
+                man, root, skipped = manifest_for(path)   # a file (.git/config) moved on: send what is there now
+                raw = manifest_bytes(man)
             r = _send_once(man, raw, root, device, progress, connect, to_desktop)
             r.update(attempts=attempt, skipped=[list(x) for x in skipped[:50]], skipped_count=len(skipped))
             secs = max(time.time() - t0, 1e-6)

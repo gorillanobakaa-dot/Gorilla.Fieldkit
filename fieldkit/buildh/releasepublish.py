@@ -159,6 +159,10 @@ def send(tag, runner=subprocess.run, popen=subprocess.Popen, say=print, confirm=
         if not step(f"check: {c if isinstance(c, str) else ' '.join(c)}", cr.returncode == 0,
                     (cr.stdout or cr.stderr).strip().splitlines()[-1:] and (cr.stdout or cr.stderr).strip().splitlines()[-1] or ""):
             return _end(steps, say, speak)
+    from ..method import releasegate                              # one release per batch (owner order 2026-11-15)
+    g = releasegate.guard(plan["gh_repo"], plan["tag"])
+    if not step("one release per batch", g["ok"], g.get("error") or g["state"]):
+        return _end(steps, say, speak)
     env = dict(os.environ, GORILLA_OWNER_APPROVED="1")          # for this push only: the owner just typed yes
     say("pushing (the repository's own checks run now; their output follows):")
     for ref in plan.get("pushes") or [plan["branch"]]:

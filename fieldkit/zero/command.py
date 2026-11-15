@@ -6,6 +6,8 @@ unused sessions, to ask the idle devices why are they doing and why aren't they 
     fieldkit zero task STATION --objective TEXT --area PATH[,PATH] --done TEXT [--drift-min 45] [--idle-min 45]
                                    Zero gives a station its order; its area is its ground (two live orders never
                                    overlap); writes outside it are refused by the PreToolUse hook (claims.py)
+                                   [--done-cmd CMD]  a command that proves done (P24): `release --finished` runs it
+                                   in the order's area and refuses to close the order unless it exits 0
     fieldkit zero release STATION [--finished]   Zero closes the order (done, or released); its ground is free
     fieldkit zero orders                         every order: objective, area, sitrep, last activity, idle query
     fieldkit zero checkin --relieve OLD          a rotated station's relief takes over its order and ground
@@ -18,6 +20,10 @@ The comms check (`fieldkit zero check`, every 15 min by the schedule) runs sweep
                  BLOCKED or DONE): it is asked once per idle period "why idle, what is blocking you"; its next
                  check-in sitrep is its answer, on the Board
     ARCHIVE      a station that reported DONE whose session ended its turn with no open PR (fieldkit rotate finished)
+    ORPHAN       a station whose session rotated (a relief is waiting, or a rotate brief exists) and whose order
+                 has no relief (`checkin --relieve`) within `orphan_min` minutes (net config, default 20): the wake
+                 carries the exact `fieldkit task start BRIEF --title ...` that starts its successor; nothing is
+                 started automatically
     WAKE         only a NEW finding wakes anyone, once: one net message to Zero (a Claude Code Zero reads it from the
                  room hook at its next prompt; an OpenCode Zero gets it pushed; the far computer over the cable).
                  Zero SILENT or MISSING: a `fieldkit inbox` item names the 2IC (`handover --assume`) and the 2IC is sent
@@ -41,6 +47,9 @@ from . import net as N
 
 DRIFT_MIN = 45
 IDLE_MIN = 45
+ORPHAN_MIN = 20
+DONE_CMD_TIMEOUT_S = 600
+TAIL_LINES = 8
 BOARD_KEY = "| Command (fieldkit zero) |"
 SEEN_KEEP_S = 7 * 24 * 3600
 RESTING = ("DONE", "WAITING", "BLOCKED")
@@ -113,7 +122,7 @@ def repos_of(area, git=_git):
 # ---------------------------------------------------------------- orders
 
 def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_min=None, now=None, git=_git,
-         channels=None):
+         channels=None, done_cmd=None):
     now = time.time() if now is None else now
     net = N.load_net()
     N.require_zero(net, me, epoch)
@@ -146,6 +155,8 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
                  "at_text": time.strftime("%Y-%m-%d %H:%M", time.localtime(now)), "repos": repos,
                  "drift_min": float(drift_min or net.get("drift_min") or DRIFT_MIN),
                  "idle_min": float(idle_min or net.get("idle_min") or IDLE_MIN)}
+        if (done_cmd or "").strip():
+            order["done_cmd"] = done_cmd.strip()
         if old:
             order["replaces"] = old["id"]
         rec["order"] = order
@@ -160,17 +171,47 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
     return {"order": order, "station": station, "sent": sent}
 
 
-def release(me, station, finished=False, epoch=None, now=None):
+def run_done_cmd(o, run=subprocess.run):
+    """P24: run the order's done command (cwd = its first area folder that exists, else the repo). -> {"exit": int,
+    "tail": [last output lines], "cwd": path}. A timeout or a failure to start is exit -1 with the reason in tail."""
+    cwd = next((a for a in o.get("area") or [] if Path(a).is_dir()), None) or str(N.ROOT)
+    try:
+        r = run(o["done_cmd"], shell=True, cwd=cwd, capture_output=True, text=True, timeout=DONE_CMD_TIMEOUT_S,
+                encoding="utf-8", errors="replace")
+        out = ((r.stdout or "") + (r.stderr or "")).splitlines()
+        return {"exit": r.returncode, "tail": out[-TAIL_LINES:], "cwd": cwd}
+    except subprocess.TimeoutExpired:
+        return {"exit": -1, "tail": [f"timed out after {DONE_CMD_TIMEOUT_S} s"], "cwd": cwd}
+    except OSError as e:
+        return {"exit": -1, "tail": [f"could not run: {e}"], "cwd": cwd}
+
+
+def release(me, station, finished=False, epoch=None, now=None, run=subprocess.run):
     now = time.time() if now is None else now
     net = N.load_net()
     N.require_zero(net, me, epoch)
     station = station if "@" in station else f"{station}@{N.machine()}"
+    o0 = active(N.load_stations()["stations"].get(station))
+    proof = None
+    if finished and o0 and o0.get("done_cmd"):        # the proof runs outside the lock: it may take minutes
+        proof = run_done_cmd(o0, run)
+        if proof["exit"] != 0:
+            with N._Lock():
+                st = N.load_stations()
+                o = active(st["stations"].get(station))
+                if o:
+                    o["done_proof"] = dict(proof, at=now)
+                    N.save_stations(st)
+            raise N.Refused(f"order {o0['id']} is NOT done: `{o0['done_cmd']}` exited {proof['exit']} in {proof['cwd']}; "
+                            "last output: " + " | ".join(proof["tail"][-4:]) + " (the order stays open)")
     with N._Lock():
         st = N.load_stations()
         o = active(st["stations"].get(station))
         if not o:
             raise N.Refused(f"{station} has no open order")
         o.update(closed=now, outcome="done" if finished else "released")
+        if proof:
+            o["done_proof"] = dict(proof, at=now)
         (st["meta"].get("relief") or {}).pop(station, None)
         N.save_stations(st)
         write_claims(st, net)
@@ -380,6 +421,7 @@ def sweep(net, now=None, channels_for=None, inbox_add=None, git=_git, finished=N
             answer = f"{sr.get('state')}: waiting on {sr.get('waiting')}"
         rows.append({"station": s, "order": o["id"], "objective": o["objective"], "state": state or "-",
                      "quiet_min": int(quiet_min), "drift": len(drift), "asked": asked.get("at"), "answer": answer})
+    findings += orphans(st, now, net)
     archive = []
     if done_st:
         try:
@@ -461,6 +503,48 @@ def sweep(net, now=None, channels_for=None, inbox_add=None, git=_git, finished=N
     return out
 
 
+def _brief_of(sid):
+    """-> (path of the rotate brief or the hand-over note for this session or "", its time)."""
+    try:
+        from ..tokens import rotate
+        f = rotate.state_dir() / "briefs" / f"{sid}.md"
+        if sid and f.is_file():
+            return str(f), f.stat().st_mtime
+        if sid:
+            notes = sorted(rotate.coordination_dir().glob(f"rotate-*-{sid[:8]}.md"))
+            if notes:
+                return str(notes[-1]), notes[-1].stat().st_mtime
+    except Exception:  # noqa: BLE001 - a missing brief is said in the finding
+        pass
+    return "", 0.0
+
+
+def orphans(st, now, net):
+    """P24: ORPHAN findings. A station with an open order whose session rotated (a pending relief in the meta, or a
+    rotate brief in the rotate state dir) and that no relief took over within `orphan_min` minutes. The finding
+    carries the exact command that starts its successor; nothing is started here."""
+    out = []
+    limit = float(net.get("orphan_min") or ORPHAN_MIN) * 60
+    relief = st["meta"].get("relief") or {}
+    for s, rec in sorted(st["stations"].items()):
+        o = active(rec)
+        if not o:
+            continue
+        sid = str(rec.get("session") or "")
+        brief, bt = _brief_of(sid)
+        at = float((relief.get(s) or {}).get("ts") or 0)
+        if not at and bt and bt >= float(o.get("at") or 0):
+            at = bt
+        if not at or now - at < limit or float(rec.get("last") or 0) > at + 300:
+            continue                                   # not rotated, still inside the window, or it kept working
+        cmd = (f'fieldkit task start {brief or "BRIEF.md"} --title "{o["objective"][:60]}"'
+               + ("" if brief else "   (no rotate brief found: fieldkit rotate handover writes one)"))
+        out.append({"key": _key("orphan", s, o["id"]), "kind": "ORPHAN", "station": s,
+                    "text": f"{s} rotated {int((now - at) / 60)} min ago and order {o['id']} has no relief; start "
+                            f"its successor with: {cmd}"})
+    return out
+
+
 def board_row(rows, findings, archive):
     kinds = {}
     for f in findings:
@@ -499,9 +583,19 @@ def order_lines(rows):
         out.append(f"      objective: {o['objective']}")
         out.append(f"      ground:    {', '.join(o['area'])}")
         out.append(f"      done when: {o['done']}")
+        if o.get("done_cmd"):
+            proof = o.get("done_proof")
+            out.append(f"      done proof: `{o['done_cmd']}`" + (f" exit {proof['exit']}" if proof else " (not run yet)"))
+            out += [f"        | {ln}" for ln in (proof or {}).get("tail", [])[-3:]]
+        else:
+            out.append("      done proof: done not proven (no --done-cmd)")
         if r.get("sitrep"):
-            out.append(f"      sitrep:    {r['sitrep'].get('state')}: {r['sitrep'].get('job')} "
-                       f"(waiting on {r['sitrep'].get('waiting')})")
+            sr = r["sitrep"]
+            out.append(f"      sitrep:    {sr.get('state')}: {sr.get('job')} (waiting on {sr.get('waiting')})")
+            for k, label in N.SITREP4:
+                out.append(f"        {label + ':':<14}{sr.get(k) or 'MISSING'}")
+            if N.sitrep_missing(sr):
+                out.append(f"        INCOMPLETE: no {', no '.join(N.sitrep_missing(sr))}")
         if r.get("asked"):
             out.append(f"      asked why idle at {r['asked'].get('at')} ({r['asked'].get('id')})")
     return out

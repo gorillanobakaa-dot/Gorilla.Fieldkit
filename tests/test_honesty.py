@@ -96,3 +96,31 @@ def test_rotate_handover_records_unbacked_claims(tmp_path):
         {"type": "tool_result", "content": "17 passed in 0.46s"}]}}), encoding="utf-8")
     assert rotate._honesty(t, "tests `17 passed in 0.46s`", "the VAIO") == []
     assert [x["kind"] for x in rotate._honesty(t, "everything green", "the VAIO")] == ["UNBACKED"]
+
+
+ROWS = {"zero": {"26"}, "plan": {"R11"}, "board": "| [VAIO-LNX] R3: every session leaves its Board row |"}
+
+
+def test_a_promise_must_name_an_existing_row():
+    """R16: the 10-28 text "on the repair list" with no row is the planted failing case."""
+    assert kinds("The governor is on the repair list.\n" + NV, rows=ROWS) == ["PROMISE"]
+    assert kinds("Will be fixed later.\n" + NV, rows=ROWS) == ["PROMISE"]
+    assert kinds("On the repair list as row 26.\n" + NV, rows=ROWS) == []
+    assert kinds("Follow-up is R11.\n" + NV, rows=ROWS) == []
+    assert kinds('TODO: see Board row "every session leaves its Board row".\n' + NV, rows=ROWS) == []
+
+
+def test_a_promise_naming_a_row_that_does_not_exist_fails():
+    assert kinds("On the repair list as row 99.\n" + NV, rows=ROWS) == ["PROMISE"]
+    assert kinds("Follow-up is R99.\n" + NV, rows=ROWS) == ["PROMISE"]
+
+
+def test_load_rows_reads_the_plan_and_problem_table(tmp_path, monkeypatch):
+    from fieldkit import refusals
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "HARNESS-PLAN.md").write_text("| R16 | x |\n")
+    monkeypatch.setattr(refusals, "state", lambda root=None: tmp_path / "state")
+    (tmp_path / "state" / "coordination").mkdir(parents=True)
+    (tmp_path / "state" / "coordination" / "ZERO-OPEN-PROBLEMS.md").write_text("| 26 | p | OPEN | x |\n")
+    r = honesty.load_rows(tmp_path)
+    assert r["plan"] == {"R16"} and r["zero"] == {"26"}

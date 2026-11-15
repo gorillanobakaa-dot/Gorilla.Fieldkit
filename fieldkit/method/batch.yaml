@@ -1,0 +1,35 @@
+# fieldkit ship batch: many PRs -> one branch -> one CI -> one merge (plan P9, ideas I-14 and I-15; owner 2026-11-12:
+# "we will have 20, 30, 50, 100 computers ... 300, 400 PRs ... if for each we wait 30 to 40 minutes, that's bullshit").
+# Data, not code (AGENTS.md: change the data before the code). Read by fieldkit/method/batch.py.
+batch:
+  # The mandate's push patterns are feat/ fix/ release- night/ (fieldkit/mandate/owner-wide.yaml); batch/ is not one
+  # of them and the mandate is the owner's, so the batch branch lives under night/.
+  branch: "night/batch-{stamp}"        # {stamp} = YYYYMMDD-HHMM (UTC)
+  max: 50                              # PRs joined into one batch at most (collect --max overrides)
+  need_checks: [windows, ubuntu]       # a member is taken only when each of these is green at its current head
+  # A conflict only in these paths is regenerated and the merge goes on. Any other conflict leaves the PR out of
+  # this batch (journaled with the files); a model never hand-resolves a batch.
+  generated:
+    - path: fieldkit/desk/platform_index.json
+      regenerate: ["{python}", "-m", "fieldkit.core.platform_gate", "--write"]
+    - path: fieldkit/desk/tools.yaml
+      driver: merge-driver             # fieldkit/method/mergedriver.py merges the cards entry by entry
+    - path: docs/groups.yaml
+      driver: merge-driver
+    - path: docs/PLATFORMS.md
+      regenerate: ["{python}", "-m", "fieldkit", "parity", "os", "--write"]
+  # Run once after the last merge, whatever conflicted: a generated file the members left out of step is fixed here.
+  after_merge: [fieldkit/desk/platform_index.json, docs/PLATFORMS.md]
+  # Red batch: the culprit is found from the failing test names, never by a model.
+  culprit:
+    max_rounds_extra: 1                # a bisect may use ceil(log2(n)) + this many CI runs
+    infra_reruns: true                 # a runner-infrastructure red re-runs; it never bisects (strikes.infra)
+  # A batch's CI runs only what no member's own green head already proved, plus what two members both touched.
+  select:
+    skip_proven: true
+    overlap_risk: true
+  # CI shards (item 7): the selected test files are split into N parallel jobs per OS, balanced by recorded durations.
+  shards:
+    default: 4
+    durations: .github/test_durations.json   # {"tests/test_x.py": seconds}; a file with no record counts the median
+    required_status: "test ({os})"           # the check name each OS keeps: green only when every shard is green

@@ -153,3 +153,59 @@ signatures:
   source: Gorilla.firefox status logs 2026-09-09
   cause: The calibrated thermal profile is invalid - the temperature sensor did not respond to load during calibration.
   fix: Re-run calibrate with a sensor that responds to load before any capped build.
+
+- id: newtab-sources-unpatched
+  pattern: "None of the bundle's sources are patched"
+  check: null
+  source: firefox-windows emerge 2026-11-09 (158 tree, stage generated)
+  cause: >-
+    The generated stage guards a newtab bundle rebuild by checking that
+    Base.jsx, DiscoveryStreamBase.jsx and TopSites.jsx differ from git HEAD.
+    The 158 patch set has no patch for those sources or for the bundle (git diff
+    against the upstream base commit is empty for all four), so there is nothing
+    Gorilla to carry into a rebuild and the guard rightly halts. It is not a
+    patches-stage fault (that stage did run).
+  fix: >-
+    The generated stage is removed from the firefox-windows pipeline and recipe
+    for 158; the upstream bundle ships as is. Bring it back only with a patch
+    that changes those JSX sources.
+
+- id: patches-reapplied-on-158
+  pattern: 'media.gmp-widevinecdm.enabled is a new decision, not recorded'
+  check: null
+  source: firefox-windows emerge 2026-11-09 (158 tree, stage preflight after patches)
+  cause: >-
+    The patches stage applied the 155/157 groups (the only ones in patch_policy.json)
+    onto the finished 158 tree and rewrote 82 files, among them a second
+    widevinecdm pref block that preflight then refused as an unrecorded owner
+    decision. The 158 tree is the checkpointed truth; it needs no patch run.
+  fix: >-
+    patches-check and patches are removed from the firefox-windows pipeline and
+    recipe. If the tree was already hit: save the diff, then restore the files the
+    stage wrote (the ones modified that minute) from git HEAD.
+    Never edit the owner's pref decisions.
+
+- id: thermal-status-window-stale
+  pattern: "CONSTANT, sensor is not live"
+  check: null
+  source: firefox-windows emerge 2026-11-09 12:17 (stage build, validate_provider)
+  cause: >-
+    The Firefox harness read TPFanControl through its window Status edit, which returned 58 C idle and a flat
+    41 C under load, while the engine's status file (C:/ProgramData/TPFanControl/status.txt, what fieldkit thermal
+    status reads as tpfan_status) moved 40 -> 72 C. The halt was right about the reading and wrong about the
+    sensor. Do not weaken the halt.
+  fix: >-
+    harness/lib/thermal.py reads status.txt first (_temp_tpfan_status, ignores a file older than 30 s and the 148
+    dummy register); the window reader stays as fallback. Run `fieldkit thermal prove` to see which source is live.
+
+- id: msvc-config-status-stale
+  pattern: 'fatal error: .(?:algorithm|type_traits|stdio\.h). file not found'
+  check: null
+  source: firefox-windows emerge 2026-11-09 12:11 (stage build, clang-cl)
+  cause: >-
+    mach bootstrap replaced MSVC 14.50.35717 with 14.51.36231 under ~/.mozbuild/vs, but the objdir's
+    config.status (C:/gfobj) still recorded INCLUDE/LIB/AS under 14.50, so clang-cl found no standard headers.
+    mach does not notice that a recorded toolchain directory is gone.
+  fix: >-
+    Stage build (harness/stages/s40_build.py) lists the MSVC directories config.status names
+    (toolchain.stale_msvc_paths); if one is missing it moves config.status aside so mach build runs configure.

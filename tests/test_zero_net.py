@@ -19,6 +19,7 @@ TWO = f"claude:bbbbbbbb@{HOST}"
 GEM = f"gemini:g1@{HOST}"
 SIT = {"job": "zero net", "state": "working", "branch": "feat/zero-net", "waiting": "-", "not_verified": "live VAIO",
        "shared": "-"}
+SIT4 = dict(SIT, started="fix the zero net", done="wrote the tool", now="running its tests", left="open the PR")
 
 
 class FakeChannel:
@@ -210,7 +211,7 @@ def test_rollcall_answer_late_and_missing():
     assert set(r["expect"]) == {GEM, TWO}
     rows = {x["station"]: x["status"] for x in net.roll(net.load_net(), T0 + 20)["rows"]}
     assert rows == {GEM: "PENDING", TWO: "MISSING"}
-    c = net.checkin(GEM, sitrep=SIT, now=T0 + 30, env={})
+    c = net.checkin(GEM, sitrep=SIT4, now=T0 + 30, env={})
     assert c["entry"]["ref"] == r["entry"]["id"]                         # answers the open roll call by itself
     assert any(e["kind"] == "rollcall" for e in c["pending"])
     rr = net.roll(net.load_net(), T0 + 40)
@@ -741,7 +742,7 @@ def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
     net.checkin(GEM, now=T0, env={})
     net.check(heal=False, now=T0 + 3601)
     assert str(inbox.INBOX).startswith(str(tmp_path))
-    got = list((tmp_path / "autopilot" / "inbox").glob("*.json"))
+    got = [inbox.ledger_file()] if inbox.ledger_file().is_file() else []   # the tmp agent ledger
     assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before
@@ -852,3 +853,180 @@ def test_retire_cli_exit_codes(monkeypatch, capsys):
     assert net.main(["retire"]) == net.REFUSED and "RETIRE NOT YET" in capsys.readouterr().out
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bbbbbbbb-2")
     assert net.main(["retire"]) == net.OK
+
+
+# ---------------------------------------------------------------- owner 2026-11-03: no Zero UP -> a present session takes over
+
+def _live(sid, now):
+    st = net.load_stations()
+    net.renew(st, sid, net.load_net(), now)
+    net.save_stations(st)
+
+
+def test_the_hook_of_a_live_session_assumes_when_zero_is_missing():
+    opened()
+    late = T0 + 3 * 3600
+    _live(ZERO, T0)
+    out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=late)
+    assert "you assumed Zero" in out and net.zero_of(net.load_net()) == TWO and net.load_net()["epoch"] == 2
+
+
+def test_a_headless_job_never_assumes_zero(monkeypatch, tmp_path):
+    opened()
+    late = T0 + 3 * 3600
+    _live(ZERO, T0)
+    monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path / "T-20261110-062546-40f9be"))
+    out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=late)
+    assert "assumed" not in out and net.zero_of(net.load_net()) == ZERO and net.load_net()["epoch"] == 1
+
+
+def test_the_hook_never_assumes_while_zero_is_up_or_silent():
+    opened()
+    _live(ZERO, T0)
+    for dt in (60, 31 * 60):                                         # UP, then SILENT (one lapsed lease)
+        out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=T0 + dt)
+        assert "assumed" not in out and net.zero_of(net.load_net()) == ZERO
+
+
+def test_only_one_session_wins_the_assume():
+    opened()
+    late = T0 + 3 * 3600
+    _live(TWO, late - 5)
+    _live(GEM, late - 5)
+    net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)
+    with pytest.raises(net.Refused):                                  # the second finds Zero UP: refused, no epoch change
+        net.handover(GEM, assume=True, channels=[FakeChannel()], now=late + 1)
+    assert net.zero_of(net.load_net()) == TWO and net.load_net()["epoch"] == 2
+
+
+def test_the_epoch_moving_inside_the_lock_refuses_the_handover(monkeypatch):
+    opened()
+    late = T0 + 3 * 3600
+    _live(TWO, late - 5)
+    real = net.load_net
+    calls = {"n": 0}
+
+    def moved():                                                      # the net is at epoch 2 when the lock is taken
+        calls["n"] += 1
+        n = real()
+        return dict(n, epoch=2) if calls["n"] >= 2 else n
+    monkeypatch.setattr(net, "load_net", moved)
+    with pytest.raises(net.Refused, match="another station won"):
+        net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)
+
+
+
+def test_a_station_on_another_computer_never_assumes_from_a_zero_that_answers_the_cable():
+    # 2026-11-10: the ThinkPad's ZeroKeeper took Zero from a live VAIO Zero (epoch 36 -> 42, two Zeros)
+    opened()                                                        # Zero on HOSTA, no 2IC
+    far = "claude:cccccccc@HOSTB"
+    late = T0 + 3 * 3600
+    st = net.load_stations()
+    net.renew(st, far, net.load_net(), late - 10)
+    net.save_stations(st)
+    with pytest.raises(net.Refused, match="answers over the cable"):
+        net.handover(far, assume=True, channels=[FakeChannel()], now=late, far_alive=lambda: True)
+    assert net.zero_of(net.load_net()) == ZERO
+    r = net.handover(far, assume=True, channels=[FakeChannel()], now=late, far_alive=lambda: False)
+    assert net.zero_of(r["net"]) == far
+
+
+# ---------------------------------------------------------------- P24: four-part sitrep, unanswered stations
+
+def test_p24_sitrep_in_four_parts_and_a_sitrep_missing_one_is_incomplete():
+    opened()
+    net.checkin(GEM, now=T0, env={})
+    net.checkin(TWO, now=T0, env={})
+    r = net.rollcall(ZERO, channels=[FakeChannel()], now=T0 + 10)
+    net.checkin(GEM, sitrep=SIT4, now=T0 + 20, env={})
+    net.checkin(TWO, sitrep=dict(SIT4, now="", left=""), now=T0 + 21, env={})
+    rr = net.roll(net.load_net(), T0 + 30)
+    got = {x["station"]: x for x in rr["rows"]}
+    assert got[GEM]["status"] == "ANSWERED" and got[GEM]["sitrep"]["left"] == "open the PR"
+    assert got[TWO]["status"] == "INCOMPLETE" and got[TWO]["missing_parts"] == ["doing now", "left to do"]
+    text = "\n".join(net.roll_lines(rr))
+    for label in ("started from:", "done so far:", "doing now:", "left to do:"):
+        assert label in text
+    assert "INCOMPLETE: no doing now, no left to do" in text and net.roll_level(rr["rows"]) == net.WARN
+    assert r["entry"]["kind"] == "rollcall"
+    with pytest.raises(ValueError, match="done so far"):
+        net.check_sitrep(dict(SIT4, done="x" * (net.SITREP_MAX + 1)))
+    args = ["checkin", "--as", "gemini:g9", "--job", "j", "--state", "working", "--branch", "b", "--waiting", "-",
+            "--not-verified", "-", "--shared", "-", "--started", "s", "--done-so-far", "d", "--now", "n", "--left", "l"]
+    assert net.main(args) == net.OK
+    assert net.load_stations()["stations"]["gemini:g9@" + HOST]["sitrep"]["done"] == "d"
+
+
+def test_p24_unanswered_stations_are_listed_with_session_host_and_one_exact_line(monkeypatch):
+    opened()
+    net.checkin(GEM, now=T0, env={})
+    net.checkin(TWO, now=T0 - 3 * 3600, env={"CLAUDE_CODE_SESSION_ID": "bbbbbbbb-2222",
+                                             "CLAUDE_CODE_HOST_SESSION_ID": "local_ABC123"})
+    w = f"claude:cccccccc@{HOST}"
+    net.checkin(w, now=T0 - 3 * 3600, env={"CLAUDE_CODE_SESSION_ID": "cccccccc-3333"})
+    net.rollcall(ZERO, answer=1, channels=[FakeChannel()], now=T0 + 10)
+    rr = net.roll(net.load_net(), T0 + 10 + 61)
+    un = {x["station"]: x for x in rr["unanswered"]}
+    assert set(un) == {GEM, TWO, w}
+    assert un[TWO]["session"] == "bbbbbbbb-2222" and un[TWO]["host_session"] == "local_ABC123"
+    assert un[TWO]["act"] == "send_message local_ABC123"
+    assert un[w]["act"].startswith(f"fieldkit zero send --to {w}") and un[w]["host_session"] == ""
+    assert any(x.startswith(f"  UNANSWERED {TWO}") and "desktop host local_ABC123" in x for x in net.roll_lines(rr))
+    chk = net.check(now=T0 + 10 + 61, board=False, cable=FakeCable(), command_kw={"git": lambda a, c: None})
+    assert {x["station"]: x["act"] for x in chk["unanswered"]}[TWO] == "send_message local_ABC123"
+    # the hook's lease stores the host session too, when its environment has it
+    monkeypatch.setenv("CLAUDE_CODE_HOST_SESSION_ID", "local_HOOK1")
+    net.hook_line({"session_id": "dddddddd-4", "cwd": "/x"}, "UserPromptSubmit", now=T0 + 300)
+    assert net.load_stations()["stations"][f"claude:dddddddd@{HOST}"]["host_session"] == "local_HOOK1"
+
+
+def test_a_station_whose_ear_is_not_running_is_a_finding_of_the_comms_check(monkeypatch):
+    """I-27 (owner, 2026-11-10): a listener died with its session and nothing said so; 97 notes sat unheard. The hook
+    carries each station's ear to the net; the comms check lists it and a deaf station that is up is a WARN."""
+    ear = {"v": {"state": "deaf", "unheard": 4}}
+    monkeypatch.setattr(net, "_ear_of", lambda st: ear["v"])
+    opened()
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 1)
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0 + 1)
+    r = net.check(heal=False, now=T0 + 2, board=False)
+    assert r["deaf"] and TWO in r["deaf"] and r["level"] == net.WARN
+    assert {x["station"]: x["ear"] for x in r["rows"]}[TWO] == "NOT RUNNING (4 unheard)"
+    ear["v"] = {"state": "running", "unheard": 0}
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 200)
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0 + 200)
+    r = net.check(heal=False, now=T0 + 201, board=False)
+    assert r["deaf"] == [] and r["level"] == net.OK
+    assert {x["station"]: x["ear"] for x in r["rows"]}[TWO] == "running"
+
+
+def test_a_far_message_for_an_opencode_session_here_is_pushed_to_it_on_ingest(monkeypatch):
+    """I-27: an OpenCode session hears a cable note within seconds (the link server ingests on arrival), through
+    fieldkit peers, with the line that answers it over the cable; a note for a Claude station is not pushed there."""
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    sent = []
+    monkeypatch.setattr(ch.OpenCode, "push", lambda self, e, n: sent.append((self._sessions() if self._sessions
+                                                                              else "all", e["text"])) or [])
+    opened()
+    far = {"kind": "msg", "id": "M-far-1", "from": "claude:zzzz@VAIO", "to": f"opencode:gorilla@{HOST}",
+           "text": "hello", "ts": T0, "from_host": "VAIO"}
+    assert net.ingest_cable([(9, far)], now=T0) == 1
+    assert sent == [([{"name": "gorilla"}], 'hello (answer: fieldkit zero send --as opencode:NAME --to '
+                                             'claude:zzzz@VAIO "TEXT")')]
+    claude = dict(far, id="M-far-2", to=TWO)
+    net.ingest_cable([(10, claude)], now=T0)
+    assert len(sent) == 1
+
+
+def test_an_ended_hook_session_is_folded_not_listed_as_missing():
+    opened()
+    late = T0 + 3 * 3600
+    st = net.load_stations()
+    net.renew(st, "claude:cccccccc@" + HOST, net.load_net(), T0, via="hook")     # a session that ended hours ago
+    net.renew(st, ZERO, net.load_net(), late)
+    net.save_stations(st)
+    r = net.status(now=late)
+    assert [x["state"] for x in r["rows"] if x["station"].startswith("claude:cccccccc")] == ["ENDED"]
+    text = "\n".join(net.status_lines(r, now=late))
+    assert "1 ENDED" in text and "cccccccc" not in text and "0 MISSING" in text
+    out = net._net_line({"session_id": "aaaaaaaa"}, "UserPromptSubmit", now=late)
+    assert "cccccccc" not in out

@@ -1,12 +1,22 @@
 """compile gate: only a fully ported, unmodified, honestly-checked tree may be compiled, and only a FRESH
 artifact from that tree counts as its build."""
 import os
+from pathlib import Path
 import subprocess
 import time
 
 import pytest
 
 from fieldkit.buildh import compile as cg, task
+
+
+@pytest.fixture(autouse=True)
+def _windows_world(monkeypatch):
+    """These tests describe the Windows verify rows (firefox.exe, installer, zip, registry); on another system those
+    rows are `not-this-platform` by design (P9, tests/test_os_aware_rows.py holds that half)."""
+    from fieldkit.core import host
+    real = host.host()
+    monkeypatch.setattr(host, "host", lambda: dict(real, system="Windows", is_windows=True, is_linux=False, is_mac=False))
 
 
 @pytest.fixture
@@ -72,8 +82,8 @@ def test_a_hand_edit_or_leftover_blocks_the_gate(world):
 
 def test_a_skip_or_an_answer_key_copy_blocks_the_gate(world):
     t = task.load("c1")
-    task.journal(t, "unblock", step="s", how="skip")
-    assert "journal: no step skipped" in failing(cg.gate("c1"))
+    task.journal(t, "auto-accept", step="s", kind="skip", reviewer=None, why=[])   # a harness skip, no reviewer
+    assert "journal: no step skipped without a reason" in failing(cg.gate("c1"))
 
 
 def _build(world, age=0, mb=60, version_ok=True):
@@ -138,4 +148,41 @@ def test_verify_without_a_gate_refuses(world):
 def test_a_missing_binary_fails_when_it_is_asked_for(world):
     cg.gate("c1")
     _build(world, age=+5)
-    assert "built firefox.exe exists" in failing(cg.verify("c1"))
+    assert "built firefox.exe exists and reports the pinned version" in failing(cg.verify("c1"))
+
+
+def test_linux_gate_reads_the_patch_sets_mozconfig_and_mach_default_objdir(tmp_path, monkeypatch):
+    monkeypatch.setattr(cg.sys, "platform", "linux")
+    assert cg.mozconfig_path(tmp_path) == tmp_path / "mozconfig"
+    moz = tmp_path / "mozconfig"
+    moz.write_text("ac_add_options --disable-updater\n")
+    assert cg.objdir(moz) is None
+    assert cg.objdir(moz, tmp_path / "src") == tmp_path / "src" / cg.LINUX_OBJDIR
+    moz.write_text("mk_add_options MOZ_OBJDIR=/x/o\n")
+    assert cg.objdir(moz, tmp_path / "src") == Path("/x/o")
+    monkeypatch.setattr(cg.sys, "platform", "win32")
+    assert cg.mozconfig_path(tmp_path) == tmp_path / "config" / "mozconfig.win64"
+
+
+def _regate_later(hours=1):
+    import json
+    p = task.STATE / "c1" / "build-record.json"
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    rec["at"] += hours * 3600                       # the gate was run again, later, on the same tree
+    p.write_text(json.dumps(rec), encoding="utf-8")
+
+
+def test_a_package_of_the_gated_tree_stays_current_when_the_gate_is_rerun_later(world):
+    """2026-11-12: 00:08 package, 00:54 re-gate of the same tree: build-verify called the package stale."""
+    cg.gate("c1")
+    _build(world, age=+5)
+    _regate_later()
+    rows = cg.verify("c1", run_binary=False)
+    assert failing(rows) == [], failing(rows)
+
+
+def test_a_package_older_than_the_gated_tree_still_fails_after_a_later_regate(world):
+    cg.gate("c1")
+    _build(world, age=-86400 * 200)
+    _regate_later()
+    assert any("is from THIS build" in c for c in failing(cg.verify("c1", run_binary=False)))

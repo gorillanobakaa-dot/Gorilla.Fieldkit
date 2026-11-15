@@ -289,3 +289,77 @@ def test_a_habit_named_inside_quotes_or_a_search_is_data():
     assert tr.route('grep -rn "rm -rf ~/x" docs')["route"] == "permanent-delete"
     assert tr.route('python3.12 -c "import docx"')["route"] == "office-by-hand"
     assert tr.route('cmd /c "robocopy a b /E"')["route"] == "tree-copy-by-hand"
+
+
+# -- P18 stage 3b (2026-11-03): the quoted delimiter is applied by the hook instead of a refusal
+BS = chr(92)
+
+
+def test_heredoc_rewrite_quotes_the_delimiter():
+    cmd = "python - <<EOF\nimport re; re.compile(r'" + BS * 2 + "s')\nEOF"
+    got = tr.rewrite(cmd)
+    assert got == (cmd.replace("<<EOF", "<<'EOF'"), "code-with-backslashes-in-a-heredoc")
+    assert tr.route(got[0]) is None
+
+
+def test_heredoc_rewrite_fixes_every_heredoc_in_the_command():
+    one = "python - <<EOF\nprint('" + BS * 2 + "n')\nEOF\n"
+    got = tr.heredoc_rewrite(one + one.replace("EOF", "END"))
+    assert got.count("<<'EOF'") == 1 and got.count("<<'END'") == 1
+
+
+@pytest.mark.parametrize("cmd", [
+    "python - <<EOF\nprint('$HOME', '" + BS * 2 + "n')\nEOF",         # a shell expansion too: intent unknown
+    "python - <<EOF\nprint(`date`, '" + BS * 2 + "n')\nEOF",
+    "python - <<EOF\nprint('no backslash')\nEOF",
+    "python - <<'EOF'\nprint('" + BS * 2 + "n')\nEOF",
+])
+def test_heredoc_rewrite_leaves_the_rest(cmd):
+    assert tr.heredoc_rewrite(cmd) is None
+
+
+def test_the_hook_allows_with_the_quoted_heredoc(capsys):
+    cmd = "python - <<EOF\nprint('" + BS * 2 + "n')\nEOF"
+    tr.hook(io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}})))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "allow" and out["updatedInput"]["command"].startswith("python - <<'EOF'")
+
+
+@pytest.mark.parametrize("cmd", [
+    "git push origin main", "Remove-Item -Recurse -Force C:/x/y", "sleep 300", "fieldkit publish x",
+])
+def test_hard_lines_and_the_rest_are_never_rewritten(cmd):
+    assert tr.rewrite(cmd) is None
+
+
+def test_a_fix_is_not_applied_while_another_rule_still_refuses():
+    cmd = "python - <<EOF\nprint('" + BS * 2 + "n')\nEOF\nrm -rf C:/x/y"
+    assert tr.heredoc_rewrite(cmd) is not None and tr.rewrite(cmd) is None
+
+
+def test_a_refusal_carries_the_measured_correction_from_the_table(tmp_path):
+    from fieldkit.autopilot import toolrouter as tr
+    t = tmp_path / "t.yaml"
+    t.write_text("rules:\n- rule: router:x\n  count: 10\n  correction: a\n  corrections:\n  - command: (no success within the next 5 steps)\n"
+                 "    count: 6\n  - command: the family fieldkit foo\n    count: 3\n- rule: router:y\n  count: 5\n  corrections:\n"
+                 "  - command: the family bar\n    count: 4\n", encoding="utf-8")
+    assert "fieldkit foo (3 of 10 times)" in tr.measured_correction("x", t)    # skips the 'no success' row, own rule only
+    assert tr.measured_correction("nope", t) == "" and tr.measured_correction("x", tmp_path / "missing") == ""
+    r = tr.route("sleep 60")
+    assert r and "Measured:" in tr.message(r) and r["use"] in tr.message(r)    # same refusal, better text
+
+
+def test_an_own_initiative_session_card_is_refused_with_the_visible_route():
+    call = {"tool_name": "mcp__ccd_session__start_session", "tool_input": {"initiation": "own_initiative",
+                                                                             "title": "x", "prompt": "y"}}
+    deny = tr.verdict(call)
+    assert deny["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "user_asked" in deny["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("initiation", ["user_asked", "offer", None])
+def test_a_started_session_or_a_proposal_id_start_is_not_a_card(initiation):
+    ti = {"title": "x", "prompt": "y"} if initiation else {"proposal_id": "task_1"}
+    if initiation:
+        ti["initiation"] = initiation
+    assert tr._no_card({"tool_name": "mcp__ccd_session__start_session", "tool_input": ti}) is None

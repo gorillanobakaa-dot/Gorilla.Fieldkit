@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -66,8 +67,21 @@ def _powercfg(*args):
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+def _linux_boost(root="/sys/devices/system/cpu"):
+    """intel_pstate/no_turbo (1 = turbo off) or cpufreq/boost (1 = boost on) -> 1 / 0 / None. Read only."""
+    for rel, inverted in (("intel_pstate/no_turbo", True), ("cpufreq/boost", False)):
+        try:
+            v = int((Path(root) / rel).read_text().strip())
+        except (OSError, ValueError):
+            continue
+        return int(not v) if inverted else v
+    return None
+
+
 def boost_read():
-    """The AC boost mode index (0 off, 1 on, 2 aggressive, ...) or None."""
+    """The AC boost mode index (0 off, 1 on, 2 aggressive, ...) or None. Linux: 1 when turbo is on, 0 when off."""
+    if sys.platform.startswith("linux"):
+        return _linux_boost()
     if sys.platform != "win32":
         return None
     rc, out = _powercfg("/qh", "scheme_current", "sub_processor", "PERFBOOSTMODE")
@@ -156,11 +170,12 @@ def hold(label, say=print, folder=None, read=None, write=None, alive=None, pid=N
             restore_stale_boost(d, read, write, alive, say)
 
 
-def lease_write(folder=None, pid=None, now=None):
+def lease_write(folder=None, pid=None, now=None, temp=None):
     d = Path(folder or _dir())
     d.mkdir(parents=True, exist_ok=True)
-    (d / "machine-governor.json").write_text(json.dumps({"pid": pid or os.getpid(), "t": now or time.time()}),
-                                             encoding="utf-8")
+    tmp = d / f"machine-governor.json.{os.getpid()}.{threading.get_ident()}.tmp"   # atomic: a reader never sees it empty
+    tmp.write_text(json.dumps({"pid": pid or os.getpid(), "t": now or time.time(), **({"temp_c": temp} if temp is not None else {})}), encoding="utf-8")
+    os.replace(tmp, d / "machine-governor.json")
 
 
 def lease_clear(folder=None, pid=None):
