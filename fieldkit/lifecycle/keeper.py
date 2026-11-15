@@ -521,7 +521,7 @@ def rule_wake(p, cfg, st, ctx):
     spent = sum(1 for v in st["woken"].values() if ctx["now"] - (watch._t(v) or 0) < 86400)
     for f in found:
         age = ctx["now"] - st["wake"][f["key"]]
-        if f["key"].startswith(("rotating:", "silent:")):
+        if f["key"].startswith(("rotating:", "silent:", "stale:")):
             continue                                      # Zero decides these: a visible successor, never a headless model (WHY_VISIBLE)
         if age < after or f["key"] in st["woken"]:
             continue
@@ -541,9 +541,22 @@ def rule_wake(p, cfg, st, ctx):
     return out
 
 
+def rule_permanence(p, cfg, st, ctx):
+    """UNPUSHED or UNMERGED work older than stale_after_h (fieldkit/lifecycle/permanence.py): said in the room and in
+    Zero's hook file, so Zero finishes it ("not mine" is no outcome). Never a headless model, never an action."""
+    from . import permanence
+    hours = float(cfg.get("stale_after_h", permanence.STALE_HOURS))
+    scan = getattr(p, "permanence", None) or permanence.scan
+    for f in permanence.stale(scan(now=ctx["now"]), hours):
+        key = f"stale:{f['kind'].lower()}:{Path(f['root']).name}:{f['branch']}"
+        ctx["wake"].append({"key": key, "state": f["kind"], "line": f"{f['kind']} {f['age_h']} h old: {f['root']} [{f['branch']}] {f['detail']}",
+                            "next": f["next"]})
+    return []
+
+
 #: the rule table: name (keeper.yaml) -> function. Order matters: the wake rule runs last and reads what the others left.
 RULES = {"behind_update": rule_behind_update, "red_fix": rule_red_fix, "died_restart": rule_died_restart,
-         "queue_start": rule_queue_start, "silent_child": rule_silent_child, "wake": rule_wake}
+         "queue_start": rule_queue_start, "silent_child": rule_silent_child, "permanence": rule_permanence, "wake": rule_wake}
 
 
 def is_open(p, cfg, led, prs, st):
