@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fieldkit post-checkout: a branch switch ($3 = 1) changes the sources; recompile them the same way as post-merge.
+[ "$3" = "1" ] || exit 0
+exec sh "$(git rev-parse --show-toplevel)/hooks/post-merge"
