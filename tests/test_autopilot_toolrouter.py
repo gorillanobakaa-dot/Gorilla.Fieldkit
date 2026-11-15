@@ -347,3 +347,19 @@ def test_a_refusal_carries_the_measured_correction_from_the_table(tmp_path):
     assert tr.measured_correction("nope", t) == "" and tr.measured_correction("x", tmp_path / "missing") == ""
     r = tr.route("sleep 60")
     assert r and "Measured:" in tr.message(r) and r["use"] in tr.message(r)    # same refusal, better text
+
+
+def test_an_own_initiative_session_card_is_refused_with_the_headless_route():
+    call = {"tool_name": "mcp__ccd_session__start_session", "tool_input": {"initiation": "own_initiative",
+                                                                             "title": "x", "prompt": "y"}}
+    deny = tr.verdict(call)
+    assert deny["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "fieldkit task start" in deny["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("initiation", ["user_asked", "offer", None])
+def test_a_started_session_or_a_proposal_id_start_is_not_a_card(initiation):
+    ti = {"title": "x", "prompt": "y"} if initiation else {"proposal_id": "task_1"}
+    if initiation:
+        ti["initiation"] = initiation
+    assert tr._no_card({"tool_name": "mcp__ccd_session__start_session", "tool_input": ti}) is None

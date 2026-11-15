@@ -545,6 +545,27 @@ def _nested(call):
         return None
 
 
+#: rules/CORE.md SIDE JOBS: "no own_initiative card". A card waits for the owner's click; on an event turn the app
+#: refuses start_session and a model fell back to a card, so the job sat idle until the owner found it (2026-11-15:
+#: an Opencode successor; owner: "If I was not here to press, what would have happened? MAKE SURE THIS NEVER HAPPENS
+#: AGAIN"). The refusal names the no-click route.
+NO_CARD = ("NO SESSION CARD (rules/CORE.md SIDE JOBS): an own_initiative card waits for the owner's click, so the job "
+           "never starts unattended. Use initiation \"user_asked\" (context \"fresh\"). If the app refuses that (an event "
+           "or session-message turn), write the brief to state/briefs/NAME.md and start it headless in this same turn: "
+           "fieldkit task start state/briefs/NAME.md [--cwd DIR] [--model MODEL], then fieldkit task watch ID in the "
+           "background.")
+
+
+def _no_card(call):
+    """start_session with initiation own_initiative is refused: a card is a stop the owner must click."""
+    if not str(call.get("tool_name") or "").endswith("start_session"):
+        return None
+    ti = call.get("tool_input") or {}
+    if str(ti.get("initiation") or "").strip().lower() == "own_initiative":
+        return NO_CARD
+    return None
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -564,7 +585,7 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _nested(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
+    stop = _no_card(call) or _nested(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()
