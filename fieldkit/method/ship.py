@@ -454,9 +454,20 @@ def add_rows(page, rows):
     """The page with each (name, size, sha256) row put in its 'File | Bytes | SHA-256' table: a row of the same name
     replaced, a new one after the table's last row. Raises ValueError when the page has no such table."""
     from ..build import relfiles
-    found = list(relfiles.ROW.finditer(page or ""))
+    page = page or ""
+    found = list(relfiles.ROW.finditer(page))
     if not found:
-        raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+        # a page written before the build has the header and a placeholder row ("(filled in by ...)"): that row is
+        # replaced by the first measured one (v0.1.163 shipped with it unfilled and `release verify` found no table)
+        head = re.search(r"^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|\s*\n\|[-\s|:]+\n(\|[^\n]*\|[ \t]*\n?)?", page, re.M)
+        if not head:
+            raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+        rows = list(rows)
+        name, size, sha = rows.pop(0)
+        page = page[:head.start(1) if head.group(1) else head.end()] + f"| `{name}` | {size:,} | `{sha}` |\n" \
+            + page[head.end():]
+        if not rows:
+            return page
     def end(m):                                        # ROW's trailing \s* also takes the newlines after the row
         return m.start() + len(m.group(0).rstrip())
 
@@ -504,10 +515,17 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
             return {"ok": False, "state": "no-sums", "tag": tag, "error": f"{sums_name} is not on the release",
                     "next": "nothing was changed"}
         new = {p.name: relfiles.sha256(p) for p in paths}
-        page = add_rows(view.get("body", ""), [(p.name, p.stat().st_size, new[p.name]) for p in paths])
         gh("release", "download", tag, "-p", sums_name, "-D", str(work), "--clobber")
         sums = work / sums_name
-        sums.write_text(merge_sums(sums.read_text(encoding="utf-8"), new), encoding="utf-8", newline="\n")
+        merged = merge_sums(sums.read_text(encoding="utf-8"), new)
+        sums.write_text(merged, encoding="utf-8", newline="\n")
+        # one page row per SHA256SUMS line (sizes from the release's own asset list), not only for the added files:
+        # a page whose table is empty or short is completed here
+        have = {a["name"]: a.get("size") for a in view.get("assets", [])}
+        rows = [(n, p.stat().st_size, new[n]) for p in paths for n in [p.name]]
+        rows += [(n, have[n], sha) for n, sha in relfiles.parse_sums(merged).items()
+                 if n not in new and have.get(n)]
+        page = add_rows(view.get("body", ""), rows)
         notes = work / "page.md"
         notes.write_text(page, encoding="utf-8", newline="\n")
         gh("release", "upload", tag, *[str(p) for p in paths], str(sums), "--clobber")
