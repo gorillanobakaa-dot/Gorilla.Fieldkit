@@ -581,6 +581,62 @@ def run(a, emit):
                               "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
                               "fieldkit build-harness leakgate-selftest"))
         return 0 if r["ok"] else 3
+    if act == "leakgate-ci":
+        # leakgate-ci pack TASK [deb=F] [out=DIR] | run CONTEXT.tar.gz DEB OUT [release=1] (on the runner, as root) |
+        # record TASK ARTIFACT_DIR: the Linux gate on a GitHub ubuntu runner (fieldkit/leakgate/ci.py, P27)
+        from ..leakgate import ci as lci, gate as lg
+        sub, rest = (a.args[0] if a.args else ""), a.args[1:]
+        kv = dict(x.split("=", 1) for x in rest if "=" in x)
+        pos = [x for x in rest if "=" not in x]
+        if sub == "run":
+            if len(pos) != 3:
+                raise task.Refused("usage: leakgate-ci run CONTEXT.tar.gz DEB OUT [release=1]")
+            ctx, deb, out = pos
+            try:
+                result, events = lci.run(ctx, deb, out, release=kv.get("release") == "1", say=lambda m: print(m, flush=True))
+            except Exception as ex:                      # a late crash keeps the runs already done (P27)
+                art = lci.collect_partial(out, f"{type(ex).__name__}: {ex}")
+                print(f"fieldkit: the gate crashed: {ex}\n  partial results kept in {art}", flush=True)
+                return 1
+            info = lci.runner_info(deb, lci.sha256(ctx))
+            (Path(out) / "runner.json").write_text(json.dumps(info, indent=1), encoding="utf-8")
+            art = lci.collect(out, result, events, Path(out) / "runner.json")
+            for p in lg.POLICIES:
+                print(f"  {p:24s} {result[p]}")
+            print(f"FINAL_RESULT {result['FINAL_RESULT']}  (artifact {art})")
+            return 0 if result["FINAL_RESULT"] == "PASS" else 3
+        if sub not in ("pack", "record"):
+            raise task.Refused("usage: leakgate-ci pack TASK | run CONTEXT DEB OUT | record TASK ARTIFACT_DIR")
+        from . import installertest as _it, verify as vf
+        from .ownercheck import gate_root
+        t = task.load(current_id(pos[0] if pos else None))
+        owner = gate_root(t)
+        if owner is None:
+            raise task.Refused("leakgate-ci: the task has no harness root to read the allowlist from")
+        if sub == "pack":
+            try:
+                deb = kv.get("deb") or _it.gate_artifact({}, t)
+            except RuntimeError as e:
+                raise task.Refused(str(e))
+            n1 = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"])
+            out = kv.get("out") or str(task.STATE / t["id"] / "leakgate-ci")
+            r = lci.pack(deb, owner, t["workdir"], t["meta"]["upstream"], out, n_minus_1_tree=n1,
+                         previous_lock=lg.previous_cargo_lock(n1, t["workdir"]))
+            emit(r, lambda r: print("\n".join(lci.lines(r))))
+            print("NEXT: put the .deb and the context archive in a DRAFT release, then run the leakgate-linux workflow "
+                  "(docs/LEAKGATE-GITHUB.md)")
+            return 0
+        if len(pos) != 2:
+            raise task.Refused("usage: leakgate-ci record TASK ARTIFACT_DIR")
+        try:
+            deb = kv.get("deb") or _it.gate_artifact({}, t)
+            r = lci.record(pos[1], lci.sha256(deb), t["meta"]["upstream"]["version"], lg.POLICIES, owner)
+        except RuntimeError as e:
+            raise task.Refused(str(e))
+        task.journal(t, "leakgate", final=r["FINAL_RESULT"], release=False, ran_on=r["ran_on"],
+                     failed=[p for p, v in r["policies"].items() if v != "PASS"], artifacts=r["artifacts"])
+        emit(r, lambda r: print("\n".join(lci.lines(r))))
+        return 0 if r["FINAL_RESULT"] == "PASS" else 3
     if act == "migrate":                                      # migration control: plan, gates, SITREP (fieldkit/migrate)
         from ..migrate import cli as mc
         return mc.run(a, emit, current_id)
@@ -1694,13 +1750,18 @@ def run(a, emit):
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         backups = Path.home() / "Documents" / "Gorilla.Firefox.Backups"
         prev = None
-        for b in sorted(backups.glob("*/manifest.json"), reverse=True):
+        for b in (sorted(backups.glob("*/manifest.json"), reverse=True) if __import__("sys").platform == "win32" else []):   # Windows zip backups only
             m = _js.loads(b.read_text(encoding="utf-8"))
             if m.get("installed", {}).get("version") and m["installed"]["version"] != t["meta"]["upstream"]["version"]:
                 prev = b.parent / m["files"]["install"]["zip"]
                 break
+        from . import installertest as _it
+        try:
+            artifact = _it.gate_artifact(res, t)
+        except RuntimeError as e:
+            raise task.Refused(str(e))
         only = set(a.only.split(",")) if getattr(a, "only", None) else None
-        result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
+        result, events, st, bi = lg.run(artifact, owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
                                         n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,   # 2026-10-18: no older-upstream stand-in; the owner's release N-1 or a stated "no baseline"

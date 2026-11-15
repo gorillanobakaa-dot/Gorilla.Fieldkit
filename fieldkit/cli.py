@@ -40,9 +40,13 @@
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
+    fieldkit compileonce [build|check] [--force] pre-compile all Python modules to .pyc bytecode ahead of time
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
+    fieldkit appcapture start|show|stop|recycle|status APP   a desktop app's real requests via a local proxy, tokens redacted
+    fieldkit modelcatalog verify --provider P ...  a client's model ids, headers, catalogue vs the backend's real reply (exit 3)
+    fieldkit procs check|reap [--json]           every process tree Fieldkit started: zombies, orphans, CPU, age (exit 3)
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
@@ -54,7 +58,7 @@
     fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor|task|release|orders]   the agent net: is Zero
                                                  established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
-    fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
+    fieldkit sitrep template|check|render|example|doctor|gather [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
     fieldkit teach propose LOG.md --out DIR [--name N]   a pipeline draft, signature stubs and card candidates from a teaching log
     fieldkit terminal doctor|ask|run|history [-- COMMAND ...]   open a terminal window in front of a person with the command ready; history = every window's outcome (fieldkit/terminal)
@@ -744,7 +748,7 @@ def cmd_triage_kind(a):
             [print(f"{'PASS' if x['ok'] else 'FAIL'} {a.kind}/{x['id']}: {x['why']}") for x in r["rows"]],
             print(f"triage self-test --kind {a.kind}: {'OK' if r['ok'] else 'FAILED'}")))
         return 0 if ok else 3
-    ctx = {k: v for k, v in (("home", a.home), ("root", a.root), ("branch", a.branch)) if v}
+    ctx = {k: v for k, v in (("home", a.home), ("root", a.root or "."), ("branch", a.branch)) if v}
     hits = failure_checks.run(a.kind, ctx)
     _emit({"kind": a.kind, "hits": hits}, a.json, lambda r: print(
         chr(10).join(failure_checks.lines(r["hits"])) or f"{a.kind}: every stored check is clean"))
@@ -1141,7 +1145,18 @@ def cmd_autopilot(a):
     elif a.action == "workspace":
         r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
     elif a.action == "antigravity":
-        r = run.antigravity()
+        if a.rest:
+            r = run.agent_run("antigravity", " ".join(a.rest), cwd=a.cwd, model=a.model,
+                              thinking=getattr(a, "thinking", None))
+        else:
+            r = run.antigravity()
+    elif a.action in ("agy", "codex", "gorilla-opencode"):
+        if not a.rest:
+            print(f"autopilot {a.action} PROMPT [--cwd DIR] [--model MODEL] [--thinking LEVEL]")
+            return 2
+        r = run.agent_run(a.action, " ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
+                          timeout=a.wall_minutes * 60 if a.wall_minutes else None,
+                          model=a.model, thinking=getattr(a, "thinking", None))
     elif a.action == "login":
         if "--check" in a.rest or "check" in a.rest:
             r = {"logged_in": run.logged_in(), "command": run.paste_command()}
@@ -1151,6 +1166,11 @@ def cmd_autopilot(a):
         if not a.rest:
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
+        from .lifecycle import models as _models
+        ag_avail = _models.agent_availability("claude")
+        if not ag_avail["available"]:
+            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_avail['reason']})"}, indent=1))
+            return 3
         job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
         if job_dir:
             # a budgeted job: checkpoints, resumes, exit 75 = paused-resumable (fieldkit/autopilot/job.py)
@@ -1629,7 +1649,7 @@ METHODS = {
     "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
                                "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
-    "install": ("installverify", "a program is installed the way its release says, as the desktop finds it: binary, .desktop, every icon size, caches (verify PRODUCT | self-test)"),
+    "install": ("installverify", "a program is installed, purged or verified on Linux and Windows: binary, .desktop/.lnk, icons, caches, registry (verify PRODUCT | self-test | app SRC --name APP | purge APP)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
 }
 
@@ -1795,6 +1815,14 @@ def build_parser():
                         help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
                              "harness's own orphans and overdue steps (fieldkit liveness)")
     lv.add_argument("args", nargs=argparse.REMAINDER)
+    pr_ = sub.add_parser("procs", add_help=False,
+                         help="every process tree Fieldkit started: zombies, orphans, CPU share, age; check, reap "
+                              "(only Fieldkit's own, by PID + creation time; fieldkit procs)")
+    pr_.add_argument("args", nargs=argparse.REMAINDER)
+    for _n, _h in (("appcapture", "capture a desktop app's real requests through a local proxy, tokens redacted: start, show, stop, recycle, status (fieldkit appcapture)"),
+                   ("modelcatalog", "verify a client's model ids, headers and catalogue against the backend's real reply (fieldkit modelcatalog verify)")):
+        _p = sub.add_parser(_n, add_help=False, help=_h)
+        _p.add_argument("args", nargs=argparse.REMAINDER)
     zr = sub.add_parser("zero", add_help=False,
                         help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
                              "net log (fieldkit zero; also fieldkit net VERB)")
@@ -1826,6 +1854,11 @@ def build_parser():
                                   "(fieldkit/lifecycle/models.py, gguf.py, tune.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
+                       ("keeper", "work never waits for a model turn: a timer-run pass updates BEHIND PRs, starts one fix job for "
+                                  "a red PR, restarts a died job once, starts queued briefs, wakes Zero; tick, status, "
+                                  "install (fieldkit/lifecycle/keeper.py)"),
+                       ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
+                                "(fieldkit/lifecycle/idle.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
@@ -1913,6 +1946,10 @@ def build_parser():
                         help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
                              "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
     pn.add_argument("args", nargs=argparse.REMAINDER)
+    co = sub.add_parser("compileonce", add_help=False,
+                        help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
+                             "ahead of time: build [--force], check (fieldkit compileonce)")
+    co.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -2101,14 +2138,16 @@ def build_parser():
     sw.set_defaults(fn=cmd_sweep)
 
     apl = sub.add_parser("autopilot", parents=[common])
-    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
-    apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
-    apl.add_argument("--cwd", help="claude: the folder the run works in")
+    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet",
+                                        "antigravity", "agy", "codex", "gorilla-opencode", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude/agy/codex/gorilla-opencode: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude/agy/codex/gorilla-opencode: the folder the run works in")
     apl.add_argument("--max-turns", type=int, default=None, help="claude: turns per session (10000)")
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
     apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
-    apl.add_argument("--model", help="claude: the model the run uses (a worker: sonnet, haiku; roles.yaml)")
+    apl.add_argument("--model", help="the specific model the run uses (hydrogen, argon, carbon, codex-mini, o4-mini, o3, gpt-5-codex, qwen3-coder, sonnet, haiku)")
+    apl.add_argument("--thinking", help="reasoning/thinking level: lowest, low, medium, high, max")
     apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
@@ -2382,7 +2421,7 @@ def build_parser():
     st = sub.add_parser("sitrep", parents=[common],
                         help="a situation report a reader can take in a few seconds at a time: template, check, "
                              "render, example, doctor (fieldkit/sitrep)")
-    st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
+    st.add_argument("action", choices=["template", "check", "render", "example", "doctor", "gather"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
     st.add_argument("--session", help="check: also back every claim with this session's tool output "
                                       "(fieldkit honesty; rule HONESTY)")
@@ -2390,6 +2429,9 @@ def build_parser():
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
     st.add_argument("--md", action="store_true", help="render as markdown instead of plain text")
+    st.add_argument("--render", action="store_true", help="gather: the facts as a checked report, no model")
+    st.add_argument("--words", action="store_true", help="gather: one Haiku call writes the prose (never above haiku)")
+    st.add_argument("--hours", type=int, default=24, help="gather: tasks that ended within this many hours")
     st.set_defaults(fn=cmd_sitrep)
 
     sh = sub.add_parser("shot", parents=[common], help="read numbers off a screenshot: read, "
@@ -2435,7 +2477,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "request", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
+                                       "leakgate-proposal", "leakgate-selftest", "leakgate-ci", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
@@ -2785,6 +2827,9 @@ def cmd_sitrep(a):
             [f"  languages: {', '.join(x['languages'])}"] + [f"  {p}" for p in x["problems"]] +
             ["  OK: sitrep can run here" if x["ok"] else "  NEXT: fix the lines above"])))
         return 0 if d["ok"] else 3
+    if a.action == "gather":
+        from .sitrep import gather
+        return gather.main(a)
     if a.action == "template":
         print(sitrep.template(a.lang, a.order), end="")
         return 0
@@ -3079,6 +3124,8 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+    from .core import asuser
+    asuser.adopt()                                   # under sudo: act for the invoking user (P27), files chowned back at exit
     args = sys.argv[1:] if argv is None else list(argv)
     # The platform gate (2026-10-20), never a refusal since P9 (2026-11-11): a command whose card names another
     # system runs its equivalent here, runs on the other machine over the cable, or says not-this-platform and exits
@@ -3148,6 +3195,15 @@ def main(argv=None):
     if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
         from . import app as app_cli
         return app_cli.main(args[1:])
+    if args[:1] == ["appcapture"]:                    # the real client's requests, tokens redacted (fieldkit/appcapture)
+        from . import appcapture
+        return appcapture.main(args[1:])
+    if args[:1] == ["modelcatalog"]:                  # model ids checked against the backend's reply (fieldkit/modelcatalog)
+        from . import modelcatalog
+        return modelcatalog.main(args[1:])
+    if args[:1] == ["procs"]:                         # every process tree Fieldkit started (fieldkit/core/procs)
+        from .core import procs
+        return procs.main(args[1:])
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
@@ -3179,6 +3235,12 @@ def main(argv=None):
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
+    if args[:1] == ["keeper"]:                        # P9: work never waits for a model turn (lifecycle/keeper.py)
+        from .lifecycle import keeper
+        return keeper.main(args[1:])
+    if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
+        from .lifecycle import idle
+        return idle.main(args[1:])
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])
@@ -3242,6 +3304,9 @@ def main(argv=None):
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["compileonce"]:                   # ahead-of-time .pyc bytecode compilation and check
+        from . import compileonce
+        return compileonce.main(args[1:])
     if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
         from .image import cli as image_cli
         return image_cli.main(args[1:])

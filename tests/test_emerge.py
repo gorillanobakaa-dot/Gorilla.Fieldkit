@@ -838,3 +838,45 @@ def test_the_fix_brief_names_the_build_tree_and_refuses_side_worktrees(env):
     commit_all(work, 'recipe')
     emerge(R.Recipe(sp, source=work / 'demo.yaml', state_root=tmp / 'state', strict=False), fixer=fixer).run()
     assert "never make a side worktree" in fixer.prompts[0] and str(work) in fixer.prompts[0]
+
+
+# -- failure checks scan the recipe's source tree, never the process cwd (2026-11-14) --------------------------------
+ROLL = "curl https://github.com/x/y/releases/download/latest/z.tgz\n"
+
+
+def test_failure_checks_scan_the_source_not_the_cwd(env, monkeypatch):
+    tmp, work = env
+    other = tmp / "elsewhere"
+    write(other / "state" / "meters.json", '{"u": "%s"}' % ROLL.strip())    # planted in dir A (the cwd)
+    write(work / "docs" / "install.md", ROLL)                                # planted in dir B (the source)
+    monkeypatch.chdir(other)
+    em = emerge(recipe(tmp, failing_spec(work)))
+    passed, _secs, _outs, tail = em._execute({"id": "one"})
+    assert not passed
+    assert "install.md" in tail and "rolling tag" in tail
+    assert "meters.json" not in tail and "elsewhere" not in tail
+
+
+def test_check_findings_come_after_the_real_error_and_are_capped(env, monkeypatch):
+    tmp, work = env
+    for i in range(25):
+        write(work / "docs" / f"r{i}.md", ROLL)
+    monkeypatch.chdir(tmp)
+    sp = failing_spec(work)
+    write(work / "fix.py", "import sys; print('REAL ERROR'); sys.exit(1)\n")
+    em = emerge(recipe(tmp, sp))
+    passed, _s, _o, tail = em._execute({"id": "one"})
+    assert "REAL ERROR" in tail.splitlines()[0] or "REAL ERROR" in tail.split("rolling tag")[0]
+    rows = tail.splitlines()
+    first = next(i for i, l in enumerate(rows) if "rolling tag" in l)
+    assert not passed and first > 0
+    assert 0 < sum("rolling tag" in l for l in rows) < E.CHECK_LINES_MAX + 1
+    assert "more check findings not shown" in tail
+
+
+def test_rolling_url_without_a_root_scans_nothing(tmp_path, monkeypatch):
+    from fieldkit.build import failure_checks as fc
+    write(tmp_path / "a.md", ROLL)
+    monkeypatch.chdir(tmp_path)
+    assert fc.rolling_url({}) == []
+    assert fc.rolling_url({"root": str(tmp_path)})

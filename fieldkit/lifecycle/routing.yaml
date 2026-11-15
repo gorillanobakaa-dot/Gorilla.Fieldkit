@@ -5,8 +5,9 @@
 #           multi  several jobs at once, up to parallel.multi, other devices allowed
 # ceiling:  the strongest model the owner lets a job use. The router may go DOWN from it, never above it.
 # ladder:   cheapest first. A job gets the cheapest rung its risk score needs, capped by the ceiling.
-# The owner accepts mode + ceiling once per day (`fieldkit route choose`); without a fresh accept the defaults below
-# apply, which are the cheap ones (fail cheap, never block an unattended run).
+# The owner accepts mode + ceiling (`fieldkit route choose`); the last accept stays in force until changed (a new day only
+# makes the morning review remind, never refuses a job). With no accept at all the defaults below apply, which are
+# the cheap ones (fail cheap, never block an unattended run).
 mode: solo
 ceiling: sonnet
 accept_valid_days: 1

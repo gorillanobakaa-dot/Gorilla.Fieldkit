@@ -593,3 +593,18 @@ def test_busy_for_reads_the_step_label_from_the_local_settings(monkeypatch):
         "verify go-test*": {"busy_minutes": 5, "on_busy": "warn"}}}})
     assert contain.busy_for("verify go-test ./x") == (300.0, "warn")
     assert contain.busy_for("verify pytest") == (None, None)
+
+
+def test_a_supervisor_with_many_zombies_or_a_hot_core_is_a_hog_finding():
+    rec = {"id": "r1", "kind": "runbook", "pid": 11, "ctime": 1.0, "heartbeat": 100.0, "stale_s": 180}
+    same = lambda pid, ct: True  # noqa: E731
+    calm = liveness.assess(rec, now=100.0, same=same, load=lambda pid: (3, 0.02, 7200))
+    assert calm == []
+    z = liveness.assess(rec, now=100.0, same=same, load=lambda pid: (liveness.ZOMBIE_LIMIT + 1, 0.0, 60))
+    assert [f["state"] for f in z] == ["HOG"] and "zombie" in z[0]["line"] and z[0]["kill"] == []
+    hot = liveness.assess(rec, now=100.0, same=same, load=lambda pid: (0, 0.8, 7200))
+    assert [f["state"] for f in hot] == ["HOG"] and "% of a core" in hot[0]["line"]
+    short = liveness.assess(rec, now=100.0, same=same, load=lambda pid: (0, 0.9, 60))
+    assert short == []                     # a short burst is not a hog (needs CPU_SPAN_S)
+    res = liveness.check(records=[rec], inbox_add=False, now=100.0, same=same)
+    assert res["status"] in ("OK", "FINDINGS")

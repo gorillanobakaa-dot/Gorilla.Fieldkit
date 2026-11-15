@@ -1,0 +1,14 @@
+#!/bin/sh
+# Fieldkit post-merge (also run by post-checkout): recompile changed Python to bytecode right after a `git pull`,
+# merge or branch switch, so no tool compiles at start-up (owner 2026-11-14/15, rules/CORE.md BUILDS: no run-time
+# compile). `fieldkit sync --apply` already did this; a plain `git pull` did not (2026-11-15: 1 stale .pyc after a
+# manual pull). Only changed files are compiled (fieldkit compileonce is incremental). Never fails the git command.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")"
+for c in ./.venv/bin/python ./.venv/Scripts/python.exe "$MAIN/.venv/bin/python" "$MAIN/.venv/Scripts/python.exe" python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c "import fieldkit" >/dev/null 2>&1; then
+    "$c" -m fieldkit compileonce build --root . >/dev/null 2>&1 || echo "post-merge: compileonce failed (run: fieldkit compileonce build)"
+    exit 0
+  fi
+done
+exit 0

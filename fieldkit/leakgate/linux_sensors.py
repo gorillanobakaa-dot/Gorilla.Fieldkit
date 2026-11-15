@@ -163,7 +163,7 @@ def snapshot_processes(proc_root="/proc"):
 
 def build_rows(rows, build_dir):
     """-> the live (not zombie) rows whose program lives in `build_dir`."""
-    bd = str(Path(build_dir)).lower()
+    bd = os.path.abspath(str(build_dir)).lower()      # /proc reports absolute paths: a relative run folder matched nothing (P27)
     return [r for r in rows if r.get("State") != "Z" and (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
@@ -269,20 +269,6 @@ def dnsmasq_events(text, base):
 
 # -------------------------------------------------------------------------------------------------- pcap
 def pcap_frames(path):
-    """-> (timestamp, ip packet) pairs from a classic pcap of any Linux link type (Ethernet, cooked v1/v2, raw)."""
-    import dpkt
-    with open(path, "rb") as f:
-        reader = dpkt.pcap.Reader(f)
-        dl = reader.datalink()
-        for ts, buf in reader:
-            try:
-                if dl == 1:
-                    yield ts, dpkt.ethernet.Ethernet(buf).data
-                elif dl == 113:
-                    yield ts, dpkt.sll.SLL(buf).data
-                elif dl == 276:
-                    yield ts, dpkt.sll2.SLL2(buf).data
-                elif dl in (101, 12):
-                    yield ts, dpkt.ip.IP(buf) if buf[:1] and buf[0] >> 4 == 4 else dpkt.ip6.IP6(buf)
-            except Exception:
-                continue
+    """-> (timestamp, ip packet) pairs from a capture of any format (classic pcap or pcapng) and Linux link type."""
+    from . import pcapio
+    yield from pcapio.packets(path)

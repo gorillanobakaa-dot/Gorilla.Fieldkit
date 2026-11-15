@@ -1,0 +1,15 @@
+- file: fieldkit/core/contain.py
+  swap:
+  - '    if not _SUBREAPER:'
+  - '    if True:'
+  why: P37 the subreaper reaps every exited orphan each tick (no zombie pile)
+- file: fieldkit/core/contain.py
+  swap:
+  - '        if _direct(r.si_pid):'
+  - '        if False:'
+  why: P37 the reaper never takes the exit status of a Popen child of the supervisor
+- file: fieldkit/core/liveness.py
+  swap:
+  - '    if zombies > ZOMBIE_LIMIT:'
+  - '    if False:'
+  why: P37 a supervisor with a zombie pile is a HOG finding

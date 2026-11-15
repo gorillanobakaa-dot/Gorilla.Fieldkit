@@ -95,3 +95,19 @@ def test_report_raises_for_done_without_the_job(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(tasks.E2EMissing):
         tasks.report("T-1", "done", note="done")
+
+
+def test_a_card_main_added_does_not_owe_an_e2e_job_in_a_merge(tmp_path):
+    """Merging main into a branch: HEAD is the branch, MERGE_HEAD is main. A card new on main (not on the branch) is not
+    new work of this branch; before this the merge commit was refused for every card main had added."""
+    _base(tmp_path)
+    _git(tmp_path, "checkout", "-qb", "main-side")
+    _edit_card(tmp_path, "- linux", "- linux\n  - macos")          # main claims a third OS, names no job
+    _git(tmp_path, "commit", "-qam", "main adds a claim")
+    _git(tmp_path, "checkout", "-q", "-")
+    (tmp_path / "branch.txt").write_text("branch work\n", encoding="utf-8")       # diverge: a fast-forward has no MERGE_HEAD
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "branch work")
+    r = subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-commit", "--no-ff", "main-side"], capture_output=True, text=True)
+    assert (tmp_path / ".git/MERGE_HEAD").exists(), r.stdout + r.stderr
+    assert not [g for g in core.run_check(tmp_path, "HEAD")["gaps"] if g["surface"] == "5-e2e"]

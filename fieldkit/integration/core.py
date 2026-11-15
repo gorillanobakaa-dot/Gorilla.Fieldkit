@@ -332,13 +332,19 @@ def check_e2e(repo, cfg, card):
 def platforms_due(repo, base):
     """-> ids of the cards new since BASE or whose platforms changed: only those owe an e2e job (the 400 older cards
     are not blocked by a rule that did not exist when they were written)."""
-    rc, old = repo.git("show", f"{base}:fieldkit/desk/tools.yaml")
-    before = {}
+    refs = [base]
+    rc, _ = repo.git("rev-parse", "-q", "--verify", "MERGE_HEAD")
     if rc == 0:
-        before = {str(c["id"]): c for c in (yaml.load(old, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
-                                           or {}).get("tools", []) if isinstance(c, dict) and c.get("id")}
+        refs.append("MERGE_HEAD")        # a merge commit: a card that main (the other parent) already carries is not new here
+    before = {}
+    for ref in refs:
+        rc, old = repo.git("show", f"{ref}:fieldkit/desk/tools.yaml")
+        if rc == 0:
+            for c in (yaml.load(old, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}).get("tools", []):
+                if isinstance(c, dict) and c.get("id"):
+                    before.setdefault(str(c["id"]), []).append(sorted(map(str, c.get("platforms") or [])))
     return {cid for cid, c in load_cards(repo, "fieldkit/desk/tools.yaml").items()
-            if cid not in before or sorted(map(str, before[cid].get("platforms") or [])) != sorted(map(str, c.get("platforms") or []))}
+            if sorted(map(str, c.get("platforms") or [])) not in before.get(cid, [])}
 
 
 def check_package_card(repo, cfg, rule, name):

@@ -129,25 +129,40 @@ VENDOR_DOMAINS = ("mozilla.org", "mozilla.com", "mozilla.net", "mozilla.cloudfla
 TEXT_EXT = (".js", ".mjs", ".json", ".ftl", ".properties", ".xhtml", ".html", ".css", ".manifest", ".txt", ".xml")
 
 
-def embedded_hosts(open_member, omni_names=("omni.ja", "browser/omni.ja"), dll="xul.dll", schemes=None):
+def embedded_hosts(open_member, omni_names=("omni.ja", "browser/omni.ja"), dll="xul.dll", schemes=None, loose_root=None):
     """-> {host: [where]}. `open_member(relpath)` returns bytes of a file of the install. `schemes`, when a dict, is
     filled with {host: {scheme}} for the hosts found in the omni.ja archives (vendor_host_check uses it)."""
     out = {}
+
+    def add(where, data):
+        for m in HOST_IN_BYTES.finditer(data):
+            host = m.group(2).decode().lower()
+            out.setdefault(host, set()).add(where)
+            if schemes is not None:
+                schemes.setdefault(host, set()).add(m.group(1).decode().lower())
+    packed = 0
     for ja in omni_names:
-        with zipfile.ZipFile(io.BytesIO(open_member(ja))) as z:
+        try:
+            raw = open_member(ja)
+        except (OSError, KeyError):
+            continue                                   # the Linux build ships its resources unpacked (no omni.ja)
+        packed += 1
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
             for n in z.namelist():
                 if n.endswith(TEXT_EXT):
-                    for m in HOST_IN_BYTES.finditer(z.read(n)):
-                        host = m.group(2).decode().lower()
-                        out.setdefault(host, set()).add(f"{ja}:{n}")
-                        if schemes is not None:
-                            schemes.setdefault(host, set()).add(m.group(1).decode().lower())
-    try:
-        data = open_member(dll)
+                    add(f"{ja}:{n}", z.read(n))
+    if not packed and loose_root is not None:          # unpacked resources: the same text files, read from the folder
+        root = Path(loose_root)
+        for f in sorted(root.rglob("*")):
+            if f.is_file() and f.name.endswith(TEXT_EXT):
+                add(f"loose:{f.relative_to(root).as_posix()}", f.read_bytes())
+    for lib in dict.fromkeys((dll, "libxul.so")):      # Windows xul.dll; the Linux package ships libxul.so
+        try:
+            data = open_member(lib)
+        except (OSError, KeyError):
+            continue
         for m in HOST_IN_BYTES.finditer(data):
-            out.setdefault(m.group(2).decode().lower(), set()).add(dll)
-    except (OSError, KeyError):
-        pass
+            out.setdefault(m.group(2).decode().lower(), set()).add(lib)
     return {h: sorted(w)[:5] for h, w in out.items()}
 
 
@@ -256,7 +271,7 @@ def context_lines(ctx):
 def binary_audit(install_dir, previous_zip, dispositions, allow=None):
     inst = Path(install_dir)
     schemes = {}
-    now = embedded_hosts(lambda rel: (inst / rel).read_bytes(), schemes=schemes)
+    now = embedded_hosts(lambda rel: (inst / rel).read_bytes(), schemes=schemes, loose_root=inst)
     prev = {}
     if previous_zip and Path(previous_zip).is_file():
         z = zipfile.ZipFile(previous_zip)
