@@ -121,5 +121,5 @@ agents:
 # support quota/block guards for antigravity, agy, codex, gorilla-opencode, and claude alike).
 agent_availability:
   cooldown_minutes: 120
-  unavailable:
-    claude: "always"
+  unavailable: {}          # owner 2026-11-15: the claude block of 11-14 was the weekly quota, reset 11-15 11:00; the
+                           # same account serves both laptops. A quota block names its reset: models block --until DATE
