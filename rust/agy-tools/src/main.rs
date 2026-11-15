@@ -3,6 +3,7 @@
 
 #![allow(dead_code)] // shared helpers: later workers add tools that use them
 
+mod bridge;
 mod common;
 mod doors;
 mod validators;
@@ -18,6 +19,7 @@ use validators_port::{check_hooks, check_json_config, check_mcp_config, check_wo
 fn usage() {
     eprintln!(
         "agy-tools - deterministic validators for agent config files\n\n\
+         bridge sessions|send|stream|bind-check [--json]   (Antigravity session bridge)
          run TOOL TARGET [FLAGS] [--json]\n\
            skill [--strict-names] | rules | plugin | cron [--next N] | hooks | mcp [--check-bins] |\n\
            json-config [--check-paths] | workflow-migrate [--mode preview|apply|verify|undo] |\n\
@@ -120,6 +122,7 @@ fn main() -> ExitCode {
     }
     let code = match args[0] {
         "run" => run_validator_cli(&args[1..], as_json),
+        "bridge" => bridge::run_bridge(&args[1..], as_json),
         other => {
             eprintln!("unknown command: {other}");
             usage();
