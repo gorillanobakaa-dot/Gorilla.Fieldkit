@@ -71,22 +71,6 @@ security claim is made true and proven, never deleted.
 - `fieldkit sync` at session start and end; `--apply` only fast-forwards a clean tree on green CI.
 - Notes between the computers: `fieldkit peers link send`. The tool numbers and signs them; `--needs-you` and
   `--done --evidence ...` set the tags. A `!! LINK CHECK` line is a fact to resolve, never noise.
-- The agent net: `fieldkit zero` says who Zero (the coordinating session) is. Claude Code sessions are checked in by
-  the hook; other agents run `fieldkit zero checkin --as AGENT:NAME` at start. Owner words "zero", "comms check",
-  "roll call" mean `fieldkit zero` (skill fieldkit-net); "comms check" is the owner's word for the roll call too: run
-  `fieldkit zero check`, then `fieldkit zero rollcall --wait 10` (owner, 2026-10-31). "SITREP" / "sitrep" means the session report (skill
-  fieldkit-sitrep): where we started, what we did, what is going on now, what is left (owner, 2026-10-31).
-
-<!-- fieldkit-lifecycle-rule v1 -->
-## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
-
-SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
-
-DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
-1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
-2. `fieldkit ship push --auto` (headless runs too): it pushes, opens the pull request, merges on green CI.
-3. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
-4. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
-5. stop your own background jobs and listeners (by PID, never by name).
-6. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
-<!-- /fieldkit-lifecycle-rule -->
+- The agent net: `fieldkit zero` says who Zero is; Claude Code sessions are checked in by the hook, other agents run
+  `fieldkit zero checkin --as AGENT:NAME`. Owner words "zero", "roll call", "comms check" (owner, 2026-10-31): run
+  `fieldkit zero check`, then `fieldkit zero rollcall --wait 10`; "sitrep": skill fieldkit-sitrep. Details: skill fieldkit-net.
