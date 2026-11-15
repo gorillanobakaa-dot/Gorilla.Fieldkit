@@ -342,3 +342,24 @@ def test_infra_classifier_reads_the_signature_data_and_fails_closed():
 
 def test_infra_backoff_doubles_and_is_capped():
     assert [strikes.infra_backoff(k) for k in (1, 2, 3, 4, 5)] == [60, 120, 240, 480, 600]
+
+
+def test_unpark_sticks_the_old_red_heads_do_not_park_the_branch_again(tmp_path, monkeypatch):
+    """2026-11-15: after `unpark`, the next ship push ran check(), which re-read the same two old red heads from
+    `gh run list`, counted them again and parked the branch at once (PR 521, PR 496). Forgiven heads stay forgiven;
+    a NEW red head still counts."""
+    p = tmp_path / "strikes.json"
+    monkeypatch.setattr(strikes, "whose_red", lambda *a, **k: ("own", "test: own failure"))
+    for h in ("aaa", "bbb"):
+        strikes.record_failure("fix/x", h, "red", pr=9, inbox=lambda *a, **k: None, p=p)
+    assert strikes.parked_for("fix/x", p) is not None
+    assert strikes.unpark("9", p=p)["ok"]
+    runs = [{"headSha": "aaa", "conclusion": "failure", "name": "t"},
+            {"headSha": "bbb", "conclusion": "failure", "name": "t"}]
+    r = strikes.check("fix/x", fetch=lambda b: runs, inbox=lambda *a, **k: None, p=p, logger=lambda run: [],
+                      base_of=lambda h: "", runner=lambda *a, **k: ("own", "test"))
+    assert strikes.parked_for("fix/x", p) is None and r["own"] == 0
+    runs.append({"headSha": "ccc", "conclusion": "failure", "name": "t"})
+    strikes.check("fix/x", fetch=lambda b: runs, inbox=lambda *a, **k: None, p=p, logger=lambda run: [],
+                  base_of=lambda h: "", runner=lambda *a, **k: ("own", "test"))
+    assert strikes.load(p)["strikes"]["fix/x"]["rounds"][-1]["head"] == "ccc"
