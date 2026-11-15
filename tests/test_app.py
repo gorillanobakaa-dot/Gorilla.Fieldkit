@@ -196,3 +196,61 @@ def test_link_start_app_allowlist():
 def test_start_app_verb_is_cable_only():
     from fieldkit.peers import link
     assert "start-app" in link.JOB_VERBS
+
+
+# ---- one program behind several names; the elevated scheduled-task launcher; parentheses -------------------------
+
+EXE = "C:/Program Files/Gorilla TPFanControl/TPFanControl.exe"
+
+
+def _fan_rows(task_args='/run /tn "TPFanControl fans on"'):
+    return [
+        {"name": "Gorilla TPFanControl", "path": EXE, "how": "Uninstall", "score": 1, "launch": {"kind": "exe", "target": EXE}},
+        {"name": "Gorilla TPFanControl (window)", "path": EXE.lower(), "how": "Start Menu", "score": 1,
+         "launch": {"kind": "lnk", "target": "C:/sm/w.lnk"}},
+        {"name": "TPFanControl (fans on)", "path": "C:/Windows/System32/schtasks.exe", "how": "Start Menu", "score": 1,
+         "launch": {"kind": "schtask", "target": "TPFanControl fans on"}},
+    ]
+
+
+def test_one_exe_behind_several_shortcut_names_is_one_program():
+    rows = _fan_rows()[:2]
+    m, why = F.pick(rows)
+    assert why == "ok" and m["name"] == "Gorilla TPFanControl"
+    # two different executables stay ambiguous
+    other = {**rows[1], "path": "C:/Other/other.exe"}
+    assert "ambiguous" in F.pick([rows[0], other])[1]
+
+
+def test_the_elevated_task_launcher_wins_and_carries_the_exe():
+    m, why = F.pick(_fan_rows())
+    assert why == "ok" and m["launch"]["kind"] == "schtask" and m["exe"].lower().endswith("tpfancontrol.exe")
+
+
+def test_start_menu_shortcut_to_schtasks_becomes_a_task_launcher():
+    lnk = "C:/sm/Programs/TPFanControl (fans on).lnk"
+    e = env("win32", files={lnk: "C:/Windows/System32/schtasks.exe"}, lnk_dirs=["C:/sm/Programs"],
+            lnk_args=lambda p: '/run /tn "TPFanControl fans on"')
+    r = [x for x in F.find("TPFanControl", env=e) if x["how"] == "Start Menu"][0]
+    assert r["launch"] == {"kind": "schtask", "target": "TPFanControl fans on"}
+    assert F.schtask_name("/query /tn X") == "" and F.schtask_name("/run /tn Plain") == "Plain"
+
+
+def test_task_launcher_plan_and_start_verifies_the_real_exe():
+    from fieldkit.app import start as S
+    m, _ = F.pick(_fan_rows())
+    method, argv, direct = S.plan(m, [], "win32")
+    assert argv == ["schtasks", "/run", "/tn", "TPFanControl fans on"] and not direct
+    assert S.plan(m, [], "linux")[0] == ""
+    seq = iter([[(1, "x", "x")], [(1, "x", "x"), (77, "TPFanControl.exe", EXE)]])
+    r = S.start(m, osname="win32", popen=lambda *a, **k: type("P", (), {"pid": 5})(), procs=lambda: next(seq),
+                sleep=lambda s: None, is_elevated=lambda o: False)
+    assert r["ok"] and r["pid"] == 77
+
+
+def test_parentheses_allowed_in_names_but_no_shell_characters():
+    from fieldkit.peers import link_probe as L
+    assert L.NAME_OK.match("TPFanControl (fans on)")
+    for bad in ("a;b", "a&b", "a|b", "$(x)", "a`b", "(a", "a\\b"):
+        assert not L.NAME_OK.match(bad) or bad == "(a"
+    assert not L.NAME_OK.match("(a")
