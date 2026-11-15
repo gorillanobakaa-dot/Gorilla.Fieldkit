@@ -290,6 +290,17 @@
    "admit"
   ]
  },
+ "antigravity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "antigravity-bridge"
+  ]
+ },
  "app": {
   "platforms": [
    "darwin",
