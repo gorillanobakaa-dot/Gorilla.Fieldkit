@@ -38,7 +38,10 @@ from . import hardlines
 from .budget import EXIT_PAUSED
 from ..core.settings import state_root as _state_root
 
-BLOCK = re.compile(r"```runbook\s*\n(.*?)```", re.S)
+#: the fence is 3 or more backticks; the block ends at a line holding the SAME fence. A brief that quotes a log with
+#: ``` inside it broke the old 3-backtick match: the YAML was cut short and every keeper fix job died at load
+#: (2026-11-15, PR 496 and PR 490 fix tasks: "found unexpected end of stream").
+BLOCK = re.compile(r"^(`{3,})runbook[ \t]*\n(.*?)^\1[ \t]*$", re.S | re.M)
 JOBS = _state_root(Path(__file__).resolve().parents[2]) / "state" / "jobs"
 PAUSED = "paused-resumable"
 
@@ -56,7 +59,7 @@ def load(path):
     m = BLOCK.search(text)
     if not m:
         raise ValueError(f"{path}: no ```runbook block")
-    data = yaml.safe_load(m.group(1)) or {}
+    data = yaml.safe_load(m.group(2)) or {}
     steps = data.get("steps") or []
     ids = [s.get("id") for s in steps]
     if not steps or any(not i for i in ids) or len(set(ids)) != len(ids):

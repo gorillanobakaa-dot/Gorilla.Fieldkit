@@ -113,8 +113,10 @@ def runbook_text(tid, brief, cwd, wall, model=None, agent=None, thinking=None):
         step["coding_agent"] = agent
     if thinking:
         step["thinking"] = thinking
+    body = yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True)
+    fence = "`" * max(3, 1 + max((len(r) for r in re.findall(r"`+", body)), default=0))   # longer than any run inside
     return (f"# fieldkit task {tid}\n\nWritten by `fieldkit task start`; run headless by fieldkit autopilot.\n\n"
-            "```runbook\n" + yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True) + "```\n")
+            f"{fence}runbook\n" + body + f"{fence}\n")
 
 
 def brief_hash(text):
