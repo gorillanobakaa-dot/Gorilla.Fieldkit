@@ -1,0 +1,11 @@
+# Permanence: each mutation must make tests/test_permanence.py fail
+- file: fieldkit/lifecycle/permanence.py
+  swap: ["    if files:\n        add(\"UNCOMMITTED\"", "    if False:\n        add(\"UNCOMMITTED\""]
+- file: fieldkit/lifecycle/permanence.py
+  swap: ["    if n.isdigit() and int(n) > 0:", "    if False:"]
+- file: fieldkit/lifecycle/permanence.py
+  swap: ["rel.replace(\"\\\\\", \"/\").startswith(\"state/\")", "False"]
+- file: fieldkit/lifecycle/permanence.py
+  swap: ["\"blocking\": kind in BLOCKING", "\"blocking\": False"]
+- file: fieldkit/lifecycle/permanence.py
+  swap: ["        if merged:\n            return out", "        if False:\n            return out"]

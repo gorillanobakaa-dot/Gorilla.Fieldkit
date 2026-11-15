@@ -5255,6 +5255,7 @@ tools:
     preview: [python, -m, fieldkit, build-harness, leakgate-scope]
     verify: [python, -m, fieldkit, build-harness, leakgate-status]
   platforms: [windows, linux]
+  e2e: {linux: e2e-leakgate-linux}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", "${FIELDKIT}/tests/test_leakgate_actions_run.py", "${FIELDKIT}/tests/test_leakgate_sensors.py"]
   notes: "DANGEROUS TO THE OWNER'S SESSION: 'quiet machine' stops every user app that holds a network socket or is on the quiet list, by PID, and a holder re-checks every 2 s until the gate ends (autopilot/quiet.py) - unsaved work in those apps is lost. Starts mitmdump and browser copies (stops its own by PID). Lets the build copies reach the real network (that is the measurement). Windows: --release asks UAC for the elevated pktmon helper; with admin it enables the DNS-Client event log (restored afterwards per dnsclient_restore - not traced); --firewall adds and removes an outbound rule. Linux: needs root (network namespace, nftables). Writes the run folder and <owner>/state/leakgate_result.json (the publish gate reads it). Hours for a release run: use bh-window."
 
@@ -7691,3 +7692,18 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_compileonce.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
+
+- id: permanence-check
+  title: "No session's work is lost when it ends: finds work that is uncommitted, unpushed or unmerged in every worktree of the shared repositories, blocks the turn end and archive_session until it is shipped, tells Zero about stale work (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, permanence, check]
+  path: ${FIELDKIT}/fieldkit/lifecycle/permanence.py
+  inputs:
+    - {name: session, flag: --session, type: str, required: false, help: "a session id or transcript path: only the worktrees it touched"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "one more repository to scan"}
+  effects: [reads-files, network]
+  safety: safe
+  headline: "PERMANENCE: N finding(s); one line each (UNCOMMITTED, UNPUSHED, UNMERGED) ending in the NEXT command; exit 3 on a finding."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_permanence.py"]
+  notes: "Owner order 2026-11-15 after a day of fixes by many sessions. ENDCHECK covered only open PRs without a ci-wait. Hooks: Stop (tokens/rotate.py, blocks once), tool router (refuses archive_session on UNCOMMITTED or UNPUSHED), keeper rule permanence (stale after 2 h, said in the room). All fail open. Mutation plan tests/permanence_mutations.yaml."

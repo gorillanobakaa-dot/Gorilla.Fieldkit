@@ -1863,6 +1863,8 @@ def build_parser():
                        ("keeper", "work never waits for a model turn: a timer-run pass updates BEHIND PRs, starts one fix job for "
                                   "a red PR, restarts a died job once, starts queued briefs, wakes Zero; tick, status, "
                                   "install (fieldkit/lifecycle/keeper.py)"),
+                       ("permanence", "check: a session's work that is uncommitted, unpushed or unmerged; blocks the turn end "
+                                      "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
                        ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
                                 "(fieldkit/lifecycle/idle.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
@@ -3249,6 +3251,9 @@ def main(argv=None):
     if args[:1] == ["keeper"]:                        # P9: work never waits for a model turn (lifecycle/keeper.py)
         from .lifecycle import keeper
         return keeper.main(args[1:])
+    if args[:1] == ["permanence"]:                    # no session's work is lost when it ends (lifecycle/permanence.py)
+        from .lifecycle import permanence
+        return permanence.main(args[1:])
     if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
         from .lifecycle import idle
         return idle.main(args[1:])
