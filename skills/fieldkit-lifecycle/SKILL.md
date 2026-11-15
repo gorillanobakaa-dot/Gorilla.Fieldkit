@@ -89,3 +89,5 @@ The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, C
 `fieldkit sessions doctor`.
 
 `fieldkit keeper tick` (timer-run every 5 min while work is open; installs itself on `task start`) keeps work moving when no model turn runs: BEHIND PR update, one fix job, one restart, queued briefs, wake Zero. `fieldkit idle report --since 24h` lists the gaps where work was open and nothing acted.
+
+`fieldkit permanence check [--session SID]` finds work that is uncommitted, unpushed or unmerged (exit 3, each line ends with its NEXT command). The Stop hook blocks a turn's end once and the tool router refuses `archive_session` while a session has UNCOMMITTED or UNPUSHED work; the keeper says UNPUSHED/UNMERGED work older than 2 h in the room.

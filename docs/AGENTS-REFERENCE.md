@@ -315,3 +315,5 @@ Every call re-sends the whole conversation, so a long session costs more with ev
 - exit 1 WARN: finish the current job here; the next job starts in a fresh session.
 - exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
 <!-- /fieldkit-rotate-rule -->
+
+- `fieldkit permanence check [--session SID] [--repo R] [--json]` (`fieldkit/lifecycle/permanence.py`): UNCOMMITTED / UNPUSHED / UNMERGED work of every worktree `fieldkit sync` knows; exit 3, each line ends with NEXT. Stop hook blocks once, the tool router refuses `archive_session` while UNCOMMITTED or UNPUSHED, keeper rule `permanence` (keeper.yaml `stale_after_h` 2) tells Zero about stale work.
