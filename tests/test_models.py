@@ -194,3 +194,13 @@ def test_session_line_is_advisory_for_premium_only():
 def test_missing_data_is_an_error_not_defaults(tmp_path):
     with pytest.raises(ValueError):
         models.load(tmp_path / "nope.yaml")
+
+
+def test_autopilot_claude_reads_agent_availability_as_a_pair(monkeypatch, capsys):
+    """2026-11-15: cli.py read agent_availability's (ok, why) as a dict; every headless claude job died at start."""
+    from fieldkit import cli
+    from fieldkit.lifecycle import models as m
+    monkeypatch.setattr(m, "agent_availability", lambda agent, *a, **k: (False, "blocked for the test"))
+    rc = cli.main(["autopilot", "claude", "say ok"])
+    assert rc == 3
+    assert "blocked for the test" in capsys.readouterr().out

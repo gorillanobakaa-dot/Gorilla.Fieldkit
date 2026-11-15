@@ -1167,9 +1167,9 @@ def cmd_autopilot(a):
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
         from .lifecycle import models as _models
-        ag_avail = _models.agent_availability("claude")
-        if not ag_avail["available"]:
-            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_avail['reason']})"}, indent=1))
+        ag_ok, ag_why = _models.agent_availability("claude")   # (ok, why): a tuple (2026-11-15: read as a dict, every
+        if not ag_ok:                                          # headless claude job died at start on the L15)
+            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_why})"}, indent=1))
             return 3
         job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
         if job_dir:
