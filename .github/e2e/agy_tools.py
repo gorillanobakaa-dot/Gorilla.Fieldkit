@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as d:
     cfg = d / ".mcp.json"
     cfg.write_text(json.dumps({"mcpServers": {"r": {"url": "https://example.org/mcp"}}}))
     r = fk("doors", str(cfg))
-    assert r.returncode == 0 and "remote_doors: 1" in r.stdout
+    assert r.returncode == 0 and "remote_doors: 1" in r.stdout, (r.returncode, r.stdout, r.stderr)
     cfg.write_text(json.dumps({"mcpServers": {"r": {"url": "https://example.org/sse"}}}))
     assert fk("doors", str(cfg)).returncode == 3, "legacy /sse must be a finding"
     wf = d / ".agent" / "workflows"

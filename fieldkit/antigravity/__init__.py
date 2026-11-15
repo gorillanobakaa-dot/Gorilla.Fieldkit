@@ -41,7 +41,13 @@ def run_tool(argv):
         print("agy-tools is not built here.")
         print(NEXT_BUILD)
         return 1  # missing binary
-    return subprocess.call([str(exe), "run", *argv])
+    # captured and re-printed through this process's own stdout: a child writing to an inherited handle is lost
+    # when a parent captures output on Windows
+    r = subprocess.run([str(exe), "run", *argv], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    sys.stdout.write(r.stdout)
+    sys.stdout.flush()
+    sys.stderr.write(r.stderr)
+    return r.returncode
 
 
 def main(args):
