@@ -23,7 +23,7 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ## A test you wrote: prove it can fail
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
-fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost staged                                       names the covering tests; GitHub CI (Linux and Windows) runs them, never this computer (--local only when the owner asks)
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught

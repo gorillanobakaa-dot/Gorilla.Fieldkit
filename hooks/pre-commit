@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fieldkit pre-commit: no commit unless the tests pass and nothing private is staged.
+# Fieldkit pre-commit: nothing private staged, the cheap gates pass. Tests run in GitHub CI, not here (FIELDKIT_LOCAL_TESTS=1 to debug).
 # Installed with: git config core.hooksPath hooks
 cd "$(git rev-parse --show-toplevel)" || exit 1
 # Find an interpreter that ACTUALLY HAS PYTEST. Debian ships python3 with no
@@ -88,7 +88,15 @@ guarded() {
 KEY="$("$PY" -m fieldkit.testcost key 2>/dev/null)" || KEY=""
 T0="$(date +%s)"
 SKIP=""
-if [ -n "$KEY" ] && "$PY" -m fieldkit.testcost seen full-suite --key "$KEY"; then
+# 2026-11-15 (owner order: "All the tests for all the projects run on GitHub's computers, so we do not overload our
+# computers"): NO pytest here. The hook keeps the cheap gates below (privacy scan, docs map, skills, rules, integration);
+# the covering tests and the full suite run in GitHub Actions on Linux and Windows, and main moves only on green CI.
+# The one way to run tests here is a debugging session the owner asked for: FIELDKIT_LOCAL_TESTS=1 (or FIELDKIT_FULL_SUITE=1).
+if [ -z "$FIELDKIT_LOCAL_TESTS" ] && [ -z "$FIELDKIT_FULL_SUITE" ]; then
+  SKIP=1
+  CI_TESTS="$("$PY" -m fieldkit.testcost staged 2>/dev/null | tr -d '\r' | tr '\n' ' ')"
+  echo "pre-commit: no tests run here; GitHub CI (Linux and Windows) runs ${CI_TESTS:+the covering test file(s): $CI_TESTS}${CI_TESTS:-whatever the change selects}"
+elif [ -n "$KEY" ] && "$PY" -m fieldkit.testcost seen full-suite --key "$KEY"; then
   SKIP=1
   "$PY" -m fieldkit.testcost record full-suite skipped 0 --key "$KEY" --note "saved=$("$PY" -c 'from fieldkit import testcost as t; print(t.budget("full-suite") or 0)' 2>/dev/null) same tree" || true
 elif "$PY" -m fieldkit.testcost docs-only 2>/dev/null; then
