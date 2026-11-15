@@ -302,6 +302,10 @@ def publish(ctx, gh=None):
     r = _r(ctx)
     slug, have = _slug(r["repo"]), _published(r, gh)
     if have is None:
+        from . import releasegate                                  # one release per batch (owner order 2026-11-15)
+        g = releasegate.guard(slug, r["version"])
+        if not g["ok"]:
+            return {"ok": False, "detail": f"{g['error']}: {g['next']}"}
         code, out, err = gh(["release", "create", r["version"], "-R", slug, "--target", r["base"], "--title",
                              r["version"], "--notes-file", str(_page(r))] + [str(f) for f in _files(r)])
         if code == 0:

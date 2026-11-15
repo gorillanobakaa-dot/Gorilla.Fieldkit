@@ -26,12 +26,12 @@ HARD LINES (never, whoever asks):
 
 BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
 one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
-Linux CI before merge; no run-time compile (`fieldkit compileonce`).
+Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per batch: no second
+release within 24 h (`--hotfix WHY`, logged).
 
-TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
-packages, never `./...`; Rust: the touched crate). A passed test is never re-run. The full suite runs once, when a
-project is finished (owner, 2026-10-28). On the Windows laptop every heavy command runs under `fieldkit guard --`,
-one at a time.
+TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks (owner,
+2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
+Windows laptop every heavy command runs under `fieldkit guard --`, one at a time.
 
 TWO STRIKES (owner, 2026-10-29). A PR or job that fails CI twice by its own failures is parked by
 `fieldkit ship ci-wait` (main's red is not its own). Leave it for a stronger model; go on. No third try.

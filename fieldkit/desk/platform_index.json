@@ -2817,6 +2817,17 @@
    "peers-wait"
   ]
  },
+ "permanence check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "permanence-check"
+  ]
+ },
  "pins": {
   "platforms": [
    "darwin",
@@ -3211,7 +3222,8 @@
   ],
   "why": "",
   "ids": [
-   "rules"
+   "rules",
+   "rules-song"
   ]
  },
  "runbook": {
