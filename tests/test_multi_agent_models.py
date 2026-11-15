@@ -63,11 +63,14 @@ def test_generic_gemini_rejected_and_specific_choice_validated(
         assert res["ok"] is True, f"expected valid for {a}/{m}/{t}: {res}"
 
 
-def test_claude_is_blocked_by_default_and_dynamic_agent_quota_guard_works(
+def test_claude_is_available_by_default_and_dynamic_agent_quota_guard_works(
     tmp_path: Path, monkeypatch
 ):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path))
-    # Claude is pinned as unavailable ("always") in models.yaml because weekly quota is 100% maxed out
+    # owner 2026-11-15: the 11-14 quota pin is lifted (same account on both laptops); claude is available by default,
+    # and a quota block still refuses it
+    assert models.is_agent_available("claude") is True
+    models.mark_agent_unavailable("claude", reason="weekly quota 100%", until="always")
     assert models.is_agent_available("claude") is False
     v_claude = models.validate_agent_choice("claude", "sonnet", "medium")
     assert v_claude["ok"] is False
@@ -133,7 +136,8 @@ def test_autopilot_and_link_default_start_have_all_five_agents(
         in r_missing["prompt"]
     )
 
-    # Verify agent_run refuses blocked agent 'claude'
+    # Verify agent_run refuses a blocked agent ('claude' blocked here for the test)
+    models.mark_agent_unavailable("claude", reason="test", until="always")
     r_claude = ap_run.agent_run(
         "claude", "do work", cwd=tmp_path, model="sonnet", thinking="medium"
     )
@@ -164,7 +168,8 @@ def test_tasks_start_blocks_unspecified_or_claude_and_starts_chosen_agent(
         in str(exc_missing.value)
     )
 
-    # 2. Calling tasks.start with blocked agent 'claude' raises ValueError
+    # 2. Calling tasks.start with a blocked agent ('claude' blocked here for the test) raises ValueError
+    models.mark_agent_unavailable("claude", reason="test", until="always")
     with pytest.raises(ValueError) as exc_claude:
         tasks.start(
             brief,
