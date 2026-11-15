@@ -89,10 +89,10 @@ class OpenCode:
         out = []
         to = entry.get("to") or "*"
         if to != "*" and not str(to).startswith("opencode:"):
-            # 2026-11-15: a message to Zero (a Claude Code station) was pushed to every OpenCode session. Only a
-            # broadcast or a message addressed to an OpenCode station goes through this door.
-            return [{"channel": self.name, "target": "-", "ok": True,
-                     "detail": f"not for OpenCode (addressed to {to}); not pushed"}]
+            # 2026-11-15: a message to Zero (a Claude Code station) was pushed to every OpenCode session as input.
+            # Owner, same day: he WANTS to see Zero's traffic in OpenCode, just not mixed with his own text and not
+            # as the model's input. So it goes as a CC: flagged, shown to the person only (OpenCode type "cc").
+            return self._copy(entry, net, text, sessions, send)
         try:
             live = sessions()
         except Exception as e:  # noqa: BLE001 - a broken register must not stop the other channels
@@ -117,6 +117,42 @@ class OpenCode:
         if entry.get("kind") == "open":
             _told_save({epoch_key: told.get(epoch_key, [])})
         return out
+
+
+    def _copy(self, entry, net, text, sessions, send):
+        """A display-only copy of Zero's traffic (sent to Zero or by Zero) to every OpenCode session. Never input to a
+        model: OpenCode shows a "cc" request and never queues it. A setting (fieldkit.local.json
+        zero.mirror_to_opencode, default true, owner 2026-11-15) turns it off."""
+        if not mirror_on():
+            return [{"channel": self.name, "target": "-", "ok": True, "detail": "mirror to OpenCode is off"}]
+        zero = (net.get("zero") or {}).get("station")
+        if entry.get("kind") != "msg" or not zero or zero not in (entry.get("from"), entry.get("to")):
+            return [{"channel": self.name, "target": "-", "ok": True,
+                     "detail": f"not for OpenCode (addressed to {entry.get('to')}); not pushed"}]
+        try:
+            live = sessions()
+        except Exception as e:  # noqa: BLE001
+            return [{"channel": self.name, "target": "-", "ok": False, "detail": f"register unreadable: {e}"}]
+        out = []
+        for s in live:
+            name = s.get("name")
+            try:
+                r = send(name, f"from {entry.get('from')} to {entry.get('to')}: {entry.get('text', '')}"[:PUSH_MAX],
+                         as_name="fieldkit-zero", kind="cc")
+                out.append({"channel": self.name, "target": name, "ok": bool(r.get("ok")),
+                            "detail": "copy sent (display only)" if r.get("ok") else str(r.get("error"))})
+            except Exception as e:  # noqa: BLE001
+                out.append({"channel": self.name, "target": name, "ok": False, "detail": str(e)})
+        return out
+
+
+def mirror_on():
+    from ..core import settings
+    try:
+        v = (settings.local_settings().get("zero") or {}).get("mirror_to_opencode", True)
+    except Exception:  # noqa: BLE001 - an unreadable setting keeps the default
+        return True
+    return v is not False
 
 
 def _told_path():
