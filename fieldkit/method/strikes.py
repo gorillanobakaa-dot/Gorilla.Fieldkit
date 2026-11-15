@@ -56,11 +56,11 @@ def load(p=None):
     a file that cannot be read as JSON is an error (it would be rewritten empty on the next record)."""
     p = Path(p or path())
     if not p.exists():
-        return {"strikes": {}, "parked": {}, "log": []}
+        return {"strikes": {}, "parked": {}, "log": [], "cleared": {}}
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
         return {"strikes": dict(d.get("strikes") or {}), "parked": dict(d.get("parked") or {}),
-                "log": list(d.get("log") or [])}
+                "log": list(d.get("log") or []), "cleared": dict(d.get("cleared") or {})}
     except (OSError, ValueError, AttributeError) as e:
         raise StoreError(f"{p} cannot be read ({e}); fix or move it, nothing was changed") from e
 
@@ -317,6 +317,9 @@ def default_runner(base_sha, ids, job="", repo="."):
 def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None, inbox=None, p=None):
     """One red CI verdict of `head`, judged by whose_red. -> {"kind": own|main|unproven, "evidence", "counted": bool,
     "rounds", "parked", "new"}; only `counted` rounds are strikes (an unproven round past FLAKE_LIMIT counts)."""
+    if head in set(load(p).get("cleared", {}).get(branch, [])):    # forgiven by an unpark: never counted again,
+        return {"kind": "forgiven", "evidence": "counted before the owner's unpark", "counted": False,  # by any
+                "parked": parked_for(branch, p) is not None}                                          # caller
     kind, ev = whose_red(head, failed_tests(log), base_sha, runner or default_runner, job)
     if kind == "main":
         _attempt(branch, job, False, p)
@@ -409,7 +412,11 @@ def unpark(ident, note="", who=None, p=None):
     if br is None or br not in d["parked"]:
         return {"ok": False, "state": "not-parked", "error": f"{ident} is not parked"}
     rec = d["parked"].pop(br)
-    d["strikes"].pop(br, None)
+    st = d["strikes"].pop(br, None) or {}
+    # 2026-11-15: the red heads counted before the unpark stay forgiven. check() re-reads every red head that
+    # `gh run list` still shows; without this list the next push recounted them and parked the branch again at once.
+    heads = {r.get("head") for r in (rec.get("rounds") or []) + (st.get("rounds") or []) if r.get("head")}
+    d.setdefault("cleared", {})[br] = sorted(set(d.get("cleared", {}).get(br, [])) | heads)
     d["log"].append({"at": _now(), "action": "unpark", "branch": br, "pr": rec.get("pr"), "note": note,
                      "by": who or os.environ.get("USER") or os.environ.get("USERNAME") or "?"})
     save(d, p)
@@ -489,14 +496,15 @@ def red_heads(runs):
 def check(branch, fetch=runs_from_gh, inbox=None, p=None, logger=run_log, base_of=merge_base, runner=None):
     """Record every head of `branch` whose workflow run failed (one round per head), each judged by whose_red.
     -> the last record's answer, plus `own`/`main`/`unproven` head counts."""
-    heads = red_heads(fetch(branch))
+    forgiven = set(load(p).get("cleared", {}).get(branch, []))
+    heads = {h: r for h, r in red_heads(fetch(branch)).items() if h not in forgiven}
     res = {"rounds": len(load(p)["strikes"].get(branch, {}).get("rounds", [])), "parked": parked_for(branch, p) is not None,
            "new": False}
     kinds = {"own": 0, "main": 0, "unproven": 0}
     for sha, run in heads.items():
         r = count_red(branch, sha, logger(run), base_of(sha), run.get("name") or "red", job=run.get("name") or "",
                       runner=runner, inbox=inbox, p=p)
-        kinds[r["kind"]] += 1
+        kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
         res = dict(res, **{k: r[k] for k in ("rounds", "parked", "new") if k in r})
     return dict(res, ok=True, branch=branch, **kinds)
 

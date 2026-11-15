@@ -1521,6 +1521,8 @@ def main(argv=None):
         r = call({"verb": "start-app", "name": name}, timeout=30, device=a.device) if a.device else link_probe.start_app(name)
         print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else
               (f"{'STARTED' if r.get('ok') else 'NOT STARTED'}: {r.get('why') or r.get('error')}"))
+        if not a.device and not a.json:
+            print(f"NEXT: this ran on THIS computer ({r.get('host') or socket.gethostname()}); add --device NAME to start it on the other one")
         return 0 if r.get("ok") else 3
     if a.action == "send":
         if a.needs_you and a.to and a.to.lower() != "owner":

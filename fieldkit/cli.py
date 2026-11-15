@@ -1869,6 +1869,9 @@ def build_parser():
                                       "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
                        ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
                                 "(fieldkit/lifecycle/idle.py)"),
+                       ("antigravity", "talk to Antigravity sessions: sessions, send, stream, station (antigravity/bridge.py); config checks by the Rust agy-tools: check, doors, migrate-workflows (antigravity/__init__.py)"),
+                       ("pool", "plan Zero's session pool: keep, recycle idle sessions into a reserve, archive extras, "
+                                "top up; exact app-tool calls in order (fieldkit/lifecycle/pool.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
@@ -3258,6 +3261,15 @@ def main(argv=None):
     if args[:1] == ["idle"]:                          # P9: gaps where work was open and nothing acted
         from .lifecycle import idle
         return idle.main(args[1:])
+    if args[:1] == ["antigravity"]:                   # config checks (Rust agy-tools) or the session bridge
+        if args[1:2] in (["check"], ["doors"], ["migrate-workflows"]):
+            from . import antigravity
+            return antigravity.main(args[1:])
+        from .antigravity import bridge
+        return bridge.main(args[1:])
+    if args[:1] == ["pool"]:                          # Zero's session pool: keep / recycle / archive / start (lifecycle/pool.py)
+        from .lifecycle import pool
+        return pool.main(args[1:])
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])

@@ -5,6 +5,8 @@ coupled with the fan, that should keep this ultrathin Lenovo from cooking itself
     fieldkit guard -- CMD ...        any build command (cargo build, go build, make, ...) under the guard
     guard(say, label)                the same for Fieldkit's own build stages (a context manager)
 
+Owner, 2026-11-15: TPFanControl is NOT required (it shut the L15 down). Default thermal.fan_control "none": no fan check,
+the governor still holds the temperature. Only with thermal.fan_control "tpfancontrol":
 The fan check FAILS CLOSED on Windows: a build does not start while Gorilla TPFanControl (gorilla.4 or later) is not
 running, its status file is not updating, or it is in a mode that does not cool for builds (BIOS, Smart, Manual).
 The message says the one click that fixes it. On Linux the kernel's thermald does the governor's job; the fan check
@@ -43,10 +45,27 @@ def read_status(path=STATUS):
     return out or None
 
 
-def fan_check(path=STATUS, now=None, platform=sys.platform):
-    """-> (ok, message). Pure apart from reading the status file."""
+def fan_program(local=None):
+    """-> "none" or "tpfancontrol": fieldkit.local.json thermal.fan_control. Default "none" (owner, 2026-11-15: Gorilla
+    TPFanControl shut the L15 down twice right after it started; the harness must not block builds on a program the
+    owner does not use). With "none" the BIOS drives the fans and the thermal governor still holds the CPU near
+    thermal.build_target; with "tpfancontrol" the old fail-closed check below applies."""
+    from ..core import settings
+    try:
+        local = settings.local_settings() if local is None else local
+        v = str((local.get("thermal") or {}).get("fan_control") or "none").strip().lower()
+    except Exception:  # noqa: BLE001 - unreadable settings: the default
+        v = "none"
+    return v if v in ("none", "tpfancontrol") else "none"
+
+
+def fan_check(path=STATUS, now=None, platform=sys.platform, local=None):
+    """-> (ok, message). Pure apart from reading the settings and the status file."""
     if platform != "win32":
         return True, "fan check: not Windows (the kernel's thermald cools Linux builds)"
+    if fan_program(local) == "none":
+        return True, ("fan check: no fan-control program in use (thermal.fan_control none, owner 2026-11-15); the BIOS "
+                      "drives the fans and the thermal governor holds the CPU near the build target")
     p = Path(path)
     if not p.is_file():
         return False, ("fan check: Gorilla TPFanControl is not running, or is older than gorilla.4 (no status file "

@@ -5255,6 +5255,7 @@ tools:
     preview: [python, -m, fieldkit, build-harness, leakgate-scope]
     verify: [python, -m, fieldkit, build-harness, leakgate-status]
   platforms: [windows, linux]
+  e2e: {linux: e2e-leakgate-linux}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", "${FIELDKIT}/tests/test_leakgate_actions_run.py", "${FIELDKIT}/tests/test_leakgate_sensors.py"]
   notes: "DANGEROUS TO THE OWNER'S SESSION: 'quiet machine' stops every user app that holds a network socket or is on the quiet list, by PID, and a holder re-checks every 2 s until the gate ends (autopilot/quiet.py) - unsaved work in those apps is lost. Starts mitmdump and browser copies (stops its own by PID). Lets the build copies reach the real network (that is the measurement). Windows: --release asks UAC for the elevated pktmon helper; with admin it enables the DNS-Client event log (restored afterwards per dnsclient_restore - not traced); --firewall adds and removes an outbound rule. Linux: needs root (network namespace, nftables). Writes the run folder and <owner>/state/leakgate_result.json (the publish gate reads it). Hours for a release run: use bh-window."
 
@@ -7648,6 +7649,24 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
 
+- id: pool-plan
+  title: "Zero's session pool in one command: from the list_sessions JSON it decides keep, recycle (clear and rename to a reserve), archive surplus reserves or start new ones, and prints the exact app-tool calls in order (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, pool, plan]
+  path: ${FIELDKIT}/fieldkit/lifecycle/pool.py
+  inputs:
+    - {name: sessions, flag: --sessions, type: str, required: false, help: "the list_sessions JSON file (default: stdin)"}
+    - {name: reserve, flag: --reserve, type: int, required: false, help: "idle reserves wanted (default 2, pool.yaml)"}
+    - {name: self, flag: --self, type: str, required: false, help: "this session's id, never touched"}
+  effects: [reads-files]
+  safety: safe
+  headline: "POOL: N step(s); one KEEP / RECYCLE / ARCHIVE / RESERVE line per session, then numbered app-tool calls to run in order."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-pool-linux, windows: e2e-pool-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pool.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-11-15: about 7 sessions open, clear the irrelevant ones and keep them as a reserve, one tool for clear plus start. The app tools (start_session, clear_session, archive_session, set_session_title, set_remote_control) can only be called by the model, so the planner is deterministic and Zero runs its lines without judging. Recycle only when fieldkit permanence check is clean (else KEEP with the command). Rules in pool.yaml. Mutation plan tests/pool_mutations.yaml."
+
 - id: permanence-check
   title: "No session's work is lost when it ends: finds work that is uncommitted, unpushed or unmerged in every worktree of the shared repositories, blocks the turn end and archive_session until it is shipped, tells Zero about stale work (Windows and Linux)"
   harness: lifecycle
@@ -7662,3 +7681,73 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_permanence.py"]
   notes: "Owner order 2026-11-15 after a day of fixes by many sessions. ENDCHECK covered only open PRs without a ci-wait. Hooks: Stop (tokens/rotate.py, blocks once), tool router (refuses archive_session on UNCOMMITTED or UNPUSHED), keeper rule permanence (stale after 2 h, said in the room). All fail open. Mutation plan tests/permanence_mutations.yaml."
+
+- id: antigravity-check
+  title: "Validate an agent config file (hooks.json, mcp_config.json, a plugin folder, skills.json) with the Rust agy-tools"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, check]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: kind, flag: null, type: str, required: true, help: "hooks, mcp, plugin or json-config"}
+    - {name: path, flag: null, type: path, required: true, help: "the file or plugin folder"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 2: bad-usage, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-doors
+  title: "List every MCP server the Claude, Codex, Gemini and Antigravity configs can start or reach: remote URLs, legacy /sse, plain http, missing binaries"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, doors]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: files, flag: null, type: list, required: false, help: "config files (default: the known config locations of each agent)"}
+    - {name: check-bins, flag: --check-bins, type: bool, required: false, help: "also report a stdio command that is not on PATH"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-migrate-workflows
+  title: "Migrate .agent/workflows to .agents/skills with preview, apply, verify and undo; undo moves files aside, nothing is deleted"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, migrate-workflows]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: root, flag: null, type: path, required: false, help: "project folder holding .agent/workflows (default: here)"}
+    - {name: apply, flag: --apply, type: bool, required: false, help: "do the migration (default is a preview)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-bridge
+  title: "Talk to Antigravity coding sessions from Fieldkit: list them, send a message, follow a stream, check one in on Zero's net as antigravity:NAME; replies are fenced as untrusted data, and the bridge only ever binds loopback or the cable (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, antigravity]
+  path: ${FIELDKIT}/fieldkit/antigravity/bridge.py
+  inputs:
+    - {name: command, flag: "", type: str, required: false, help: "sessions | send | stream | station | bind-check"}
+  effects: [reads-files, network]
+  safety: safe
+  headline: "ANTIGRAVITY: sessions list (source, id), or a fenced reply; NEXT names the follow-up."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-antigravity-linux, windows: e2e-antigravity-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."

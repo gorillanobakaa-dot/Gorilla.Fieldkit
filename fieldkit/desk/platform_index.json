@@ -290,6 +290,47 @@
    "admit"
   ]
  },
+ "antigravity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "antigravity-bridge"
+  ]
+ },
+ "antigravity check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-check"
+  ]
+ },
+ "antigravity doors": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-doors"
+  ]
+ },
+ "antigravity migrate-workflows": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-migrate-workflows"
+  ]
+ },
  "app": {
   "platforms": [
    "darwin",
@@ -2877,6 +2918,17 @@
   "why": "",
   "ids": [
    "plan"
+  ]
+ },
+ "pool plan": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pool-plan"
   ]
  },
  "power audit": {

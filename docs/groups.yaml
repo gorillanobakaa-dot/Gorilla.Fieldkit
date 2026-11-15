@@ -48,6 +48,9 @@ groups:
   - name: tokens
     title: What AI coding sessions cost and where their tokens went, and session rotation - monster sessions handed over to fresh ones
     sources: [tokens/*.py]
+  - name: antigravity
+    title: Antigravity - agent config checks (hooks, MCP doors, plugins, workflow migration) run by the Rust agy-tools binary built from source, and the session bridge (list, send, stream, a station on Zero's net; loopback and cable only)
+    sources: [antigravity/*.py]
   - name: skills
     title: Agent Skills - every agentskills.io rule checked, network doors in adopted skills, the same skills installed on every machine, and the adopted Anthropic skills' scripts as commands
     sources: [skills/*.py]
