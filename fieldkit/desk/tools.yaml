@@ -7671,7 +7671,7 @@ tools:
   inputs:
     - {name: kind, flag: null, type: str, required: true, help: "hooks, mcp, plugin or json-config"}
     - {name: path, flag: null, type: path, required: true, help: "the file or plugin folder"}
-  effects: [reads-files, processes]
+  effects: [reads-files]
   safety: read-only
   output: own
   exits: {1: agy-tools-not-built-run-emerge, 2: bad-usage, 3: findings}
@@ -7689,7 +7689,7 @@ tools:
   inputs:
     - {name: files, flag: null, type: list, required: false, help: "config files (default: the known config locations of each agent)"}
     - {name: check-bins, flag: --check-bins, type: bool, required: false, help: "also report a stdio command that is not on PATH"}
-  effects: [reads-files, processes]
+  effects: [reads-files]
   safety: read-only
   output: own
   exits: {1: agy-tools-not-built-run-emerge, 3: findings}
@@ -7723,7 +7723,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/antigravity/bridge.py
   inputs:
     - {name: command, flag: "", type: str, required: false, help: "sessions | send | stream | station | bind-check"}
-  effects: [reads-files, runs-processes]
+  effects: [reads-files, network]
   safety: safe
   headline: "ANTIGRAVITY: sessions list (source, id), or a fenced reply; NEXT names the follow-up."
   platforms: [windows, linux, darwin]

@@ -38,7 +38,7 @@ groups:
     sources: [observe/*.py, appcapture/*.py, modelcatalog/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
-    sources: [lifecycle/*.py, antigravity/*.py]
+    sources: [lifecycle/*.py]
   - name: zero
     title: The agent net, the military way - Zero (net control) established with a fencing epoch, a 2IC, check-ins on a lease, roll calls with a fixed sitrep, clocks, an append-only net log
     sources: [zero/*.py]
@@ -49,7 +49,7 @@ groups:
     title: What AI coding sessions cost and where their tokens went, and session rotation - monster sessions handed over to fresh ones
     sources: [tokens/*.py]
   - name: antigravity
-    title: Agent config checks - hooks, MCP doors, plugins and workflow migration, run by the Rust agy-tools binary built from source
+    title: Antigravity - agent config checks (hooks, MCP doors, plugins, workflow migration) run by the Rust agy-tools binary built from source, and the session bridge (list, send, stream, a station on Zero's net; loopback and cable only)
     sources: [antigravity/*.py]
   - name: skills
     title: Agent Skills - every agentskills.io rule checked, network doors in adopted skills, the same skills installed on every machine, and the adopted Anthropic skills' scripts as commands
