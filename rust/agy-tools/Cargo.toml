@@ -1,0 +1,9 @@
+[package]
+name = "agy-tools"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform (Windows & Linux) Rust deterministic tools, checks, and cards for Antigravity Extracted.skills"
+
+[profile.release]
+opt-level = "s"
+strip = true
