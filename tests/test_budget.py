@@ -238,4 +238,4 @@ def test_the_ask_to_zero_carries_why_a_successor_is_visible_not_headless():
 
 
 def test_why_visible_names_the_reuse_route_when_the_app_refuses():
-    assert "clear_session" in budget.WHY_VISIBLE and "TaskStop" in budget.WHY_VISIBLE
+    assert "clear_session" in budget.WHY_VISIBLE and "TaskStop" in budget.WHY_VISIBLE and "Reserve" in budget.WHY_VISIBLE
