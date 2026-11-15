@@ -7730,6 +7730,60 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_permanence.py"]
   notes: "Owner order 2026-11-15 after a day of fixes by many sessions. ENDCHECK covered only open PRs without a ci-wait. Hooks: Stop (tokens/rotate.py, blocks once), tool router (refuses archive_session on UNCOMMITTED or UNPUSHED), keeper rule permanence (stale after 2 h, said in the room). All fail open. Mutation plan tests/permanence_mutations.yaml."
 
+- id: antigravity-check
+  title: "Validate an agent config file (hooks.json, mcp_config.json, a plugin folder, skills.json) with the Rust agy-tools"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, check]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: kind, flag: null, type: str, required: true, help: "hooks, mcp, plugin or json-config"}
+    - {name: path, flag: null, type: path, required: true, help: "the file or plugin folder"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 2: bad-usage, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-doors
+  title: "List every MCP server the Claude, Codex, Gemini and Antigravity configs can start or reach: remote URLs, legacy /sse, plain http, missing binaries"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, doors]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: files, flag: null, type: list, required: false, help: "config files (default: the known config locations of each agent)"}
+    - {name: check-bins, flag: --check-bins, type: bool, required: false, help: "also report a stdio command that is not on PATH"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
+- id: antigravity-migrate-workflows
+  title: "Migrate .agent/workflows to .agents/skills with preview, apply, verify and undo; undo moves files aside, nothing is deleted"
+  harness: skills
+  skill: skills/fieldkit-skills/SKILL.md
+  entry: [python, -m, fieldkit, antigravity, migrate-workflows]
+  path: ${FIELDKIT}/fieldkit/antigravity/__init__.py
+  inputs:
+    - {name: root, flag: null, type: path, required: false, help: "project folder holding .agent/workflows (default: here)"}
+    - {name: apply, flag: --apply, type: bool, required: false, help: "do the migration (default is a preview)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: agy-tools-not-built-run-emerge, 3: findings}
+  platforms: [windows, linux]
+  platforms_why: "darwin not proven: the e2e jobs run Linux and Windows only"
+  e2e: {linux: e2e-agy-tools-linux, windows: e2e-agy-tools-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity.py"]
+
 - id: antigravity-bridge
   title: "Talk to Antigravity coding sessions from Fieldkit: list them, send a message, follow a stream, check one in on Zero's net as antigravity:NAME; replies are fenced as untrusted data, and the bridge only ever binds loopback or the cable (Windows and Linux)"
   harness: lifecycle
@@ -7737,7 +7791,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/antigravity/bridge.py
   inputs:
     - {name: command, flag: "", type: str, required: false, help: "sessions | send | stream | station | bind-check"}
-  effects: [reads-files, runs-processes]
+  effects: [reads-files, network]
   safety: safe
   headline: "ANTIGRAVITY: sessions list (source, id), or a fenced reply; NEXT names the follow-up."
   platforms: [windows, linux, darwin]

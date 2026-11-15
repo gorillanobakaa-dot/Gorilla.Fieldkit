@@ -1,0 +1,68 @@
+# agy-tools: the Rust validators for agent config files (rust/agy-tools, zero external crates), built from SOURCE with
+# cargo, offline, on Linux and Windows. The binary is never committed: it is built once per source change and pinned
+# by sha256 in SHA256SUMS (the recipe report). `fieldkit antigravity ...` calls it when present and otherwise prints
+# `fieldkit emerge run agy-tools`; it never falls back to a slow path. Windows: --var exe=.exe
+name: agy-tools
+description: >-
+  agy-tools (Rust, std only) from rust/agy-tools: cargo test, the release binary, SHA256SUMS pinning it, a telemetry
+  scan; with --mode release a second build in another target folder must give the same bytes.
+baseline_minutes: 2
+vars:
+  src: "${FIELDKIT}"
+  exe: ""                           # Windows: --var exe=.exe
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  files: ["{src}/rust/agy-tools/Cargo.toml", "{src}/rust/agy-tools/Cargo.lock"]
+toolenv:
+  path_if_missing: {cargo: ["~/.cargo/bin"]}
+  tmpdir: {min_free_gb: 1, fallback: "~/.cache/fieldkit-scratch/tmp"}
+toolchain:
+  - [cargo, --version]
+  - [rustc, --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: test
+    run: {cmd: [cargo, test, --release, --offline, --locked, -q], cwd: "{src}/rust/agy-tools"}
+    timeout: 1800
+    inputs: ["{src}/rust/agy-tools/src/**/*.rs"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: build
+    run: {cmd: [cargo, build, --release, --offline, --locked], cwd: "{src}/rust/agy-tools"}
+    timeout: 1800
+    inputs: ["{src}/rust/agy-tools/src/**/*.rs"]
+    outputs: ["{src}/rust/agy-tools/target/release/agy-tools{exe}"]
+    uses: [config, toolchain, inputs]
+    needs: []
+
+  - id: checksums
+    run:
+      python: "fieldkit.emerge.stages:sha256sums"
+      args: {files: ["{src}/rust/agy-tools/target/release/agy-tools{exe}"],
+             out: "{src}/rust/agy-tools/target/release/SHA256SUMS"}
+    outputs: ["{src}/rust/agy-tools/target/release/SHA256SUMS"]
+    uses: []
+    needs: [build, test]
+
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}/rust/agy-tools"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: repro
+    run: {cmd: [cargo, build, --release, --offline, --locked, --target-dir, "{src}/rust/agy-tools/target-emerge-repro"], cwd: "{src}/rust/agy-tools"}
+    timeout: 1800
+    outputs: ["{src}/rust/agy-tools/target-emerge-repro/release/agy-tools{exe}"]
+    verify:
+      - python: {target: "fieldkit.emerge.stages:same_bytes",
+                 args: {a: "{src}/rust/agy-tools/target/release/agy-tools{exe}", b: "{src}/rust/agy-tools/target-emerge-repro/release/agy-tools{exe}"}}
+    uses: [config, toolchain]
+    needs: [build]
+    tier: release
+    advisory: true
