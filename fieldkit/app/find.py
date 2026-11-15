@@ -480,7 +480,7 @@ def _program_path(m):
     """The executable a match stands for: an exe or a shortcut to one; "" for a launcher, folder or store app."""
     p = m.get("path") or ""
     if m.get("launch", {}).get("kind") in ("exe", "lnk") and p.lower().endswith((".exe", ".com")):
-        return os.path.normcase(p)
+        return p.lower()    # Windows paths are case-insensitive; two programs differing only in case do not exist there
     return ""
 
 

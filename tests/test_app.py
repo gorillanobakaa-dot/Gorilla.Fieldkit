@@ -188,7 +188,8 @@ def test_link_start_app_allowlist():
         assert not r["ok"]
     assert started == [("TPFanControl", ())]
     amb = link_probe.start_app("claude", allowed=["claude"],
-                               finder=lambda q: [dict(row, name="A claude x", score=1), dict(row, name="B claude y", score=1)],
+                               finder=lambda q: [dict(row, name="A claude x", score=1, path="C:/a.exe"),
+                                                 dict(row, name="B claude y", score=1, path="C:/b.exe")],
                                starter=lambda m, a: started.append("BAD"))
     assert not amb["ok"] and "ambiguous" in amb["error"] and "BAD" not in started
 
