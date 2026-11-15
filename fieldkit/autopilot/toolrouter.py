@@ -553,8 +553,8 @@ NO_CARD = ("NO SESSION CARD (rules/CORE.md SIDE JOBS): an own_initiative card wa
            "never starts unattended. Start it VISIBLE yourself: start_session initiation \"user_asked\", context "
            "\"fresh\". Visible, not headless: headless sessions ran uncontrolled, did not finish, filled their context "
            "and passed the job on (fieldkit/tokens/budget.py WHY_VISIBLE). If the app refuses user_asked (an event or "
-           "session-message turn), hand it to Zero over the net (fieldkit/tokens/budget.py start_successor) so Zero "
-           "starts it visibly; a card is never the answer.")
+           "session-message turn), reuse the rotated session: it stops its background tasks and runs clear_session "
+           "\"self\", then send it the brief (budget.py WHY_VISIBLE); a card is never the answer.")
 
 
 def _no_card(call):
