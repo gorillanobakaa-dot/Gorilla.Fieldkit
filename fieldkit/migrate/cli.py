@@ -11,6 +11,7 @@
     migrate close TASK                     the finish (S9 gate green): capture off, what the migration recorded distilled
     migrate work TASK ITEM                 open a work item of the current stage (the drift guard needs one)
     migrate park TASK "why"                park a side problem as a ticket;  migrate unpark TASK P-001 "resolution"
+    migrate landed TASK I-x FILE "QUOTE" "why"   the intent is in the tree in another form; the quote is re-checked
     migrate intents TASK [--json]          ledger coverage and the per-intent statuses that are not green
     migrate intake TASK [--json]           the S1 intake items and their dispositions
     migrate consistency TASK [--json]      documents and tools against the register and the build
@@ -23,7 +24,7 @@ from pathlib import Path
 from ..buildh import task
 from . import plan
 
-SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "close", "work", "park", "unpark", "intents", "intake",
+SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "close", "work", "park", "unpark", "landed", "intents", "intake",
         "consistency")
 
 
@@ -129,6 +130,14 @@ def run(a, emit, current_id):
             raise task.Refused("migrate unpark TASK P-001 \"how it was resolved\"")
         e = guard.unpark(tid, rest[0], " ".join(rest[1:]))
         emit(e, lambda r: print(f"CLOSED {r['id']}: {r['resolution']}"))
+        return 0
+    if sub == "landed":
+        from . import landed
+        rest = [x for x in a.args[1:] if x != tid]          # raw: a quoted tree line may hold "=" (kv must not eat it)
+        if len(rest) < 4:
+            raise task.Refused('migrate landed TASK I-x FILE "QUOTE" "why it landed differently"')
+        r = landed.record(tid, rest[0], rest[1], rest[2], " ".join(rest[3:]))
+        emit(r, lambda r: print(f"LANDED {r['intent']}: {r['evidence']}\nNEXT: fieldkit build-harness migrate check {tid} --only S2"))
         return 0
     m = plan.Migration(tid)
     if sub == "seed":
