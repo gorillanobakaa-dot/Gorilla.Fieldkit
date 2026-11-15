@@ -28,6 +28,11 @@ projects:
     seen: vaio
     builds: {lang: go, outputs: [linux and windows binaries, mac 10.13 zip, .deb, .rpm, tarball, SHA256SUMS]}
     scripts: [install.sh, packaging/]
+  agy-tools:
+    recipe: agy-tools
+    seen: recipe
+    path: rust/agy-tools (in this repository)
+    builds: {lang: rust, outputs: [agy-tools, SHA256SUMS]}
   gorilla-size:
     recipe: gorilla-size
     seen: recipe

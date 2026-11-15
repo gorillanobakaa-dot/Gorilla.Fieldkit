@@ -19,6 +19,18 @@ letters, digits and single hyphens, at most 64; `description` at most 1024; opti
 500, `metadata` string to string, `allowed-tools`; nothing else), body under 500 lines, detail in `references/`,
 `scripts/`, `assets/`. Over 70 agent platforms read this format, so one folder serves them all.
 
+## Check an agent's config files (fieldkit antigravity)
+
+```
+fieldkit antigravity check hooks|mcp|plugin|json-config PATH   # one hooks.json, mcp_config.json, plugin folder, skills.json
+fieldkit antigravity doors [FILE...] [--check-bins]            # every MCP server the Claude, Codex, Gemini, Antigravity configs reach
+fieldkit antigravity migrate-workflows [ROOT] [--apply|--verify|--undo]   # .agent/workflows -> .agents/skills, undo keeps files
+```
+
+Run by the Rust `agy-tools` binary, built from source: `fieldkit emerge run agy-tools`. Not built: one NEXT line,
+no slow fallback. `doors` lists remote URLs (each is a door) and fails on a legacy `/sse` endpoint, plain http or a
+missing binary.
+
 ## Check a skill (do this before every commit that touches one)
 
 ```

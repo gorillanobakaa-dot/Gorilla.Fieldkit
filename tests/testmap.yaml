@@ -20,3 +20,4 @@
 - {glob: "inventory.py", tests: [], why: "a stand-alone script at the root; no test or module imports it"}
 - {glob: "fieldkit/review_verdict.py", tests: [tests/test_review.py, tests/test_review_fix.py]}
 - {glob: "kits/videokit/**", tests: [tests/test_videokit.py]}
+- {glob: "rust/agy-tools/**", tests: [tests/test_antigravity.py]}
