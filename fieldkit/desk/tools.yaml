@@ -7021,6 +7021,7 @@ tools:
   exits: {0: "READY (or READY-FALLBACK)", 3: "NOT READY: the one ask is printed, the job does not start"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_prepare.py"]
+  e2e: {linux: e2e-prepare-linux, windows: e2e-prepare-windows}
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-11-12 (P9). Not verified on Windows: the table has winget ids but no Windows run yet. Downloads only with a sha256; no network probe. Wired into task start, emerge run, runbook run, goal run (tests/test_prepare.py::test_every_job_start_calls_the_gate)."
 
