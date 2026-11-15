@@ -31,3 +31,7 @@ docs/dual-track/**/PAYLOAD.*
 
 # install.sh writes the list of what it downloaded and installed here (a user's own machine)
 INSTALLED.txt
+
+# Rust build output (built from source by `fieldkit emerge run agy-tools`; never committed)
+rust/**/target/
+rust/**/target-emerge-repro/

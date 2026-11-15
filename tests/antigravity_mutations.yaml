@@ -7,3 +7,21 @@
   swap: ["body = str(text).replace(\"</untrusted-data\", \"<\\\\/untrusted-data\")", "body = str(text)"]
 - file: fieldkit/antigravity/bridge.py
   swap: ["            if p.suffix != \".db\" or not _ID.match(p.stem):", "            if False:"]
+
+# fieldkit antigravity: the wrapper rules must be CAUGHT (2026-11-15):
+#   fieldkit mutate --plan tests/antigravity_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_antigravity.py
+- file: fieldkit/antigravity/__init__.py
+  swap:
+  - '        return 1  # missing binary'
+  - '        return 0  # missing binary'
+  why: a missing binary must fail, never pass silently
+- file: fieldkit/antigravity/__init__.py
+  swap:
+  - '        return run_tool(["doors", *rest])'
+  - '        return run_tool(["mcp", *rest])'
+  why: doors must reach the doors check
+- file: fieldkit/antigravity/__init__.py
+  swap:
+  - '"--apply", "--verify", "--undo"'
+  - '"--verify", "--undo"'
+  why: --apply must select apply mode
