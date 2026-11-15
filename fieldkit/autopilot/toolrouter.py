@@ -360,6 +360,44 @@ def _sampling(cmd):
     return True
 
 
+# -- TESTS ONCE (owner, 2026-11-15: "All the tests for all the projects run on GitHub's computers, so we do not overload
+#    our computers"). The pre-commit hook stopped running pytest that day, but a model could still type `python -m
+#    pytest` in a shell and nothing refused it (Zero ran 36 tests by hand on PR 533 the same evening). Every test runner
+#    is refused here, on every system: push, and GitHub CI runs the covering tests (`fieldkit testcost staged` names
+#    them). The one way through is the hook's own owner switch, FIELDKIT_LOCAL_TESTS=1, for a debugging session the
+#    owner asked for; `# toolrouter-ok:` does not open it.
+LOCAL_TESTS_ENV = "FIELDKIT_LOCAL_TESTS"
+TEST_RUNNERS = [
+    re.compile(_AT + r"(?:pytest(?:\.exe)?[\"']?|" + _PY + r"(?:pytest|unittest))(?![\w-])", re.I | re.M),
+    re.compile(_AT + r"go(?:\.exe)?[\"']?\s+test\b", re.I | re.M),
+    re.compile(_AT + r"cargo(?:\.exe)?[\"']?(?:\s+\+\S+)?\s+(?:test|nextest)\b", re.I | re.M),
+    re.compile(_AT + r"(?:npm|pnpm|yarn|bun)(?:\.cmd)?\s+(?:run\s+)?test\b|(?:^|[;&|]\s*)(?:npx\s+)?(?:vitest|jest)\b", re.I | re.M),
+]
+#: a mutation run (rules: "a new check needs a test that proves it can fail") runs its tests by design; on Windows the
+#: heavy-work rule still puts it under the guard
+MUTATE_RUN = re.compile(r"(?:\bfieldkit(?:\.exe)?[\"']?|-m\s+fieldkit)\s+mutate\b[^;&|\n]*", re.I)
+LOCAL_TESTS = {"route": "tests-run-in-github-ci",
+               "use": "commit and push (fieldkit ship push --auto): GitHub CI runs the covering tests on Linux and "
+                      "Windows; `fieldkit testcost staged` names them. Tests never run on our computers unless the owner "
+                      "asked for a local debugging run (then " + LOCAL_TESTS_ENV + "=1 in front of the command)",
+               "example": FK + " ship push --auto"}
+
+
+def local_tests_refusal(command, environ=None):
+    """-> LOCAL_TESTS when the command runs a test runner (pytest, python -m unittest, go test, cargo test, npm/yarn/
+    pnpm/bun test, vitest, jest) and the owner's switch is not set; else None. Quoted text and search statements are
+    data, as in heavy_refusal; a shell's -c script is judged."""
+    import os
+    env = os.environ if environ is None else environ
+    if not command or env.get(LOCAL_TESTS_ENV) == "1" or re.search(r"(?:^|[;&|(\s])" + LOCAL_TESTS_ENV + r"=1\b", command):
+        return None
+    inner = [m.group(2) for m in re.finditer(r"\s-(?:c|Command)\s+([\"'])(.*?)\1", command, re.S)]
+    cmd = "\n".join([re.sub(r"\"[^\"\n]*\"|'[^'\n]*'", '""', command)] + inner)
+    cmd = "".join("" if SEARCH.match(x) else x for x in re.split(r"(;|&&|\|\||\||\n)", cmd))
+    cmd = MUTATE_RUN.sub("", cmd)          # `fieldkit mutate -- pytest ...`: the rules' own proof that a check can fail
+    return LOCAL_TESTS if any(p.search(cmd) for p in TEST_RUNNERS) else None
+
+
 def route(command, cwd="", shell=""):
     """-> None (allowed) or {"route", "use", "example"} for the first route the command matches. A heredoc's body is
     data written to a file or a program, not a command (2026-10-18: appending the rule that NAMES these commands to
@@ -373,6 +411,9 @@ def route(command, cwd="", shell=""):
                        "the script, then run the file",
                 "example": "python - <<'EOF'"}
     cmd = HEREDOC.sub("<<heredoc", command or "")
+    lt = local_tests_refusal(cmd)                    # before the override: `# toolrouter-ok:` does not open it
+    if lt:
+        return lt
     if OVERRIDE.search(cmd):
         return None
     for name, pat, use, example in ROUTES:

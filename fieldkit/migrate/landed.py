@@ -60,3 +60,32 @@ def record(task_id, intent, file, quote, why):
     p.write_text(json.dumps(d, indent=1, sort_keys=True), encoding="utf-8", newline="\n")
     task.journal(t, "migrate-landed", intent=intent, file=file, why=why)
     return {"intent": intent, "evidence": ev}
+
+
+def proven_hunks(t):
+    """-> {(patch, file, n): evidence} for the hunks of every intent whose `landed` record is proven in the tree now.
+
+    For `build-harness verify` (2026-11-15, Firefox 160 S4): a port step of such a hunk, closed as obsolete, read as a
+    false completion because the old hunk's lines are still there in their new form - the same text the intent judge
+    already accepts by this record. The proof is the same: the verbatim quote re-read from the tree on every call."""
+    recs = load(t.get("id") or "")
+    if not recs:
+        return {}
+    try:
+        from . import ledger, plan
+        owner = plan.Migration(t["id"], t=t, find_install=False).owner      # the same owner the migration uses
+        intents = ledger.load(owner)["intents"] if owner else []
+    except Exception:                                   # no ledger, no proof: nothing is accepted
+        return {}
+    out = {}
+    for e in intents:
+        rec = recs.get(e.get("id"))
+        if not rec or e.get("retired"):
+            continue
+        ok, ev = proven(t["workdir"], rec)
+        if not ok:
+            continue
+        for h in e.get("hunks") or []:
+            out[(e.get("patch"), h.get("file"), h.get("n"))] = f"{e['id']} {ev}"
+    return out
+

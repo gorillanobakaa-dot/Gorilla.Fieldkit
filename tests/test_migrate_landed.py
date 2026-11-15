@@ -38,3 +38,21 @@ def test_proof_is_rechecked_and_fails_when_the_line_goes(tid):
     (task.load(tid)["workdir"] and __import__("pathlib").Path(w, "browser", "firefox.js")).write_text("gone\n", encoding="utf-8")
     ok, ev = landed.proven(w, rec)
     assert not ok and "no longer" in ev
+
+
+def test_proven_hunks_maps_a_proven_record_to_its_hunks_and_drops_a_stale_one(tmp_path, monkeypatch):
+    """verify accepts an obsolete port step of a hunk only while the intent's landed quote is in the tree now."""
+    from types import SimpleNamespace
+    from fieldkit.migrate import landed, ledger, plan
+    (tmp_path / "a.js").write_text("// GORILLA LOCK: no fetch\n", encoding="utf-8")
+    recs = {"I-1": {"file": "a.js", "quote": "// GORILLA LOCK: no fetch", "why": "reshaped upstream"},
+            "I-2": {"file": "a.js", "quote": "a line that is gone", "why": "stale record"}}
+    monkeypatch.setattr(landed, "load", lambda tid: recs)
+    monkeypatch.setattr(plan, "Migration", lambda *a, **k: SimpleNamespace(owner=tmp_path))
+    monkeypatch.setattr(ledger, "load", lambda owner: {"intents": [
+        {"id": "I-1", "patch": "07/x.patch", "hunks": [{"file": "a.js", "n": 8}]},
+        {"id": "I-2", "patch": "07/y.patch", "hunks": [{"file": "a.js", "n": 2}]}]})
+    got = landed.proven_hunks({"id": "t", "workdir": str(tmp_path)})
+    assert list(got) == [("07/x.patch", "a.js", 8)]
+    (tmp_path / "a.js").write_text("changed\n", encoding="utf-8")
+    assert landed.proven_hunks({"id": "t", "workdir": str(tmp_path)}) == {}
