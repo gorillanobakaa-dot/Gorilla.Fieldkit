@@ -2879,6 +2879,17 @@
    "plan"
   ]
  },
+ "pool plan": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pool-plan"
+  ]
+ },
  "power audit": {
   "platforms": [
    "windows"
