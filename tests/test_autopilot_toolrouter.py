@@ -349,12 +349,12 @@ def test_a_refusal_carries_the_measured_correction_from_the_table(tmp_path):
     assert r and "Measured:" in tr.message(r) and r["use"] in tr.message(r)    # same refusal, better text
 
 
-def test_an_own_initiative_session_card_is_refused_with_the_headless_route():
+def test_an_own_initiative_session_card_is_refused_with_the_visible_route():
     call = {"tool_name": "mcp__ccd_session__start_session", "tool_input": {"initiation": "own_initiative",
                                                                              "title": "x", "prompt": "y"}}
     deny = tr.verdict(call)
     assert deny["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "fieldkit task start" in deny["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "user_asked" in deny["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 @pytest.mark.parametrize("initiation", ["user_asked", "offer", None])

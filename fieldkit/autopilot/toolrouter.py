@@ -550,10 +550,11 @@ def _nested(call):
 #: an Opencode successor; owner: "If I was not here to press, what would have happened? MAKE SURE THIS NEVER HAPPENS
 #: AGAIN"). The refusal names the no-click route.
 NO_CARD = ("NO SESSION CARD (rules/CORE.md SIDE JOBS): an own_initiative card waits for the owner's click, so the job "
-           "never starts unattended. Use initiation \"user_asked\" (context \"fresh\"). If the app refuses that (an event "
-           "or session-message turn), write the brief to state/briefs/NAME.md and start it headless in this same turn: "
-           "fieldkit task start state/briefs/NAME.md [--cwd DIR] [--model MODEL], then fieldkit task watch ID in the "
-           "background.")
+           "never starts unattended. Start it VISIBLE yourself: start_session initiation \"user_asked\", context "
+           "\"fresh\". Visible, not headless: headless sessions ran uncontrolled, did not finish, filled their context "
+           "and passed the job on (fieldkit/tokens/budget.py WHY_VISIBLE). If the app refuses user_asked (an event or "
+           "session-message turn), hand it to Zero over the net (fieldkit/tokens/budget.py start_successor) so Zero "
+           "starts it visibly; a card is never the answer.")
 
 
 def _no_card(call):

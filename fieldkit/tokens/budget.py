@@ -213,6 +213,17 @@ def _headless_sonnet(brief):
     return r.stdout.strip().splitlines()[-1:] or [""]
 
 
+#: WHY A SUCCESSOR IS VISIBLE, NOT HEADLESS (owner, 2026-11-15, written here so no session forgets it):
+#: "no headless" does NOT mean "do not start it". It means start it in the FOREGROUND, as a visible desktop session the
+#: owner can watch and steer. The rule exists because headless (background) sessions were not controlled or directed:
+#: they did not finish their job, filled their context with nothing, spun in place, and passed the job on to yet
+#: another session. A visible session is watched, steered and archived by Zero. Never answer "no headless" by starting
+#: nothing or by leaving a card for the owner to click: Zero starts the visible session itself.
+WHY_VISIBLE = ("VISIBLE, not headless, because headless sessions ran uncontrolled: they did not finish, filled their "
+               "context with nothing, spun in place and passed the job to another session. Not headless does not mean "
+               "do not start: start it in the foreground yourself, never leave a card for the owner.")
+
+
 def start_successor(brief, title, origin, send=None, headless=None, now=None):
     """A successor that must be VISIBLE (owner 2026-11-03). The Claude desktop app lets start_session "user_asked" run
     only in a turn the owner's own message started; a turn started by another session's message is refused. So:
@@ -236,7 +247,7 @@ def start_successor(brief, title, origin, send=None, headless=None, now=None):
     _log_successor({**rec, "step": "refused", "line": owner})
     ask = (f"START VISIBLE SUCCESSOR: call start_session initiation \"user_asked\", context \"fresh\", title "
            f"\"{title}\", prompt = the file {brief}. The session that needs it was refused by the app (its turn came "
-           "from a session message). Do not run it headless.")
+           "from a session message). " + WHY_VISIBLE)
     try:
         zero = (send or _send_zero)(ask)
         _log_successor({**rec, "step": "zero", "to": zero})
