@@ -8,6 +8,7 @@ on:
       - "fieldkit/leakgate/**"
       - "fieldkit/pycache/**"
       - "fieldkit/integration/**"
+      - "fieldkit/lifecycle/pool*"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
@@ -50,3 +51,48 @@ jobs:
       - run: python -m fieldkit pycache audit
       - run: python -m fieldkit pycache profile fieldkit.autopilot.toolrouter
       - run: python -m fieldkit pycache compare --help
+  e2e-pool-linux:
+    # fieldkit pool plan: the real entry point, a session list in, ordered app-tool calls out.
+    name: e2e-pool-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/pool_plan.py
+  e2e-pool-windows:
+    name: e2e-pool-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/pool_plan.py
+  e2e-antigravity-linux:
+    name: e2e-antigravity-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/antigravity_bridge.py
+  e2e-antigravity-windows:
+    name: e2e-antigravity-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/antigravity_bridge.py

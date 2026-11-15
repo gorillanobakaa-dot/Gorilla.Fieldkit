@@ -8,6 +8,8 @@ import pytest
 
 from fieldkit.thermal import buildguard
 
+TPF = {"thermal": {"fan_control": "tpfancontrol"}}
+
 pytestmark = pytest.mark.real_build_guard
 
 
@@ -23,28 +25,28 @@ def status(tmp_path, mode=5, age=0.0, fan="0x07"):
 
 def test_compile_or_gorilla_mode_may_build(tmp_path):
     for mode, name in ((5, "Compile"), (4, "Gorilla")):
-        ok, msg = buildguard.fan_check(status(tmp_path, mode), platform="win32")
+        ok, msg = buildguard.fan_check(status(tmp_path, mode), platform="win32", local=TPF)
         assert ok and name in msg and "fan 0x07" in msg
 
 
 @pytest.mark.parametrize("mode,word", [(1, "BIOS"), (2, "Smart"), (3, "Manual")])
 def test_a_mode_that_does_not_cool_refuses_and_says_the_click(tmp_path, mode, word):
-    ok, msg = buildguard.fan_check(status(tmp_path, mode), platform="win32")
+    ok, msg = buildguard.fan_check(status(tmp_path, mode), platform="win32", local=TPF)
     assert not ok and word in msg and "pick Compile" in msg
 
 
 def test_no_fan_control_refuses(tmp_path):
-    ok, msg = buildguard.fan_check(tmp_path / "missing.txt", platform="win32")
+    ok, msg = buildguard.fan_check(tmp_path / "missing.txt", platform="win32", local=TPF)
     assert not ok and "not running" in msg
 
 
 def test_a_stale_status_refuses(tmp_path):
-    ok, msg = buildguard.fan_check(status(tmp_path, 5, age=120), platform="win32")
+    ok, msg = buildguard.fan_check(status(tmp_path, 5, age=120), platform="win32", local=TPF)
     assert not ok and "has not changed" in msg
 
 
 def test_linux_has_thermald_and_no_fan_control(tmp_path):
-    ok, msg = buildguard.fan_check(tmp_path / "missing.txt", platform="linux")
+    ok, msg = buildguard.fan_check(tmp_path / "missing.txt", platform="linux", local=TPF)
     assert ok and "thermald" in msg
 
 
@@ -163,3 +165,17 @@ def test_without_a_slot_the_guard_does_not_wait_when_every_slot_is_held(tmp_path
                 pass
     finally:
         held.release()
+
+
+def test_no_fan_program_by_default_so_a_missing_tpfancontrol_never_blocks_a_build(tmp_path):
+    """Owner 2026-11-15: TPFanControl shut the L15 down; the default is no fan-control program, the build goes on."""
+    ok, msg = buildguard.fan_check(tmp_path / "missing.txt", platform="win32", local={})
+    assert ok and "no fan-control program" in msg
+    assert buildguard.fan_program({}) == "none"
+    assert buildguard.fan_program({"thermal": {"fan_control": "TPFanControl"}}) == "tpfancontrol"
+    assert buildguard.fan_program({"thermal": {"fan_control": "bogus"}}) == "none"
+
+
+def test_tpfancontrol_chosen_still_fails_closed(tmp_path):
+    ok, _ = buildguard.fan_check(tmp_path / "missing.txt", platform="win32", local=TPF)
+    assert not ok

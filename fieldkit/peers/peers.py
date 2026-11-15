@@ -259,7 +259,7 @@ def identity(name=None, folder=None):
 
 def send(to, text, as_name=None, d=None, alive=pid_alive, me=None, kind="message"):
     """Deliver text to the session called `to`."""
-    if kind == "message":
+    if kind in ("message", "cc"):
         why = check_text(text)
         if why:
             return {"ok": False, "status": "bad-text", "error": why}
@@ -267,7 +267,7 @@ def send(to, text, as_name=None, d=None, alive=pid_alive, me=None, kind="message
     if not target:
         return {"ok": False, "status": "no-such-session", "error": why}
     req = {"type": kind, "from": identity(as_name)}
-    if kind == "message":
+    if kind in ("message", "cc"):
         req["text"] = text
     try:
         rep = call(target["endpoint"], req)

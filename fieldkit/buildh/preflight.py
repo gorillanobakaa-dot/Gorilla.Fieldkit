@@ -103,7 +103,8 @@ def run(task_id, build=False, model=False, fix_locks=False, lm_url=LM_STUDIO, fa
         dirty = subprocess.run(["git", "-C", str(wd), "status", "--porcelain"], capture_output=True, text=True,
                                errors="replace").stdout.splitlines()
         row("working copy clean", not dirty, "clean" if not dirty else f"{len(dirty)} uncommitted file(s): {dirty[:3]}")
-    if os.name == "nt":
+    from ..thermal import buildguard as _bg
+    if os.name == "nt" and _bg.fan_program() == "tpfancontrol":   # owner 2026-11-15: not used by default
         fan = _running("TPFanControl.exe")
         row("fan control running (keeps the laptop at 70 C)", fan or not fan_required,
             "running" if fan else ("NOT running - a long build will run hot" if fan_required else "not running (needed for builds)"))

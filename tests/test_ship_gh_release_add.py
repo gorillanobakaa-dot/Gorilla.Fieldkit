@@ -30,6 +30,19 @@ def test_add_rows_refuses_a_page_without_the_table():
         ship.add_rows("no table here", [("x", 1, "c" * 64)])
 
 
+PLACEHOLDER = ("intro\n\n## Files\n\n| File | Bytes | SHA-256 |\n|---|---|---|\n"
+               "| (filled in by `fieldkit release build` after the build) | | |\n\n---\nrest\n")
+
+
+def test_add_rows_fills_a_page_whose_table_holds_only_the_placeholder_row():
+    """v0.1.163 shipped with the placeholder row; release verify: no 'File | Bytes | SHA-256' table found."""
+    out = ship.add_rows(PLACEHOLDER, [("a.deb", 1000, "a" * 64), ("b.exe", 2000, "b" * 64)])
+    assert "filled in" not in out
+    assert f"|---|---|---|\n| `a.deb` | 1,000 | `{'a' * 64}` |\n| `b.exe` | 2,000 | `{'b' * 64}` |\n\n---\nrest" in out
+    from fieldkit.build import relfiles
+    assert len(list(relfiles.ROW.finditer(out))) == 2
+
+
 class Gh:
     def __init__(self, assets=("a.deb", "b.exe", "SHA256SUMS-v1.txt")):
         self.calls, self.assets, self.notes = [], list(assets), None

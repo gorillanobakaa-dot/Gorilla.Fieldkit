@@ -1,0 +1,15 @@
+# Pool: each mutation must make tests/test_pool.py fail
+- file: fieldkit/lifecycle/pool.py
+  swap: ["        elif s.get(\"isRunning\"):", "        elif False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["            if ok is True:", "            if ok is not False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["        elif sid in parents:", "        elif False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["        if s.get(\"remoteControlActive\"):", "        if False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["        if event_turn:", "        if False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["        elif s.get(\"prState\") in rules.get(\"open_pr_states\", []):", "        elif False:"]
+- file: fieldkit/lifecycle/pool.py
+  swap: ["    total = len(reserves) + len(recycle)", "    total = len(reserves)"]
