@@ -126,3 +126,13 @@ def test_no_interpreter_with_pytest_says_so_instead_of_blaming_the_tests(tmp_pat
     assert "COULD NOT RUN THE TESTS" in out
     assert "NOT a test failure" in out
     assert "tests failed - commit refused" not in out
+
+
+@pytest.mark.skipif(not SH, reason="no sh")
+def test_the_hook_runs_no_tests_by_default_and_ci_runs_them(tmp_path):
+    """Owner order 2026-11-15: a failing test does not refuse the commit here; GitHub CI is where tests run."""
+    r, env = _repo(tmp_path, "def test_always():\n    assert False\n")
+    env.pop("FIELDKIT_FULL_SUITE")
+    rc, out = _run(r, env)
+    assert "no tests run here; GitHub CI" in out, out
+    assert "tests failed" not in out and not (r / "state" / "flaky-tests.log").exists()

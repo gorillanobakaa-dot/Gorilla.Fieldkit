@@ -452,3 +452,11 @@ _os.environ["FIELDKIT_REVIEWER_CMD"] = '["false"]'
 # Never a real passphrase prompt or desktop dialog from a test (Zero order M-1d6f4489): the owner proof asks nobody.
 _os.environ["FIELDKIT_OWNERPROOF_ASK"] = "off"
 _os.environ["FIELDKIT_ONESTART"] = "off"          # P9: no start check (claude CLI probe, dialog) from a test
+
+
+@pytest.fixture(autouse=True)
+def _release_gate_sees_no_release(monkeypatch):
+    """One release per batch (fieldkit/method/releasegate.py) asks GitHub for the last release; no test may reach it.
+    tests/test_releasegate.py passes `last=` to guard() itself."""
+    from fieldkit.method import releasegate
+    monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)
