@@ -54,7 +54,7 @@ def test_duplicate_between_global_and_project_is_found_with_the_cut(tmp_path, po
     home = mk(tmp_path, glob=SAME + "\n", proj="# P\n" + SAME + "\nIts own rule about the kernel config only.\n")
     found = S.lint(home=home, pol=pol)
     d = [f for f in found if f["kind"] == "duplicate"]
-    assert len(d) == 1 and d[0]["file"].endswith("proj/CLAUDE.md") and "delete it from" in d[0]["proposal"]
+    assert len(d) == 1 and d[0]["file"].replace("\\", "/").endswith("proj/CLAUDE.md") and "delete it from" in d[0]["proposal"]
 
 
 def test_two_agents_global_files_sharing_the_core_are_not_a_duplicate(tmp_path, pol):
