@@ -131,6 +131,25 @@ def check_download(folder, assets):
     return {"ok": not problems, "sums": sums, "rows": rows, "problems": problems, "sumfile": sumfiles[0].name}
 
 
+def release_gaps(tag, repo, folder, gh="gh"):
+    """-> [problems] of a PUBLISHED release without downloading its programs: SHA256SUMS lists every asset (v0.1.163:
+    the bare Mac binary was published but not listed), and the page has the measured table (v0.1.163: only the
+    placeholder row). Each problem is the fix, run before `align` installs from the release."""
+    view = json.loads(_gh(["release", "view", tag, "-R", repo, "--json", "assets,body"], gh))
+    names = [a["name"] for a in view.get("assets", [])]
+    sums_name = f"SHA256SUMS-{tag}.txt"
+    if sums_name not in names:
+        return [f"{sums_name} is not on the release: fieldkit ship gh-release {tag} --add FILE..."]
+    folder = Path(folder)
+    _gh(["release", "download", tag, "-R", repo, "-p", sums_name, "-D", str(folder), "--clobber"], gh)
+    sums = parse_sums(folder / sums_name)
+    size = {a["name"]: a.get("size") for a in view.get("assets", [])}
+    out = [f"{n}: published, not in {sums_name}: fieldkit ship gh-release {tag} --add <that file>"
+           for n in names if n != sums_name and not n.startswith("RELEASE-FILES") and n not in sums]
+    out += [f"page table: {x}" for x in check_table(view.get("body") or "", sums, {n: size.get(n) for n in sums})]
+    return out
+
+
 def _new_run(repo, workflow, since, gh="gh", tries=30, pause=4.0):
     """The workflow_dispatch run created at or after `since` (UTC ISO). gh workflow run prints no id."""
     for _ in range(tries):
