@@ -1,0 +1,31 @@
+# Plan P37 (owner 2026-11-12: "AMATEUR HOUR"): a feature is done on an OS only after it RAN end to end there. One job per
+# (tool, OS) that runs the REAL entry point on a GitHub runner; a card names its job in `e2e:` (fieldkit integration
+# check, row 5-e2e). Runs on pull requests that touch the code it proves, and by hand.
+name: e2e
+on:
+  pull_request:
+    paths:
+      - "fieldkit/leakgate/**"
+      - "fieldkit/integration/**"
+      - ".github/e2e/**"
+      - ".github/workflows/e2e.yml"
+  workflow_dispatch:
+jobs:
+  e2e-leakgate-linux:
+    # the gate's Linux enforcement layer: selftest, then a network namespace whose nftables policy DROP lets the allowed
+    # port through and blocks every other one. ubuntu-latest has passwordless sudo.
+    name: e2e-leakgate-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]" mitmproxy
+      - name: tools the gate needs (ip, nft, dnsmasq, tcpdump, strace, ss)
+        run: sudo apt-get install -y --no-install-recommends nftables dnsmasq-base tcpdump strace iproute2 || true
+      - name: the gate's own selftest, as root
+        run: sudo -E env "PATH=$PATH" python -m fieldkit build-harness leakgate-selftest
+      - name: allowed connection passes, forbidden one is blocked, in the gate's real namespace
+        run: sudo -E env "PATH=$PATH" python .github/e2e/leakgate_linux.py

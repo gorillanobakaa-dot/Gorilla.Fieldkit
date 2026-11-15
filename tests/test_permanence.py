@@ -174,3 +174,14 @@ def test_a_relative_or_foreign_path_is_never_the_current_worktree(tmp_path):
     tp = tmp_path / "s.jsonl"
     tp.write_text(json.dumps({"cwd": "C:/work", "message": {"content": []}}) + "\n")
     assert pm.session_scope(tp) == (set(), set())
+
+
+def test_merged_pr_with_a_different_head_oid_but_merged_after_the_commit_is_permanent(tmp_path):
+    wt = make(tmp_path)
+    (wt / "b.txt").write_text("b")
+    git(wt, "add", "-A")
+    git(wt, "commit", "-qm", "b")
+    git(wt, "push", "-q", "-u", "origin", "feat/x")
+    pr = {"number": 7, "state": "MERGED", "url": "u", "headRefOid": "other", "mergedAt": "2999-01-01T00:00:00Z"}
+    assert scan(wt, gh=lambda r, b: [pr]) == []
+    assert kinds(scan(wt, gh=lambda r, b: [dict(pr, mergedAt="2000-01-01T00:00:00Z")])) == ["UNMERGED"]
