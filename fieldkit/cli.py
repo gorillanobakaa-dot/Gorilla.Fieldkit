@@ -1954,6 +1954,10 @@ def build_parser():
                         help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
                              "ahead of time: build [--force], check (fieldkit compileonce)")
     co.add_argument("args", nargs=argparse.REMAINDER)
+    ag = sub.add_parser("antigravity", add_help=False,
+                        help="check agent config files (hooks, MCP doors, plugins), migrate .agent/workflows to "
+                             "skills, with the Rust agy-tools binary (fieldkit antigravity)")
+    ag.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -3211,6 +3215,9 @@ def main(argv=None):
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
+    if args[:1] == ["antigravity"]:                   # agent config checks by the Rust agy-tools (fieldkit/antigravity)
+        from . import antigravity
+        return antigravity.main(args[1:])
     if args[:1] == ["skills"]:                        # Agent Skills: spec checks, doors, installs (fieldkit/skills)
         from . import skills
         return skills.main(args[1:])
