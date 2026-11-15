@@ -1,0 +1,9 @@
+# Session pool rules (fieldkit pool plan). Data first: change a limit here, not in pool.py.
+reserve: 2                    # idle "Reserve N" sessions kept ready for Zero
+idle_minutes: 15              # idle (not running) at least this long before a session counts as finished
+reserve_title: "{tag} Reserve {n} (standby for Zero)"
+reserve_pattern: 'Reserve \d+ \(standby'     # a title matching this is a reserve
+keep_title_patterns:          # never recycled or archived: the command post itself
+  - '\bZero\b:'
+  - '^\S+ Zero\b'
+open_pr_states: [OPEN]        # an idle session with a PR in one of these states watches it: KEEP
