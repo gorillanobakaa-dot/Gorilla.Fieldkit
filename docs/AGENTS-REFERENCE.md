@@ -26,6 +26,8 @@ to writing a one-off script for the same job.
 
 ## Commands
 
+- `fieldkit antigravity check|doors|migrate-workflows`: agent config checks (hooks, MCP doors, workflows) by the
+  Rust agy-tools binary (`fieldkit emerge run agy-tools`).
 Every command accepts `--json`.
 
 - Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets or a

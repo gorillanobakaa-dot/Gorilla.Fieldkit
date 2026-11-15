@@ -22,7 +22,6 @@ fieldkit testcost staged                          the tests covering what you ch
 fieldkit guard -- CMD ...                         every heavy command on the Windows laptop
 fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through the owner-wide mandate
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review
-fieldkit antigravity check|doors|migrate-workflows  agent config checks (hooks, MCP doors, workflows), Rust agy-tools
 fieldkit size find|recycle|hash ...               search, recycle (never a permanent delete), hashes
 fieldkit privacy scan PATH --git                  before any commit, push or release
 fieldkit integration check --repo . --changed BASE   is the new feature built in (docs/INTEGRATION.md)

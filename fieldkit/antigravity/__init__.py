@@ -55,6 +55,9 @@ def main(args):
         print(__doc__)
         return 0
     cmd, rest = args[0], list(args[1:])
+    if cmd in ("check", "doors", "migrate-workflows") and any(a in ("-h", "--help") for a in rest):
+        print(__doc__)  # help never needs the binary
+        return 0
     if cmd == "check":
         if not rest or rest[0] not in CHECK_KINDS:
             print("usage: fieldkit antigravity check hooks|mcp|plugin|json-config PATH [flags]", file=sys.stderr)
