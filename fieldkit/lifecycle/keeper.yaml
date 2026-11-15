@@ -14,6 +14,9 @@ rules:
   queue_start:            # the first unstarted brief of the queue file, when the router has a free slot
     enabled: true
     file: state/coordination/queue.yaml
+  silent_child:           # a worker with an open order from Zero that went quiet, or reported rotating: wake Zero
+    enabled: true
+    silent_after_min: 30  # no report, room activity or live ci-wait for this long
   wake:                   # what only a model can decide: said in the room and in Zero's hook file at once,
     enabled: true              # a headless job with the situation as its brief once the finding is this old
     headless_after_min: 45
