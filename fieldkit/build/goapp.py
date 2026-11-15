@@ -1487,6 +1487,18 @@ def stage_align(ctx, run=subprocess.run):
     if not rec or not rec.get("ok"):
         return {"ok": False, "detail": "run the build stage first"}
     tag = rec["version"] if str(rec["version"]).startswith("v") else "v" + str(rec["version"])
+    from . import relfiles
+    from ..core import sync
+    work = Path(tempfile.mkdtemp(prefix="fk-gaps-"))
+    try:
+        gaps = relfiles.release_gaps(tag, sync._slug(src), work)
+    except Exception as e:                                  # no release yet, no network: align says why itself
+        gaps = []
+        _ = e
+    shutil.rmtree(work, ignore_errors=True)
+    if gaps:
+        return _save(ctx, src, "align", {"ok": False, "version": tag, "commit": rec.get("commit"), "rows": [],
+                                         "detail": "the published release is incomplete: " + "; ".join(gaps)[:600]})
     cmd = [sys.executable, "-m", "fieldkit", "parity", "align", "--apply", "--version", tag]
     mine = run(cmd, capture_output=True, text=True, timeout=1800)
     rows = [{"device": "this computer", "ok": mine.returncode == 0, "tail": (mine.stdout or mine.stderr or "")[-300:]}]

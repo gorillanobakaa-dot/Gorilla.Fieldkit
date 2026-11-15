@@ -323,6 +323,10 @@ def _align_setup(monkeypatch, tmp_path, peer_status="started", local_rc=0):
     monkeypatch.setattr(goapp, "_src", lambda ctx: tmp_path)
     monkeypatch.setattr(goapp, "_load", lambda ctx, src, name: {"ok": True, "version": "v9.9.9", "commit": "c"})
     monkeypatch.setattr(goapp, "_save", lambda ctx, src, name, data: saved.setdefault(name, data))
+    from fieldkit.build import relfiles
+    monkeypatch.setattr(relfiles, "release_gaps", lambda *a, **k: [])
+    from fieldkit.core import sync
+    monkeypatch.setattr(sync, "_slug", lambda repo: "o/r")
     monkeypatch.setattr(link, "household", lambda: {"d": 1})
     monkeypatch.setattr(link, "others", lambda h: [{"name": "vaio"}])
     calls = []
@@ -342,6 +346,39 @@ def test_align_runs_parity_align_here_and_on_the_peer_for_the_new_tag(monkeypatc
     assert r["ok"] and [x["device"] for x in r["rows"]] == ["this computer", "vaio"]
     assert any(c[-4:] == ["align", "--apply", "--version", "v9.9.9"] for c in calls if isinstance(c, list))
     assert (["fieldkit", "parity", "align", "--apply", "--version", "v9.9.9"], "vaio") in calls
+
+
+def test_align_refuses_an_incomplete_published_release_before_installing(monkeypatch, tmp_path):
+    """v0.1.163: the bare Mac binary was published but not in SHA256SUMS, and the page table was the placeholder."""
+    from fieldkit.build import relfiles
+    saved, calls, run = _align_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(relfiles, "release_gaps", lambda *a, **k: ["x-macos10.13: published, not in SHA256SUMS-v9.9.9.txt"])
+    r = goapp.stage_align(None, run=run)
+    assert not r["ok"] and "published, not in SHA256SUMS" in r["detail"]
+    assert not any(isinstance(c, list) and "align" in c for c in calls)
+
+
+def test_release_gaps_names_an_unlisted_asset_and_a_placeholder_table(tmp_path):
+    from fieldkit.build import relfiles
+    import json as _j
+    body = "| File | Bytes | SHA-256 |\n|---|---|---|\n| (filled in by x) | | |\n"
+    view = {"assets": [{"name": "SHA256SUMS-v1.txt", "size": 5}, {"name": "a", "size": 1}, {"name": "b", "size": 2}],
+            "body": body}
+
+    def gh(args, gh="gh", timeout=600):
+        if args[1] == "view":
+            return _j.dumps(view)
+        (tmp_path / "SHA256SUMS-v1.txt").write_text(f"{'a' * 64}  a\n")
+        return ""
+    import pytest as _p
+    mp = _p.MonkeyPatch()
+    mp.setattr(relfiles, "_gh", gh)
+    try:
+        out = relfiles.release_gaps("v1", "o/r", tmp_path)
+    finally:
+        mp.undo()
+    assert any(x.startswith("b: published, not in SHA256SUMS-v1.txt") for x in out)
+    assert any("no 'File | Bytes | SHA-256' table" in x for x in out)
 
 
 def test_align_fails_when_the_peer_job_did_not_start_or_this_computer_failed(monkeypatch, tmp_path):
