@@ -69,25 +69,26 @@ core:
   enforced_by:
   - fieldkit emerge (skips a stage whose inputs were built)
   - fieldkit emerge lint (tests/test_emerge_lint.py, in CI)
-  owner: 2026-10-29
+  - fieldkit/method/releasegate.py (ship gh-release, push --tag, release; refuses inside min_hours)
+  owner: 2026-10-29; one release per batch 2026-11-15
   text: |-
     BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
     one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
-    Linux CI before merge; no run-time compile (`fieldkit compileonce`).
+    Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per batch: no second
+    release within 24 h (`--hotfix WHY`, logged).
 - id: TESTS ONCE
   subject: which tests run
   audience: all
   enforced_by:
-  - hooks/pre-commit (fieldkit testcost staged)
+  - hooks/pre-commit (runs no tests; says what CI runs)
   - fieldkit testcost (a passed tree is never re-tested)
   - fieldkit/autopilot/toolrouter.py (heavy work outside fieldkit guard)
   owner: 2026-10-28
   serial_reason: 2026-10-27 04:14 the L15 shut down from heat with two heavy jobs at once (fieldkit guard's slot)
   text: |-
-    TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
-    packages, never `./...`; Rust: the touched crate). A passed test is never re-run. The full suite runs once, when a
-    project is finished (owner, 2026-10-28). On the Windows laptop every heavy command runs under `fieldkit guard --`,
-    one at a time.
+    TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks (owner,
+    2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
+    Windows laptop every heavy command runs under `fieldkit guard --`, one at a time.
 - id: TWO STRIKES
   subject: failed CI
   audience: all

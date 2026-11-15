@@ -15,6 +15,8 @@
                                            the repository's release.yml publishes on tags
     fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
                                            SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
+    (gh-release, push --tag and release refuse inside releasegate.yaml's min_hours of the repository's last release:
+     one release per batch; `--hotfix "WHY"` is the logged escape, one per window)
     fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
                                            one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
@@ -374,7 +376,7 @@ def ship_env():
     return env
 
 
-def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None):
+def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None, hotfix="", gate=None):
     """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin,
     and the tagged commit can publish (tagguard: version, release notes, page, CI, tag not on origin)."""
     if not tag or not _rev(repo, f"refs/tags/{tag}"):
@@ -383,6 +385,11 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
+    from . import releasegate
+    from ..core import sync
+    rg = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)      # one release per batch
+    if not rg["ok"]:
+        return rg
     from . import tagguard
     # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
     g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
@@ -406,7 +413,7 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     return {"ok": False, "state": "network", "tag": tag, "error": last[-300:], "next": "try again later"}
 
 
-def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run):
+def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
     wf = Path(repo) / ".github" / "workflows" / "release.yml"
@@ -422,6 +429,10 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run)
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "publishing a release is the owner's unless a mandate allows it"}
     from ..core import sync
+    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
+    g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
+    if not g["ok"]:
+        return g
     r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
             capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
@@ -615,6 +626,9 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--wait", type=int, default=900, help="release: seconds to wait for the published release")
     ap.add_argument("--add", nargs="+", default=[], metavar="FILE",
                     help="gh-release: add these files to the published release (sums and page table updated)")
+    ap.add_argument("--hotfix", default="", metavar="WHY",
+                    help="gh-release, push --tag, release: publish inside the one-release-per-batch window "
+                         "(security fix or broken release); logged in the room and the ledger, one per window")
     ap.add_argument("--base", default="main")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
@@ -635,9 +649,9 @@ def main(argv=None, prog="fieldkit ship"):
         if a.add and (a.action != "gh-release" or extra):
             ap.error("--add is for `ship gh-release vX.Y.Z --add FILE...`, without `-- ARGS`")
         if a.action != "gh-release":
-            r = push_tag(a.repo, a.push_tag)
+            r = push_tag(a.repo, a.push_tag, hotfix=a.hotfix)
         else:
-            r = gh_release_add(a.repo, a.tag, a.add) if a.add else gh_release(a.repo, a.tag, extra)
+            r = gh_release_add(a.repo, a.tag, a.add) if a.add else gh_release(a.repo, a.tag, extra, hotfix=a.hotfix)
         emit(r, a.json, lambda d: [f"{d.get('tag')}: {d.get('state')}"]
              + ([f"error: {d['error']}"] if d.get("error") else [])
              + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
@@ -671,7 +685,7 @@ def main(argv=None, prog="fieldkit ship"):
         elif not a.tag:
             ap.error("release needs a tag: fieldkit ship release vX.Y.Z")
         else:
-            r = sr.release(a.tag, a.repo, a.base, scaffold_notes=a.scaffold, wait=a.wait)
+            r = sr.release(a.tag, a.repo, a.base, scaffold_notes=a.scaffold, wait=a.wait, hotfix=a.hotfix)
         emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     try:

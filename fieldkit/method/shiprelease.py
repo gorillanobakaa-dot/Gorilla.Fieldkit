@@ -343,7 +343,7 @@ def scaffold(repo, tag, base="main"):
     return made
 
 
-def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable):
+def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable, hotfix="", gate=None):
     """-> {"ok", "rows": [...], "next"}"""
     rows = []
 
@@ -404,6 +404,10 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                (chk.stdout or chk.stderr).strip()[-200:] + ("" if committed else "; the composed page differs from the "
                                                             "committed one: commit it through a pull request first")):
         return {"ok": False, "rows": rows}
+    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
+    g = (gate or releasegate.guard)(repo_slug(repo), tag, hotfix)
+    if not row("batch-window", g["ok"], g.get("error") or g["state"]):
+        return {"ok": False, "rows": rows, "next": g.get("next", "")}
     if not row("tag-free", not _rev(repo, f"refs/tags/{tag}"), f"{tag} {'already exists' if _rev(repo, f'refs/tags/{tag}') else 'is free'}"):
         return {"ok": False, "rows": rows}
     git(repo, *_ident(repo), "tag", "-a", tag, "-m", f"Release {tag}", head, check=True)
