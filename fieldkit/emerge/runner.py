@@ -201,6 +201,37 @@ def judge(before, after):
     return True, "committed: " + ", ".join(moved)
 
 
+def refresh_bytecode(before, repos):
+    """Make Python recompile every .py file a fix changed. A .pyc is trusted while the source's mtime (whole seconds)
+    and size match its header: a fix committed in the same second as the failing run, and of the same size (`a - b` ->
+    `a + b`), was imported from the stale .pyc and the stage failed again (CI 2026-11-15, PR 490: the autonomy loop's
+    fix "committed nothing" on its second try). The source is moved one second on; nothing is deleted. -> [paths]"""
+    import importlib.util
+    touched = []
+    for r in repos:
+        old, new = (before.get(r) or {}).get("head"), _git(r, "rev-parse", "HEAD")
+        if not old or not new or old == new:
+            continue
+        for rel in (_git(r, "diff", "--name-only", old, new, "--", "*.py") or "").splitlines():
+            src = Path(r) / rel
+            if not src.is_file():
+                continue
+            st = src.stat()
+            for pyc in src.parent.glob(f"__pycache__/{src.stem}.*.pyc"):
+                try:
+                    head = pyc.read_bytes()[:16]
+                except OSError:
+                    continue
+                if len(head) < 16 or head[:4] != importlib.util.MAGIC_NUMBER or int.from_bytes(head[4:8], "little"):
+                    continue                            # another Python's cache, or hash-based (checked by content)
+                if (int.from_bytes(head[8:12], "little") == int(st.st_mtime) & 0xFFFFFFFF
+                        and int.from_bytes(head[12:16], "little") == st.st_size & 0xFFFFFFFF):
+                    os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+                    touched.append(str(src))
+                    break
+    return touched
+
+
 def log_repos(tail):
     """Git repositories named by an absolute path in a failing log (a dev copy a test compares against)."""
     import re
@@ -808,6 +839,7 @@ class Emerge:
                 report["inbox"] = self._inbox(f"emerge {self.recipe.name}: the fix for {sid} was refused",
                                               f"{why}\nLog tail:\n{tail[-1500:]}")
                 return
+            refresh_bytecode(before, repos)              # the re-run imports the fixed source, not a stale .pyc
             self.recipe = self.recipe.reload()
 
     def _found_elsewhere(self, repos, tail, tips, detached=None):
