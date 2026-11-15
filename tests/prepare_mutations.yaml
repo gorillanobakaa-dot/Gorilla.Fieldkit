@@ -1,0 +1,29 @@
+# python -m fieldkit mutate --plan tests/prepare_mutations.yaml -- python -m pytest -q tests/test_prepare.py -p no:cacheprovider
+# Every rule of the prepare detector, broken on purpose once. All must be CAUGHT.
+- file: fieldkit/core/host.py
+  swap: ['return list(SBIN_DIRS)', 'return list(SBIN_DIRS) + [os.path.expanduser("~/.local/bin")]']
+  why: "a tool run under sudo is not found in the user's ~/.local/bin"
+- file: fieldkit/core/host.py
+  swap: ['if not host()["is_windows"]:', 'if False:']
+  why: "the sbin folders are searched when the user's PATH lacks them (the doctor defect)"
+- file: fieldkit/core/prepare.py
+  swap: ['in_distro = pkg and fam not in (t.get("not_in") or [])', 'in_distro = pkg']
+  why: "a package the distro lacks (mitmproxy on Debian) takes the fallback source, not apt"
+- file: fieldkit/core/prepare.py
+  swap: ['        if not d.get("sha256"):', '        if False:']
+  why: "a download without a checksum is refused"
+- file: fieldkit/core/prepare.py
+  swap: ['        if got != d["sha256"]:', '        if False:']
+  why: "a download with a wrong checksum is not kept"
+- file: fieldkit/core/prepare.py
+  swap: ['chosen = use_fallback and all(x.get("fallback") for x in open_rows)', 'chosen = use_fallback']
+  why: "the fallback counts only when every missing item has one"
+- file: fieldkit/core/prepare.py
+  swap: ['r["status"] = "READY" if r["ok"] else', 'r["status"] = "READY" if True else']
+  why: "a job with a missing tool is not READY"
+- file: fieldkit/core/prepare.py
+  swap: ['    if need_disk and mach["disk_gb"] < need_disk:', '    if False:']
+  why: "too little disk blocks the job"
+- file: fieldkit/core/prepare.py
+  swap: ['lines.append("sudo apt-get install -y " + " ".join(apt))', 'lines.append("sudo apt-get install -y " + " ".join(apt[:1]))']
+  why: "every root step is in the one script"

@@ -1,0 +1,56 @@
+# PREPARE FIRST, EXECUTE SECOND (owner 2026-11-12, plan item P9). One table: what a job needs BEFORE it starts.
+# `fieldkit prepare JOB|BRIEF|RECIPE` reads it, finds what is missing, sets up what needs no root, and batches
+# the rest into ONE ask. Data, not code: a mid-job missing tool is a defect of THIS file (`fieldkit prepare defect`).
+#
+# tools.<id>:
+#   bins:      program names (any one satisfies)
+#   runs_as:   user (default) | root (the job calls it through sudo: it must sit where root's secure_path looks;
+#              ~/.local/bin does not count)
+#   why:       one sentence
+#   pkg:       distro family -> package (debian, fedora, mac via brew, windows via winget id)   [root step]
+#   pip:       a Python package for the no-root route (pipx, else a venv under ~/.local/share/fieldkit-tools)
+#   pip_root:  the same package placed where root finds it (pipx with PIPX_HOME=/opt/pipx, bin in /usr/local/bin)
+#   download:  {url, sha256, dest}: fetched into a user dir and checked (a download without a checksum is refused)
+#   not_in:    families whose package manager lacks it (the fallback source is then the only way)
+#   fallback:  what the job does when the owner does not provide it (the owner may choose it once, at the start)
+# jobs.<id>: match (words that put a brief on this job), recipes (emerge recipes), tools, privileges, disk_gb,
+#   ram_gb, network (hosts the job talks to; listed, never probed: a probe is a ping out).
+version: 1
+tools:
+  git:       {bins: [git], why: "every job commits", pkg: {debian: git, fedora: git, mac: git, windows: Git.Git}}
+  python3:   {bins: [python3, python], why: "the harness itself", pkg: {debian: python3, fedora: python3, mac: python, windows: Python.Python.3.12}}
+  pipx:      {bins: [pipx], why: "puts Python programs in their own folder with no root (PEP 668)",
+              pkg: {debian: pipx, fedora: pipx, mac: pipx}}
+  ip:        {bins: [ip], runs_as: root, why: "network namespace of the leak gate", pkg: {debian: iproute2, fedora: iproute}}
+  ss:        {bins: [ss], runs_as: root, why: "socket listing of the leak gate", pkg: {debian: iproute2, fedora: iproute}}
+  nft:       {bins: [nft], runs_as: root, why: "firewall rules of the leak gate", pkg: {debian: nftables, fedora: nftables}}
+  dnsmasq:   {bins: [dnsmasq], runs_as: root, why: "DNS witness of the leak gate (the binary only, not the service)",
+              pkg: {debian: dnsmasq-base, fedora: dnsmasq-utils}}
+  tcpdump:   {bins: [tcpdump], runs_as: root, why: "packet capture of the leak gate", pkg: {debian: tcpdump, fedora: tcpdump}}
+  strace:    {bins: [strace], runs_as: root, why: "system-call witness of the leak gate", pkg: {debian: strace, fedora: strace}}
+  mitmdump:  {bins: [mitmdump], runs_as: root, why: "TLS witness of the leak gate",
+              not_in: [debian],
+              pip: "mitmproxy==12.3.1",
+              pip_root: "sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install mitmproxy==12.3.1",
+              fallback: "skip the TLS witness: the leak gate reports the TLS stage as NOT VERIFIED"}
+  rpmbuild:  {bins: [rpmbuild], why: "the RPM stage", pkg: {debian: rpm, fedora: rpm-build}}
+  nfpm:      {bins: [nfpm], why: "the .deb/.rpm packager of a Gorilla OpenCode release", fallback: "no .deb/.rpm: the tarball only"}
+  go:        {bins: [go], why: "builds Go apps", pkg: {debian: golang, fedora: golang, windows: GoLang.Go}}
+  gh:        {bins: [gh], why: "pull requests and releases", pkg: {debian: gh, fedora: gh, mac: gh, windows: GitHub.cli}}
+  ssh:       {bins: [ssh], why: "the Mac and the peer", pkg: {debian: openssh-client, fedora: openssh-clients}}
+  ffmpeg:    {bins: [ffmpeg], why: "video work", pkg: {debian: ffmpeg, fedora: ffmpeg-free, mac: ffmpeg, windows: Gyan.FFmpeg}}
+jobs:
+  core:     {tools: [git, python3], disk_gb: 1}
+  leakgate: {match: ["leak gate", "leakgate", "mitmdump", "leak-gate"],
+             tools: [ip, ss, nft, dnsmasq, tcpdump, strace, mitmdump, pipx], privileges: [root], disk_gb: 5, ram_gb: 4,
+             network: [github.com]}
+  build-linux: {recipes: [firefox-debian, firefox-linux, debian-kernel, kernel-6.19.13-ultimate, kernel-7.0.5-release, kernel-7.0.9-unleashed],
+             match: ["kernel build", "debian build"], tools: [git, python3, rpmbuild], disk_gb: 40, ram_gb: 8,
+             network: [github.com, archive.mozilla.org]}
+  build-windows: {recipes: [firefox-windows], tools: [git, python3], disk_gb: 40, ram_gb: 8, network: [github.com]}
+  release:  {recipes: [gorilla-opencode, fieldkit], match: ["release page", "gh release", "gh-release"],
+             tools: [git, python3, gh, go, nfpm], disk_gb: 5, network: [github.com]}
+  ship:     {match: ["ship push", "pull request"], tools: [git, gh], disk_gb: 1, network: [github.com]}
+  mac:      {match: ["macbook air", "mac 10.13", "old mac"], tools: [ssh], network: []}
+  video:    {match: ["video-edit", "ffmpeg"], tools: [ffmpeg], disk_gb: 5}
+  capture:  {match: ["capture workflow"], tools: [git, python3]}

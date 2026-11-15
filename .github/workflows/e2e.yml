@@ -8,6 +8,7 @@ on:
       - "fieldkit/leakgate/**"
       - "fieldkit/integration/**"
       - "fieldkit/lifecycle/pool*"
+      - "fieldkit/core/prepare*"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
@@ -109,3 +110,27 @@ jobs:
         working-directory: rust/agy-tools
       - run: python .github/e2e/agy_tools.py
       - run: python -m pytest -q -p no:cacheprovider tests/test_antigravity.py
+  e2e-prepare-linux:
+    # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
+    name: e2e-prepare-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/prepare_gate.py
+  e2e-prepare-windows:
+    # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
+    name: e2e-prepare-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/prepare_gate.py
