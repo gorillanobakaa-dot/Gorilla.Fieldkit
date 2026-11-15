@@ -94,6 +94,9 @@ def pack(deb, owner_root, workdir_tree, upstream, out_dir, n_minus_1_tree=None, 
         (stage / PREV / "Cargo.lock").write_text(previous_lock, encoding="utf-8")
     elif (stage / PREV / "Cargo.lock").is_file():
         (stage / PREV / "Cargo.lock").unlink()
+    leaks = context_leaks(stage)
+    if leaks:
+        raise RuntimeError(f"leakgate-ci pack: the context names this machine's own address or name (the run log is public): {leaks[:5]}")
     manifest = {"version": 1, "packed": time.strftime("%Y-%m-%dT%H:%M:%S"), "upstream": upstream,
                 "deb": {"name": deb.name, "bytes": deb.stat().st_size, "sha256": sha256(deb)},
                 "owner_files": present, "source_files": len(inv), "source_bytes": size,
@@ -127,7 +130,8 @@ def run(context, deb, out_dir, release=False, say=print, gate_run=None):
     the one the context names (sha256). `gate_run` is for tests."""
     from . import gate as lg
     deb = Path(deb)
-    work = Path(out_dir) / "ctx"
+    out_dir = Path(out_dir).resolve()               # absolute: /proc reports absolute paths, the sensors compare against them
+    work = out_dir / "ctx"
     man = unpack(context, work)
     got = sha256(deb)
     if got != man["deb"]["sha256"]:
@@ -140,6 +144,61 @@ def run(context, deb, out_dir, release=False, say=print, gate_run=None):
                                       repeat=3 if release else 1, quick=not release, release=release,
                                       n_minus_1_tree=prev_tree, say=say)
     return result, events
+
+
+#: the gate's own namespace addresses are constants of the public code (linux.HOST_IP, NS_IP): not the owner's machine
+GATE_ADDRS = ("10.77.0.1", "10.77.0.2")
+_IPV4 = re.compile(r"\b(?:10\.\d+|192\.168|172\.(?:1[6-9]|2\d|3[01])|169\.254)\.\d+\.\d+\b")
+TEXT_SUFFIXES = (".json", ".jsonl", ".observed", ".new", ".txt", ".md", ".log")
+
+
+def own_addresses(extra=()):
+    """-> this machine's interface addresses and host names that must never travel in a public run log or context."""
+    out = set(extra)
+    try:
+        import socket
+
+        import psutil
+        out |= {a.address.split("%")[0] for nic in psutil.net_if_addrs().values() for a in nic
+                if a.family in (socket.AF_INET, socket.AF_INET6)}
+        out |= {socket.gethostname(), socket.getfqdn()}
+    except Exception:  # noqa: BLE001 - no psutil: the address pattern still strips the private ranges
+        pass
+    return {a for a in out if a and len(a) >= 4 and a not in ("127.0.0.1", "::1", "0.0.0.0", "::", "localhost")}
+
+
+def scrub(text, addrs=None):
+    """-> TEXT with every machine address and host name replaced by <machine>: this machine's own addresses and names
+    and every private IPv4 range (the run log is public; which private address a run saw is never a result)."""
+    addrs = own_addresses() if addrs is None else set(addrs)
+    for a in sorted(addrs, key=len, reverse=True):
+        text = text.replace(a, "<machine>")
+    return _IPV4.sub("<machine>", text)
+
+
+def scrub_folder(art, addrs=None):
+    """Rewrite every text file of the artifact folder through scrub(): the artifact is read by anyone."""
+    addrs = own_addresses() if addrs is None else addrs
+    for f in Path(art).iterdir():
+        if f.is_file() and f.suffix in TEXT_SUFFIXES:
+            s = f.read_text(encoding="utf-8", errors="replace")
+            c = scrub(s, addrs)
+            if c != s:
+                f.write_text(c, encoding="utf-8")
+
+
+def context_leaks(stage, addrs=None):
+    """-> [(file, what)] where a staged text file names one of THIS machine's addresses or host names."""
+    addrs = {a for a in (own_addresses() if addrs is None else set(addrs)) if a not in GATE_ADDRS}
+    out = []
+    for f in Path(stage).rglob("*"):
+        if f.is_file() and f.stat().st_size < 5_000_000:
+            try:
+                s = f.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            out += [(f.relative_to(stage).as_posix(), a) for a in sorted(addrs) if a in s]
+    return out
 
 
 def collect(out_dir, result, events, manifest_path=None):
@@ -157,6 +216,7 @@ def collect(out_dir, result, events, manifest_path=None):
                 shutil.copyfile(p, art / p.name)
     if manifest_path and Path(manifest_path).is_file():
         shutil.copyfile(manifest_path, art / "runner.json")
+    scrub_folder(art)
     return art
 
 
@@ -226,4 +286,5 @@ def collect_partial(out_dir, error):
         for p in runs[-1].iterdir():
             if p.is_file() and p.stat().st_size < 5_000_000 and p.suffix in (".json", ".jsonl", ".observed", ".new", ".txt", ".md", ".log"):
                 shutil.copyfile(p, art / p.name)
+    scrub_folder(art)
     return art

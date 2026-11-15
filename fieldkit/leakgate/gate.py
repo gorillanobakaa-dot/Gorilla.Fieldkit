@@ -396,7 +396,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for pol, sens in need.items():
         missing = sorted(s for s in sens if s not in sensors_seen)
         if missing:
-            fail[pol].append(f"required sensor(s) did not collect: {missing}")
+            fail[pol].append(f"required sensor(s) did not collect: {shown(missing)}")
     if not packets:
         for pol in ("NETWORK_POLICY", "DNS_POLICY", "SHUTDOWN_POLICY", "WEBRTC_POLICY", "IPV6_POLICY"):
             fail[pol].append("packet-level sensor not run (needs an elevated shell): wire traffic unverified")
@@ -453,6 +453,26 @@ def canon(sensor):
     return SENSOR_ALIASES.get(sensor, sensor)
 
 
+def sensors_required():
+    """-> the per-OS sensor data (sensors_required.yaml)."""
+    import yaml
+    return yaml.safe_load((Path(__file__).parent / "sensors_required.yaml").read_text(encoding="utf-8"))
+
+
+def os_key():
+    return "linux" if sys.platform.startswith("linux") else "windows"
+
+
+def packet_sensor_name():
+    """-> the packet sensor of THIS OS (tcpdump on Linux, pktmon on Windows), for messages."""
+    return sensors_required()["packet_sensor"][os_key()]
+
+
+def shown(names):
+    """The sensor names of a failure message as this OS calls them (the judge's class `pktmon` is tcpdump on Linux)."""
+    return [packet_sensor_name() if n == "pktmon" else n for n in names]
+
+
 def required_coverage(mode, packets):
     """Sensors that must show they ran in every user-action scenario run (fail closed per scenario), on every OS."""
     need = {"process-tree", "filesystem", "sockets"}
@@ -497,7 +517,7 @@ def action_checks(ran, events, results, requests, packets):
         for m in modes:
             missing = sorted(required_coverage(m, packets) - by[(scen, m)])
             if missing:
-                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {missing}")
+                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {shown(missing)}")
         if scen in sc.REPORTING and not any(r.get("scenario") == scen for r in results):
             fail["NETWORK_POLICY"].append(f"[{scen}] the page never reported: the user action was not exercised")
         for path in sc.SERVED.get(scen, ()):
@@ -642,7 +662,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     if release:
         repeat, quick = max(repeat, 3), False
-    work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
+    work = Path(workroot).resolve() / time.strftime("%Y%m%d-%H%M%S")      # absolute: /proc reports absolute paths (P27)
     work.mkdir(parents=True)
     if linux:
         packets, dns_prev = True, None
@@ -738,6 +758,15 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
         server = sc.Server(bind=lx.HOST_IP, port=sport)
     else:
         server = sc.Server()
+    if linux:                                          # the browser must show a page before 55 minutes of scenarios are spent
+        try:
+            lx.smoke(direct, server, work, say=say)
+        except Exception:
+            server.close()
+            doh.close()
+            certsrv.close()
+            lx.netns_down()
+            raise
     events, artifacts, scen_hosts = [], {}, {}
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:

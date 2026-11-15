@@ -24,9 +24,9 @@ HARD LINES (never, whoever asks):
 - Secrets and credential files: never open, echo or commit them.
 - Telemetry, analytics, crash reports, usage pings: cut out at the source in every project.
 
-BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
-`fieldkit emerge status RECIPE`. Never hand-run stages or re-run one the runner skipped. A
-project with no recipe gets one. Any version, any OS; never pinned or "X only".
+BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
+one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
+Linux CI before merge; no run-time compile (`fieldkit compileonce`).
 
 TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
 packages, never `./...`; Rust: the touched crate). A passed test is never re-run. The full suite runs once, when a

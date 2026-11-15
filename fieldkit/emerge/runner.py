@@ -57,6 +57,9 @@ def _mins(s):
 
 
 # -- the store: one record per (stage, key), the outputs of every host that built it ------------------------------
+CHECK_LINES_MAX = 10      # failure-check lines kept after the real log tail
+
+
 class Store:
     def __init__(self, root):
         self.root = Path(root)
@@ -550,6 +553,15 @@ class Emerge:
             self.say(f"  inbox not written: {e}")
             return None
 
+    def _source_root(self):
+        """The folder the checks scan: the recipe's first git source, else its `src` var; never the process cwd.
+        A recipe with neither gets an empty folder name so a check finds nothing instead of scanning cwd."""
+        for src in self.recipe.sources:
+            if src.get("git"):
+                return str(src["git"])
+        v = (self.recipe.vars or {}).get("src")
+        return str(v) if v else str(self.recipe.state_dir / "no-source-tree")
+
     def _execute(self, s):
         """Run one stage here through the pipeline engine. -> (passed, seconds, outputs, tail)."""
         t0 = self.clock()
@@ -571,8 +583,14 @@ class Emerge:
             tail += f"\ntriage: {json.dumps(entry['triage'], default=str)[:1500]}"
         if not passed:
             from ..build import failure_checks
-            tail += "".join("\n" + ln for kind in ("install", "release")
-                            for ln in failure_checks.lines(failure_checks.run(kind, {"branch": ""})))
+            # the checks read the recipe's SOURCE tree, never the process cwd; the real tail stays first and the
+            # findings after it are capped so they cannot push the real error out of the stored report
+            root = self._source_root()
+            found = [ln for kind in ("install", "release")
+                     for ln in failure_checks.lines(failure_checks.run(kind, {"branch": "", "root": root}))]
+            tail += "".join("\n" + ln for ln in found[:CHECK_LINES_MAX])
+            if len(found) > CHECK_LINES_MAX:
+                tail += f"\n... {len(found) - CHECK_LINES_MAX} more check findings not shown"
         outs = []
         if passed:
             try:

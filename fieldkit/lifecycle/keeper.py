@@ -21,6 +21,10 @@ of each one:
     died_restart    task died/blocked with work in its worktree          -> restart once (--again, RESUME note naming
                                                                             the worktree and its HANDOFF); second death: parked
     queue_start     first unstarted brief of the queue file + a free slot -> task start
+    silent_child    a worker with an open order from Zero that is silent past silent_after_min (no report, no room
+                    activity, no live ci-wait), or whose auto-report (fieldkit/zero/autoreport.py, the Stop hook) says
+                    `rotating` -> wake Zero: "STATION silent since HH:MM, last words: ..." / the successor brief path,
+                    to start VISIBLE (budget.py WHY_VISIBLE); never a headless model, never a card.
     wake            only a model can decide (a blocked task without a handoff, a red nobody can attribute, a stalled
                     job): said in the room and in Zero's hook file now; a headless Sonnet job with the situation as its
                     brief once the finding is headless_after_min old. Never waits silently.
@@ -203,6 +207,27 @@ class Ports:
     # the room, the owner's hook file, the timer
     def room(self, obj, detail):
         tasks._room(obj, detail)
+
+    # the agent net (rule silent_child)
+    def stations(self):
+        from ..zero import net
+        st = net.load_stations()["stations"]
+        z = net.zero_of(net.load_net())
+        return {k: v for k, v in st.items() if k != z}
+
+    def has_wait(self, station):
+        """True when a ci-wait marker of this station's session has a live process (it is waiting, not silent)."""
+        import json as _j
+        from ..method import ci_wake
+        sid = station.split(":", 1)[-1].split("@", 1)[0]
+        for f in ci_wake.waits_dir().glob("pr-*.json"):
+            try:
+                m = _j.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if str(m.get("session") or "").startswith(sid) and ci_wake.pid_alive(m.get("pid")):
+                return True
+        return False
 
     def watch_findings(self, led):
         return watch.findings(led, notes=(), stalled_min=60)   # a worker thinking for 20 minutes is not stalled
@@ -446,6 +471,33 @@ def rule_queue_start(p, cfg, st, ctx):
     return []
 
 
+def rule_silent_child(p, cfg, st, ctx):
+    """A worker holding an order from Zero that went quiet, or reported `rotating`: Zero is woken (room + hook file)."""
+    after = float(cfg.get("silent_after_min", 30)) * 60
+    for station, rec in p.stations().items():
+        o = rec.get("order")
+        if not o or o.get("closed"):
+            continue
+        rep = rec.get("report") or {}
+        if rep.get("status") == "done":
+            continue
+        if rep.get("status") == "rotating":
+            brief = rep.get("brief") or "(no brief found: `fieldkit rotate handover` was not run)"
+            ctx["wake"].append({"key": f"rotating:{station}:{o['id']}", "state": "ROTATING",
+                                "line": f"{station} is rotating (order {o['id']}: {str(o.get('objective'))[:80]}); successor brief {brief}",
+                                "next": f"start the visible successor from {brief} (start_session user_asked, fresh; never a card, never headless): "
+                                        "budget.py WHY_VISIBLE"})
+            continue
+        last = max(float(rec.get("last") or 0), float(rec.get("room_last") or 0), float(rep.get("at") or 0), float(o.get("at") or 0))
+        if ctx["now"] - last < after or p.has_wait(station):
+            continue
+        words = (rep.get("text") or "(no report yet)")[:120]
+        ctx["wake"].append({"key": f"silent:{station}:{o['id']}", "state": "SILENT",
+                            "line": f"{station} silent since {time.strftime('%H:%M', time.localtime(last))}, last words: {words}",
+                            "next": f"fieldkit zero send --to {station} \"status?\"; if no answer, start its relief"})
+    return []
+
+
 def rule_wake(p, cfg, st, ctx):
     """Whatever a rule could not decide, plus watch's findings no rule handled. Said at once; a headless job when old."""
     out, found = [], list(ctx["wake"])
@@ -469,6 +521,8 @@ def rule_wake(p, cfg, st, ctx):
     spent = sum(1 for v in st["woken"].values() if ctx["now"] - (watch._t(v) or 0) < 86400)
     for f in found:
         age = ctx["now"] - st["wake"][f["key"]]
+        if f["key"].startswith(("rotating:", "silent:")):
+            continue                                      # Zero decides these: a visible successor, never a headless model (WHY_VISIBLE)
         if age < after or f["key"] in st["woken"]:
             continue
         if spent >= day:                                  # a model costs money: the cap is per day, the rest stays said, not started
@@ -489,7 +543,7 @@ def rule_wake(p, cfg, st, ctx):
 
 #: the rule table: name (keeper.yaml) -> function. Order matters: the wake rule runs last and reads what the others left.
 RULES = {"behind_update": rule_behind_update, "red_fix": rule_red_fix, "died_restart": rule_died_restart,
-         "queue_start": rule_queue_start, "wake": rule_wake}
+         "queue_start": rule_queue_start, "silent_child": rule_silent_child, "wake": rule_wake}
 
 
 def is_open(p, cfg, led, prs, st):
@@ -498,6 +552,11 @@ def is_open(p, cfg, led, prs, st):
         return True
     if any(not pr.get("isDraft") and pr["headRefName"].startswith(BRANCHES) and not p.parked(pr["headRefName"]) for pr in prs):
         return True
+    if (cfg["rules"].get("silent_child") or {}).get("enabled"):
+        with contextlib.suppress(Exception):
+            if any(r.get("order") and not r["order"].get("closed") and (r.get("report") or {}).get("status") != "done"
+                   for r in p.stations().values()):
+                return True                                # a worker holds an order from Zero: keep watching it
     q = cfg["rules"].get("queue_start") or {}
     if q.get("enabled"):
         items = p.queue(q.get("file", "state/coordination/queue.yaml"))

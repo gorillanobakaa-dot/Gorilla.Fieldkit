@@ -258,6 +258,12 @@ def run(do_apply=False, extra=(), fetch=True):
                      "why": "; ".join(stored) or "fieldkit rules sync (hashes), rules lint --files (duplicates)"})
     except Exception as e:  # noqa: BLE001 - informational: never fails the session-start sync
         rows.append({"repo": "instruction files", "ok": True, "verdict": "SKIPPED", "why": str(e)[:100]})
+    if do_apply:
+        try:
+            from .. import compileonce
+            compileonce.build(ROOT)
+        except Exception:  # noqa: BLE001 - bytecode pre-compile is best-effort inside sync
+            pass
     return rows
 
 

@@ -1,0 +1,6 @@
+# The packet sensor of each OS (P27, 2026-11-13). The judge counts the packet sensors of both systems as ONE
+# class (gate.SENSOR_ALIASES); this file names which program is that class on each OS, so a failure says "tcpdump did not
+# collect" on Linux, never "pktmon". Never loosen: a sensor listed here that collected nothing fails the policy.
+packet_sensor:
+  windows: pktmon
+  linux: tcpdump

@@ -71,9 +71,9 @@ core:
   - fieldkit emerge lint (tests/test_emerge_lint.py, in CI)
   owner: 2026-10-29
   text: |-
-    BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
-    `fieldkit emerge status RECIPE`. Never hand-run stages or re-run one the runner skipped. A
-    project with no recipe gets one. Any version, any OS; never pinned or "X only".
+    BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
+    one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
+    Linux CI before merge; no run-time compile (`fieldkit compileonce`).
 - id: TESTS ONCE
   subject: which tests run
   audience: all

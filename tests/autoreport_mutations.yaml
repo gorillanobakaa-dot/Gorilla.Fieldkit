@@ -1,0 +1,7 @@
+# Auto-report: each mutation must make tests/test_zero_autoreport.py fail
+- file: fieldkit/zero/autoreport.py
+  swap: ["if me == zero:", "if False:"]
+- file: fieldkit/zero/autoreport.py
+  swap: ["if (rec.get(\"report\") or {}).get(\"hash\") == digest:", "if False:"]
+- file: fieldkit/zero/autoreport.py
+  swap: ["if relieved:\n        return \"rotating\"", "if False:\n        return \"rotating\""]
