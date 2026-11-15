@@ -235,3 +235,7 @@ def test_the_ask_to_zero_carries_why_a_successor_is_visible_not_headless():
     assert r["step"] == "zero"
     assert budget.WHY_VISIBLE in sent[0]
     assert "passed the job" in budget.WHY_VISIBLE and "do not start" in budget.WHY_VISIBLE
+
+
+def test_why_visible_names_the_reuse_route_when_the_app_refuses():
+    assert "clear_session" in budget.WHY_VISIBLE and "TaskStop" in budget.WHY_VISIBLE

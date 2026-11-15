@@ -221,7 +221,10 @@ def _headless_sonnet(brief):
 #: nothing or by leaving a card for the owner to click: Zero starts the visible session itself.
 WHY_VISIBLE = ("VISIBLE, not headless, because headless sessions ran uncontrolled: they did not finish, filled their "
                "context with nothing, spun in place and passed the job to another session. Not headless does not mean "
-               "do not start: start it in the foreground yourself, never leave a card for the owner.")
+               "do not start: start it in the foreground yourself, never leave a card for the owner. If the app refuses "
+               "start_session (an event turn), reuse the rotated session: it stops its own background tasks (TaskStop) "
+               "and clears itself (clear_session \"self\"), then Zero sends it the brief: same visible session, empty "
+               "context (2026-11-15, Opencode worker 2).")
 
 
 def start_successor(brief, title, origin, send=None, headless=None, now=None):
