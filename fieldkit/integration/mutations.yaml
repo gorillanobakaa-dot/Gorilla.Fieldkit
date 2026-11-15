@@ -20,3 +20,12 @@
 - {file: fieldkit/integration/gate.py, swap: ['since = since or (branch_point(repo, base) if base else None)', 'since = since or None'], why: "guard: a branch is looked at from its branch point"}
 - {file: fieldkit/method/ship.py, swap: ['    if not ig["ok"]:', '    if False:'], why: "ship push refuses on a gap"}
 - {file: fieldkit/gdocs/cli.py, swap: ['            if not ig["ok"]:', '            if False:'], why: "release-page compose refuses on a gap"}
+# P37 "done means it ran there": tests/test_e2e_per_os.py must fail on each.
+#   python -m fieldkit mutate --plan fieldkit/integration/mutations.yaml -- python -m pytest -q -x tests/test_e2e_per_os.py
+- {file: fieldkit/integration/core.py, swap: ['    if card.get("platforms_why"):\n        return None\n    claimed', '    if not card.get("platforms_why"):\n        return None\n    claimed'], why: "e2e: platforms_why excuses, nothing else does"}
+- {file: fieldkit/integration/core.py, swap: ['        if not job or job not in jobs:', '        if not job:'], why: "e2e: the named job must exist in a workflow"}
+- {file: fieldkit/integration/core.py, swap: ['elif OS_RUNNER[osn] not in jobs[job].lower()', 'elif OS_RUNNER[osn] in jobs[job].lower()'], why: "e2e: the job must run on that OS"}
+- {file: fieldkit/integration/core.py, swap: ['and name not in due:', 'and name in due:'], why: "e2e: only new or platform-changed cards owe a job"}
+- {file: fieldkit/lifecycle/brieflint.py, swap: ['if ports_to_os(text) and not e2e_named(text):', 'if False:'], why: "a port brief must name its e2e job"}
+- {file: fieldkit/lifecycle/tasks.py, swap: ['    if named and named in jobs:\n        return ""', '    if named:\n        return ""'], why: "task report: the brief's job must exist"}
+- {file: fieldkit/lifecycle/tasks.py, swap: ['            raise E2EMissing(why)', '            pass'], why: "task report done refuses a port without its e2e job"}
