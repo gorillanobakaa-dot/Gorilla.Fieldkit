@@ -131,10 +131,72 @@ def mitm_start(work, name, poison, confdir, port, mitm_out, mitm_raw):
     return p
 
 
+def missing_libs(build_dir, runner=subprocess.run):
+    """-> the shared libraries `ldd` cannot find for the build's libxul.so (the usual reason a browser dies at once)."""
+    so = Path(build_dir) / "libxul.so"
+    if not so.is_file() or not shutil.which("ldd"):
+        return []
+    out = runner(["ldd", str(so)], capture_output=True, text=True).stdout
+    return sorted({l.split("=>")[0].strip() for l in out.splitlines() if "not found" in l})
+
+
+def smoke(build_dir, server, work, seconds=60, say=print, in_ns=True):
+    """Before the first scenario: start the browser exactly as the scenarios do (headless, inside the namespace), load the
+    gate's local /smoke page and require its report. A browser that cannot show a page stops the run here, with its
+    stderr, exit status and missing libraries, instead of 55 minutes of scenarios that measure nothing (P27, 2026-11-13).
+    -> {"ok": True, "seconds": n}; raises RuntimeError with the evidence otherwise."""
+    work = Path(work).resolve()
+    work.mkdir(parents=True, exist_ok=True)
+    build_dir = Path(build_dir).resolve()
+    prof = se.new_profile(work, "smoke")
+    home = work / "home-smoke"
+    home.mkdir(exist_ok=True)
+    env = dict(os.environ, HOME=str(home), XDG_CACHE_HOME=str(home / ".cache"), XDG_CONFIG_HOME=str(home / ".config"),
+               XDG_DATA_HOME=str(home / ".local/share"), MOZ_HEADLESS="1")
+    err = work / "smoke-stderr.txt"
+    cmd = [str(build_dir / "firefox"), "-headless", "-no-remote", "-profile", str(prof), server.url("/smoke")]
+    if in_ns:
+        cmd = ["ip", "netns", "exec", NS] + cmd
+    before = len(server.results)
+    t0 = time.time()
+    with open(err, "wb") as ef:
+        proc = subprocess.Popen(cmd, env=env, stdout=ef, stderr=subprocess.STDOUT)
+        while time.time() - t0 < seconds and proc.poll() is None:
+            if any(isinstance(r, dict) and r.get("scenario") == "smoke" for r in server.results[before:]):
+                break
+            time.sleep(0.5)
+        got = any(isinstance(r, dict) and r.get("scenario") == "smoke" for r in server.results[before:])
+        code = proc.poll()
+        ls.kill_build(build_dir)                           # by PID: only processes running from THIS build copy
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        proc.wait(timeout=30)
+    del server.results[before:]
+    del server.requests[:]
+    if got:
+        say(f"  browser smoke: the page reported after {time.time() - t0:.1f} s")
+        return {"ok": True, "seconds": round(time.time() - t0, 1)}
+    tail = err.read_text(errors="replace")[-1500:] if err.is_file() else ""
+    why = f"exited with status {code}" + (f" (signal {signal.Signals(-code).name})" if isinstance(code, int) and code < 0 else "") \
+        if code is not None else f"still running after {seconds} s but never reported"
+    libs = missing_libs(build_dir)
+    flags = [f for f in ("avx", "avx2", "sse4_2", "bmi1", "bmi2", "fma", "f16c") if f in ci_flags()]
+    raise RuntimeError(f"leakgate (linux): the browser cannot show the local test page: {why}. missing libraries: {libs or 'none found'}. "
+                       f"cpu flags: {flags}. stderr tail: {tail.strip() or '(empty)'}")
+
+
+def ci_flags():
+    from .ci import cpu_flags
+    return set(cpu_flags())
+
+
 def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port, watch, allowed_names, say=print, prefs=None,
             graceful=False, poison=False, confdir=None):
     """Linux twin of sensors.run_one, inside the namespace. -> (events, artifacts). Same event vocabulary."""
-    work = Path(workdir)
+    work = Path(workdir).resolve()
+    build_dir = Path(build_dir).resolve()
     work.mkdir(parents=True, exist_ok=True)
     prof = se.new_profile(work, f"{name}-{mode}", prefs)
     pcap, dropped_mark = work / f"tcpdump-{name}-{mode}.pcap", time.time()

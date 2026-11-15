@@ -319,6 +319,24 @@ def _scan_proc():
     return out
 
 
+def _children_sig(root):
+    """Linux: the direct children of the container's root and of THIS process (the subreaper: every re-parented orphan
+    lands here), read from /proc/<pid>/task/*/children: a few tiny files, no walk. A change means a member was born or
+    re-parented since the last walk, so the cached snapshot is stale. None where /proc has no such file (the snapshot
+    then ages out by TRACK_S only)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    out = []
+    for pid in {root, os.getpid()} - {None}:
+        try:
+            for t in os.listdir(f"/proc/{pid}/task"):
+                with open(f"/proc/{pid}/task/{t}/children", "rb") as f:
+                    out.append(f.read())
+        except OSError:
+            continue
+    return tuple(out)
+
+
 # ---- the container ----------------------------------------------------------------------------------------------
 class Container:
     """One container per started command. Use as a context manager, or call close() (which stops what is left)."""

@@ -1,0 +1,35 @@
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '        if not c.get("req_body") or cb is None:'
+  - '        if False:'
+  why: an empty-body catalogue request is a finding
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '    return [("catalogue-not-reported", f"the client lists'
+  - '    return [] and [("catalogue-not-reported", f"the client lists'
+  why: a catalogue entry the backend never reported is a finding
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '                if backend and m not in backend:'
+  - '                if False:'
+  why: an id literal the backend never reported is invented
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '            if any(m in line for m in prov["source_allow_markers"]):'
+  - '            if False:'
+  why: an explicit opt-in marker is the only allowed source of extra ids
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '        if str(r.get("status")) == "404" or any'
+  - '        if False and any'
+  why: a probe 404 is a finding
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '    return [("hardcoded-ua", f"client UA version {sorted(cv)} is not the app''s {sorted(rv)}")] if rv and cv and not (cv <= rv) else []'
+  - '    return []'
+  why: a UA version unlike the app's is a finding
+- file: fieldkit/modelcatalog/__init__.py
+  swap:
+  - '    return 3 if res["findings"] else 0'
+  - '    return 0'
+  why: a finding exits 3

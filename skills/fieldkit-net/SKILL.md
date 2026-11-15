@@ -88,3 +88,5 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
 
 Exit codes: 0 OK, 1 WARN, 2 ALARM, 3 no net, 4 REFUSED. Never edit NET.yaml or the net log by hand: `fieldkit zero log
 --verify` finds a changed line.
+
+Zero never sits idle: `fieldkit keeper status` shows the timer and its last actions; the Stop hook warns when Zero ends a turn with jobs in flight and no keeper timer.

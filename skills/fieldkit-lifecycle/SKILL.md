@@ -13,8 +13,9 @@ of the computer for those moments when an approval might be needed."
 ## Starting another job: a visible session, never a card
 
 ```
-fieldkit task start BRIEF.md                 headless here: a one-step autopilot runbook in its own window
-fieldkit task start BRIEF.md --on peer       on the other computer: its link listener starts `fieldkit autopilot claude`
+fieldkit task start BRIEF.md --agent AGENT --model MODEL --thinking LEVEL   headless here: a one-step autopilot runbook in its own window
+fieldkit task start BRIEF.md --agent AGENT --model MODEL --thinking LEVEL --on peer   on the other computer: its link listener starts the requested coding agent
+fieldkit models status | block --agent AGENT --until T | unblock --agent AGENT   coding agent quota guard + catalogue (antigravity, agy, codex, gorilla-opencode, claude)
 fieldkit task status                         every task + the reports that came back (over the cable too)
 fieldkit task report ID --status done --branch B [--pr URL] --note "..."   the job's own last step
 fieldkit autoaccept status|list              I-04: work the HARNESS accepted by itself (every check passed AND an independent higher-rung reviewer said yes), the policy switch, the undo lines; the owner reviews after the fact in `fieldkit review` (gates: docs/AUTONOMY-GATES.md)
@@ -86,3 +87,5 @@ until it does.
 
 The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, Codex AGENTS.md); check with
 `fieldkit sessions doctor`.
+
+`fieldkit keeper tick` (timer-run every 5 min while work is open; installs itself on `task start`) keeps work moving when no model turn runs: BEHIND PR update, one fix job, one restart, queued briefs, wake Zero. `fieldkit idle report --since 24h` lists the gaps where work was open and nothing acted.

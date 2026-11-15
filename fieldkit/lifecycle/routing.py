@@ -3,7 +3,7 @@ session burned the 5-hour quota). Deterministic: no network, no model, no third-
 RouteLLM and Langfuse are doors to a vendor; the same three moves are done here with a score and a table).
 
     choice()                  -> {mode, ceiling, accepted, fresh}: the owner's last accept (kept until changed), else the cheap defaults
-    set_choice(mode, ceiling) the accept (`fieldkit route choose --mode solo --model sonnet`)
+    set_choice(mode, ceiling) the accept (`fieldkit route choose --mode solo --agent agy --model argon --thinking high`)
     assess(text, plan)        -> {score, rung, reasons}: the cheapest rung the brief's risk needs
     route(text, requested, pin) -> {model, rung, ceiling, action, why}; action is use | downgrade | capped | park
     cascade(model, failures, ceiling) -> the next rung after a failed round, never above the ceiling, or ""
@@ -70,11 +70,11 @@ def _rung_of(model, ladder):
 
 
 def choice(data=None, today=None):
-    """-> {mode, ceiling, accepted (date or ""), fresh}. The last accepted choice stays in force until
+    """-> {mode, ceiling, agent, thinking, accepted (date or ""), fresh}. The last accepted choice stays in force until
     the owner changes it (a date change never refuses a running or queued job); `fresh` only says it was made today,
     so the room hook can remind. A missing or damaged accept gives the data's cheap defaults (solo, sonnet)."""
     d = data or load()
-    out = {"mode": d["mode"], "ceiling": d["ceiling"], "accepted": "", "fresh": False}
+    out = {"mode": d["mode"], "ceiling": d["ceiling"], "agent": "", "thinking": "", "accepted": "", "fresh": False}
     env = os.environ.get("FIELDKIT_ROUTING_MODE")
     if env in MODES:
         out["mode"] = env
@@ -82,23 +82,33 @@ def choice(data=None, today=None):
         c = json.loads(_choice_path().read_text(encoding="utf-8"))
         day = time.strptime(c["accepted"], "%Y-%m-%d")
         age = ((today or time.time()) - time.mktime(day)) / 86400
-        if c["mode"] in MODES and _rung_of(c["ceiling"], d["ladder"]) >= 0:
-            out.update(mode=env if env in MODES else c["mode"], ceiling=c["ceiling"], accepted=c["accepted"],
-                       fresh=age < d.get("accept_valid_days", 1))
+        if c["mode"] in MODES and (_rung_of(c["ceiling"], d["ladder"]) >= 0 or c.get("agent")):
+            out.update(mode=env if env in MODES else c["mode"], ceiling=c["ceiling"],
+                       agent=c.get("agent", ""), thinking=c.get("thinking", ""),
+                       accepted=c["accepted"], fresh=age < d.get("accept_valid_days", 1))
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return out
 
 
-def set_choice(mode, ceiling, data=None):
-    """The owner's accept. -> the stored choice. Raises ValueError for a mode or model off the ladder."""
+def set_choice(mode, ceiling, data=None, agent=None, thinking=None):
+    """The owner's accept. -> the stored choice. Raises ValueError for a mode, agent, model, or thinking level off the catalogue."""
     d = data or load()
     if mode not in MODES:
         raise ValueError(f"mode is one of {', '.join(MODES)}")
-    names = [n for n in d["ladder"] if n in (ceiling or "").lower()]
-    if not names:
-        raise ValueError(f"model is one of {', '.join(d['ladder'])}")
-    rec = {"mode": mode, "ceiling": names[0], "accepted": time.strftime("%Y-%m-%d")}
+    if agent or thinking:
+        from . import models
+        chk = models.validate_agent_choice(agent=agent, model=ceiling, thinking=thinking, require_explicit=True,
+                                           role="worker", origin="route choose")
+        if not chk["ok"]:
+            raise ValueError(chk["why"])
+        rec = {"mode": mode, "agent": chk["agent"], "ceiling": chk["model"], "thinking": chk["thinking"],
+               "accepted": time.strftime("%Y-%m-%d")}
+    else:
+        names = [n for n in d["ladder"] if n in (ceiling or "").lower()]
+        if not names:
+            raise ValueError(f"model is one of {', '.join(d['ladder'])}")
+        rec = {"mode": mode, "ceiling": names[0], "accepted": time.strftime("%Y-%m-%d")}
     p = _choice_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(rec), encoding="utf-8")
@@ -392,8 +402,8 @@ def main(argv=None):
     argv = list(argv or [])
     cmd = argv[0] if argv else "status"
     if cmd in ("-h", "--help", "help"):
-        print("route status | choose --mode solo|multi --model haiku|sonnet|opus|fable | assess BRIEF.md | "
-              "window [--refresh]")
+        print("route status | choose --mode solo|multi [--agent AGENT] --model MODEL [--thinking LEVEL] | "
+              "assess BRIEF.md | window [--refresh]")
         return 0
     d = load()
     if cmd == "window":
@@ -404,19 +414,24 @@ def main(argv=None):
               f"{d['window']['squeeze_fraction']:.0%} and stop at {d['window']['stop_fraction']:.0%}")
         return 0
     if cmd == "choose":
-        mode = ceil = None
+        mode = ceil = ag = th = None
         it = iter(argv[1:])
         for a in it:
             if a == "--mode":
                 mode = next(it, None)
             elif a == "--model":
                 ceil = next(it, None)
+            elif a == "--agent":
+                ag = next(it, None)
+            elif a == "--thinking":
+                th = next(it, None)
         try:
-            rec = set_choice(mode, ceil, d)
+            rec = set_choice(mode, ceil, d, agent=ag, thinking=th)
         except ValueError as e:
             print(f"ERROR  {e}")
             return 2
-        print(f"ACCEPTED  mode {rec['mode']}, strongest model {rec['ceiling']}, on {rec['accepted']}")
+        extra = f", agent {rec['agent']}, thinking {rec['thinking']}" if rec.get("agent") else ""
+        print(f"ACCEPTED  mode {rec['mode']}, strongest model {rec['ceiling']}{extra}, on {rec['accepted']}")
         print("NEXT: jobs now route themselves under this ceiling; one accept per day")
         return 0
     if cmd == "assess":

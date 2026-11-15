@@ -396,7 +396,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for pol, sens in need.items():
         missing = sorted(s for s in sens if s not in sensors_seen)
         if missing:
-            fail[pol].append(f"required sensor(s) did not collect: {missing}")
+            fail[pol].append(f"required sensor(s) did not collect: {shown(missing)}")
     if not packets:
         for pol in ("NETWORK_POLICY", "DNS_POLICY", "SHUTDOWN_POLICY", "WEBRTC_POLICY", "IPV6_POLICY"):
             fail[pol].append("packet-level sensor not run (needs an elevated shell): wire traffic unverified")
@@ -453,6 +453,26 @@ def canon(sensor):
     return SENSOR_ALIASES.get(sensor, sensor)
 
 
+def sensors_required():
+    """-> the per-OS sensor data (sensors_required.yaml)."""
+    import yaml
+    return yaml.safe_load((Path(__file__).parent / "sensors_required.yaml").read_text(encoding="utf-8"))
+
+
+def os_key():
+    return "linux" if sys.platform.startswith("linux") else "windows"
+
+
+def packet_sensor_name():
+    """-> the packet sensor of THIS OS (tcpdump on Linux, pktmon on Windows), for messages."""
+    return sensors_required()["packet_sensor"][os_key()]
+
+
+def shown(names):
+    """The sensor names of a failure message as this OS calls them (the judge's class `pktmon` is tcpdump on Linux)."""
+    return [packet_sensor_name() if n == "pktmon" else n for n in names]
+
+
 def required_coverage(mode, packets):
     """Sensors that must show they ran in every user-action scenario run (fail closed per scenario), on every OS."""
     need = {"process-tree", "filesystem", "sockets"}
@@ -497,7 +517,7 @@ def action_checks(ran, events, results, requests, packets):
         for m in modes:
             missing = sorted(required_coverage(m, packets) - by[(scen, m)])
             if missing:
-                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {missing}")
+                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {shown(missing)}")
         if scen in sc.REPORTING and not any(r.get("scenario") == scen for r in results):
             fail["NETWORK_POLICY"].append(f"[{scen}] the page never reported: the user action was not exercised")
         for path in sc.SERVED.get(scen, ()):
@@ -592,6 +612,16 @@ def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
     return None
 
 
+def _write_partial(work, events, artifacts):
+    """events.jsonl and artifacts.json as they stand; the final write replaces them. Never raises."""
+    try:
+        (work / "events.jsonl").write_text("\n".join(json.dumps(e, default=str) for e in events) + "\n", encoding="utf-8")
+        (work / "artifacts.json").write_text(json.dumps(artifacts, indent=1, default=str), encoding="utf-8")
+        (work / "partial.txt").write_text(f"partial: {len(artifacts)} runs done, the gate has not finished\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def run(*args, say=print, **kw):
     """The gate under the one run guard (2026-10-26): observation and the safe reclaim only, before and during; it
     changes no allowlist, judgment or verdict. A STOP (free RAM under the floor after reclaiming) waits up to 10 min,
@@ -632,7 +662,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     if release:
         repeat, quick = max(repeat, 3), False
-    work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
+    work = Path(workroot).resolve() / time.strftime("%Y%m%d-%H%M%S")      # absolute: /proc reports absolute paths (P27)
     work.mkdir(parents=True)
     if linux:
         packets, dns_prev = True, None
@@ -728,6 +758,15 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
         server = sc.Server(bind=lx.HOST_IP, port=sport)
     else:
         server = sc.Server()
+    if linux:                                          # the browser must show a page before 55 minutes of scenarios are spent
+        try:
+            lx.smoke(direct, server, work, say=say)
+        except Exception:
+            server.close()
+            doh.close()
+            certsrv.close()
+            lx.netns_down()
+            raise
     events, artifacts, scen_hosts = [], {}, {}
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
@@ -764,6 +803,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                         e["scenario"], e["rep"] = name, rep
                     events.extend(ev)
                     artifacts[f"{name}-r{rep}-{mode}"] = art
+                    _write_partial(work, events, artifacts)     # a late crash never loses the runs already done
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
                         events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
                                        "detail": "the page itself never reached mitmproxy"})
@@ -893,6 +933,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     result["FINAL_RESULT"] = "PASS" if all(result[p] == "PASS" for p in POLICIES) else "FAIL"
     result["ARTIFACTS"] = str(work)
 
+    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     (work / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
     (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     (work / "build-manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")

@@ -255,6 +255,12 @@ def run(do_apply=False, extra=(), fetch=True):
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
                 rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
+    if do_apply:
+        try:
+            from .. import compileonce
+            compileonce.build(ROOT)
+        except Exception:  # noqa: BLE001 - bytecode pre-compile is best-effort inside sync
+            pass
     return rows
 
 

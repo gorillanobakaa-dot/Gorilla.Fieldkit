@@ -1,0 +1,104 @@
+# The Linux leak gate on a GitHub ubuntu runner (P27, 2026-11-13). For a machine whose kernel has no veth (the VAIO's
+# 7.1.2-unleashed: CONFIG_VETH is not set), the gate cannot build its network namespace there; a runner can.
+# By hand only (workflow_dispatch). The inputs name a DRAFT release made by `fieldkit ship` / the owner that holds the
+# .deb and the context archive made by `fieldkit build-harness leakgate-ci pack TASK` (docs/LEAKGATE-GITHUB.md).
+# THREAT MODEL: GitHub (Microsoft) sees the .deb, the context and every packet log of this run. This repository is
+# PUBLIC, so the run's log is readable by anyone: nothing but the result JSON and the events is uploaded, never the .deb.
+# The draft release is never public, never a tag. Result: `gh run download`, then `fieldkit build-harness leakgate-ci
+# record TASK DIR` on the owner's machine. A FAIL is a finding to triage, never an allowlist change.
+name: leakgate-linux
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "the DRAFT release (its tag name) that holds the .deb and leakgate-context.tar.gz"
+        required: true
+      deb:
+        description: "the .deb's file name in that release"
+        required: true
+        default: "gorilla-unleashed_160.0-2_amd64.deb"
+permissions:
+  contents: write            # a draft release is invisible below write access; this job changes nothing in the repository
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: tools the gate needs (nftables, dnsmasq, tcpdump, strace, iproute2 for ip and ss)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables dnsmasq-base tcpdump strace iproute2 pipx
+      - name: mitmproxy 12.3.1, pinned, where root finds it
+        run: |
+          sudo env PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install "mitmproxy==12.3.1"
+          mitmdump --version
+      - name: this kernel has veth (the gate cannot run without it)
+        run: |
+          sudo ip link add lgprobe0 type veth peer name lgprobe1
+          sudo ip link del lgprobe0
+          echo "veth: ok"
+      - name: the CPU (the .deb is built -march=native for an Ivy Bridge class CPU; a newer CPU should run it)
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|sse4_2|bmi1|bmi2|fma|f16c|rdrand)$' | sort | tr '\n' ' '; echo
+      - name: fetch the .deb and the context from the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release }}
+          DEB: ${{ inputs.deb }}
+        run: |
+          mkdir -p in
+          gh release download "$REL" -R "$GITHUB_REPOSITORY" -D in -p "$DEB" -p leakgate-context.tar.gz
+          ls -l in
+          sha256sum "in/$DEB"
+      - name: the browser starts and shows a page (a death here is "the binary does not run", not a gate FAIL)
+        env:
+          DEB: ${{ inputs.deb }}
+        run: |
+          mkdir -p smoke
+          dpkg-deb -x "in/$DEB" smoke
+          bin=$(find smoke -type f -name firefox -perm -u+x | head -1)
+          test -n "$bin" || { echo "no firefox binary in the .deb"; exit 1; }
+          echo "display: DISPLAY='${DISPLAY:-}' (the gate runs headless: MOZ_HEADLESS=1 and -headless, no display needed)"
+          timeout 60 "$bin" --version
+          dir=$(dirname "$bin")
+          echo "libraries not found:"; ldd "$dir/libxul.so" 2>&1 | grep "not found" || echo "  none"
+          mkdir -p smoke-home smoke-prof
+          # the real start, as the gate does it (headless, fresh profile): must stay up 15 s; stderr printed either way
+          set +e
+          MOZ_HEADLESS=1 HOME="$PWD/smoke-home" timeout 15 "$bin" -headless -no-remote -profile "$PWD/smoke-prof" about:blank 2> smoke-stderr.txt
+          rc=$?
+          set -e
+          echo "exit status: $rc (124 = still running when stopped, which is the good case)"
+          echo "--- stderr (last 40 lines) ---"; tail -40 smoke-stderr.txt
+          test "$rc" = 124 || { echo "the browser did not stay up: not a gate result"; exit 1; }
+      - name: the gate, as root, the unchanged code
+        env:
+          DEB: ${{ inputs.deb }}
+        run: |
+          sudo env "PATH=$PATH" "PYTHONPATH=$PWD" "$(which python)" -m fieldkit build-harness leakgate-ci run \
+            in/leakgate-context.tar.gz "in/$DEB" out
+      - name: the result (JSON and events only; never the .deb)
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" out 2>/dev/null || true
+          if [ ! -d out/artifact ]; then
+            # the run died before collect: keep whatever it wrote (small text files only, never the .deb or a pcap)
+            mkdir -p out/artifact
+            find out/runs -maxdepth 2 -type f -size -5000k \( -name '*.json' -o -name '*.jsonl' -o -name '*.txt' -o -name '*.log' -o -name '*.observed' -o -name '*.new' \) \
+              -exec cp --parents {} out/artifact/ \; 2>/dev/null || true
+            echo "no verdict: the run stopped early; partial files kept" > out/artifact/crash.txt
+          fi
+          ls -l out/artifact | head -40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leakgate-result
+          path: out/artifact/
+          if-no-files-found: warn
+          retention-days: 14
