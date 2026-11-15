@@ -317,6 +317,9 @@ def default_runner(base_sha, ids, job="", repo="."):
 def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None, inbox=None, p=None):
     """One red CI verdict of `head`, judged by whose_red. -> {"kind": own|main|unproven, "evidence", "counted": bool,
     "rounds", "parked", "new"}; only `counted` rounds are strikes (an unproven round past FLAKE_LIMIT counts)."""
+    if head in set(load(p).get("cleared", {}).get(branch, [])):    # forgiven by an unpark: never counted again,
+        return {"kind": "forgiven", "evidence": "counted before the owner's unpark", "counted": False,  # by any
+                "parked": parked_for(branch, p) is not None}                                          # caller
     kind, ev = whose_red(head, failed_tests(log), base_sha, runner or default_runner, job)
     if kind == "main":
         _attempt(branch, job, False, p)
@@ -501,7 +504,7 @@ def check(branch, fetch=runs_from_gh, inbox=None, p=None, logger=run_log, base_o
     for sha, run in heads.items():
         r = count_red(branch, sha, logger(run), base_of(sha), run.get("name") or "red", job=run.get("name") or "",
                       runner=runner, inbox=inbox, p=p)
-        kinds[r["kind"]] += 1
+        kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
         res = dict(res, **{k: r[k] for k in ("rounds", "parked", "new") if k in r})
     return dict(res, ok=True, branch=branch, **kinds)
 

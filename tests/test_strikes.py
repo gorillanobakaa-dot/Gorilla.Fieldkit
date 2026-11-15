@@ -363,3 +363,16 @@ def test_unpark_sticks_the_old_red_heads_do_not_park_the_branch_again(tmp_path, 
     strikes.check("fix/x", fetch=lambda b: runs, inbox=lambda *a, **k: None, p=p, logger=lambda run: [],
                   base_of=lambda h: "", runner=lambda *a, **k: ("own", "test"))
     assert strikes.load(p)["strikes"]["fix/x"]["rounds"][-1]["head"] == "ccc"
+
+
+def test_ship_counter_after_unpark_does_not_recount_forgiven_heads(tmp_path, monkeypatch):
+    """2026-11-15: after the owner's unpark, `fieldkit ship push` (ship._own_reds -> count_red) re-recorded the same old
+    red heads and refused auto-merge as TWO STRIKES again (PR 521)."""
+    monkeypatch.setattr(strikes, "whose_red", lambda *a, **k: ("own", "test: own failure"))
+    for h in ("aaa", "bbb"):
+        strikes.record_failure("fix/y", h, "red", pr=7, inbox=lambda *a, **k: None)
+    assert strikes.unpark("7")["ok"]
+    r = strikes.count_red("fix/y", "aaa", [], "", "red", inbox=lambda *a, **k: None)
+    assert r["kind"] == "forgiven" and not r["counted"]
+    assert strikes.parked_for("fix/y") is None
+    assert len(strikes.load()["strikes"].get("fix/y", {}).get("rounds", [])) == 0
