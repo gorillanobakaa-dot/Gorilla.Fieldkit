@@ -225,7 +225,7 @@ WHY_VISIBLE = ("VISIBLE, not headless, because headless sessions ran uncontrolle
                "start_session (an event turn), reuse the rotated session: it stops its own background tasks (TaskStop) "
                "and clears itself (clear_session \"self\"), then Zero sends it the brief: same visible session, empty "
                "context (2026-11-15, Opencode worker 2). Zero also keeps one idle visible \"Reserve N\" session, "
-               "started on an owner turn, to clear and order on an event turn.")
+               "started on an owner turn, to clear and order on an event turn (`fieldkit pool plan` keeps them).")
 
 
 def start_successor(brief, title, origin, send=None, headless=None, now=None):
