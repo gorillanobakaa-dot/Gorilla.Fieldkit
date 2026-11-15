@@ -7595,6 +7595,7 @@ tools:
   output: own
   exits: {1: "error", 3: "findings"}
   platforms: [windows, linux]
+  e2e: {windows: e2e-pycache, linux: e2e-pycache}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
@@ -7611,6 +7612,7 @@ tools:
   output: own
   exits: {1: "error"}
   platforms: [windows, linux]
+  e2e: {windows: e2e-pycache, linux: e2e-pycache}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
@@ -7627,6 +7629,7 @@ tools:
   output: own
   exits: {1: "error"}
   platforms: [windows, linux]
+  e2e: {windows: e2e-pycache, linux: e2e-pycache}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."
@@ -7643,6 +7646,7 @@ tools:
   output: own
   exits: {1: "error"}
   platforms: [windows, linux]
+  e2e: {windows: e2e-pycache, linux: e2e-pycache}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pycache.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Plan P9, idea I-17 (owner 2026-11-12: Python compiles once, never again every 50-250 ms). Hot-path modules and budgets are data: fieldkit/pycache/hotpath.yaml. Worked example: PYTHONDONTWRITEBYTECODE=1 in the hook env left 333 of 595 files uncompiled and a job worktree with none; a .pth turns writing back on. Mutation plan tests/pycache_mutations.yaml."

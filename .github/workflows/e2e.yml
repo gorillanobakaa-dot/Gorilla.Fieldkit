@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - "fieldkit/leakgate/**"
+      - "fieldkit/pycache/**"
       - "fieldkit/integration/**"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
@@ -29,3 +30,23 @@ jobs:
         run: sudo -E env "PATH=$PATH" python -m fieldkit build-harness leakgate-selftest
       - name: allowed connection passes, forbidden one is blocked, in the gate's real namespace
         run: sudo -E env "PATH=$PATH" python .github/e2e/leakgate_linux.py
+  e2e-pycache:
+    # the real entry points of fieldkit pycache, on each OS: warm compiles the hot path, audit then finds none stale or
+    # missing, profile and compare run and print their verdict line.
+    name: e2e-pycache
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit pycache warm
+      - run: python -m fieldkit pycache audit
+      - run: python -m fieldkit pycache profile
+      - run: python -m fieldkit pycache compare --help
