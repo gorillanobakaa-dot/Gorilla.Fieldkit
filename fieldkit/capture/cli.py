@@ -59,6 +59,7 @@ def cmd_hook(a):
             return 0
         from . import hook
         hook.handle(a.agent, text)
+        switch.ensure_schedule()                           # the scan timer comes back if a path switched on without it
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
     return 0

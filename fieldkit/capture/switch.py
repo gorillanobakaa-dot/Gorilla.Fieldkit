@@ -249,6 +249,33 @@ def schedule_state(run=_run, system=None):
 
 
 # ---- commands -------------------------------------------------------------------------------------------------------
+HEAL_EVERY_S = 3600
+
+
+def ensure_schedule(now=None, run=_run, system=None, install=None):
+    """While capture is on, put the scan timer back when it is missing; at most once an hour (a stamp file), so the
+    capture hook can call it on every event at the cost of one stat. 2026-11-15: capture was switched on by the build
+    loop and extended without a schedule (only `capture on` installed it); the timer was absent for days and the hooks
+    alone missed 2574 calls that `capture scan` later found. -> "off" | "fresh" | "present" | the install answer."""
+    if not is_on():
+        return "off"
+    stamp = st.capture_dir() / "schedule-heal.stamp"
+    t = (now or _now()).timestamp()
+    try:
+        if stamp.is_file() and t - stamp.stat().st_mtime < HEAL_EVERY_S:
+            return "fresh"
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(int(t)), encoding="utf-8")
+        import os
+        os.utime(stamp, (t, t))
+    except OSError:
+        return "fresh"
+    sched = schedule_state(run, system)
+    if "absent" not in sched.values():
+        return "present"
+    return (install or schedule_on)()
+
+
 def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None):
     """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
     a manual lesson keeps the one-week cap (owner 2026-11-10; was 24 h)."""
