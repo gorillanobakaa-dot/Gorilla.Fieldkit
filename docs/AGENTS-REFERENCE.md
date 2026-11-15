@@ -172,6 +172,10 @@ The owner speaks radio procedure. Zero = the net control station (the coordinati
   hook and need not run it.
 - "sitrep" / "roll call" from Zero: answer with all six fields, `-` for none: `fieldkit zero checkin --ref R-ID --job ..
   --state WORKING|BLOCKED|WAITING|DONE|IDLE --branch .. --waiting .. --not-verified .. --shared ..`
+- AUTO-REPORT (2026-11-15): a session holding an order from Zero sends Zero one net line at the end of every turn
+  (`REPORT station [working|done|blocked|rotating] order ...`, the Stop hook, `fieldkit/zero/autoreport.py`; nothing when
+  unchanged; Zero is exempt). The keeper rule `silent_child` (`fieldkit/lifecycle/keeper.yaml`, `silent_after_min` 30)
+  wakes Zero when such a worker is silent, or reports `rotating` (then Zero starts the visible successor, never a card).
 - "has Zero been established?" is answered by `fieldkit zero`. Only Zero runs `rollcall`, `handover`, `close`; a
   command with an older `--epoch` is refused. Leaving: `fieldkit zero checkin --off`.
 
