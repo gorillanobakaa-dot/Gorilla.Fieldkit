@@ -902,8 +902,8 @@ def test_a_fix_to_a_python_file_is_not_hidden_by_a_stale_pyc(tmp_path):
         st = src.stat()
         git(w, "checkout", "-q", "-B", "fix/pyc")
         write(src, "def add(a, b):\n    return a + b\n")
+        commit_all(w, "fix")                     # commit first: git's stat cache would skip a file whose mtime is back
         os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns))
-        commit_all(w, "fix")
 
     inbox = Inbox()
     rep = emerge(recipe(tmp_path, s), fixer=Fixer(same_second), inbox_add=inbox).run()
