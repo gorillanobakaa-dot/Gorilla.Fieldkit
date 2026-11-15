@@ -7629,6 +7629,24 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
 
+- id: pool-plan
+  title: "Zero's session pool in one command: from the list_sessions JSON it decides keep, recycle (clear and rename to a reserve), archive surplus reserves or start new ones, and prints the exact app-tool calls in order (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, pool, plan]
+  path: ${FIELDKIT}/fieldkit/lifecycle/pool.py
+  inputs:
+    - {name: sessions, flag: --sessions, type: str, required: false, help: "the list_sessions JSON file (default: stdin)"}
+    - {name: reserve, flag: --reserve, type: int, required: false, help: "idle reserves wanted (default 2, pool.yaml)"}
+    - {name: self, flag: --self, type: str, required: false, help: "this session's id, never touched"}
+  effects: [reads-files]
+  safety: safe
+  headline: "POOL: N step(s); one KEEP / RECYCLE / ARCHIVE / RESERVE line per session, then numbered app-tool calls to run in order."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-pool-linux, windows: e2e-pool-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pool.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-11-15: about 7 sessions open, clear the irrelevant ones and keep them as a reserve, one tool for clear plus start. The app tools (start_session, clear_session, archive_session, set_session_title, set_remote_control) can only be called by the model, so the planner is deterministic and Zero runs its lines without judging. Recycle only when fieldkit permanence check is clean (else KEEP with the command). Rules in pool.yaml. Mutation plan tests/pool_mutations.yaml."
+
 - id: permanence-check
   title: "No session's work is lost when it ends: finds work that is uncommitted, unpushed or unmerged in every worktree of the shared repositories, blocks the turn end and archive_session until it is shipped, tells Zero about stale work (Windows and Linux)"
   harness: lifecycle
@@ -7643,3 +7661,19 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_permanence.py"]
   notes: "Owner order 2026-11-15 after a day of fixes by many sessions. ENDCHECK covered only open PRs without a ci-wait. Hooks: Stop (tokens/rotate.py, blocks once), tool router (refuses archive_session on UNCOMMITTED or UNPUSHED), keeper rule permanence (stale after 2 h, said in the room). All fail open. Mutation plan tests/permanence_mutations.yaml."
+
+- id: antigravity-bridge
+  title: "Talk to Antigravity coding sessions from Fieldkit: list them, send a message, follow a stream, check one in on Zero's net as antigravity:NAME; replies are fenced as untrusted data, and the bridge only ever binds loopback or the cable (Windows and Linux)"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, antigravity]
+  path: ${FIELDKIT}/fieldkit/antigravity/bridge.py
+  inputs:
+    - {name: command, flag: "", type: str, required: false, help: "sessions | send | stream | station | bind-check"}
+  effects: [reads-files, runs-processes]
+  safety: safe
+  headline: "ANTIGRAVITY: sessions list (source, id), or a fenced reply; NEXT names the follow-up."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-antigravity-linux, windows: e2e-antigravity-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."

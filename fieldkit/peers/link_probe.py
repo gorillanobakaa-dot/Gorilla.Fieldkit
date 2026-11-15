@@ -19,7 +19,7 @@ import time
 from . import agentfind
 
 VERSION = 1
-NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+ -]{0,63}$")
+NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+ ()-]{0,63}$")
 TOOLS = (("python", None), ("git", ["--version"]), ("go", ["version"]), ("gh", ["--version"]))
 
 
@@ -33,7 +33,7 @@ def _agents(arg=None, **kw):
 def _where(arg=None, finder=None, **_):
     """PROGRAM anywhere the system knows it: the one app finder (fieldkit/app/find.py). The name is checked first."""
     if not arg or not NAME_OK.match(arg):
-        raise ValueError("where needs one program name (letters, digits, spaces, . _ + -)")
+        raise ValueError("where needs one program name (letters, digits, spaces, . _ + - and parentheses)")
     if finder is None:
         from ..app import find as finder_mod
         finder = finder_mod.find
@@ -50,7 +50,7 @@ def start_app(name, allowed=None, finder=None, starter=None):
     (link.yaml allow_apps, approved; default DEFAULT_APPS) by its whole name, and never when it is ambiguous."""
     from ..app import find as F
     if not isinstance(name, str) or not NAME_OK.match(name):
-        return {"ok": False, "error": "start-app needs one program name (letters, digits, spaces, . _ + -)"}
+        return {"ok": False, "error": "start-app needs one program name (letters, digits, spaces, . _ + - and parentheses)"}
     if allowed is None:
         from . import link
         reg, _why = link.approvals()

@@ -1,0 +1,9 @@
+# Antigravity bridge: each mutation must make tests/test_antigravity_bridge.py fail
+- file: fieldkit/antigravity/bridge.py
+  swap: ["--print=\" + prompt", "--print\", prompt"]
+- file: fieldkit/antigravity/bridge.py
+  swap: ["(a.version == 4 and a in CABLE_NET)", "(a.version == 4 and a.is_private)"]
+- file: fieldkit/antigravity/bridge.py
+  swap: ["body = str(text).replace(\"</untrusted-data\", \"<\\\\/untrusted-data\")", "body = str(text)"]
+- file: fieldkit/antigravity/bridge.py
+  swap: ["            if p.suffix != \".db\" or not _ID.match(p.stem):", "            if False:"]

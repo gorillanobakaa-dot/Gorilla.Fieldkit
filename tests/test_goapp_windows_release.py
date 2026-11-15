@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from fieldkit.build import goapp, relfiles
+from fieldkit.core import contain  # noqa: F401  imported BEFORE any test patches os.name: contain.IS_WIN is read at import
 from fieldkit.core.pipeline import Context, Pipeline
 
 PIPE = Path(goapp.__file__).parent / "pipelines" / "go-app.yaml"

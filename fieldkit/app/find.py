@@ -135,8 +135,21 @@ def src_start_menu(query, env):
             stem = Path(p).stem
             if score(query, stem):
                 tgt = env["lnk_target"](p)
-                out.append(_entry(stem, tgt or p, "Start Menu", {"kind": "lnk", "target": p}, lnk=p))
+                task = schtask_name(env["lnk_args"](p)) if (tgt or "").lower().endswith("schtasks.exe") and env.get("lnk_args") else ""
+                if task:                                        # the installer's elevated launcher: admin, no UAC prompt
+                    out.append(_entry(stem, tgt, "Start Menu", {"kind": "schtask", "target": task}, lnk=p))
+                else:
+                    out.append(_entry(stem, tgt or p, "Start Menu", {"kind": "lnk", "target": p}, lnk=p))
     return out
+
+
+def schtask_name(args):
+    """'/run /tn "TPFan"' -> 'TPFan'; '' when the arguments are not a task run."""
+    a = str(args or "")
+    if not re.search(r"/run\b", a, re.I):
+        return ""
+    m = re.search(r'/tn\s+(?:"([^"]+)"|(\S+))', a, re.I)
+    return (m.group(1) or m.group(2)).strip() if m else ""
 
 
 def src_programs(query, env):
@@ -179,6 +192,11 @@ def real_start_apps(run=subprocess.run):
 
 def real_lnk_target(path, run=subprocess.run):
     s = "(New-Object -ComObject WScript.Shell).CreateShortcut('%s').TargetPath" % path.replace("'", "''")
+    return _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", s], run).strip()
+
+
+def real_lnk_args(path, run=subprocess.run):
+    s = "(New-Object -ComObject WScript.Shell).CreateShortcut('%s').Arguments" % path.replace("'", "''")
     return _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", s], run).strip()
 
 
@@ -407,7 +425,7 @@ def real_env(osname=None):
                                      os.path.join(pd, "Microsoft", "Windows", "Start Menu", "Programs") if pd else "",
                                      os.path.join(home, "Desktop"), os.path.join(environ.get("PUBLIC", ""), "Desktop"))
                          if d and os.path.isdir(d)],
-            "walk_lnk": real_walk_lnk, "lnk_target": real_lnk_target, "start_apps": real_start_apps}
+            "walk_lnk": real_walk_lnk, "lnk_target": real_lnk_target, "lnk_args": real_lnk_args, "start_apps": real_start_apps}
 
 
 def sources_for(osname):
@@ -458,14 +476,34 @@ def find(query, env=None, osname=None):
     return out
 
 
+def _program_path(m):
+    """The executable a match stands for: an exe or a shortcut to one; "" for a launcher, folder or store app."""
+    p = m.get("path") or ""
+    if m.get("launch", {}).get("kind") in ("exe", "lnk") and p.lower().endswith((".exe", ".com")):
+        return p.lower()    # Windows paths are case-insensitive; two programs differing only in case do not exist there
+    return ""
+
+
 def pick(matches):
-    """-> (match | None, why). The best-scoring matches under one name (any number of paths) resolve to the
-    first by trust; different names are ambiguous: the caller lists them and never guesses."""
+    """-> (match | None, why). The best-scoring matches that are ONE program (one name, or one executable behind
+    several shortcut names) resolve to the first by trust; different programs are ambiguous: the caller lists them
+    and never guesses. An elevated scheduled-task launcher among them wins (admin, no UAC prompt) and carries the
+    program's exe as `exe`."""
     if not matches:
         return None, "not found"
     top = [m for m in matches if m["score"] == matches[0]["score"]]
-    names = {norm(m["name"]) for m in top}
-    if len(names) > 1:
+    tasks = [m for m in top if m.get("launch", {}).get("kind") == "schtask"]
+    rest = [m for m in top if m.get("launch", {}).get("kind") != "schtask"]
+    paths = {_program_path(m) for m in rest}
+    names = {norm(m["name"]) for m in rest}
+    one = len(names) <= 1 or (len(paths) == 1 and "" not in paths)
+    if tasks:
+        if not one:
+            return None, "ambiguous: " + ", ".join(sorted({m["name"] for m in rest}))
+        if len({m["launch"]["target"].lower() for m in tasks}) > 1:
+            return None, "ambiguous: " + ", ".join(sorted({m["name"] for m in tasks}))
+        return {**tasks[0], "exe": next(iter(paths - {""}), "")}, "ok"
+    if not one:
         return None, "ambiguous: " + ", ".join(sorted({m["name"] for m in top}))
     return top[0], "ok"
 
