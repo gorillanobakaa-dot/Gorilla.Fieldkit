@@ -102,6 +102,14 @@ def test_an_injection_is_capped_and_repeats_are_one_row():
     assert room.context([]) == ""
 
 
+def test_the_room_text_tells_the_reader_to_ask_the_actor_first():
+    """I-30 (owner 2026-11-16): a surprising row is a question to that session, never 'the owner did not approve'."""
+    room.unseen("s2")
+    room.write(call("s1", "Bash", command="git commit -m a"))
+    ctx = room.context(room.unseen("s2"))
+    assert ctx.splitlines()[-1] == room.ASK_FIRST and "ask that session" in ctx and "never assume" in ctx
+
+
 def test_the_hook_writes_shows_and_never_fails(capsys):
     room.unseen("s2")
     assert room.pretool(call("s1", "Bash", command="git commit -m a")) == ""   # s1 sees nothing of its own
