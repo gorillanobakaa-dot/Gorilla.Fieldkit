@@ -48,6 +48,7 @@ The model gets four MCP tools: build_harness_status, build_harness_next, build_h
 build_harness_briefs. It never gets a tool that records a decision.
 """
 import json
+import subprocess
 import re
 import os as _os
 import time
@@ -84,6 +85,50 @@ def start_firefox(task_id=None, pin=None, source=None, budget=100_000, workdir=N
     task.STATE.mkdir(parents=True, exist_ok=True)
     (task.STATE / "CURRENT").write_text(tid, encoding="utf-8")
     return t
+
+
+def emerge_steps():
+    """The steps of a tree `fieldkit emerge` already patched (the patchset stage: the public set replayed onto the
+    release tag). The groups are not applied again; the two checks every port ends with are run on the tree, so
+    build-gate reads the same journal events (final-checks passed, owner preflight) a port leaves."""
+    return [{"id": "final-checks", "kind": "script", "title": "no rejects, no conflict markers",
+             "run": "fieldkit.buildh.firefox:step_final_checks"},
+            {"id": "owner-preflight", "kind": "script", "title": "the owner's preflight: every blocker becomes an owner step",
+             "run": "fieldkit.buildh.ownercheck:step_owner_preflight"}]
+
+
+def start_firefox_emerge(version, workdir, harness_root, task_id=None, tag=None):
+    """-> (task, created). The task record of a tree the emerge patchset stage built (2026-11-16, P27 160: the install
+    tier of the firefox-windows recipe reads a build-harness task; the 160 port ran on Linux, so Windows had none and
+    package-checks refused "no task 'firefox-160.0'"). Idempotent: an existing task is returned as it is.
+    The plan still needs the owner's approve; nothing here approves it."""
+    tid = task_id or f"firefox-{version}"
+    if (task.STATE / tid / "task.json").is_file():
+        return task.load(tid), False
+    wd = Path(workdir)
+
+    def git(*a):
+        r = subprocess.run(["git", "-C", str(wd), *a], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode:
+            raise task.Refused(f"start --emerge: git {' '.join(a)} in {wd}: {r.stderr.strip()[:200]}")
+        return r.stdout.strip()
+
+    roots = git("rev-list", "--max-parents=0", "HEAD").split()
+    if len(roots) != 1:
+        raise task.Refused(f"start --emerge: {wd} must have one root commit (the release tag), found {len(roots)}")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        raise task.Refused(f"start --emerge: {wd} has uncommitted edits; the record must name a committed tree")
+    head = git("rev-parse", "HEAD")
+    up = {"product": "firefox", "version": version, "tag": tag or f"FIREFOX_{version.replace('.', '_')}_RELEASE",
+          "commit": roots[0], "why": "the release tag under the tree fieldkit emerge patched (its root commit)"}
+    meta = {"pinned": up, "upstream": up, "harness_root": str(harness_root), "built_by": "emerge", "emerge_head": head}
+    t = task.start(tid, "firefox-emerge", wd, emerge_steps(), meta=meta)
+    stamp = time.strftime("%H:%M:%S")
+    t["checkpoints"] = [{"label": "workcopy", "commit": roots[0], "t": stamp},
+                        {"label": "emerge-patchset", "commit": head, "t": stamp}]
+    task.save(t)
+    task.journal(t, "emerge-tree", pristine=roots[0], head=head)
+    return t, True
 
 
 def lines_for(result):
@@ -539,6 +584,29 @@ def run(a, emit):
     if act == "start":
         if not a.args or a.args[0] != "firefox":            # `start` alone was an IndexError (2026-10-18)
             raise task.Refused("start firefox: the only workflow so far (the kernel workflow comes next)")
+        if getattr(a, "emerge", False):
+            # start firefox --emerge --pin V --workdir SRC --harness H: the record of the tree emerge built (idempotent)
+            if not (a.pin and a.workdir and a.harness):
+                raise task.Refused("start firefox --emerge needs --pin VERSION --workdir SRC --harness HARNESS")
+            t, created = start_firefox_emerge(a.pin, a.workdir, a.harness, task_id=a.task)
+            fk = _settings.self_cmd()
+            approve = f"{fk} build-harness approve {t['id']}"
+            if not t["approved"] and created:
+                try:
+                    from ..autopilot import inbox
+                    inbox.add(f"{t['id']}: approve the 2-step check plan of the tree emerge built",
+                              "The install tier (package checks, install, post-install) reads a build-harness task. "
+                              "Its plan runs two checks on the built tree (final-checks, the owner's preflight); "
+                              "only the owner approves a plan.", approve, kind="decision")
+                except Exception:  # noqa: BLE001 - the refusal below names the command anyway
+                    pass
+            r = {"task": t["id"], "created": created, "approved": t["approved"], "workdir": t["workdir"],
+                 "steps": [s["id"] for s in t["steps"]]}
+            emit(r, lambda r: print(f"task {r['task']} {'recorded' if r['created'] else 'already recorded'} for the emerge "
+                                    f"tree {r['workdir']}: {', '.join(r['steps'])}\n"
+                                    + ("approved" if r["approved"] else
+                                       f"NOT APPROVED: the owner runs once: {approve}  (in the inbox)")))
+            return 0 if t["approved"] else 3
         t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir, harness_root=a.harness)
         # a local name: `settings` is imported further down in run(), which makes it local to the whole function
         # (2026-10-16: start created the task, then crashed printing this with "cannot access free variable")
