@@ -162,3 +162,9 @@ def test_a_batch_pr_runs_the_selection_in_its_body_and_a_normal_pr_does_not(tmp_
     assert ci.batch_selection(str(ev), "night/batch-1") is None     # no marker: the normal selection
     ev.write_text(json.dumps({"pull_request": {"body": '<!-- fieldkit-batch {"tests": null} -->'}}))
     assert ci.batch_selection(str(ev), "night/batch-1") is None     # the tool could not select: normal, never fewer
+
+
+def test_present_drops_a_deleted_test_file(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("")
+    assert ci.present(["tests/test_a.py", "tests/test_gone.py"], root=tmp_path) == ["tests/test_a.py"]
