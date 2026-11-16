@@ -116,6 +116,11 @@ def check(cfg=None, facts=None, hist=None, reg=None, sample=False):
             found += leaks.sweep(act=False, cfg=cfg)["findings"]
         except Exception:
             pass
+        try:                        # P28 A: deaf stations with a waiting note
+            from ..peers import ear_wake
+            found += ear_wake.hog_findings()
+        except Exception:
+            pass
     if sample:
         save_sample(facts, hist, cfg)
         reg = registry.prune(facts["alive"])
@@ -242,9 +247,20 @@ def _liveness(watch):
         from ..core import liveness, procs
         from . import leaks
         return (liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
-                + " | " + leaks.line(leaks.sweep(act=True, cfg=config())))
+                + " | " + leaks.line(leaks.sweep(act=True, cfg=config())) + _ear_wake())
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
+
+
+def _ear_wake():
+    """P28 A: the 5-minute watch also runs the ear supervisor (notes waiting on a deaf station -> WAKE to Zero), so
+    a wake goes out even when no ear runs anywhere. -> ' | ears: N wake(s) sent' or ''."""
+    try:
+        from ..peers import ear_wake
+        n = len(ear_wake.run())
+        return f" | ears: {n} wake(s) sent to Zero" if n else ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def preflight_check(ctx=None, cfg=None, facts=None, ram_fn=None, do=None):

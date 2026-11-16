@@ -75,14 +75,26 @@ def _link_keepalive():
     return all(r["ok"] for r in link_keepalive.status())
 
 
-def _telemetry_firewall_task():
-    # the scheduled task that keeps every vctip.exe blocked at the firewall (prereqs/telemetry-firewall-task.ps1)
-    import subprocess
-    import sys
+def _telemetry_firewall_task(run=None, programdata=None):
+    # the scheduled task that keeps every vctip.exe blocked at the firewall (prereqs/telemetry-firewall-task.ps1), AND
+    # its protected copy under %ProgramData%\Gorilla hashes to the repo script: a changed script (P28 D: authenticated
+    # users may start the task) is applied again, once
     if sys.platform != "win32":
         return True
-    r = subprocess.run(["schtasks", "/query", "/tn", "fieldkit-telemetry-firewall"], capture_output=True, text=True, timeout=30)
-    return r.returncode == 0
+    run = run or subprocess.run
+    try:
+        r = run(["schtasks", "/query", "/tn", "fieldkit-telemetry-firewall"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if r.returncode != 0:
+        return False
+    pd = programdata or os.environ.get("ProgramData") or r"C:\ProgramData"
+    copy = Path(pd) / "Gorilla" / "telemetry-firewall.ps1"
+    repo = Path(_root()) / "fieldkit" / "mandate" / "prereqs" / "telemetry-firewall-task.ps1"
+    try:
+        return hashlib.sha256(copy.read_bytes()).hexdigest() == hashlib.sha256(repo.read_bytes()).hexdigest()
+    except OSError:
+        return False
 
 
 def _link_rescue_firewall():
