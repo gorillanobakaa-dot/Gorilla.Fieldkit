@@ -415,7 +415,8 @@ class LinkOffloader:
 
 
 # -- preflight: the recipe's own checks, once, before stage 1 ---------------------------------------------------------
-def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None, rows_planned=None):
+def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None, rows_planned=None,
+               vctip=None):
     """-> [(name, status, line)]. Plain reads; nothing changes. When every stage to build is offloaded
     (core/concepts.measured_on), this machine's pins, disk, RAM, long paths and thermal cap are not the build's: one
     row names the device whose own `emerge run --local` preflight measures them (2026-11-16, seam 5)."""
@@ -467,6 +468,16 @@ def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, 
         thermal = (settings.local_settings().get("thermal") or {}).get("build_target")
     rows.append(("thermal cap", OK if thermal else WARN,
                  f"governor target {thermal} C" if thermal else "no thermal.build_target in fieldkit.local.json"))
+    # MSVC telemetry (P28 D): a vctip.exe a new toolset unpacked since the SYSTEM task last ran. `vctip`: an injected
+    # (status, line, task) or False to skip; None reads this machine (Windows with a vctip.exe only).
+    if vctip is None:
+        try:
+            from ..core import telemetry
+            vctip = telemetry.vctip_preflight()
+        except Exception as e:  # noqa: BLE001
+            vctip = (WARN, f"not readable ({type(e).__name__})", False)
+    if vctip:
+        rows.append(("telemetry", vctip[0], vctip[1]))
     if offloads:
         m = recipe.config_digest().get("mandate") if recipe.config_spec.get("mandate") else None
         rows.append(("mandate", OK if isinstance(m, dict) else WARN,
@@ -579,6 +590,18 @@ class Emerge:
                 "preflight_status": max((c[1] for c in checks), key=[OK, WARN, STOP].index, default=OK),
                 "eta_s": sum(known), "eta_unknown": len(todo) - len(known),
                 "hash_s": round(self.clock() - t0, 2), "baseline_minutes": self.recipe.baseline_minutes}
+
+    def _vctip(self, preflight, task=None):
+        """A telemetry WARN whose task exists: start the SYSTEM task now (no UAC, P28 D) so the build and its leak gate
+        never wait an hour for the next scheduled run. `task`: an injected starter -> (ok, line)."""
+        if not any(n == "telemetry" and st == WARN and "runs before stage 1" in line for n, st, line in preflight):
+            return None
+        if task is None:
+            from ..core import telemetry
+            task = telemetry.run_firewall_task
+        ok, line = task()
+        self.say(f"  preflight telemetry: {'OK' if ok else 'WARN'} {line}")
+        return ok
 
     # -- the run -----------------------------------------------------------------------------------------------------
     def _line(self, i, n, sid, word, detail=""):
@@ -700,6 +723,7 @@ class Emerge:
         for name, st, line in pl["preflight"]:
             if st != OK:
                 self.say(f"  preflight {name}: {st.upper()} {line}")
+        self._vctip(pl["preflight"])
         if pl["preflight_status"] == STOP:
             report.update(ok=False, refused="; ".join(l for _n, s, l in pl["preflight"] if s == STOP))
             self.say(f"REFUSED before stage 1: {report['refused']}")
