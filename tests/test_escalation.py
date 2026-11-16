@@ -15,10 +15,11 @@ def iso(tmp_path, monkeypatch):
 
 def test_next_model_retries_then_climbs():
     assert models.next_model("claude-haiku-5-5", 1) == "claude-haiku-5-5"
-    assert models.next_model("claude-haiku-5-5", 2) == "sonnet"
-    assert models.next_model("claude-sonnet-5-5", 2) == "opus"
-    assert models.next_model("claude-opus-5-5", 2) == "fable"
-    assert models.next_model("claude-fable-5-1", 2) is None
+    assert models.next_model("claude-haiku-5-5", 2) == "claude-haiku-5-5"        # own_limit 3: two reds retry
+    assert models.next_model("claude-haiku-5-5", 3) == "sonnet"
+    assert models.next_model("claude-sonnet-5-5", 3) == "opus"
+    assert models.next_model("claude-opus-5-5", 3) == "fable"
+    assert models.next_model("claude-fable-5-1", 3) is None
     assert models.next_model("gpt-9", 5) is None
 
 
@@ -73,13 +74,13 @@ def test_ladder_is_on_in_the_shipped_config():
     assert models.ladder_cfg()["enabled"] is True
 
 
-def test_ladder_off_parks_after_two(monkeypatch):
+def test_ladder_off_parks_after_three(monkeypatch):
     _ladder(monkeypatch, on=False)
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
-    for h in ("h1", "h2"):
+    for h in ("h1", "h2", "h3"):
         r = strikes.record_failure("b", h, inbox=lambda *a: None)
     assert r["parked"] and strikes.escalation("b") is None
-    assert strikes.ladder_step([{"model": "sonnet"}, {"model": "sonnet"}]) is None
+    assert strikes.ladder_step([{"model": "sonnet"}] * 3) is None
 
 
 def test_sonnet_climbs_to_opus_then_parks_fable_skipped(monkeypatch):
@@ -87,13 +88,14 @@ def test_sonnet_climbs_to_opus_then_parks_fable_skipped(monkeypatch):
     inbox = []
     add = lambda *a: inbox.append(a)
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
-    for h in ("h1", "h2"):
+    for h in ("h1", "h2", "h3"):
         r = strikes.record_failure("b", h, inbox=add)
     assert not r["parked"] and r["escalate_to"] == "opus" and strikes.escalation("b") == "opus"
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "opus")
-    r = strikes.record_failure("b", "h3", inbox=add)
-    assert not r["parked"]                                  # opus retries once
-    r = strikes.record_failure("b", "h4", inbox=add)
+    for h in ("h4", "h5"):
+        r = strikes.record_failure("b", h, inbox=add)
+        assert not r["parked"]                              # opus retries twice
+    r = strikes.record_failure("b", "h6", inbox=add)
     assert r["parked"] and r["new"]                         # fable refused (no mandate): opus was the top
     assert "sonnet, opus" in inbox[0][1]                    # the parked note says which models tried
     rows = [json.loads(l) for l in models.attempts_path().read_text().splitlines()]
@@ -103,15 +105,15 @@ def test_sonnet_climbs_to_opus_then_parks_fable_skipped(monkeypatch):
 
 def test_fable_used_with_a_mandate(monkeypatch):
     _ladder(monkeypatch, mandate=True)
-    assert models.climb("opus", 2)["next"] == "fable"
+    assert models.climb("opus", 3)["next"] == "fable"
     _ladder(monkeypatch)
-    assert models.climb("opus", 2) == {"next": None, "same": False, "skipped": ["fable"]}
+    assert models.climb("opus", 3) == {"next": None, "same": False, "skipped": ["fable"]}
 
 
 def test_unknown_model_still_parks(monkeypatch):
     _ladder(monkeypatch)
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "local-qwen")
-    for h in ("h1", "h2"):
+    for h in ("h1", "h2", "h3"):
         r = strikes.record_failure("b", h, inbox=lambda *a: None)
     assert r["parked"]
 
@@ -145,5 +147,6 @@ def test_unproven_red_past_the_limit_is_not_the_models_own(monkeypatch):
     none = lambda *a: {}
     for h in ("h1", "h2", "h3"):
         r = strikes.count_red("b", h, ["FAILED t::a"], "base", job="ci", runner=none, inbox=lambda *a: None)
-    assert r["kind"] == "unproven" and r["counted"]
-    assert [a["own"] for a in models.read_attempts()] == [False]
+    assert r["kind"] == "unproven" and not r["counted"]     # 2026-11-16: an unproven red is never a strike
+    assert strikes.parked_for("b") is None
+    assert not [a for a in models.read_attempts() if a["own"]]

@@ -17,9 +17,29 @@
   why: no readable ids is unproven, never own or main
 - file: fieldkit/method/strikes.py
   swap:
-  - '    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT}'
-  - '    return {"unproven": len(un), "counted": False}'
-  why: the unproven round past FLAKE_LIMIT counts (fail closed)
+  - '    return {"unproven": len(un), "counted": False, "new": new}'
+  - '    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT, "new": new}'
+  why: an unproven red is never counted, however often it repeats (owner 2026-11-16, PR 553)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '        if got and got[0] == "main":'
+  - '        if False:'
+  why: main's own failed CI runs prove a red that the merge base could not be run for (PR 553)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '        if ids and set(ids) <= main_ids:'
+  - '        if ids:'
+  why: main's run proves only when it failed every one of the ids (a red main does not share is not main's)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '        cur = rounds[-1].get("model") or DEFAULT_MODEL    # 2026-11-16: unknown was "off the ladder" = park at once'
+  - '        cur = rounds[-1].get("model") or "unknown"'
+  why: a round with an unknown model ran on the default rung
+- file: fieldkit/method/strikes.py
+  swap:
+  - 'LIMIT = 3 '
+  - 'LIMIT = 2 '
+  why: three own failed rounds, not two, before the next model takes over (owner 2026-11-16)
 - file: fieldkit/method/strikes.py
   swap:
   - '    if kind == "main":'

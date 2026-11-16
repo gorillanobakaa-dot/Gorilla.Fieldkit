@@ -464,3 +464,11 @@ def _release_gate_sees_no_release(monkeypatch):
     tests/test_releasegate.py passes `last=` to guard() itself."""
     from fieldkit.method import releasegate
     monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gh_proof(monkeypatch):
+    """strikes.default_proof asks GitHub for main's CI runs; a test never reaches gh (it gets no extra evidence)."""
+    from fieldkit.method import strikes
+    monkeypatch.setattr(strikes, "default_proof", lambda *a, **k: None)
+    yield

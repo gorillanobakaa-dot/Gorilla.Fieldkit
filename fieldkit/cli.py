@@ -1656,7 +1656,7 @@ METHODS = {
                      "merge into main only under a project mandate; never forces"),
     "ci-steps": ("cisteps", "the CI workflow's job for this OS, run in this tree: the step runner `fieldkit ship "
                             "ci-local` sends over the cable when GitHub's runner is down (--os --base --report)"),
-    "strikes": ("strikes", "TWO STRIKES: a branch or PR that failed CI twice is parked, never tried a third time "
+    "strikes": ("strikes", "TWO STRIKES: only a PR's OWN red counts; 3 on one model climbs to the next stronger model, parked past the strongest allowed "
                            "(list | park ID | unpark ID | check BRANCH)"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),

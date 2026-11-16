@@ -146,14 +146,14 @@ class DefectOpen(ValueError):
 
 
 class Parked(ValueError):
-    """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
+    """The brief names a branch or PR that was parked by strikes (its own CI failures beat every allowed model); the message says which."""
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
           worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None, pin=False,
           park=None, agent=None, thinking=None, require_choice=False):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
-    one, Parked when it names a parked branch or PR (TWO STRIKES), BriefRefused when it names no plan id
+    one, Parked when it names a parked branch or PR (strikes), BriefRefused when it names no plan id
     (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief is still started somewhere
     (unless again). `worktree`: (repo, tid) -> (path or None, why); default
     worktrees.make. `model`: the worker's model (default: roles.yaml worker.default); `accept`: the acceptance

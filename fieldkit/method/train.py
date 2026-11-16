@@ -741,8 +741,9 @@ def merge_when_registered(gh, n, head, base, max_wait_s, record=None, sleep=time
 
 def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None, runner=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
-    the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
-    parked branch is not waited on at all."""
+    the PR's state, not gh's exit code. STRIKES (limit 3, 2026-11-16): only the branch's OWN red is a round; LIMIT rounds
+    on one model hand the repair to the next stronger one ("escalate_to"); the branch is parked (state "parked") only past
+    the strongest allowed model. An unproven red is never a round. A parked branch is not waited on at all."""
     pr = gh.pr(n)
     head = pr["headRefOid"]
     r = {"pr": n, "branch": pr["headRefName"], "head": head}
@@ -799,17 +800,26 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if s["kind"] == "main":                         # F4: every failed test also fails on the merge base
             return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {s['evidence']}",
                         next="fix main first (its own PR), then update this branch and run ci-wait again")
-        if not s["counted"]:                            # F4: unproven, recorded, forgiven up to FLAKE_LIMIT
-            return dict(r, ok=False, state="unproven", log=log, why=f"red not proven this branch's, not counted: "
-                        f"{s['evidence']}", next=f"re-run the failed jobs once, then ci-wait {n} again")
+        if not s["counted"]:                            # unproven: never a strike, never a park (2026-11-16)
+            up = s.get("escalate_to")
+            return dict(r, ok=False, state="unproven", log=log, escalate_to=up,
+                        why=f"red not proven this branch's, so NOT counted as a strike: {s['evidence']}",
+                        next=(f"ESCALATE: {up} judges whose red this is (a re-run of the failed jobs first), then "
+                              if up else "no stronger model is allowed now: the owner decides (inbox); re-run the "
+                                         "failed jobs once, then ") + f"ci-wait {n} again")
         if s["parked"]:
-            return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
+            return dict(r, ok=False, state="parked", log=log,
+                        why=f"parked: {(strikes.parked_for(r['branch']) or {}).get('why') or str(s['rounds']) + ' own failed CI rounds'}; "
+                            f"own failure: {s['evidence']}",
                         next="parked, go on with the plan")
         if s.get("escalate_to"):                        # P9: the ladder climbs before anything is parked
             return dict(r, ok=False, log=log, escalate_to=s["escalate_to"],
+                        why=f"own failure ({s['rounds']} own rounds): {s['evidence']}",
                         next=f"ESCALATE (ladder on): fix it with {s['escalate_to']}, push it, then run ci-wait again")
-        return dict(r, ok=False, log=log, next="fix it on the branch, push it, then run ci-wait again "
-                                               "(one strike left)")
+        return dict(r, ok=False, log=log, why=f"own failure ({s['rounds']} own round(s) of {strikes.LIMIT} on this model): "
+                                              f"{s['evidence']}",
+                    next=f"fix it on the branch, push it, then run ci-wait again "
+                         f"({max(0, strikes.LIMIT - s['rounds'])} own strike(s) left on this model)")
     if state != "green":
         return dict(r, ok=False, state="timeout" if state == "pending" else state,
                     next="CI did not finish in time; run ci-wait again in the background")

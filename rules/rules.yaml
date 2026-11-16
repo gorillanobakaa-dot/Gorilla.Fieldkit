@@ -94,11 +94,11 @@ core:
   audience: all
   enforced_by:
   - fieldkit/method/strikes.py (ci-wait counts and parks; ship push and task start refuse a parked branch)
-  owner: 2026-10-29; B2 own failures only 2026-10-31
+  owner: 2026-10-29; B2 own failures only 2026-10-31; limit 3, unproven never counted 2026-11-16
   uses: [fieldkit ship ci-wait]
   text: |-
-    TWO STRIKES (owner, 2026-10-29). A PR or job that fails CI twice by its own failures is parked by
-    `fieldkit ship ci-wait` (main's red is not its own). Leave it for a stronger model; go on. No third try.
+    TWO STRIKES (owner 2026-11-16). Only OWN reds count (not main's, not unproven); 3 on one model
+    send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
 - id: WAITING
   subject: waiting
   audience: all
