@@ -75,6 +75,9 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
+# 2026-11-16: refusals.record() with no root wrote fixture rows into the real state/refusals.jsonl, which
+# refusals.push sends over the cable as LEDGER1 notes: Windows test runs flooded the VAIO Zero. Tests write elsewhere.
+_os.environ["FIELDKIT_REFUSALS_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-refusals-")
 # Tests never reach the real cable (2026-10-28, item 22: the C6 hook test's child process checked fixture stations
 # in to a "far" Zero over the REAL cable; the VAIO got claude:zzzzzzzz@... -> claude:aaaaaaaa@HOSTA). Every address
 # of the real household (and the cable's own 10.77.0.0/30) is refused at socket.connect, here and in every child
