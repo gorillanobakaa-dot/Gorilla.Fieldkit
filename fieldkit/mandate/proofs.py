@@ -146,10 +146,20 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
         from ..method import ship
         env = ship.ship_env()
     r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",
-             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True, **({"env": env} if env else {}))
+             "[.check_runs[] | {name, status, conclusion, suite: .check_suite.id}]"], capture_output=True, text=True,
+            **({"env": env} if env else {}))
     if r.returncode:
         return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
     runs = json.loads(r.stdout or "[]")
+    # Runs started by a GitHub release event test that release's published files, not the commit: they are not the
+    # commit's CI. Counting them deadlocked v0.1.164 (2026-11-16): the release was created empty, its install checks
+    # failed "no assets to download", and this proof then refused to let the files be added. They are re-run after
+    # the files are added (ship.gh_release_add), so nothing goes unchecked.
+    rel = run(["gh", "api", f"repos/{slug}/actions/runs?head_sha={commit}&event=release&per_page=100", "--jq",
+               "[.workflow_runs[].check_suite_id]"], capture_output=True, text=True, **({"env": env} if env else {}))
+    if rel.returncode == 0 and (rel.stdout or "").strip().startswith("["):
+        suites = set(json.loads(rel.stdout))
+        runs = [x for x in runs if x.get("suite") not in suites] if suites else runs
     if not runs:
         return False, f"no CI run for {commit[:10]}: a repository without CI never merges or releases unattended"
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]

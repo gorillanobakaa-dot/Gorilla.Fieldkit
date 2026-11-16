@@ -413,6 +413,43 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     return {"ok": False, "state": "network", "tag": tag, "error": last[-300:], "next": "try again later"}
 
 
+def release_is_empty(repo, extra):
+    """Why `gh release create` with EXTRA would publish an empty or page-less release ('' when it would not): it needs
+    at least one file argument that exists and a page (--notes-file/-F FILE that exists, or --notes TEXT)."""
+    args, files, notes, i = list(extra), [], False, 0
+    while i < len(args):
+        a = args[i]
+        if a in ("--notes-file", "-F") and i + 1 < len(args):
+            nf = Path(args[i + 1])
+            notes = notes or (nf if nf.is_absolute() else Path(repo) / nf).is_file()
+            i += 2
+            continue
+        if a.startswith("--notes-file="):
+            nf = Path(a.split("=", 1)[1])
+            notes = notes or (nf if nf.is_absolute() else Path(repo) / nf).is_file()
+        elif a == "--generate-notes":
+            notes = True
+        elif a in ("--notes", "-n") and i + 1 < len(args):
+            notes = notes or bool(args[i + 1].strip())
+            i += 2
+            continue
+        elif a in ("--title", "-t", "--notes-start-tag", "--discussion-category", "--target") and i + 1 < len(args):
+            i += 2
+            continue
+        elif not a.startswith("-"):
+            files.append(Path(a.split("#", 1)[0]))
+        i += 1
+    real = [f for f in files if (f if f.is_absolute() else Path(repo) / f).is_file()]
+    missing = [str(f) for f in files if f not in real]
+    if missing:
+        return f"file(s) not found: {' '.join(missing[:5])}"
+    if not real:
+        return "no release files given: a release is never created empty"
+    if not notes:
+        return "no page given (--notes-file PAGE): a release is never created without its page"
+    return ""
+
+
 def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
@@ -433,6 +470,10 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
     g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
     if not g["ok"]:
         return g
+    empty = release_is_empty(repo, extra)
+    if empty:          # v0.1.164 (2026-11-16) was created with no files and no page: its own install checks failed
+        return {"ok": False, "state": "bad-input", "tag": tag, "error": empty,
+                "next": "give the release files and --notes-file PAGE after --; nothing was published"}
     r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
             capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
@@ -533,9 +574,26 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
     except (RuntimeError, ValueError) as e:
         return {"ok": False, "state": "refused", "tag": tag, "error": str(e)[-300:],
                 "next": "read the error; files already uploaded stay, run it again to finish"}
+    rerun = rerun_release_checks(slug, tag, run)
     _mandate_log(mpath, "release-add", why, tag=tag, files=sorted(new))
-    return {"ok": True, "state": "assets-added", "tag": tag, "mandate": why, "files": new,
+    return {"ok": True, "state": "assets-added", "tag": tag, "mandate": why, "files": new, "rerun": rerun,
             "next": f"fieldkit release verify {tag} --repo {slug}"}
+
+
+def rerun_release_checks(slug, tag, run=subprocess.run):
+    """Re-run the failed workflow runs a release event started for TAG (they check the published files, so they must
+    see the files just added). -> the run ids re-run; nothing on any error (the files are added either way)."""
+    r = run(["gh", "api", f"repos/{slug}/actions/runs?event=release&per_page=50", "--jq",
+             f'[.workflow_runs[] | select(.head_branch == "{tag}" and .conclusion == "failure") | .id]'],
+            capture_output=True, text=True, env=ship_env())
+    if r.returncode or not (r.stdout or "").strip().startswith("["):
+        return []
+    done = []
+    for rid in json.loads(r.stdout):
+        if run(["gh", "run", "rerun", str(rid), "--failed", "-R", slug], capture_output=True, text=True,
+               env=ship_env()).returncode == 0:
+            done.append(rid)
+    return done
 
 
 def request_test_job(repo, commit, call=None):
