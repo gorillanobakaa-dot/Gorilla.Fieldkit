@@ -517,6 +517,10 @@ def unfreeze(repo, base="main", checkout=None, run=subprocess.run):
     if _git(co, "branch", "--show-current").stdout.strip() != base or \
             _git(co, "status", "--porcelain", "--untracked-files=no").stdout.strip():
         return dict(rep, ok=False, state="not-on-clean-base", next=f"the checkout is not a clean {base}: look first")
+    from ..core import checkout_hold        # P29: a running build holds this checkout
+    held = checkout_hold.busy(co)
+    if held:
+        return dict(rep, ok=False, state="held-by-build", why=held, next="unfreeze again when the build ends")
     m = _git(co, "merge", "--ff-only", f"refs/remotes/origin/{base}")
     if m.returncode:
         return dict(rep, ok=False, state="not-fast-forward", error=m.stderr.strip()[-200:], next="nothing moved")
