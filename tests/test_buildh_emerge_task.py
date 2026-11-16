@@ -20,6 +20,8 @@ def tree(tmp_path, monkeypatch):
     w = tmp_path / "src"
     w.mkdir()
     subprocess.run(["git", "init", "-q", str(w)], check=True)
+    # Windows runners default to autocrlf=true, which makes `status` report text files as modified after the commit
+    subprocess.run(["git", "-C", str(w), "config", "core.autocrlf", "false"], check=True)
     (w / "a.txt").write_text("pristine\n")
     _git(w, "add", "-A")
     root = _git(w, "commit", "-qm", "release tag")
