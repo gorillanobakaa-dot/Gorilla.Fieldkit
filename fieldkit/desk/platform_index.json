@@ -1544,15 +1544,6 @@
    "capture"
   ]
  },
- "capture adopted bh-recipe-documents": {
-  "platforms": [
-   "linux"
-  ],
-  "why": "distilled from a Linux capture; Windows port not yet proven",
-  "ids": [
-   "bh-recipe-documents"
-  ]
- },
  "capture project firefox": {
   "platforms": [
    "linux",

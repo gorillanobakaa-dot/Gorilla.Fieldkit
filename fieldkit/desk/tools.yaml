@@ -7824,31 +7824,3 @@ tools:
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."
 
-- id: bh-recipe-documents
-  title: 'Recipe: documents'
-  harness: method
-  entry:
-  - python
-  - -m
-  - fieldkit
-  - capture
-  - adopted
-  - bh-recipe-documents
-  path: ${FIELDKIT}/fieldkit/capture/adopted
-  effects:
-  - reads-files
-  - writes-files
-  safety: reversible
-  output: own
-  platforms:
-  - linux
-  platforms_why: distilled from a Linux capture; Windows port not yet proven
-  test:
-  - python
-  - -m
-  - pytest
-  - -q
-  - ${FIELDKIT}/tests/capture/adopted/test_bh-recipe-documents.py
-  notes: 'Adopted by itself from a `fieldkit capture` build run: its test passed, `fieldkit mutate` broke the script and the
-    test caught every swap, the privacy scan was clean. candidate from `fieldkit capture` build loop; prove its test can fail
-    with `fieldkit mutate`, then `fieldkit adopt`.'
