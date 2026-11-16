@@ -1365,6 +1365,23 @@ tools:
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_firefox_cookbook_e2e.py"]
   notes: "P38, owner order 2026-11-16 (Firefox 160 failed at the seams between tools, never inside one). Data: fieldkit/firefox/cookbook.yaml (systems, steps S0-S9 + handover/build per OS, knowledge map) and lesson_rules.yaml; one definition per concept: fieldkit/core/concepts.py. The procedure in words: docs/FIREFOX-COOKBOOK.md. The e2e test runs a toy Firefox through every seam; tests/firefox_cookbook_mutations.yaml breaks each seam 1-7."
 
+- id: fieldkit-cookbook
+  title: 'The project registry and the deterministic project load: load a bounded brief (what the project is, where its cookbook and recipes are, the state, the next command) by project id or by cwd with no file search; list, show, and check every projects/*/project.yaml'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, cookbook]
+  path: ${FIELDKIT}/fieldkit/cookbook/cli.py
+  inputs:
+    - {name: command, type: choice, choices: [load, list, show, check], required: true, help: "load ID or load --cwd PATH at session start; check in CI"}
+    - {name: json, flag: --json, type: flag, required: false, help: "as JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "check: a project.yaml is invalid", 1: "load: no such project id"}
+  platforms: [windows, linux]
+  e2e: {linux: e2e-cookbook-load-linux, windows: e2e-cookbook-load-windows}
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_cookbook_registry.py"]
+  notes: "P41a, owner 2026-11-16 (docs/COOKBOOK-VISION.md). Data: projects/<id>/project.yaml (firefox, gorilla-opencode, debian-kernel, fieldkit); projects/README.md says the fields. The SessionStart hook (`cookbook hook`, Python only so it is the same on Linux and Windows) runs `cookbook load --cwd` and injects the brief; in a Firefox folder it adds the migration brief. Unknown cwd: prints no project, exit 0. Words: project registry, cookbook load, brief, session start, cwd."
+
 - id: core-doctor
   title: "What this computer still needs before Fieldkit works, and the line that installs it; --probe: the machine itself (OS, memory, disk, every Python, git real or Apple's stub, Homebrew, compiler, curl) and the way in (git or zip, lean or full); --lean: only the two packages the core needs"
   harness: core
