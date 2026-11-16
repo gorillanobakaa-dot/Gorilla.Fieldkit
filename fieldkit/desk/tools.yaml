@@ -1222,6 +1222,7 @@ tools:
   safety: safe
   headline: "one block per agent: provider (who can act through it / who learns what), its models, reasoning levels; BLOCKED rows with reason and until; NEXT."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
   notes: "Data: fieldkit/lifecycle/choice.yaml (one source; no agent, provider or model typed in code; stale: names fail check). Measured live: agentfind on this computer, peers link probe 'choice' on the other; model lists from the agent where it can be asked with no side effect (codex models cache, `agy models`), from LM Studio / Ollama on 127.0.0.1 only, else the data file. Kiro's model list is NOT asked (`kiro-cli chat --list-models` opens a browser login). Quota: models.unavailable_agents, fed by choice.note_failure from the model guard's error patterns and by a died task's log (tasks.settle), each block ending at its reset or cooldown. The spend guard (models.check_model) and the mandate's models_allowed apply to every pick. A local LLM is shown as the private option (nothing leaves the computer). Network: 127.0.0.1 only, plus the cable for --device."
 
@@ -1240,6 +1241,7 @@ tools:
   safety: caution
   headline: "REMEMBERED JOB_TYPE: agent / provider / model / reasoning, or REFUSED with the reason."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py"]
   notes: "Checked against choice.yaml (the agent drives the provider, the model belongs to it, the reasoning level exists, the name is not stale) and the spend guard before it is written. A remembered choice is offered first at a terminal, never applied silently there; headless runs use it."
 
