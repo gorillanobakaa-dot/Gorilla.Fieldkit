@@ -60,6 +60,19 @@ EMAIL_OK = re.compile(r"(@example\.(com|org)|noreply|no-reply|@users\.noreply\.g
                       # name@2x.png, which the address pattern reads as an address (2026-10-16 push of the 158 set)
                       r"|@mozilla\.(org|com)|\.(png|jpe?g|svg|ico|webp|gif|avif|bmp))$", re.I)
 
+# A build system's substitution token read as an address: Mozilla's package-manifest.in writes
+# `@BINPATH@/@DLL_PREFIX@Microsoft.UI.Input@DLL_SUFFIX@`, and the address pattern takes `DLL_PREFIX@Microsoft.UI.Input`  # privacy-scan: allow (the example token)
+# (2026-11-16 push of the 160 set). Only when the local part is an ALL-CAPS variable that itself opens with `@`
+# (@NAME@...@NAME@): no person's address or handle has that shape.
+_BUILD_VAR_LOCAL = re.compile(r"[A-Z][A-Z0-9_]*")
+
+
+def _build_variable(line, m):
+    local = m.group(0).split("@", 1)[0]
+    return (bool(_BUILD_VAR_LOCAL.fullmatch(local)) and m.start() > 0 and line[m.start() - 1] == "@"
+            and bool(re.match(r"@[A-Z][A-Z0-9_]*@", line[m.end():])))          # ...@DLL_SUFFIX@ closes it
+
+
 # A browser profile: the person's bookmarks and history (places.sqlite), cookies, saved passwords (logins.json +
 # key4.db), form entries, open tabs and sessions (.jsonlz4), certificates, site storage; Chromium's equivalents.
 # Owner 2026-10-16: "make sure you don't upload my personal data like my bookmarks and history search ... those are
@@ -133,6 +146,8 @@ def scan_text(text, terms=(), allow_paths=False, allow_emails=False):
         for kind, rx in rules:
             for m in re.finditer(rx, line):
                 if kind == "email" and EMAIL_OK.search(m.group(0)):
+                    continue
+                if kind == "email" and _build_variable(line, m):
                     continue
                 if kind in ("windows-user-path", "linux-home-path") and m.groups() and \
                         m.group(1).strip(".,;:()[]").lower() in PLACEHOLDER_USERS:

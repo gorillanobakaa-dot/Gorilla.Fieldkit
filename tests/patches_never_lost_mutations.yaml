@@ -1,0 +1,14 @@
+# Rules that keep patches from going missing (Firefox 160, 2026-11-16):
+#   fieldkit mutate --plan tests/patches_never_lost_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_patches_never_lost.py tests/test_privacy_build_variables.py
+- file: fieldkit/buildh/replay.py
+  swap: ['if d.is_dir() and d.name not in named and', 'if d.is_dir() and False and']
+  why: an unregistered group is found
+- file: fieldkit/migrate/plan.py
+  swap: ['    ok = bool(last) and last.get("ok") and last.get("tree") == tree', '    ok = bool(last) and last.get("ok")']
+  why: a replay of an older tree proves nothing about this one
+- file: fieldkit/migrate/plan.py
+  swap: ['    ok = not loose and ahead == "0"', '    ok = not loose']
+  why: committed but not pushed is not published
+- file: fieldkit/core/privacy.py
+  swap: ['            and bool(re.match(r"@[A-Z][A-Z0-9_]*@", line[m.end():])))', '            )']
+  why: a capital handle is not a build variable

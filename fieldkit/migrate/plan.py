@@ -398,6 +398,43 @@ def gate_S5(m):
     out.append(item("S5.packaging", bool(ver) and ver[-1].get("ok"), "packaging checks green (build-verify) after the last build",
                     f"build-verified {ver[-1]['t']}: ok={ver[-1].get('ok')}" if ver else "no build-verified after the last build start",
                     f"{FH} build-verify {m.tid}"))
+    out += gate_patchset_kept(m)
+    return out
+
+
+def gate_patchset_kept(m):
+    """The patches the port made are not lost (2026-11-16, Firefox 160: two groups unregistered and five days of patch
+    work never committed - the Windows build would have shipped without a privacy cut and two port fixes).
+      S5.replay      pristine + the published set = the tree that was built, proven after the last tree change
+      S5.published   the patch-set repo has nothing uncommitted under the set or its policy, and nothing unpushed"""
+    out = []
+    ev = m.events()
+    rp = [e for e in ev if e.get("event") == "replay-proof"]
+    tree = m.tree()
+    last = rp[-1] if rp else None
+    ok = bool(last) and last.get("ok") and last.get("tree") == tree
+    out.append(item("S5.replay", ok, "replay: pristine + the patch set = the built tree (no patch lost)",
+                    (f"replay {last['t']}: ok={last.get('ok')}, tree {str(last.get('tree'))[:10]} (now {str(tree)[:10]})"
+                     + (f"; {'; '.join(last.get('failures') or [])[:200]}" if last.get("failures") else ""))
+                    if last else "never replayed", f"{FH} replay {m.tid}"))
+    o = m.owner
+    if not o or _git(o, "rev-parse", "--git-dir") is None:
+        out.append(item("S5.published", False, "the patch set is committed and pushed", f"no patch-set git repo ({o})",
+                        f"{FH} replay {m.tid}"))
+        return out
+    try:
+        pol = json.loads((Path(o) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        root = pol.get("patchset_root", "patches")
+    except (OSError, ValueError):
+        root = "patches"
+    loose = (_git(o, "status", "--porcelain", "--", root, "config/patch_policy.json", "intents") or "").splitlines()
+    ahead = _git(o, "rev-list", "--count", "@{upstream}..HEAD")
+    ok = not loose and ahead == "0"
+    why = (f"{len(loose)} uncommitted path(s) in the set, e.g. {loose[0][3:][:120]}" if loose else
+           "no upstream branch to push to" if ahead is None else f"{ahead} commit(s) not pushed" if ahead != "0" else
+           "committed and pushed")
+    out.append(item("S5.published", ok, "the patch set is committed and pushed (the other OS builds from it)", why,
+                    f"commit {root}/ and config/ in {o} on a feat/ branch: fieldkit ship push --auto"))
     return out
 
 
