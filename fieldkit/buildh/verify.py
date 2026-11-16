@@ -639,6 +639,10 @@ def verify(task_id):
         p, k = w / rel, key_root / rel
         if not (p.is_file() and k.is_file() and p.stat().st_size == k.stat().st_size and _sha(p) == _sha(k)):
             continue
+        if old_pristine is not None and not (old_pristine / rel).is_file() and subprocess.run(
+                ["git", "-C", str(w), "cat-file", "-e", f"{root[0]}:{rel}"], capture_output=True).returncode != 0:
+            rep["old_tree_copies_harmless"].append(rel)       # in neither upstream version: the fork's own file, nothing to lose
+            continue
         if old_pristine is None or not (old_pristine / rel).is_file():
             rep["old_tree_copies_undetermined"].append(rel)
             continue
