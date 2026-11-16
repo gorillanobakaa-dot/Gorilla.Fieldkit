@@ -155,3 +155,6 @@ def test_rebase_set_names_the_steps_of_an_unfinished_port():
              {"id": "port-x-h3", "status": "proposed"}]
     assert rebase.unfinished(steps) == ["apply-05.PREFS", "port-x-h3"]
     assert rebase.unfinished([{"id": "a", "status": "done"}]) == [] and rebase.unfinished(None) == []
+    # an obsolete step is closed (the gate's rule); a pending, failed or waiting one is not
+    steps = [{"id": "o", "status": "obsolete"}, {"id": "p", "status": "pending"}, {"id": "f", "status": "failed"}]
+    assert rebase.unfinished(steps) == ["p", "f"]

@@ -365,7 +365,10 @@ def unfinished(steps):
     group only; every patch that fails on pristine 160 was marked superseded_160 and excluded, the remaining groups
     then "applied clean" with no port steps, and the tree lost what those patches carry (the NEVER CALLS HOME pref
     block among them) while the run reported 1575 patches, 0 failures."""
-    return [x.get("id") for x in steps or [] if x.get("status") != "done"]
+    # 2026-11-16 (160): an OBSOLETE step is closed, not unfinished - what it would patch is gone from the new release
+    # (a renamed string, a removed function), `verify` re-judges it from the tree, and the migration's S3 gate already
+    # counts it closed. Counting it here refused write=1 on a finished port (24 obsolete steps, none open).
+    return [x.get("id") for x in steps or [] if x.get("status") not in ("done", "obsolete")]
 
 
 def run(owner_root, workdir, major, write=False, say=print):
