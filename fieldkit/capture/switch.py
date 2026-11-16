@@ -276,7 +276,7 @@ def ensure_schedule(now=None, run=_run, system=None, install=None):
     return (install or schedule_on)()
 
 
-def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None):
+def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None, project=None):
     """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
     a manual lesson keeps the one-week cap (owner 2026-11-10; was 24 h)."""
     if not (lesson or "").strip():
@@ -288,6 +288,8 @@ def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner
          "until": (t + timedelta(minutes=minutes)).isoformat(timespec="seconds")}
     if owner:
         d["owner"] = owner
+    if project:                                               # P40: the project tag is the source of truth for distil
+        d["project"] = project
     _write(d)
     d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
     if schedule:                                              # the CLI passes schedule_on; tests and the build loop pass none
@@ -361,7 +363,8 @@ def ask_extension(now=None, add=None):
 def turn_off(home=None, run=_run, system=None, now=None):
     prev = read()
     d = {"on": False, "since": (now or _now()).isoformat(timespec="seconds"),
-         "last_lesson": prev.get("lesson") or prev.get("last_lesson")}
+         "last_lesson": prev.get("lesson") or prev.get("last_lesson"),
+         "last_project": prev.get("project") or prev.get("last_project")}
     _write(d)
     d["hooks_removed"] = edit_settings(home or Path.home(), lambda s, a: strip_hooks(s))
     d["schedule"] = schedule_off(run, system)

@@ -1,0 +1,24 @@
+# P40 (owner 2026-11-16): what a clean slate never touches. Same list on Windows and Linux; paths are matched as
+# case-insensitive substrings of the full path with / as separator. Credential files are never opened, only kept.
+keep:
+  - /.git/                 # every checkout and worktree metadata
+  - /fieldkit/             # the Fieldkit checkout
+  - /local/                # the owner's own tools, sources and tests
+  - /toolchains/
+  - /.cargo/
+  - /.rustup/
+  - /.nvm/
+  - /.venv/
+  - /.ssh/
+  - /.gnupg/
+  - /.aws/
+  - /.config/gh/
+  - credentials
+  - secret
+  - .env
+  - id_rsa
+  - id_ed25519
+# the places a wipe looks for scattered scripts besides the sweep roots (this computer; missing ones are skipped)
+extra_roots:
+  - ~/Downloads
+  - ~/.cache/fieldkit-scratch
