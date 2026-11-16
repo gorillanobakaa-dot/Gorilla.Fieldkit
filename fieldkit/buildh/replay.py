@@ -237,6 +237,7 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
             info = "".join(f"{(modes.get(p) or '100644')} {sha}\t{p}\n" for p, sha in sorted(refreshed.items()))
             _git(w, "update-index", "--add", "--index-info", env=env, inp=info.encode("utf-8"))
             res["refreshed"] = sorted(refreshed)
+        res["touched"] = sorted(paths)
         res["replayed"] = _git(w, "write-tree", env=env).decode().strip()
         if res["replayed"] != built:
             res["differ"] = _git(w, "diff-tree", "-r", "--name-status", res["replayed"], built).decode("utf-8", "replace").splitlines()[:40]
@@ -268,3 +269,49 @@ def run(task_id, say=print):
         say(f"  differs: {d}")
     say(f"REPLAY {'OK' if r['ok'] else 'FAILED'}: {r['patches']} patch(es), {len(r['failures'])} failure(s)")
     return r
+
+
+def materialize(owner_root, workdir, say=print):
+    """Put the public patch set onto a pristine upstream work tree and commit it as one checkpoint (2026-11-16: the
+    160 tree was a fresh clone of the tag, so preflight saw no branding, no stubs, no owner prefs). Same patch
+    order and rules as replay. A tree that already has commits on top of the tag is left alone. -> {ok, detail}."""
+    w = Path(workdir)
+    if int(_git(w, "rev-list", "--count", "HEAD").decode().strip()) > 1:
+        return {"ok": True, "detail": "work tree already carries checkpoints; nothing to apply"}
+    r = replay(owner_root, workdir, say=say, keep=True)
+    try:
+        if r["failures"]:
+            return {"ok": False, "detail": f"{len(r['failures'])} patch failure(s): {r['failures'][:5]}"}
+        # leftovers of an earlier, half-finished run are paths this run rewrites anyway; anything else is foreign
+        touched = set(r["touched"])
+        dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines()
+                 if l.strip() and l[3:].strip().strip('"') not in touched]
+        if dirty:
+            return {"ok": False, "detail": f"work tree has uncommitted changes: {dirty[:5]}"}
+        t = Path(r["scratch"]) / "t"
+        for p in r["touched"]:
+            d = w / p
+            if (t / p).is_file():
+                d.parent.mkdir(parents=True, exist_ok=True)
+                d.write_bytes((t / p).read_bytes())
+            elif d.is_file():
+                d.unlink()
+        # a path one patch creates and a later one deletes is in neither tree: git add fails on a pathspec that
+        # matches nothing (160: browser/branding/gorilla/Assets.car), so stage only what exists or was tracked
+        known = _git(w, "cat-file", "--batch-check=%(objecttype)",
+                     inp="".join(f"HEAD:{p}\n" for p in r["touched"]).encode("utf-8")).decode("utf-8").splitlines()
+        stage = [p for p, k in zip(r["touched"], known) if (w / p).is_file() or not k.endswith("missing")]
+        if stage:
+            _git(w, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul", inp="\0".join(stage).encode("utf-8"))
+        _git(w, "-c", "user.name=fieldkit", "-c", "user.email=fieldkit@localhost", "commit", "-q", "--no-verify",
+             "-m", f"checkpoint: public patch set replayed onto pristine {r['pristine'][:10]} ({r['patches']} patches)")
+        return {"ok": True, "detail": f"{r['patches']} patch(es) applied over {len(r['touched'])} path(s) and committed"}
+    finally:
+        shutil.rmtree(r["scratch"], ignore_errors=True)
+
+
+if __name__ == "__main__":
+    import sys
+    out = materialize(sys.argv[1], sys.argv[2])
+    print(("OK: " if out["ok"] else "FAILED: ") + out["detail"])
+    sys.exit(0 if out["ok"] else 1)
