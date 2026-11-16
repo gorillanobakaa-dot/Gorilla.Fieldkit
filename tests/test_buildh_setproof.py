@@ -200,6 +200,25 @@ def test_an_undeclared_other_platform_patch_fails_the_proof_until_rebase_set_dec
     assert setproof.prove(ps, pristine, "windows", say=lambda m: None)["ok"]
     assert setproof.prove(ps, pristine, "linux", say=lambda m: None)["ok"]
 
+
+def test_a_foreign_patch_carried_with_a_reason_is_waived_by_name_and_without_one_fails(world):
+    # P29 cause 3: never a silent skip - the waiver needs a reason and prints a WAIVED line
+    ps, pristine = world
+    pol = json.loads((ps / "config" / "patch_policy.json").read_text())
+    pol["groups"]["21.FIX"]["exclude_on"] = {"windows": ["008-fix.patch"]}
+    (ps / "patches" / "21.FIX" / "010-gtk.patch").write_text(
+        "diff --git a/widget/gtk/w.cpp b/widget/gtk/w.cpp\nnew file mode 100644\n--- /dev/null\n+++ b/widget/gtk/w.cpp\n"
+        "@@ -0,0 +1 @@\n+int gtk = 1;\n", newline="\n")
+    pol["groups"]["21.FIX"]["carry_on"] = {"windows": {"010-gtk.patch": "  "}}
+    (ps / "config" / "patch_policy.json").write_text(json.dumps(pol))
+    assert not setproof.prove(ps, pristine, "windows", say=lambda m: None)["ok"]
+    pol["groups"]["21.FIX"]["carry_on"] = {"windows": {"010-gtk.patch": "later patches need its context"}}
+    (ps / "config" / "patch_policy.json").write_text(json.dumps(pol))
+    win = setproof.prove(ps, pristine, "windows", say=lambda m: None)
+    assert win["ok"] and win["waived"][0]["reason"] == "later patches need its context"
+    assert any(l.strip().startswith("WAIVED 21.FIX/010-gtk.patch") for l in setproof.lines(win))
+
+
 def test_the_pre_push_hook_guards_the_owners_decision_record(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     text = privacy.install_hook(tmp_path, "/opt/fk").read_text()

@@ -62,6 +62,16 @@ def lint_spec(name, spec, pipeline_spec=None, pipeline_resolved=()):
     if NAME_VERSION.search(str(spec.get("name", name))) and not spec.get("archive"):
         out.append(("NAME", name, "named after one version: make it general (version from `latest:`) or mark "
                     "`archive: WHY` if it only checks an archived release"))
+    if spec.get("patches"):
+        # P29 cause 4 (Firefox 160): the stage that fetches a source tree the patch set lands on was keyed without
+        # the patches, so a changed patch set reused the old tree. Its key must carry the patch-set digest.
+        stages = dict(_stages(spec))
+        for src in spec.get("sources") or []:
+            sid = (src or {}).get("fetched_by")
+            uses = (stages.get(sid) or {}).get("uses")
+            if sid and uses is not None and "patches" not in uses:
+                out.append(("STALE-KEY", f"{name} stage {sid}", f"fetches source {src.get('id')} the patch set "
+                            "lands on, but its key has no `patches`: a new patch set would reuse the old tree"))
     for sid, s in _stages(spec) + (_stages(pipeline_spec) if pipeline_spec else []):
         plats = set(s.get("platforms") or [])
         single = plats and (plats <= {"windows"} or plats <= {"linux", "debian"})
