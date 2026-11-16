@@ -425,6 +425,8 @@ def _upstream_changes_inside_removed_blocks(new_pristine, old_pristine, rel, hr)
     # non-added lines above and below it are lines the hunks remove
     added = set(added_idx)
     for i in added_idx:
+        if new_lines[i] in removed:
+            continue          # a line the fork's hunks remove verbatim loses nothing, whatever stands around it (tabgroup-menu.js, 160)
         up = next((new_lines[j] for j in range(i - 1, -1, -1) if j not in added and new_lines[j]), None)
         down = next((new_lines[j] for j in range(i + 1, len(new_lines)) if j not in added and new_lines[j]), None)
         if up not in removed or down not in removed:

@@ -56,6 +56,16 @@ def test_a_copy_of_the_old_file_is_harmless_when_upstream_only_touched_removed_l
     assert not verify._upstream_changes_inside_removed_blocks(new, old, "f/moz.build", "hr")
 
 
+def test_an_upstream_line_the_hunks_remove_verbatim_is_harmless_even_after_an_untouched_line(monkeypatch):
+    old = b"a\nkeep\nb\n"
+    new = b"a\nkeep\nAIcall(\n    arg,\n)\nb\n"
+    monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/x.js", 1, {"lines": ["-AIcall(", "-    arg,", "-)"]})])
+    assert verify._upstream_changes_inside_removed_blocks(new, old, "f/x.js", "hr")
+    # one added line the hunks do not remove, next to untouched lines: still a real upstream change
+    monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/x.js", 1, {"lines": ["-AIcall(", "-)"]})])
+    assert not verify._upstream_changes_inside_removed_blocks(new, old, "f/x.js", "hr")
+
+
 def test_a_declared_removed_line_is_not_reported_as_renamed_onto_an_earlier_gorilla_line():
     """Build 27 (2026-10-04): nsHttpChannel.cpp. The hunk removes `s == ...::Private;`; a few lines above stands
     Gorilla's own earlier `nsILoadInfo::IPAddressSpace target = literal.GetIpAddressSpace();` (not in pristine), and
