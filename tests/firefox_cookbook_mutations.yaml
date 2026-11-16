@@ -1,0 +1,32 @@
+# P38 (owner order 2026-11-16): the Firefox cookbook's e2e test must fail when any seam 1-7 of the 160 night breaks.
+#   fieldkit mutate --plan tests/firefox_cookbook_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_firefox_cookbook_e2e.py tests/test_buildh_cli_fixes.py
+- file: fieldkit/buildh/replay.py
+  swap: ['if d.is_dir() and d.name not in named and', 'if d.is_dir() and False and']
+  why: "seam 1: a group export-hand wrote and nobody registered is found"
+- file: fieldkit/buildh/cli.py
+  swap: ['task.journal(task.load(tid), "build-verified", ok=all(r["ok"] for r in rows), via="build-verify")', 'pass']
+  why: "seam 2: build-verify journals the event the S5 gate reads"
+- file: fieldkit/migrate/plan.py
+  swap: ['ver = [e for e in ev[last_start + 1:] if e.get("event") == "build-verified"]', 'ver = [e for e in ev[last_start + 1:] if e.get("event") == "build-verify"]']
+  why: "seam 2: the gate reads the event build-verify writes"
+- file: fieldkit/core/concepts.py
+  swap: ['CLOSED_STATUSES = ("done", "obsolete")', 'CLOSED_STATUSES = ("done", "obsolete", "proposed")']
+  why: "seam 3: a proposed step is open, for rebase-set and the S3 gate alike"
+- file: fieldkit/core/concepts.py
+  swap: ['return head.split("/", 1)[1] if head.startswith("origin/") else head', 'return "main"']
+  why: "seam 4: the base branch is origin/HEAD (gorilla-firefox is master)"
+- file: fieldkit/core/concepts.py
+  swap: ['local = any(r["action"] == "run" for r in todo)', 'local = True']
+  why: "seam 5: stages all offloaded are measured on their device"
+- file: fieldkit/emerge/lint.py
+  swap: ['if re.fullmatch(r"[0-9a-f]{7,40}", b):', 'if False:']
+  why: "seam 6: a pinned base under a latest: version is a finding"
+- file: fieldkit/core/concepts.py
+  swap: ['parts = [major, minor or "0"] + ([patch] if patch else [])', 'parts = [major]']
+  why: "seam 6: the upstream tag is derived from the whole version"
+- file: fieldkit/migrate/plan.py
+  swap: ['    ok = not loose and ahead == "0"', '    ok = not loose']
+  why: "seam 7: committed but not pushed is not published"
+- file: fieldkit/core/concepts.py
+  swap: ['    if own and own != platform:', '    if False:']
+  why: "handover: another system's group stays home"

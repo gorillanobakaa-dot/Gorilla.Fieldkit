@@ -64,7 +64,7 @@ STAGES = [
     {"id": "S9", "name": "Publish",
      "what": "export-hand; the public patch set replayed onto pristine upstream equals the built tree; privacy scans; "
              "push only on the maintainer's recorded yes.",
-     "gate": "Identical tree hash; scans clean; pushed.",
+     "gate": "Identical tree hash; every port lesson a rule, a tool or a recorded no-rule (S9.lessons); scans clean; pushed.",
      "commands": ["export-hand TASK", "privacy scan --git", "decide B-PUBLISH-TASK publish"]},
 ]
 STAGE = {s["id"]: s for s in STAGES}

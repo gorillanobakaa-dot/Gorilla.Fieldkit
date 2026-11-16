@@ -19,6 +19,9 @@ fieldkit emerge manifest RECIPE [--write]             pin file sources by sha256
 fieldkit emerge export RECIPE --out F / repro RECIPE --with F    same key on two machines = same bytes?
 ```
 
+
+The Firefox procedure for all three systems (Linux .deb, Windows, macOS 10.13) is ONE document: docs/FIREFOX-COOKBOOK.md; one entry point: `fieldkit firefox status|next|release|handover VERSION --to windows|mac|lessons`.
+
 ## What it does, in order
 
 1. **Preflight once**, before stage 1: pins (a file by sha256, a git tree by commit or by its pinned base under our
