@@ -36,6 +36,16 @@ stages:
       - {files_exist: ["{harness}/src/mach"]}
     triage: firefox-windows
 
+  # P29: the static checks, the patch policy, the set proof, the stage key and the stall guard on the patched tree,
+  # before a 90-minute compile finds a missing module, Setting or l10n id at run time (Firefox 160, b2dae4c461).
+  # The set proof replays this system's selection only (each system ~10 min); the policy check covers both.
+  - id: migrate-preflight
+    platforms: [windows]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, migrate, preflight, "harness={harness}", platform=windows], cwd: "${FIELDKIT}"}
+    verify:
+      - {output_contains: '^PREFLIGHT VERDICT: PASS'}
+    triage: firefox-windows
+
   - id: bootstrap
     platforms: [windows]
     run: {cmd: ["{py}", "{entry}", bootstrap], cwd: "{harness}"}

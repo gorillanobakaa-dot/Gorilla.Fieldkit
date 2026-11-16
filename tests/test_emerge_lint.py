@@ -101,3 +101,23 @@ def test_a_recipe_plans_the_other_systems_stage_as_an_offload(tmp_path):
                                         "uses": [], "needs": []}]}
     r = Recipe(spec, state_root=tmp_path / "st", strict=False)
     assert r.by_id["a"]["offload"]["device"] == other
+
+
+def test_a_source_stage_keyed_without_the_patch_set_is_stale():
+    """P29 cause 4: Firefox 160 reused a tree patched with the old patch set."""
+    spec = {"name": "ff", "patches": {"dir": "p", "glob": "*"},
+            "sources": [{"id": "upstream", "git": "s", "fetched_by": "source"}],
+            "stages": {"source": {"uses": ["config", "inputs"]}}}
+    found = lint.lint_spec("ff", spec)
+    assert [k for k, _w, _m in found] == ["STALE-KEY"] and "source" in found[0][1]
+    spec["stages"]["source"]["uses"].append("patches")
+    assert lint.lint_spec("ff", spec) == []
+    del spec["patches"]                                  # no patch set: nothing to carry
+    spec["stages"]["source"]["uses"].remove("patches")
+    assert lint.lint_spec("ff", spec) == []
+
+
+def test_the_firefox_source_key_changes_with_the_patch_set():
+    import yaml
+    spec = yaml.safe_load((lint.RECIPES / "firefox-windows.yaml").read_text(encoding="utf-8"))
+    assert "patches" in spec["stages"]["source"]["uses"]

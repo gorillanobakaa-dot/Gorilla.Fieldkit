@@ -4871,14 +4871,14 @@ tools:
   notes: "Runs read-only git commands (hook check). --json ignored."
 
 - id: bh-migrate
-  title: Migration control - stages S0-S9, gates, SITREP, intents, intake, consistency, park/unpark tickets
+  title: Migration control - stages S0-S9, gates, SITREP, intents, intake, consistency, park/unpark tickets, preflight before compile
   harness: build
   entry: [python, -m, fieldkit, build-harness, migrate]
   path: ${FIELDKIT}/fieldkit/migrate/cli.py
   inputs:
-    - {name: sub, flag: null, type: str, required: true, choices: [brief, plan, sitrep, seed, check, gate, init, advance, work, park, unpark, intents, intake, consistency], help: "what to do"}
+    - {name: sub, flag: null, type: str, required: true, choices: [brief, preflight, plan, sitrep, seed, check, gate, init, advance, work, park, unpark, intents, intake, consistency], help: "what to do (preflight: one PASS/FAIL/INCOMPLETE verdict on the patched tree before compile)"}
     - {name: task, flag: null, type: str, required: false, help: "the task (default --task or the current one)"}
-    - {name: rest, flag: null, type: list, required: false, help: "gate: STAGE; work: ITEM; park: why; unpark: P-001 resolution; init: from=PREV at=S6"}
+    - {name: rest, flag: null, type: list, required: false, help: "gate: STAGE; work: ITEM; park: why; unpark: P-001 resolution; init: from=PREV at=S6; preflight: harness=DIR rev=REV root=REV skip=a,b"}
     - {name: only, flag: --only, type: str, required: false, help: "check: comma list of stages (S0,S4)"}
     - {name: task_opt, flag: --task, type: str, required: false, help: "the task"}
   effects: [reads-files, writes-files]
