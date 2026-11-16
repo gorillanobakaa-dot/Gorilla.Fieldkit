@@ -26,18 +26,18 @@ def _rec(cid, steps):
 
 
 def _good(tmp):
-    return Path(loop.write_candidate(_rec("recipe-zz-good", ["go vet ./x", "go test ./x"]), tmp / "c"))
+    return Path(loop.write_candidate(_rec("recipe-zz-good", ["go vet ./x", "go build ./x"]), tmp / "c"))
 
 
 def _blind(tmp):
     """A test that cannot fail: it passes whatever the script says."""
-    d = Path(loop.write_candidate(_rec("recipe-zz-blind", ["go vet ./x", "go test ./x"]), tmp / "c"))
+    d = Path(loop.write_candidate(_rec("recipe-zz-blind", ["go vet ./x", "go build ./x"]), tmp / "c"))
     (d / "test_recipe-zz-blind.py").write_text("def test_nothing():\n    assert True\n", encoding="utf-8")
     return d
 
 
 def _leaky(tmp):
-    d = Path(loop.write_candidate(_rec("recipe-zz-leaky", ["cd " + HOME_PATH, "go test ./x"]), tmp / "c"))
+    d = Path(loop.write_candidate(_rec("recipe-zz-leaky", ["cd " + HOME_PATH, "go build ./x"]), tmp / "c"))
     return d
 
 
@@ -88,6 +88,9 @@ def test_adopt_end_to_end_in_a_worktree(env, monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(env / "empty-hooks-dir"))
     repo = Path(settings.ROOT)
     seen = {}
+    before = {}
+    for d in (A.ADOPTED, A.TESTS):      # only the files this test adds count: real adopted tools may already be there
+        before[d] = {p.name for p in (repo / d).iterdir()} if (repo / d).is_dir() else set()
 
     def fake_ship(wt):
         wt = Path(wt)
@@ -95,7 +98,7 @@ def test_adopt_end_to_end_in_a_worktree(env, monkeypatch):
         cards = cards["tools"] if isinstance(cards, dict) else cards
         card = next(c for c in cards if c["id"] == "recipe-zz-good")
         seen["card"] = card
-        seen["files"] = sorted([p.name for p in (wt / A.ADOPTED).iterdir()] + [p.name for p in (wt / A.TESTS).iterdir()])
+        seen["files"] = sorted(p.name for d in (A.ADOPTED, A.TESTS) for p in (wt / d).iterdir() if p.name not in before.get(d, set()))
         seen["index"] = "recipe-zz-good" in (wt / "fieldkit/desk/platform_index.json").read_text(encoding="utf-8")
         seen["log"] = subprocess.run(["git", "-C", str(wt), "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
         # the adopted test passes where it was put
@@ -150,3 +153,37 @@ def test_capture_adopted_lists_and_runs_by_id(tmp_path, capsys):
     assert list(A.scripts(tmp_path)) == ["t-one"]
     assert A.run("t-one", tmp_path) == 7
     assert A.run("nope", tmp_path) == 2
+
+
+# ---- the quality gate: each refusal rule, and a proof each one can fail ----------------------------------------------
+def _cand(env, cid, steps, replayed=3):
+    rec = _rec(cid, steps)
+    rec["episodes"]["replayed_ok"] = replayed
+    return Path(loop.write_candidate(rec, env / "c"))
+
+
+@pytest.mark.parametrize("cid,steps,replayed,word", [
+    ("recipe-zz-ph", ["go vet ./x", "go build <PATH>"], 3, "placeholder"),
+    ("recipe-zz-mix", ["go vet ./x", "cargo build", "git add -A"], 3, "toolchain"),
+    ("recipe-zz-run", ["go vet ./x", "python -m pytest -q"], 3, "test-runner"),
+    ("recipe-zz-run2", ["go test ./x"], 3, "test-runner"),
+    ("recipe-zz-cold", ["go vet ./x", "go build ./x"], 0, "never replayed"),
+])
+def test_quality_gate_refuses_with_a_reason(env, cid, steps, replayed, word):
+    r = A.try_candidate(_cand(env, cid, steps, replayed))
+    assert not r["ok"] and r["step"] == "quality" and word in r["reason"], r
+
+
+def test_git_and_fieldkit_steps_are_neutral(env):
+    r = A.try_candidate(_cand(env, "recipe-zz-neutral", ["git status", "python -m fieldkit emerge plan x", "go build ./x"]))
+    assert r["ok"], r
+
+
+def test_each_quality_rule_bites(env, monkeypatch):
+    """Switch a rule off and the junk candidate goes through: the rule is what refuses it."""
+    junk = _cand(env, "recipe-zz-junk", ["go vet ./x", "cargo build", "go build <PATH>", "python -m pytest"], 0)
+    assert A.try_candidate(junk)["step"] == "quality"
+    off = dict(A._rules(), placeholder="(?!)", min_replayed=0, toolchains={})
+    monkeypatch.setattr(A, "_rules", lambda: off)
+    monkeypatch.setattr("fieldkit.autopilot.toolrouter.TEST_RUNNERS", [])
+    assert A.quality(junk.joinpath(junk.name + ".sh").read_text(encoding="utf-8")) == ""
