@@ -8,6 +8,7 @@ on:
       - "fieldkit/leakgate/**"
       - "fieldkit/integration/**"
       - "fieldkit/lifecycle/pool*"
+      - "fieldkit/lifecycle/choice*"
       - "fieldkit/core/prepare*"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
@@ -76,6 +77,28 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/antigravity_bridge.py
+  e2e-models-choice-linux:
+    name: e2e-models-choice-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/models_choice.py
+  e2e-models-choice-windows:
+    name: e2e-models-choice-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/models_choice.py
   e2e-agy-tools-linux:
     # fieldkit antigravity (the Rust agy-tools): cargo test, the release build from source, the real entry points.
     name: e2e-agy-tools-linux

@@ -2383,6 +2383,28 @@
    "models-gguf"
   ]
  },
+ "models menu": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-menu"
+  ]
+ },
+ "models remember": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-remember"
+  ]
+ },
  "models tune": {
   "platforms": [
    "darwin",

@@ -1539,6 +1539,9 @@ def main(argv=None):
         from ..lifecycle import models
         chk = models.validate_agent_choice(agent=a.agent, model=a.model, thinking=a.thinking, require_explicit=True,
                                            role="worker", origin="peers link ask")
+        if not chk["ok"] and chk.get("needs_choice"):        # P39: the same menu on both computers, measured THERE
+            from ..lifecycle import choice
+            chk = choice.resolve("task", origin="peers link ask", device=a.device)
         if not chk["ok"]:
             print(chk["why"])
             return 2

@@ -1208,6 +1208,43 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_models_gguf.py"]
   notes: "Rules: MoE = expert_count > 0, an expert tensor (_exps), or moe in the architecture name; active parameters = non-expert tensors + experts_used/experts of the expert tensors; bytes per token = active tensor bytes (ggml block sizes) minus the embedding table when a separate output matrix exists; tokens/s = bandwidth / bytes per token; FAST >= 15, USABLE >= 5, else SLOW. Network only for a URL the caller types (https, Range requests of 1 MiB blocks, a server that ignores Range is refused; the host sees the request). Bandwidth: python copy benchmark counting read+write bytes, cached in state/models/bandwidth.json (`models bandwidth --measure` to redo; run heavy re-measures under `fieldkit guard --` on the Windows laptop). Split GGUF shards say their totals are partial. Estimate, never a promise: 2026-11-09 dense 27B IQ4_XS 1.3 t/s estimated against about 1 t/s measured. Mutation plan tests/models_gguf_mutations.yaml (8/8); a network test runs only with FIELDKIT_NET_TESTS=1."
 
+- id: models-menu
+  title: "P39: the choice for the person - coding agent > provider > model > reasoning, from what works NOW on this computer or the other one over the cable (installed agents found live, providers logged in and with quota, local LLM servers LM Studio / Ollama asked on 127.0.0.1), blocked options shown with their reason and the time they come back; never a refusal, never a hidden default agent"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, models, menu]
+  path: ${FIELDKIT}/fieldkit/lifecycle/choice.py
+  inputs:
+    - {name: device, flag: --device, type: str, required: false, help: "the other computer's name: the menu is measured there (peers link probe 'choice')"}
+    - {name: refresh, flag: --refresh, type: flag, required: false, help: "measure again instead of the cached live lists"}
+    - {name: check, flag: --check, type: flag, required: false, help: "check choice.yaml: stale model names, agents without providers, providers without models (exit 3 on findings)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes, network]
+  safety: safe
+  headline: "one block per agent: provider (who can act through it / who learns what), its models, reasoning levels; BLOCKED rows with reason and until; NEXT."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
+  notes: "Data: fieldkit/lifecycle/choice.yaml (one source; no agent, provider or model typed in code; stale: names fail check). Measured live: agentfind on this computer, peers link probe 'choice' on the other; model lists from the agent where it can be asked with no side effect (codex models cache, `agy models`), from LM Studio / Ollama on 127.0.0.1 only, else the data file. Kiro's model list is NOT asked (`kiro-cli chat --list-models` opens a browser login). Quota: models.unavailable_agents, fed by choice.note_failure from the model guard's error patterns and by a died task's log (tasks.settle), each block ending at its reset or cooldown. The spend guard (models.check_model) and the mandate's models_allowed apply to every pick. A local LLM is shown as the private option (nothing leaves the computer). Network: 127.0.0.1 only, plus the cable for --device."
+
+- id: models-remember
+  title: "P39: record the owner's choice (agent, provider, model, reasoning) for headless jobs of one type, so a job with no person present uses it instead of stopping; without a record such a job stops with an inbox item, never a hidden fallback"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, models, remember]
+  path: ${FIELDKIT}/fieldkit/lifecycle/choice.py
+  inputs:
+    - {name: job_type, flag: null, type: str, required: true, help: "the job type (for example build, port, review)"}
+    - {name: agent, flag: null, type: str, required: true, help: "a coding agent from `fieldkit models menu`"}
+    - {name: provider, flag: null, type: str, required: true, help: "a provider that agent drives"}
+    - {name: model, flag: null, type: str, required: true, help: "a model of that provider (stale names refused)"}
+    - {name: reasoning, flag: null, type: str, required: true, help: "a reasoning level the model offers"}
+  effects: [writes-files]
+  safety: caution
+  headline: "REMEMBERED JOB_TYPE: agent / provider / model / reasoning, or REFUSED with the reason."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py"]
+  notes: "Checked against choice.yaml (the agent drives the provider, the model belongs to it, the reasoning level exists, the name is not stale) and the spend guard before it is written. A remembered choice is offered first at a terminal, never applied silently there; headless runs use it."
+
 - id: models-tune
   title: "Make a local model start fast: analyse this host (performance and efficiency cores, GPU and its VRAM, free RAM, measured memory bandwidth) and the model's GGUF, pick the load settings (context sized to the job, threads, GPU offload, KV-cache type, flash attention, MTP/draft) with a reason each, and with --apply load it through LM Studio's lms and verify with lms ps; --record / --report keep first-word time and tokens/s per run"
   harness: build
