@@ -32,7 +32,6 @@ import difflib
 import re
 import shlex
 import shutil
-import subprocess
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -60,9 +59,9 @@ def _patch_exe():
 
 
 def _apply(patch_file, root, dry=False):
-    args = [_patch_exe(), "-p1", "--fuzz=0", "--no-backup-if-mismatch", "-d", str(root)] + (["--dry-run"] if dry else [])
-    with open(patch_file, "rb") as fh:
-        r = subprocess.run(args, stdin=fh, capture_output=True, timeout=600)
+    from ..core import childrun              # P29: deadline + stall stop, stdin never a terminal
+    args = [_patch_exe(), "-p1", "--fuzz=0", "--force", "--no-backup-if-mismatch", "-d", str(root)] + (["--dry-run"] if dry else [])
+    r = childrun.run(args, f"patch {Path(patch_file).name}", stdin_path=patch_file)
     return r.returncode, r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
 
 
