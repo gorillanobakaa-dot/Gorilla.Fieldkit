@@ -1,6 +1,6 @@
 """P18 last step (owner 2026-11-10): a candidate tool is tried by itself and, when it passes, adopted and shipped.
 
-`try_candidate(dir)` runs three checks, in this order; the first that fails stops it and names the step:
+`try_candidate(dir)` first applies the quality gate (adopt_rules.yaml + the tool router's test-runner list), then runs three checks, in this order; the first that fails stops it and names the step:
   test     the candidate's own test passes on the untouched script;
   mutate   `fieldkit mutate` breaks the script (one swap per step, and the strict header): the test must fail every
            time, so a test that cannot fail is refused;
@@ -45,14 +45,55 @@ def _plan(script):
     return plan
 
 
+def _rules():
+    import yaml
+    return yaml.safe_load((Path(__file__).with_name("adopt_rules.yaml")).read_text(encoding="utf-8"))
+
+
+def _toolchain(cmd, table):
+    words = cmd.split()
+    while words and (words[0] == "cd" or "=" in words[0].split("/")[0] or words[0] in ("sudo", "env", "time")):
+        words = words[1:] if words[0] != "cd" else []
+    if not words:
+        return None
+    w = Path(words[0]).name.lower()
+    w = re.sub(r"\.exe$", "", w)
+    if w in ("python", "python3", "py") and words[1:3] == ["-m", "fieldkit"]:
+        return None
+    return next((tc for tc, names in table.items() if w in names), None)
+
+
+def quality(script_text):
+    """-> a reason string when the script is not fit to adopt, else "". Rules: adopt_rules.yaml; test runners: toolrouter."""
+    from ..autopilot.toolrouter import TEST_RUNNERS
+    rules = _rules()
+    steps = _step_lines(script_text)
+    why = []
+    ph = sorted({m.group(0) for ln in steps for m in re.finditer(rules["placeholder"], ln)})
+    if ph:
+        why.append("unresolved placeholder(s) " + ", ".join(ph))
+    chains = sorted({t for t in (_toolchain(ln, rules["toolchains"]) for ln in steps) if t})
+    if len(chains) > 1:
+        why.append("steps from more than one toolchain (" + ", ".join(chains) + "): they come from unrelated projects")
+    if any(p.search(ln) for ln in steps for p in TEST_RUNNERS):
+        why.append("a test-runner command (tests run in GitHub CI, never from a tool)")
+    m = re.search(r"\((\d+) replayed\)", script_text)
+    if not m or int(m.group(1)) < int(rules["min_replayed"]):
+        why.append("never replayed successfully")
+    return "; ".join(why)
+
+
 def try_candidate(cdir, run_test=None):
-    """-> {ok, step, reason, id}. step is the failed step (test | mutate | privacy | shape) or "" when all three passed."""
+    """-> {ok, step, reason, id}. step is the failed step (quality | test | mutate | privacy | shape) or "" when all three passed."""
     cdir = Path(cdir)
     cid = cdir.name
     script, test, card = cdir / f"{cid}.sh", cdir / f"test_{cid}.py", cdir / "card.yaml"
     missing = [p.name for p in (script, test, card) if not p.is_file()]
     if missing:
         return {"ok": False, "id": cid, "step": "shape", "reason": f"candidate is missing {', '.join(missing)}"}
+    bad = quality(script.read_text(encoding="utf-8"))
+    if bad:
+        return {"ok": False, "id": cid, "step": "quality", "reason": bad}
     for f in (script, test):                      # LF only: a CRLF script cannot be swapped line by line (Windows, 2026-11-10)
         raw = f.read_bytes()
         if b"\r\n" in raw:

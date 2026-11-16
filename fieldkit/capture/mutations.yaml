@@ -100,3 +100,8 @@
 - {file: fieldkit/capture/store.py, swap: ['    return Path(settings.state_root()) / "state" / "capture"', '    return Path(settings.ROOT) / "state" / "capture"'], why: "the capture store is the one every checkout shares (a job's worktree had its own)"}
 - {file: fieldkit/capture/store.py, swap: ['                if t == "event" and d.get("id") not in st["events"]:', '                if t == "event":'], why: "absorbing a stray store twice adds nothing the second time"}
 - {file: fieldkit/lifecycle/worktrees.py, swap: ['            return store.Store().absorb(stray)', '            return None'], why: "a reaped job worktree leaves its captures in the shared store"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if ph:', '    if False:'], why: "a candidate with an unresolved placeholder is refused"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if len(chains) > 1:', '    if False:'], why: "a candidate mixing toolchains is refused"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if any(p.search(ln) for ln in steps for p in TEST_RUNNERS):', '    if False:'], why: "a candidate with a test-runner command is refused"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if not m or int(m.group(1)) < int(rules["min_replayed"]):', '    if False:'], why: "a candidate never replayed is refused"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if bad:\n        return {"ok": False, "id": cid, "step": "quality"', '    if False:\n        return {"ok": False, "id": cid, "step": "quality"'], why: "the quality gate runs before the other checks"}

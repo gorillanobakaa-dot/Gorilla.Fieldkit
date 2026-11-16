@@ -1,0 +1,15 @@
+# Quality gate for auto-adopt (P30, 2026-11-16): a candidate failing any rule is refused and reported, never adopted.
+# Code: fieldkit/capture/autoadopt.py quality(). Test runners are not listed here: they come from
+# fieldkit/autopilot/toolrouter.py TEST_RUNNERS (one list, not two).
+placeholder: '<[A-Z][A-Z0-9_]*>'     # an unresolved template slot such as <N> or <PATH>
+min_replayed: 1                      # the candidate's header must say at least this many episodes replayed
+# first word of a command -> toolchain. A command with another first word (git, bash, cd, fieldkit...) is neutral.
+# Steps from more than one toolchain mean the steps come from unrelated projects.
+toolchains:
+  go: [go, gofmt]
+  rust: [cargo, rustc, rustup]
+  python: [python, python3, py, pip, pip3, pytest, uv]
+  node: [node, npm, npx, pnpm, yarn, bun]
+  make: [make, cmake, ninja, meson]
+  dotnet: [dotnet, msbuild]
+  java: [mvn, gradle, javac]
