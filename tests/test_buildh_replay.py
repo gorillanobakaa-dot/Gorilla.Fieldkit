@@ -64,3 +64,34 @@ def test_materialize_patches_a_pristine_tree_once(tmp_path):
     assert top.strip() == ""                                 # committed, nothing left over
     again = replay.materialize(owner, w, say=lambda *_: None)
     assert again["ok"] and "nothing to apply" in again["detail"]
+
+
+def test_materialize_a_path_created_then_deleted_by_a_later_group(tmp_path):
+    owner, w = _setup(tmp_path)
+    _git(w, "reset", "-q", "--hard", "HEAD~1")
+    (owner / "set" / "01.G" / "NEW_FILES" / "a" / "tmp.car").write_text("x\n", encoding="utf-8", newline=NL)
+    g2 = owner / "set" / "02.H"
+    g2.mkdir(parents=True)
+    (g2 / "DELETED_FILES.manifest.txt").write_text("a/tmp.car\n", encoding="utf-8", newline=NL)
+    (owner / "config" / "patch_policy.json").write_text(json.dumps({"patchset_root": "set", "groups": {
+        "01.G": {"status": "enabled"}, "02.H": {"status": "enabled"}}}), encoding="utf-8", newline=NL)
+    r = replay.materialize(owner, w, say=lambda *_: None)
+    assert r["ok"], r
+    assert not (w / "a/tmp.car").exists() and (w / "a/new.txt").is_file()
+    top = subprocess.run(["git", "-C", str(w), "status", "--porcelain"], capture_output=True, text=True).stdout
+    assert top.strip() == ""
+
+
+def test_materialize_resumes_over_its_own_half_written_leftovers(tmp_path):
+    owner, w = _setup(tmp_path)
+    _git(w, "reset", "-q", "--hard", "HEAD~1")
+    (w / "a/x.txt").write_text("one\nTWO\n", encoding="utf-8", newline=NL)   # an earlier run wrote it, never committed
+    r = replay.materialize(owner, w, say=lambda *_: None)
+    assert r["ok"], r
+    (w / "b.txt").write_text("foreign\n", encoding="utf-8", newline=NL)
+    _git(w, "add", "b.txt")
+    _git(w, "reset", "-q", "--hard", "HEAD~1")
+    (w / "README").write_text("foreign\n", encoding="utf-8", newline=NL)
+    _git(w, "add", "README")
+    r = replay.materialize(owner, w, say=lambda *_: None)
+    assert not r["ok"] and "uncommitted" in r["detail"]
