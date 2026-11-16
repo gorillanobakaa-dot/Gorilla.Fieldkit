@@ -17,11 +17,19 @@ HOME_PATH = "/ho" + "me/zed/work"      # built in two parts so this file itself 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_CAPTURE_DIR", str(tmp_path / "store"))
+
+    def acts(cdir):                          # a journal in which every episode the candidate names ran its own steps, exit 0
+        from fieldkit.capture import distill as D
+        eids = json.loads((Path(cdir) / "replay.json").read_text(encoding="utf-8"))["examples"]
+        lines = [ln for ln in (Path(cdir) / f"{Path(cdir).name}.sh").read_text(encoding="utf-8").splitlines()
+                 if ln.strip() and not ln.startswith("#") and ln != "set -euo pipefail" and ln != "true"]
+        return {e: [(D.family(ln), ln, False, "", "") for ln in lines] for e in eids}
+    monkeypatch.setattr(A, "_example_acts", acts)
     return tmp_path
 
 
 def _rec(cid, steps):
-    return {"id": cid, "title": f"Recipe: {cid}", "episodes": {"in_group": 3, "replayed_ok": 3},
+    return {"id": cid, "title": f"Recipe: {cid}", "episodes": {"in_group": 3, "replayed_ok": 3, "examples": ["ep-a", "ep-b", "ep-c"]},
             "steps": [{"id": f"s{i}", "command": c, "sentence": f"step {i}", "check": "exit 0"} for i, c in enumerate(steps)]}
 
 
@@ -67,16 +75,16 @@ def test_a_failing_own_test_is_refused_at_test(env):
 def test_a_script_with_nothing_to_break_is_refused(env):
     d = Path(loop.write_candidate(_rec("recipe-zz-empty", []), env / "c"))
     r = A.try_candidate(d)
-    assert not r["ok"] and r["step"] == "mutate", r
+    assert not r["ok"] and r["step"] in ("quality", "mutate"), r      # no steps: no journal replay of them, nothing to break
 
 
 def test_mutation_proof_each_check_can_fail(env, monkeypatch):
     """Break each check in turn: the good candidate must then be refused or the bad one let through (so each check bites)."""
     # without the mutate check the blind test would pass
+    real_mutate = A.M.mutate
     monkeypatch.setattr(A.M, "mutate", lambda plan, test, **kw: {"baseline": "passed", "ok": True, "results": [], "survived": 0, "refused": 0})
     assert A.try_candidate(_blind(env))["ok"], "mutate check removed: the blind test goes through, so the check is what refuses it"
-    monkeypatch.undo()
-    monkeypatch.setenv("FIELDKIT_CAPTURE_DIR", str(env / "store"))
+    monkeypatch.setattr(A.M, "mutate", real_mutate)
     # without the privacy check the leaky candidate would pass
     monkeypatch.setattr(A.privacy, "scan_path", lambda p: {})
     assert A.try_candidate(_leaky(env))["ok"], "privacy check removed: the leak goes through, so the check is what refuses it"
@@ -160,6 +168,7 @@ def test_capture_adopted_lists_and_runs_by_id(tmp_path, capsys):
 def _cand(env, cid, steps, replayed=3):
     rec = _rec(cid, steps)
     rec["episodes"]["replayed_ok"] = replayed
+    rec["episodes"]["examples"] = ["ep-a", "ep-b", "ep-c"][:replayed]
     return Path(loop.write_candidate(rec, env / "c"))
 
 
@@ -188,3 +197,51 @@ def test_each_quality_rule_bites(env, monkeypatch):
     monkeypatch.setattr(A, "_rules", lambda: off)
     monkeypatch.setattr("fieldkit.autopilot.toolrouter.TEST_RUNNERS", [])
     assert A.quality(junk.joinpath(junk.name + ".sh").read_text(encoding="utf-8")) == ""
+
+
+# ---- the adopt-gate hole (2026-11-16): bh-recipe-documents passed on a header label ---------------------------------------
+JUNK = ["git fetch", "git checkout -q tests/test_zero_command.py", "fieldkit guard -- python", "fieldkit privacy scan .", "git add -a"]
+
+
+def _junk(env):
+    rec = _rec("bh-recipe-documents", JUNK)
+    rec["intent"] = "documents"
+    return Path(loop.write_candidate(rec, env / "c"))
+
+
+def test_bh_recipe_documents_is_refused_with_every_rule_named(env):
+    d = _junk(env)
+    text = d.joinpath(d.name + ".sh").read_text(encoding="utf-8")
+    assert "(3 replayed)" in text                      # the label the old gate trusted is still there
+    r = A.try_candidate(d, replays=lambda c: (3, "documents"))   # even with a journal that says it replayed
+    assert not r["ok"] and r["step"] == "quality"
+    for word in ("discards-file-edits", "bare-interpreter", "broken git step", "not one flow"):
+        assert word in r["reason"], (word, r["reason"])
+
+
+def test_header_label_alone_is_never_a_replay(env):
+    d = _cand(env, "recipe-zz-label", ["go vet ./x", "go build ./x"], 3)
+    (d / "replay.json").unlink()                       # no journal evidence: the header still says (3 replayed)
+    r = A.try_candidate(d)
+    assert not r["ok"] and "never replayed" in r["reason"], r
+
+
+def test_journal_replay_needs_the_candidates_own_steps_with_exit_zero(env, monkeypatch):
+    d = _cand(env, "recipe-zz-own", ["go vet ./x", "go build ./x"], 3)
+    ok = ("go vet", "go vet ./x", False, "", ""), ("go build", "go build ./x", False, "", "")
+    failed = ("go vet", "go vet ./x", False, "", ""), ("go build", "go build ./x", True, "", "boom")
+    other = (("git status", "git status", False, "", ""),)
+    reversed_ = ok[::-1]
+    monkeypatch.setattr(A, "_example_acts", lambda c: {"a": list(ok), "b": list(failed), "c": list(other), "d": list(reversed_)})
+    assert A.journal_replays(d)[0] == 1
+
+
+@pytest.mark.parametrize("step,rule", [("git reset --hard HEAD~1", "hard-reset"), ("git clean -fd", "git-clean"),
+                                       ("rm -rf build", "deletes-files"), ("bash", "bare-interpreter"),
+                                       ("git checkout -- README.md", "discards-file-edits")])
+def test_each_destructive_rule_names_itself(step, rule):
+    assert rule in A.quality(step + "\n", 3, None)
+
+
+def test_a_branch_checkout_and_good_git_flags_pass():
+    assert A.quality("git checkout -b feat/x\ngit add -A\ngit commit -m x\n", 3, None) == ""
