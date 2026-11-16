@@ -235,7 +235,10 @@ def _liveness(watch):
         return ""
     try:
         from ..core import liveness, procs
-        return liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
+        from . import consoles
+        found, stopped = consoles.sweep()
+        return (liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
+                + (f" | consoles: {stopped} empty host(s) stopped" if found else ""))
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
 
