@@ -1544,6 +1544,33 @@
    "capture"
   ]
  },
+ "capture adopted bh-recipe-documents": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "distilled from a Linux capture; Windows port not yet proven",
+  "ids": [
+   "bh-recipe-documents"
+  ]
+ },
+ "capture adopted bh-recipe-release": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "distilled from a Linux capture; Windows port not yet proven",
+  "ids": [
+   "bh-recipe-release"
+  ]
+ },
+ "capture adopted bh-recipe-test": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "distilled from a Linux capture; Windows port not yet proven",
+  "ids": [
+   "bh-recipe-test"
+  ]
+ },
  "capture project firefox": {
   "platforms": [
    "linux",
