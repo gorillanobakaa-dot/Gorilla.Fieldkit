@@ -261,3 +261,18 @@ def test_a_tree_patched_in_place_is_compared_with_the_kept_old_tree_not_with_its
     git(w, "add", "-A")
     git(w, "commit", "-q", "-m", "checkpoint: patched")
     assert verify.verify("v1")["old_tree_copies"] == []
+
+
+def test_a_file_in_neither_upstream_version_is_the_forks_own_and_not_lossy(world, tmp_path, monkeypatch):
+    w = world["w"]
+    old = tmp_path / "vault" / "158.0"
+    _w(old / "app.js", "older upstream text\n")
+    monkeypatch.setattr(verify, "older_pristine", lambda version: old)
+    monkeypatch.setattr(verify, "same_tree", lambda a, b: True)
+    _w(world["h"] / "src-158.0" / "own.js", "the fork's own file\n")
+    _w(w / "own.js", "the fork's own file\n")
+    git(w, "add", "-A")
+    git(w, "commit", "-q", "-m", "checkpoint: own file")
+    rep = verify.verify("v1")
+    assert rep["old_tree_copies"] == [] and rep["old_tree_copies_undetermined"] == []
+    assert "own.js" in rep["old_tree_copies_harmless"]
