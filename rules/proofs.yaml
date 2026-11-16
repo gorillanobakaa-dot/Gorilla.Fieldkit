@@ -523,3 +523,14 @@ ZERO COMMANDS:
   gaps:
   - demand: Zero checks every side session's work against its diff and PR and finishes it
     why: 'buildable: rollcall shows each station''s branch and PR state and flags a session that handed over with an open, unmerged PR'
+ASK FIRST:
+  proofs:
+  - demand: the ROOM text a session reads about another session's activity ends with the ask-first line
+    test: tests/test_autopilot_room.py::test_the_room_text_tells_the_reader_to_ask_the_actor_first
+    mutate:
+    - fieldkit/autopilot/room.py
+    - '+ more + "\n" + ASK_FIRST)'
+    - '+ more)'
+  gaps:
+  - demand: cooperate when the other session confirms
+    why: not deterministic; the ROOM line states it, nothing measures behaviour
