@@ -1,0 +1,14 @@
+# P28 C rotation compaction-aware: each rule broken once; all CAUGHT.
+#   python -m fieldkit mutate --plan tests/rotate_compaction_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rotate_compaction.py
+- file: fieldkit/tokens/rotate.py
+  swap: ["            if compact and ctx:     # a self-compacting", "            if False:     # a self-compacting"]
+  why: "a session that compacts itself is WARN on context, never ROTATE"
+- file: fieldkit/tokens/budget.py
+  swap: ["    if row.get(\"compactable\"):", "    if False:"]
+  why: "the HALF/STOP handover lines ignore context for a compacting session"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    if model and ONE_M in str(model).lower():", "    if False:"]
+  why: "a [1m] model has a 1M window"
+- file: fieldkit/tokens/rotate.py
+  swap: ["            m[\"compactions\"] += 1", "            pass"]
+  why: "compactions are counted from the transcript"

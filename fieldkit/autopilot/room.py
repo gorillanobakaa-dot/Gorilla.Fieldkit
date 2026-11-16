@@ -367,6 +367,12 @@ def _hog(call, event, ctx):
             if DETACHES.search(ti.get("command") or ""):     # a background Bash stays in the tree
                 _pending(call.get("session_id")).parent.mkdir(parents=True, exist_ok=True)
                 _pending(call.get("session_id")).write_text(str(time.time()), encoding="utf-8")
+        if event == "SessionStart":                 # P28: a new session starts on a machine without leaks
+            from .. import hog
+            leak = hog._leaks_act()
+            if leak and (leak["findings"] or leak["stopped"]):
+                from ..hog import leaks
+                ctx = (ctx + "\n" if ctx else "") + leaks.line(leak)
         if event in ("UserPromptSubmit", "SessionStart"):
             from .. import hog
             line = hog.hook_line()
