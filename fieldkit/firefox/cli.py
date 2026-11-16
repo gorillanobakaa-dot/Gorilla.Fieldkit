@@ -82,7 +82,8 @@ def name_check(files=(), tags=(), titles=(), scan=None):
 
 
 def main(argv=None, prog="fieldkit firefox"):
-    ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
+                                 epilog="every subcommand takes --json (as JSON)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("status", "next"):
         p = sub.add_parser(name)

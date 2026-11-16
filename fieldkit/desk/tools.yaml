@@ -1317,7 +1317,7 @@ tools:
   entry: [python, -m, fieldkit, firefox]
   path: ${FIELDKIT}/fieldkit/firefox/cli.py
   inputs:
-    - {name: command, type: choice, choices: [status, next, release, handover, lessons, knowledge], required: true, help: "status first; handover VERSION --to windows|mac after S8"}
+    - {name: command, type: choice, choices: [status, next, release, handover, lessons, knowledge, names], required: true, help: "status first; handover VERSION --to windows|mac after S8"}
     - {name: json, flag: --json, type: flag, required: false, help: "as JSON"}
   effects: [reads-files, writes-files, network]
   safety: changes
