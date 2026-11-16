@@ -172,6 +172,11 @@ def apply(row, ci=ci_green):
         row["why"] += f"; refused: {row['ci']}" + (f" (and {len(skipped) - 1} commit(s) below it)" if len(skipped) > 1 else "")
         return row
     row["ci"] = ev
+    from . import checkout_hold            # P29: a running build holds this checkout
+    held = checkout_hold.busy(row["repo"])
+    if held:
+        row["why"] += f"; refused: {held}; the build reads it, sync again when it ends"
+        return row
     _git(row["repo"], "merge", "--ff-only", "--quiet", target)
     left = int(_git(row["repo"], "rev-list", "--count", f"HEAD..{row['upstream']}"))
     took = row["behind"] - left
