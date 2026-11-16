@@ -158,7 +158,10 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
     rel = run(["gh", "api", f"repos/{slug}/actions/runs?head_sha={commit}&event=release&per_page=100", "--jq",
                "[.workflow_runs[].check_suite_id]"], capture_output=True, text=True, **({"env": env} if env else {}))
     if rel.returncode == 0 and (rel.stdout or "").strip().startswith("["):
-        suites = set(json.loads(rel.stdout))
+        try:
+            suites = {x for x in json.loads(rel.stdout) if isinstance(x, int)}     # suite ids only; anything else: none
+        except ValueError:
+            suites = set()
         runs = [x for x in runs if x.get("suite") not in suites] if suites else runs
     if not runs:
         return False, f"no CI run for {commit[:10]}: a repository without CI never merges or releases unattended"

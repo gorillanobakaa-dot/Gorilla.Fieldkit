@@ -403,7 +403,10 @@ def test_gh_release_publishes_only_what_the_mandate_allows(monkeypatch, tmp_path
     assert not r["ok"] and run.calls == []
     logged = []
     monkeypatch.setattr(ship, "_mandate_log", lambda p, what, why, **e: logged.append(what))
-    r = ship.gh_release(tmp_path, "v1", ["--title", "v1"], mandate=lambda a, **k: ("allow", "ok", "m.yaml"), run=run)
+    (tmp_path / "app.bin").write_bytes(b"x")
+    (tmp_path / "page.md").write_text("page", encoding="utf-8")
+    r = ship.gh_release(tmp_path, "v1", ["app.bin", "--title", "v1", "--notes-file", "page.md"],
+                        mandate=lambda a, **k: ("allow", "ok", "m.yaml"), run=run)
     assert r["ok"] and logged == ["release"]
     assert run.calls[-1][:6] == ["gh", "release", "create", "v1", "--verify-tag", "-R"] and run.calls[-1][6] == "o/r"
 

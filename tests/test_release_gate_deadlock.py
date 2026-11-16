@@ -15,7 +15,8 @@ def _ok(*a, **k):
     return ("allow", "ok", None)
 
 
-def test_a_release_is_never_created_without_files(tmp_path):
+def test_a_release_is_never_created_without_files(tmp_path, monkeypatch):
+    monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
     (tmp_path / "page.md").write_text("p", encoding="utf-8")
     called = []
     r = ship.gh_release(str(tmp_path), "v1", ["--notes-file", "page.md"], mandate=_ok,
@@ -23,7 +24,8 @@ def test_a_release_is_never_created_without_files(tmp_path):
     assert not r["ok"] and r["state"] == "bad-input" and "never created empty" in r["error"] and not called
 
 
-def test_a_release_is_never_created_without_its_page(tmp_path):
+def test_a_release_is_never_created_without_its_page(tmp_path, monkeypatch):
+    monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
     (tmp_path / "app.bin").write_bytes(b"x")
     called = []
     r = ship.gh_release(str(tmp_path), "v1", ["app.bin"], mandate=_ok,
@@ -31,7 +33,8 @@ def test_a_release_is_never_created_without_its_page(tmp_path):
     assert not r["ok"] and "without its page" in r["error"] and not called
 
 
-def test_a_missing_file_is_named(tmp_path):
+def test_a_missing_file_is_named(tmp_path, monkeypatch):
+    monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
     (tmp_path / "page.md").write_text("p", encoding="utf-8")
     r = ship.gh_release(str(tmp_path), "v1", ["gone.bin", "-F", "page.md"], mandate=_ok,
                         run=lambda *a, **k: None, gate=lambda s, t, h: {"ok": True})
