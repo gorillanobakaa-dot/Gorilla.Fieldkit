@@ -27,7 +27,11 @@ and create new ones that costs less". Every call re-sends the whole conversation
 per call cost $274 on API credits, about 2.5 times the same work split up (session-cost, 2026-10-21).
 
 THE RULE (defaults below; override under "rotate" in fieldkit.local.json)
-    context  tokens sent with the session's last call (its own, not a subagent's): >= 250k WARN, >= 350k ROTATE
+    context  tokens sent with the session's last call (its own, not a subagent's): >= 120k WARN, >= 150k ROTATE,
+             or 60% / 75% of the model's real context window when that is lower ("window", "windows" below)
+    compact  a Claude Code session that can compact itself (auto-compact not switched off) is never blocked on
+             context: it compacts before the window fills, so over the ROTATE line it is WARN, not ROTATE (P28 C,
+             owner 2026-11-16). Dollars still rotate it: compaction does not refund the bill.
     dollars  the session's bill so far (subagents included, priced from prices.json): >= $40 WARN, >= $75 ROTATE
     A call on a model with no published price adds no dollars; the verdict says how many such calls there were.
 
@@ -67,7 +71,11 @@ from ..core.settings import state_root as _state_root
 
 VERSION = "1.2.0"
 DEFAULTS = {"ctx_warn": 120_000, "ctx_rotate": 150_000, "usd_warn": 40.0, "usd_rotate": 75.0,
-            "hours": 24, "idle_minutes": 60, "finished_hours": 72, "max_rotations": 5, "hook_every_s": 60}
+            "hours": 24, "idle_minutes": 60, "finished_hours": 72, "max_rotations": 5, "hook_every_s": 60,
+            "window": 200_000, "windows": {}, "ctx_warn_frac": 0.6, "ctx_rotate_frac": 0.75}
+#: the environment switches with which Claude Code stops compacting by itself
+NO_COMPACT_ENV = ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT")
+ONE_M = "[1m]"
 LEVELS = ("OK", "WARN", "ROTATE")
 EXIT = {"OK": 0, "WARN": 1, "ROTATE": 2}
 PR_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
@@ -106,18 +114,56 @@ def coordination_dir():
 
 # ---------------------------------------------------------------- the verdict (pure)
 
-def verdict(context_last, usd, cfg=None):
-    """-> (level, [reasons]). The worst of the two rules wins."""
+def window_of(model, cfg=None):
+    """-> the model's real context window in tokens: cfg "windows"[model], a "[1m]" model 1M, else cfg "window"."""
     cfg = cfg or DEFAULTS
+    windows = cfg.get("windows") or {}
+    if model and model in windows:
+        return int(windows[model])
+    if model and ONE_M in str(model).lower():
+        return 1_000_000
+    return int(cfg.get("window") or DEFAULTS["window"])
+
+
+def ctx_lines(window, cfg=None):
+    """-> (warn, rotate) context lines: the absolute lines, or the share of the real window when that is lower."""
+    cfg = cfg or DEFAULTS
+    if not window:
+        return cfg["ctx_warn"], cfg["ctx_rotate"]
+    return (min(cfg["ctx_warn"], int(window * cfg.get("ctx_warn_frac", DEFAULTS["ctx_warn_frac"]))),
+            min(cfg["ctx_rotate"], int(window * cfg.get("ctx_rotate_frac", DEFAULTS["ctx_rotate_frac"]))))
+
+
+def can_compact(facts, env=None):
+    """A Claude Code session compacts itself unless its auto-compact is switched off. -> bool."""
+    env = os.environ if env is None else env
+    if facts.get("source") != "claude-code":
+        return False
+    return not any((env.get(k) or "").strip().lower() not in ("", "0", "false", "no") for k in NO_COMPACT_ENV)
+
+
+def verdict(context_last, usd, cfg=None, window=None, compact=False, compactions=0):
+    """-> (level, [reasons]). The worst of the two rules wins. `window`: the model's real context window (the
+    context lines become the lower of the absolute line and its share of the window). `compact`: the session
+    compacts itself, so context alone never makes it ROTATE (WARN at most)."""
+    cfg = cfg or DEFAULTS
+    cw, cr = ctx_lines(window, cfg)
     level, why = 0, []
-    for value, warn, rot, label in ((context_last, cfg["ctx_warn"], cfg["ctx_rotate"], "context per call"),
+    for value, warn, rot, label in ((context_last, cw, cr, "context per call"),
                                     (usd, cfg["usd_warn"], cfg["usd_rotate"], "session dollars")):
-        if value >= rot:
+        ctx = label.startswith("context")
+        share = (f" ({round(value * 100 / window)}% of the {_fmt(window, label)} window)"
+                 if ctx and window and window != DEFAULTS["window"] else "")
+        if value >= rot and compact and ctx:
+            level = max(level, 1)
+            why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}, but the session "
+                       f"compacts itself (compacted {compactions} time(s)): WARN, not a rotation")
+        elif value >= rot:
             level = max(level, 2)
-            why.append(f"{label} {_fmt(value, label)} >= ROTATE {_fmt(rot, label)}")
+            why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}")
         elif value >= warn:
             level = max(level, 1)
-            why.append(f"{label} {_fmt(value, label)} >= WARN {_fmt(warn, label)}")
+            why.append(f"{label} {_fmt(value, label)}{share} >= WARN {_fmt(warn, label)}")
     return LEVELS[level], why
 
 
@@ -157,7 +203,8 @@ def _save_meter(path, m):
 def _fresh_meter():
     return {"read": {}, "facts_off": 0, "usd": 0.0, "calls": 0, "unpriced": 0, "context_last": 0,
             "context_peak": 0, "first_ts": None, "last_ts": None, "cwd": None, "branch": None,
-            "entrypoint": None, "stop_reason": None, "prs": [], "pushed_prs": [], "task": None, "size": 0}
+            "entrypoint": None, "stop_reason": None, "prs": [], "pushed_prs": [], "task": None, "size": 0,
+            "compactions": 0, "compact_at": 0, "model": None}
 
 
 def _user_text(d):
@@ -195,6 +242,11 @@ def _facts(path, m):
                 m[f] = d[k]
         if d.get("type") == "assistant":
             m["stop_reason"] = (d.get("message") or {}).get("stop_reason") or m["stop_reason"]
+            m["model"] = (d.get("message") or {}).get("model") or m["model"]
+        elif d.get("type") == "system" and d.get("subtype") == "compact_boundary":
+            m["compactions"] += 1
+            pre = (d.get("compactMetadata") or {}).get("preTokens") or 0
+            m["compact_at"] = max(m["compact_at"], int(pre) if isinstance(pre, (int, float)) else 0)
         elif d.get("type") == "user" and m["task"] is None:
             t = _user_text(d)
             if t:
@@ -212,7 +264,7 @@ def measure(adapter, path, use_cache=True):
         size = path.stat().st_size
     except OSError:
         size = 0
-    if (m is None or m.get("source") != adapter.name or "pushed_prs" not in m
+    if (m is None or m.get("source") != adapter.name or "compactions" not in m
             or (adapter.name == "claude-code" and size < m.get("size", 0))):
         m = _fresh_meter()                            # first look, or the file was rewritten: start over
     m["source"] = adapter.name
@@ -244,7 +296,8 @@ def measure(adapter, path, use_cache=True):
             "calls": m["calls"], "usd": round(m["usd"], 4), "unpriced_calls": m["unpriced"],
             "context_last": m["context_last"], "context_peak": m["context_peak"],
             "first": m["first_ts"], "last": m["last_ts"], "cwd": m["cwd"], "branch": m["branch"],
-            "entrypoint": m["entrypoint"], "stop_reason": m["stop_reason"], "prs": m["prs"], "pushed_prs": m["pushed_prs"], "task": m["task"]}
+            "entrypoint": m["entrypoint"], "stop_reason": m["stop_reason"], "prs": m["prs"], "pushed_prs": m["pushed_prs"], "task": m["task"],
+            "compactions": m["compactions"], "compact_at": m["compact_at"], "model": m["model"]}
 
 
 def _title_from_transcript(path):
@@ -264,8 +317,15 @@ def _title_from_transcript(path):
     return ""
 
 
-def judged(facts, cfg=None):
-    level, why = verdict(facts["context_last"], facts["usd"], cfg or config())
+def judged(facts, cfg=None, compact=None):
+    """-> facts + level, why, window (the model's real context window) and compactable. `compact`: None reads it
+    from the session's source and this process's environment (can_compact)."""
+    cfg = cfg or config()
+    compact = can_compact(facts) if compact is None else bool(compact)
+    win = window_of(facts.get("model"), cfg)
+    level, why = verdict(facts["context_last"], facts["usd"], cfg, window=win, compact=compact,
+                         compactions=facts.get("compactions") or 0)
+    facts = {**facts, "window": win, "compactable": compact}
     if facts.get("unpriced_calls"):
         why.append(f"{facts['unpriced_calls']} call(s) on models with no published price add no dollars")
     return {**facts, "level": level, "why": why}
