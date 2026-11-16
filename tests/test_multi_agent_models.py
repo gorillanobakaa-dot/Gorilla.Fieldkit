@@ -24,7 +24,7 @@ def test_generic_and_stale_names_refused_and_specific_choice_validated(tmp_path:
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path))
     r_mod = models.validate_agent_choice("agy", "gemini", "high")
     assert r_mod["ok"] is False and r_mod["verdict"] == "generic-refused"
-    assert models.validate_agent_choice("antigravity", "claude-sonnet-5-5-medium", "high")["verdict"] == "stale-model"
+    assert models.validate_agent_choice("antigravity", "claude-sonnet-4-5", "high")["verdict"] == "stale-model"
     assert models.validate_agent_choice("codex", "gpt-5-codex", "high")["verdict"] == "stale-model"
     assert models.validate_agent_choice("claude", "sonnet", "lowest")["verdict"] == "invalid-thinking"
     assert models.validate_agent_choice("claude", "gpt-5.5", "high")["verdict"] == "invalid-model-for-agent"

@@ -205,7 +205,7 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         )
         if not vchk["ok"] and vchk.get("needs_choice"):     # P39: the person picks from what works now; headless:
             from . import choice, counsel                    # the owner's recorded choice per job type, else inbox
-            vchk = choice.resolve(counsel.work_kind(text) or "task", origin="task start" + (f" --on {on}" if on else ""))
+            vchk = choice.resolve((counsel.work_kind(text) or {}).get("kind") or "task", origin="task start" + (f" --on {on}" if on else ""))
         if not vchk["ok"]:
             raise ValueError(vchk["why"])
         agent = vchk["agent"]

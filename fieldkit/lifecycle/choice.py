@@ -220,21 +220,21 @@ def render(rows, where="this computer"):
     lines = [f"WHICH CODING AGENT, PROVIDER, MODEL AND REASONING? (what works now on {where})"]
     n = 0
     for r in rows:
-        state = "ready" if r["usable"] else f"NOT NOW: {r['why']}" + (f" ({until_text(r['until'])})" if r["until"] else "")
-        lines.append(f"  {r['title']} [{r['agent']}] {r['version'][:24]}  {state}")
+        state = "ready" if r["usable"] else f"NOT NOW: {r.get('why', '')}" + (f" ({until_text(r['until'])})" if r.get("until") else "")
+        lines.append(f"  {r.get('title', r['agent'])} [{r['agent']}] {str(r.get('version', ''))[:24]}  {state}")
         if not r["installed"]:
             continue
         for p in r["providers"]:
             tag = "  PRIVATE: stays on this computer" if p["private"] else ""
             pstate = "" if p["usable"] else f"  NOT NOW: {p['why']}"
-            lines.append(f"    - {p['title']}{tag}{pstate}")
-            if not p["private"] and p["who_learns"]:
+            lines.append(f"    - {p.get('title', p['provider'])}{tag}{pstate}")
+            if not p["private"] and p.get("who_learns"):
                 lines.append(f"        who learns: {p['who_learns']}")
             for m in p["model_rows"]:
                 if p["usable"] and m["usable"]:
                     n += 1
                     lines.append(f"        {n:>2}. {m['model']:<34} reasoning: {', '.join(m['reasoning'])}"
-                                 + f"   ({p['source']})" * (m is p["model_rows"][0]))
+                                 + f"   ({p.get('source', '')})" * (m is p["model_rows"][0]))
                 else:
                     lines.append(f"            {m['model']:<34} NOT NOW: {m['why'] or p['why']}")
     return "\n".join(lines)
