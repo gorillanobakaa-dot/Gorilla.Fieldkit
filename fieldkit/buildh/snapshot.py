@@ -28,6 +28,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ..core import childrun
 from . import firefox, task, vault, verify
 
 JUNK = re.compile(r"(\.gorilla\d+|\.unofficial|\.presharp|\.orig|\.rej|\.bak|~)$|(^|/)(\.preflight_state\.json|package-lock\.json)$")
@@ -141,8 +142,8 @@ def capture(harness_root, version, out_root, vault_base=None):
             else:
                 diff = _git(src, "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "HEAD", "--", rel, binary=True)
                 # every patch must apply to the pristine tree it was cut from, or it is not a patch
-                r = subprocess.run([firefox._patch_exe(), "-p1", "--dry-run", "--no-backup-if-mismatch", "-d", str(pristine)],
-                                   input=diff, capture_output=True, timeout=120)
+                r = childrun.run([firefox._patch_exe(), "-p1", "--dry-run", "--force", "--no-backup-if-mismatch",
+                                  "-d", str(pristine)], f"patch --dry-run {rel}", input=diff, deadline_s=120)
                 if r.returncode != 0:
                     why = "the generated patch does not apply to its own base: " + r.stdout.decode("utf-8", "replace")[-120:].strip()
         if why:
@@ -210,9 +211,8 @@ def apply_set(pset, groups_enabled, w):
         if not gd.is_dir():
             continue
         for pf in sorted(gd.rglob("*.patch")):
-            with open(pf, "rb") as fh:
-                r = subprocess.run([firefox._patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "-d", str(w)],
-                                   stdin=fh, capture_output=True, timeout=600)
+            r = childrun.run([firefox._patch_exe(), "-p1", "--forward", "--batch", "--no-backup-if-mismatch", "-d", str(w)],
+                             f"patch {g}/{pf.name}", stdin_path=pf)
             if r.returncode != 0:
                 problems.append(f"{g}/{pf.name}: patch exit {r.returncode}: {r.stdout.decode('utf-8', 'replace')[-200:]}")
         for sub in ("NEW_FILES", "REPLACE_FILES"):
