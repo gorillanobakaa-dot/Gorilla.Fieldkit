@@ -440,6 +440,7 @@ def _isolated_lifecycle(tmp_path_factory, monkeypatch):
 # A test that runs an emerge Runner must not switch the real capture on (hooks in ~/.claude); tests of the loop itself
 # call fieldkit.capture.loop with a sandbox store and home (tests/capture/test_loop.py).
 _os.environ["FIELDKIT_EMERGE_NO_CAPTURE"] = "1"
+_os.environ["FIELDKIT_CAPTURE_NO_CLEANSLATE"] = "1"      # P40: a test never runs the real wipe gate
 
 # I-04: auto-accept is ON by default (fieldkit/lifecycle/autoaccept.yaml), and its reviewer is a real model command.
 # Tests never start a model and never write the real lifecycle ledger: every test sees auto-accept OFF (the owner
