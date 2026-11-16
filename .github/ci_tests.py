@@ -82,6 +82,13 @@ def selection(base, merged=False):
     return tests, f"{len(tests)} test file(s) cover the change"
 
 
+def present(tests, root="."):
+    """-> the selected test files that still exist: a pull request that deletes a test file must not make pytest
+    fail on "file not found" (PR 552). A deleted file has nothing left to run."""
+    from pathlib import Path
+    return [t for t in tests if (Path(root) / t).exists()]
+
+
 def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
@@ -92,6 +99,8 @@ def main(argv):
         argv = argv[:k] + argv[k + 2:]
     tests, why = selection(argv[1] if len(argv) > 1 else "full", merged)
     print("ci-tests:", why)
+    if tests is not REFUSED and tests:
+        tests = present(tests)
     if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
         from pathlib import Path
         from fieldkit.method import shard as sh
