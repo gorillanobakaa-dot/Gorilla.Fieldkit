@@ -216,3 +216,39 @@ def test_cli_release_prints_the_chain(capsys):
     assert cli.main(["release", "1.0"]) == 0
     out = capsys.readouterr().out
     assert "Gorilla Unleashed 1.0" in out and TAG in out and "handover 1.0 --to windows" in out and "NEXT: " in out
+
+
+# -- one product name and one scheme on every system (owner 2026-11-16; cases measured on the published releases) ----
+def test_one_name_scheme_for_all_three_systems():
+    assert concepts.naming()["name"] == concepts.PRODUCT == "Gorilla Unleashed"
+    assert concepts.product_name("160.0") == "Gorilla Unleashed 160.0"
+    assert concepts.artifact_name("160.0", "windows", "x86_64", "zip") == "Gorilla-Unleashed-160.0-windows-x86_64.zip"
+    assert concepts.release_tag("160.0", "mac") == "v160.0-mac"
+    assert concepts.release_title("160.0", "mac") == "Gorilla Unleashed 160.0 (macOS)"
+    for os_name in concepts.PLATFORMS:
+        assert not concepts.name_problems("file", concepts.artifact_name("160.0", os_name, "amd64", "deb"))
+        assert not concepts.name_problems("tag", concepts.release_tag("160.0", os_name))
+        assert not concepts.name_problems("title", concepts.release_title("160.0", os_name))
+
+
+@pytest.mark.parametrize("kind,value", [
+    ("file", "firefox-158.0.en-US.win64.installer.exe"),      # Windows v158.0-win64-build2: Mozilla's names
+    ("file", "firefox-158.0.en-US.win64.zip"),
+    ("title", "158.0 build 2"),
+    ("tag", "v158.0-win64-build2"),
+    ("file", "gorilla-unleashed_158.0-2_amd64.deb"),           # Linux: right name, another form
+    ("tag", "v158.0-2"),
+    ("tag", "macbook-air"),                                    # Mac: no version
+    ("file", "gorilla-air-26-10-23-21-58.zip"),                # a date, not a version
+    ("title", "Gorilla Unleashed for old Macs"),
+    ("text", "Build Gorilla Firefox on Windows"),
+])
+def test_published_names_of_today_fail_the_check(kind, value):
+    assert concepts.name_problems(kind, value)
+
+
+def test_fieldkit_firefox_files_use_the_one_name():
+    from fieldkit.firefox import cli
+    assert cli.name_check() == []
+    assert cli.main(["names", "--tag", "v160.0-linux", "--title", "Gorilla Unleashed 160.0 (Linux)"]) == 0
+    assert cli.main(["names", "--tag", "macbook-air"]) == 3

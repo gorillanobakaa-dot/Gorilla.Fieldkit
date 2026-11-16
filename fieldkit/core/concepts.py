@@ -131,12 +131,72 @@ def group_applies(name, spec, platform):
 
 # -- the product -----------------------------------------------------------------------------------------------------
 #: owner, 2026-11-16: "the Firefox will always be called Gorilla Unleashed across all the versions, followed by the
-#: number of the version ... the same name across all" the systems.
-PRODUCT = "Gorilla Unleashed"
+#: number of the version ... the same name across all" the systems. The data is fieldkit/firefox/cookbook.yaml naming.
+_NAMING = None
 
 
-def product_name(version):
+def naming():
+    global _NAMING
+    if _NAMING is None:
+        import yaml
+        f = Path(__file__).resolve().parent.parent / "firefox" / "cookbook.yaml"
+        _NAMING = yaml.safe_load(f.read_text(encoding="utf-8"))["naming"]
+    return _NAMING
+
+
+PRODUCT = "Gorilla Unleashed"          # the same value as cookbook.yaml naming.name (test_firefox_cookbook_e2e checks)
+
+
+def _v(version):
     v = str(version or "").strip()
     if not v:
         raise ValueError("a product name needs the version")
-    return f"{PRODUCT} {v}"
+    return v
+
+
+def _os(os_name):
+    if os_name not in PLATFORMS:
+        raise ValueError(f"os must be one of {PLATFORMS}: {os_name!r}")
+    return os_name
+
+
+def product_name(version):
+    n = naming()
+    return n["display"].format(name=n["name"], version=_v(version))
+
+
+def artifact_name(version, os_name, arch, ext):
+    """Gorilla-Unleashed-160.0-windows-x86_64.zip: every release file on every system."""
+    return naming()["file"].format(version=_v(version), os=_os(os_name), arch=arch, ext=ext.lstrip("."))
+
+
+def release_tag(version, os_name):
+    return naming()["tag"].format(version=_v(version), os=_os(os_name))
+
+
+def release_title(version, os_name):
+    n = naming()
+    return n["title"].format(name=n["name"], version=_v(version), OS=n["os_title"][_os(os_name)])
+
+
+def _scheme(pattern):
+    """The scheme as a regular expression ({version} a Firefox version, {os} one of PLATFORMS, {arch}/{ext} a word)."""
+    n = naming()
+    out, parts = "", re.split(r"(\{\w+\})", pattern)
+    for p in parts:
+        key = p[1:-1] if p.startswith("{") and p.endswith("}") else None
+        out += {"version": r"\d+\.\d+(?:\.\d+)?(?:esr)?", "os": "(?:" + "|".join(PLATFORMS) + ")",
+                "OS": "(?:" + "|".join(map(re.escape, n["os_title"].values())) + ")", "name": re.escape(n["name"]),
+                "arch": r"[A-Za-z0-9_]+", "ext": r"[A-Za-z0-9.]+"}.get(key, re.escape(p)) if key else re.escape(p)
+    return "^" + out + "$"
+
+
+def name_problems(kind, value):
+    """-> [problem] for one outward name. kind: file | tag | title | text (text: only the old names are refused)."""
+    n, v, out = naming(), str(value or ""), []
+    for old in n["old_names"]:
+        if re.search(old, v, re.I):
+            out.append(f"{kind} {v!r}: old product name /{old}/; it is {n['name']!r}")
+    if kind in ("file", "tag", "title") and not re.match(_scheme(n[kind]), v):
+        out.append(f"{kind} {v!r} is not in the one scheme {n[kind]!r}")
+    return out

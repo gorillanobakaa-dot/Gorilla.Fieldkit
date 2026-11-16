@@ -7,6 +7,9 @@
     fieldkit firefox handover VERSION --to windows|mac [--send]   the package for the other system (handover.py)
     fieldkit firefox lessons [TASK]            every port lesson and its rule; exit 3 while one waits
     fieldkit firefox knowledge                 where each piece of Firefox knowledge lives
+    fieldkit firefox names [--file F] [--tag T] [--title T]   the one product name and scheme (Gorilla-Unleashed-
+                                               VERSION-OS-ARCH.EXT, vVERSION-OS, "Gorilla Unleashed VERSION (OS)");
+                                               with no argument it scans Fieldkit's Firefox recipes; exit 3 on another name
 
 It drives the existing tools (build-harness migrate, rebase-set/export-hand/replay, emerge recipes, macair, ship,
 peers link); it does not rewrite them. VERSION defaults to the newest Linux migration task on this machine.
@@ -62,6 +65,22 @@ def _next(w):
     return next((r for r in w["steps"] if r["done"] is not True), None)
 
 
+def name_check(files=(), tags=(), titles=(), scan=None):
+    """-> problems: every given name in the scheme, and no old product name in Fieldkit's Firefox files."""
+    from pathlib import Path
+    probs = []
+    for kind, vals in (("file", files), ("tag", tags), ("title", titles)):
+        for v in vals or []:
+            probs += concepts.name_problems(kind, v)
+    root = Path(__file__).resolve().parents[2]
+    for rel in (concepts.naming()["scan"] if scan is None else scan):
+        f = root / rel
+        if f.is_file():
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                probs += [f"{rel}:{i}: {x}" for x in concepts.name_problems("text", line)]
+    return probs
+
+
 def main(argv=None, prog="fieldkit firefox"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -84,6 +103,10 @@ def main(argv=None, prog="fieldkit firefox"):
     p = sub.add_parser("lessons")
     p.add_argument("task", nargs="?")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("names")
+    for k in ("file", "tag", "title"):
+        p.add_argument(f"--{k}", action="append", default=[])
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("knowledge")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
@@ -98,6 +121,18 @@ def main(argv=None, prog="fieldkit firefox"):
                 print(f"  {r['place']}\n      {r['holds']}")
             print("NEXT: fieldkit firefox status")
         return 0
+
+    if a.cmd == "names":
+        probs = name_check(a.file, a.tag, a.title)
+        if a.json:
+            out({"problems": probs})
+        else:
+            for x in probs:
+                print(f"  WRONG NAME: {x}")
+            print(f"names: {len(probs)} problem(s)")
+            print("NEXT: " + ("rename each to the scheme in fieldkit/firefox/cookbook.yaml naming" if probs
+                              else "fieldkit release-page compose"))
+        return 3 if probs else 0
 
     if a.cmd == "lessons":
         from ..buildh import lessonrules, task

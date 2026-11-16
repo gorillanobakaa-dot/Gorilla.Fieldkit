@@ -3,7 +3,23 @@
 # procedure in words. A step names the ONE command that does it and the gate that proves it. Change the data first.
 # {v} is the Firefox version (160.0), {task} the Linux migration task (firefox-{major}-linux).
 
-product: "Gorilla Unleashed"          # core/concepts.product_name: the same name on every system (owner 2026-11-16)
+# The one product name and naming scheme on every system (owner 2026-11-16: "the Firefox will always be called Gorilla
+# Unleashed across all the versions, followed by the number of the version ... the same name across all three").
+# core/concepts reads this; `fieldkit firefox names` and the REL gate fail on any other form. Technical ids (the
+# package name gorilla-unleashed, the harness repo Gorilla.firefox) stay as they are.
+naming:
+  name: "Gorilla Unleashed"
+  display: "{name} {version}"
+  file: "Gorilla-Unleashed-{version}-{os}-{arch}.{ext}"
+  tag: "v{version}-{os}"
+  title: "{name} {version} ({OS})"
+  os_title: {linux: Linux, windows: Windows, mac: macOS}
+  # an outward name matching one of these is wrong (rename it or make it a pointer)
+  old_names: ['Gorilla[ _]Firefox', 'gorilla-air', 'Gorilla Air\b', 'for old Macs']
+  # Fieldkit files whose outward text must use the name (the CI test scans them)
+  scan: [fieldkit/emerge/recipes/firefox-debian.yaml, fieldkit/emerge/recipes/firefox-windows.yaml,
+         fieldkit/build/pipelines/firefox-linux.yaml, fieldkit/build/pipelines/firefox-windows.yaml,
+         docs/FIREFOX-COOKBOOK.md]
 
 systems:
   linux:
@@ -41,7 +57,7 @@ steps:
   - {id: H-mac, system: mac, does: "handover package to the Mac side (scp over SSH)", run: "fieldkit firefox handover {v} --to mac --send", gate: "handover"}
   - {id: B-mac, system: mac, does: "Mac decisions preflight, recreate, app-check, install, verify on the Air", run: "fieldkit macair preflight", gate: "macair"}
   - {id: S9, system: linux, does: "publish: export-hand, replay = built tree, lessons ruled (S9.lessons), privacy, the owner's yes", run: "fieldkit build-harness export-hand {task}", gate: "S9"}
-  - {id: REL, system: all, does: "one release for the batch, the plain-language page first", run: "fieldkit release-page compose", gate: "release"}
+  - {id: REL, system: all, does: "one release for the batch, the plain-language page first", run: "fieldkit firefox names --tag v{v}-linux --title 'Gorilla Unleashed {v} (Linux)'", gate: "names (file, tag, title in the one scheme), then fieldkit release-page compose"}
 
 # Where the knowledge lives (P38 item 10). The cookbook is the one procedure; these are its sources, never a second truth.
 knowledge:

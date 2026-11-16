@@ -30,3 +30,9 @@
 - file: fieldkit/core/concepts.py
   swap: ['    if own and own != platform:', '    if False:']
   why: "handover: another system's group stays home"
+- file: fieldkit/core/concepts.py
+  swap: ['        if re.search(old, v, re.I):', '        if False:']
+  why: "name rule: an old product name is refused"
+- file: fieldkit/core/concepts.py
+  swap: ['    if kind in ("file", "tag", "title") and not re.match(_scheme(n[kind]), v):', '    if False:']
+  why: "name rule: a name outside the one scheme is refused"
