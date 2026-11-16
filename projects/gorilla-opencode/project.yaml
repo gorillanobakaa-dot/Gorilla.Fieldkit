@@ -1,0 +1,18 @@
+id: gorilla-opencode
+name: Gorilla OpenCode
+purpose: "Privacy-hardened OpenCode fork (Go): Linux, Windows and Mac 10.13 binaries, .deb/.rpm, release page."
+repos:
+  - {name: source, github: gorillanobakaa-dot/Gorilla.Opencode, local: "${DOCUMENTS}/Gorilla.Opencode"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
+recipes: [gorilla-opencode]
+cookbook:
+  - {repo: source, path: CLAUDE.md, what: "the repo's own rules and layout (P41d will make a real cookbook index)"}
+  - {repo: fieldkit, path: fieldkit/emerge/recipes/gorilla-opencode.yaml, what: "the release build as stages"}
+entry:
+  - {cmd: "fieldkit emerge plan gorilla-opencode", what: "what a release build would do"}
+  - {cmd: "fieldkit emerge status gorilla-opencode", what: "the last run, stage by stage"}
+tests:
+  - {cmd: "go test ./...", paths: ["internal/", "cmd/", "main.go"]}
+platforms: [linux, windows, macos]
+plan_words: [OpenCode]
+cwd_markers: ["Gorilla.Opencode", "Gorilla.Opencode.Debs", "Gorilla.Opencode-rpm"]
