@@ -8,6 +8,7 @@
                                                                  relay runs); every session runs one
     fieldkit peers link relay listen --follow                    Z1: keep listening after each message, one line
                                                                  per note, end only on an error
+    fieldkit peers link relay wake [--json]                      P28 A: notes waiting on a deaf station -> WAKE to Zero
     fieldkit peers link relay doctor --restart                   ... and start `listen --follow` when none runs
     fieldkit peers link relay brief                              what a relay session does: start one with it
     fieldkit peers link relay status                             last note read, last note stored, the listener
@@ -311,7 +312,7 @@ def ear_line(station):
     off = ear_read(station).get("off")
     if off is None:
         off = net.log_size()
-    return f"{fieldkit_command()} peers link relay listen --as {station} --since {off}"
+    return f"{fieldkit_command()} peers link relay listen --as {station} --since {off} --follow"
 
 
 def _hold_relay(alive):
@@ -403,9 +404,38 @@ def listen_station(station, since=None, seconds=None, now=time.time, sleep=time.
                 pass
 
 
+def station_follow(a, out=print, listen=None, wake=None):
+    """`relay listen --as STATION --follow` (P28 A, the default ear): never ends on a batch; prints one line per note
+    (run it under the Monitor tool: each line wakes the session) and every WAKE_EVERY_S runs the ear supervisor, so
+    a note waiting on a deaf station reaches Zero as a WAKE line. -> 2 when this station's ear already runs."""
+    from ..zero import channels, net
+    from . import ear_wake
+    listen = listen or listen_station
+    wake = wake or ear_wake.run
+    since, end = a.since, None if a.seconds is None else time.time() + a.seconds
+    while True:
+        code, got, plain = listen(a.as_station, since, ear_wake.WAKE_EVERY_S)
+        since = None                                     # the ear saved the offset it reached
+        if code == 2:
+            out(f"REFUSED: the ear of {a.as_station} already runs (PID {ear_read(a.as_station).get('pid')}); one is "
+                "enough")
+            return 2
+        n = net.load_net() if got else None
+        for e in got:
+            out(channels.human(e, n))
+        for line in (link.fenced(plain) if plain else []):
+            out(line)
+        for w in wake() or []:
+            out(f"WAKE SENT to Zero: {ear_wake.wake_text(w)}")
+        if end is not None and time.time() >= end:
+            return 1
+
+
 def station_main(a):
     """`relay listen --as STATION`: print what woke it, then the line that starts it again."""
     from ..zero import channels, net
+    if a.follow:
+        return station_follow(a, out=lambda l: print(l, flush=True))
     code, got, plain = listen_station(a.as_station, a.since, a.seconds)
     if code == 2:
         print(f"REFUSED: the ear of {a.as_station} already runs (PID {ear_read(a.as_station).get('pid')}); one is "
@@ -419,14 +449,15 @@ def station_main(a):
     if plain:
         print("\n".join(link.fenced(plain)))
         print("(plain cable notes: this ear holds the relay's duty; pass each to the session it is for)")
-    print(f"EAR RESTART: after reading, start your ear again as its own background command: {ear_line(a.as_station)}")
+    print("EAR RESTART: after reading, start your ear again with the Monitor tool (each line wakes you; --follow "
+          f"never ends): {ear_line(a.as_station)}")
     return code
 
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="fieldkit peers link relay", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["listen", "brief", "status", "doctor"])
+    ap.add_argument("action", choices=["listen", "brief", "status", "doctor", "wake"])
     ap.add_argument("--since", type=int, help="read from after this note number (default: the last one read)")
     ap.add_argument("--seconds", type=float, help="give up after this long (default: wait until a note comes)")
     ap.add_argument("--follow", action="store_true", help="listen: keep listening after each message, print each "
@@ -434,7 +465,11 @@ def main(argv):
     ap.add_argument("--as", dest="as_station", help="listen: this session's own ear (I-27): wake on net traffic "
                                                         "for this station; also the relay's duty while none runs")
     ap.add_argument("--restart", action="store_true", help="doctor: start `listen --follow` when none runs")
+    ap.add_argument("--json", action="store_true", help="wake: one JSON line")
     a = ap.parse_args(argv)
+    if a.action == "wake":
+        from . import ear_wake
+        return ear_wake.main(a.json)
     if a.action == "brief":
         print(brief())
         return 0

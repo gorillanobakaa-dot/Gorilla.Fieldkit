@@ -1158,10 +1158,12 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
         cmd = command.sweep(net, now, inbox_add=inbox_add, board=board, **(command_kw or {}))
     except Exception as e:  # noqa: BLE001 - the comms check still reports the net
         cmd = {"error": str(e), "findings": [], "new": []}
+    from ..peers import ear_wake as _ew               # P28 A: deaf stations with a note waiting > 20 s
+    waiting_deaf = _ew.deaf_waiting(_ew.scan(now)[1])
     level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") and not x.get("off") for x in links)
              else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings")
-             or deaf(rows) else OK)
-    out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried, "deaf": deaf(rows),
+             or deaf(rows) or len(waiting_deaf) >= _ew.DEAF_WARN else OK)
+    out = {"established": True, "deaf_waiting": waiting_deaf, "net": net, "rows": rows, "events": events, "retried": retried, "deaf": deaf(rows),
            "undelivered": undelivered, "links": links, "level": level, "command": cmd,
            "unanswered": unanswered([r for r in rows if r["state"] in ("SILENT", "MISSING")])}
     if board:
@@ -1619,6 +1621,8 @@ def main(argv=None, prog="fieldkit zero"):
                       + (f" ear: {x['ear']}" if x.get("ear") else "") for x in r["rows"]]
             lines += [f"  DEAF     {x}: its ear is not running; notes reach it only at its next call (I-27: the "
                       "room hook gives it the line; an idle desktop session needs a nudge)" for x in r.get("deaf") or []]
+            lines += [f"  WAITING  {x}: a note waits > 20 s on this deaf station; the ear supervisor sent Zero a WAKE "
+                      "line (relay it with send_message)" for x in r.get("deaf_waiting") or []]
             lines += [f"  cable {x['device']}: {x['detail']}" for x in r["links"]] or ["  cable: not paired"]
             try:                                      # the SSH-only devices of the household (C1), no ping sweep
                 from ..peers import household
