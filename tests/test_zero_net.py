@@ -969,3 +969,40 @@ def test_p24_unanswered_stations_are_listed_with_session_host_and_one_exact_line
     monkeypatch.setenv("CLAUDE_CODE_HOST_SESSION_ID", "local_HOOK1")
     net.hook_line({"session_id": "dddddddd-4", "cwd": "/x"}, "UserPromptSubmit", now=T0 + 300)
     assert net.load_stations()["stations"][f"claude:dddddddd@{HOST}"]["host_session"] == "local_HOOK1"
+
+
+def test_a_station_whose_ear_is_not_running_is_a_finding_of_the_comms_check(monkeypatch):
+    """I-27 (owner, 2026-11-10): a listener died with its session and nothing said so; 97 notes sat unheard. The hook
+    carries each station's ear to the net; the comms check lists it and a deaf station that is up is a WARN."""
+    ear = {"v": {"state": "deaf", "unheard": 4}}
+    monkeypatch.setattr(net, "_ear_of", lambda st: ear["v"])
+    opened()
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 1)
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0 + 1)
+    r = net.check(heal=False, now=T0 + 2, board=False)
+    assert r["deaf"] and TWO in r["deaf"] and r["level"] == net.WARN
+    assert {x["station"]: x["ear"] for x in r["rows"]}[TWO] == "NOT RUNNING (4 unheard)"
+    ear["v"] = {"state": "running", "unheard": 0}
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 200)
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0 + 200)
+    r = net.check(heal=False, now=T0 + 201, board=False)
+    assert r["deaf"] == [] and r["level"] == net.OK
+    assert {x["station"]: x["ear"] for x in r["rows"]}[TWO] == "running"
+
+
+def test_a_far_message_for_an_opencode_session_here_is_pushed_to_it_on_ingest(monkeypatch):
+    """I-27: an OpenCode session hears a cable note within seconds (the link server ingests on arrival), through
+    fieldkit peers, with the line that answers it over the cable; a note for a Claude station is not pushed there."""
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    sent = []
+    monkeypatch.setattr(ch.OpenCode, "push", lambda self, e, n: sent.append((self._sessions() if self._sessions
+                                                                              else "all", e["text"])) or [])
+    opened()
+    far = {"kind": "msg", "id": "M-far-1", "from": "claude:zzzz@VAIO", "to": f"opencode:gorilla@{HOST}",
+           "text": "hello", "ts": T0, "from_host": "VAIO"}
+    assert net.ingest_cable([(9, far)], now=T0) == 1
+    assert sent == [([{"name": "gorilla"}], 'hello (answer: fieldkit zero send --as opencode:NAME --to '
+                                             'claude:zzzz@VAIO "TEXT")')]
+    claude = dict(far, id="M-far-2", to=TWO)
+    net.ingest_cable([(10, claude)], now=T0)
+    assert len(sent) == 1
