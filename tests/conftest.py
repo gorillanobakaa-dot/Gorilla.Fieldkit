@@ -472,3 +472,13 @@ def _no_real_gh_proof(monkeypatch):
     from fieldkit.method import strikes
     monkeypatch.setattr(strikes, "default_proof", lambda *a, **k: None)
     yield
+
+
+# No test runs a real ACTING leaks sweep (P28, fieldkit/hog/leaks.py): the SessionStart hook, the preflight and the
+# prompt hook's schedule-stale pass call hog._leaks_act, which would stop real processes on the test machine. A test
+# of that wiring replaces it with its own fake (monkeypatch.setattr(hog, "_leaks_act", ...)).
+@pytest.fixture(autouse=True)
+def _no_real_leaks_sweep(monkeypatch):
+    import fieldkit.hog as _hog
+    monkeypatch.setattr(_hog, "_leaks_act", lambda cfg=None: None)
+    yield

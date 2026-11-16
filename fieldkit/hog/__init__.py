@@ -111,6 +111,11 @@ def check(cfg=None, facts=None, hist=None, reg=None, sample=False):
             found += sweep.hog_findings()
         except Exception:
             pass
+        try:                        # process leaks (P28): console hosts, duplicate singletons, orphans, zombies
+            from . import leaks
+            found += leaks.sweep(act=False, cfg=cfg)["findings"]
+        except Exception:
+            pass
     if sample:
         save_sample(facts, hist, cfg)
         reg = registry.prune(facts["alive"])
@@ -235,10 +240,9 @@ def _liveness(watch):
         return ""
     try:
         from ..core import liveness, procs
-        from . import consoles
-        found, stopped = consoles.sweep()
+        from . import leaks
         return (liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
-                + (f" | consoles: {stopped} empty host(s) stopped" if found else ""))
+                + " | " + leaks.line(leaks.sweep(act=True, cfg=config())))
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
 
@@ -250,17 +254,23 @@ def preflight_check(ctx=None, cfg=None, facts=None, ram_fn=None, do=None):
     preflight_min_free_pct AFTER reclaiming. Raising is left to the preflight, which turns it into a WARN."""
     from . import probe, registry
     cfg = cfg or config()
-    if facts is None:
+    live = facts is None
+    if live:
         reg = registry.load()
         facts = probe.gather(cfg, keep={(e["pid"], e["ctime"]) for e in reg}, with_temp=False)
     facts, found = check(cfg, facts=facts, sample=True)
     done = act(cfg, facts, found, settle=1.0, do=do)
+    leak = _leaks_act(cfg) if live else None      # P28: empty console hosts and spare singletons before the run
+    if leak:
+        found = found + leak["findings"]
     used, total = (ram_fn or _ram_now)()
     free_pct = (total - used) * 100.0 / total
     freed = sum(max(0, d["ram_before"] - d["ram_after"]) for d in done if d.get("ok"))
     line = f"hog: RAM {used / 2**30:.1f}/{total / 2**30:.1f} GB ({100 - free_pct:.0f}%)"
     if done:
         line += f", {len(done)} action(s), reclaimed {freed / 2**30:.1f} GB"
+    if leak and leak["stopped"]:
+        line += f", {len(leak['stopped'])} leaked process(es) stopped"
     if free_pct < cfg["preflight_min_free_pct"]:
         top = ", ".join(rules._top(facts.get("procs", []), 3))
         return "stop", (f"{line}: {free_pct:.0f}% free is under the floor of {cfg['preflight_min_free_pct']}% "
@@ -269,6 +279,42 @@ def preflight_check(ctx=None, cfg=None, facts=None, ram_fn=None, do=None):
     if rules.worst(rest) or any(f["severity"] != "ok" for f in found if f["check"] in ("ram", "commit")):
         return "warn", line + "; " + rules.summary(found)[len("hog: "):]
     return "ok", line
+
+
+def _leaks_act(cfg=None):
+    """One acting leaks pass (fieldkit/hog/leaks.py). -> its result, or None on any error (never raises)."""
+    try:
+        from . import leaks
+        return leaks.sweep(act=True, cfg=cfg or config())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+LEAKS_STALE_MARK = "leaks-stale.json"
+
+
+def stale_leaks_pass(last_t, now, cfg, run=None):
+    """The schedule-stale check (P28): when the 5-minute watch has not written last.json for 3x hook_fresh_min (the
+    scheduled task is missing, disabled or blocked), the prompt hook runs the acting leaks pass itself, at most once
+    per hook_fresh_min. -> one line when it found or stopped something, else ""."""
+    window = cfg["hook_fresh_min"] * 60
+    if now - (last_t or 0) <= 3 * window:
+        return ""
+    mark = state_dir() / LEAKS_STALE_MARK
+    try:
+        if now - json.loads(mark.read_text(encoding="utf-8")).get("t", 0) < window:
+            return ""
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        mark.write_text(json.dumps({"t": now}), encoding="utf-8")
+    except OSError:
+        return ""
+    res = (run or _leaks_act)(cfg)
+    if not res or not (res["findings"] or res["stopped"]):
+        return ""
+    from . import leaks
+    return "hog watch stale: " + leaks.line(res)
 
 
 # ---- the prompt hook's one line ----------------------------------------------------------------------------------
@@ -285,6 +331,9 @@ def hook_line(now=None, ram_fn=None):
             last = None
         if last and now - last.get("t", 0) <= cfg["hook_fresh_min"] * 60 and last.get("severity", 0) > 0:
             parts.append(last["summary"])
+        stale = stale_leaks_pass((last or {}).get("t", 0), now, cfg)
+        if stale:
+            parts.append(stale)
         used, total = (ram_fn or _ram_now)()
         pct = used * 100.0 / total
         if pct >= cfg["ram_warn_pct"] and not parts:
@@ -317,6 +366,9 @@ def main(argv=None, prog="fieldkit hog"):
     a.add_argument("--dry-run", action="store_true")
     a.add_argument("--json", action="store_true")
     sub.add_parser("watch")
+    lk = sub.add_parser("leaks", help="process leaks: console hosts, duplicate singletons, orphans, zombies")
+    lk.add_argument("--act", action="store_true", help="stop the empty console hosts and the spare singletons")
+    lk.add_argument("--json", action="store_true")
     sub.add_parser("preflight")
     r = sub.add_parser("register")
     r.add_argument("pid", type=int)
@@ -360,6 +412,22 @@ def main(argv=None, prog="fieldkit hog"):
             if live:
                 print(live)
         return rules.worst(found)
+    if cmd == "leaks":
+        from . import leaks
+        res = leaks.sweep(act=ns.act, cfg=config())
+        if ns.json:
+            print(json.dumps({"summary": leaks.line(res), "findings": res["findings"], "stopped": res["stopped"],
+                              "counts": leaks.counts(res["k"])}, indent=1))
+        else:
+            print(leaks.line(res))
+            for f in res["findings"]:
+                print("  " + f["line"])
+            k = res["k"]
+            stoppable = k["console_hosts"]["empty"] or any(d["spare"] for d in k["duplicates"].values())
+            print("NEXT: " + ("fieldkit hog leaks --act stops the empty console hosts and the spare singletons"
+                              if stoppable and not ns.act else "orphans and zombies are named, never stopped: "
+                              "find their starter" if res["findings"] else "nothing to do"))
+        return 3 if res["findings"] else 0
     if cmd == "preflight":
         from ..core import preflight
         return preflight.RANK[preflight.run("fieldkit hog preflight", steps=preflight.STEPS)["status"]]

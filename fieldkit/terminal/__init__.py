@@ -209,8 +209,9 @@ def open_window(command, mode="ask", title=None, popen=subprocess.Popen, which=N
         ps_wmi = (f"$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
                   f"-Arguments @{{CommandLine={clq}; CurrentDirectory={cwdq}}}; "
                   f"Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
-        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_wmi],
-                             capture_output=True, text=True, timeout=60).stdout.strip().split()
+        from fieldkit.core import nowindow     # P28: the WMI helper itself leaves no console host behind
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_wmi], capture_output=True, text=True,
+                             timeout=60, creationflags=nowindow.flags(0, "win32")).stdout.strip().split()
         pid = int(out[1]) if len(out) == 2 and out[0] == "0" else None
         # 2026-10-18 (review): a window that did not start is not "ok" (WMI ReturnValue other than 0, or no PID)
         if pid is None:
