@@ -1940,6 +1940,10 @@ def run(a, emit):
     if act in ("build-gate", "build-verify"):
         from . import compile as cg
         rows = cg.gate(tid, harness_root=a.harness) if act == "build-gate" else cg.verify(tid)
+        if act == "build-verify":
+            # the migration's S5 gate reads this event, and its NEXT line names this very command: only the build
+            # runner journaled it, so a standalone verify of an existing build could never turn S5 green (160, 2026-11-15)
+            task.journal(task.load(tid), "build-verified", ok=all(r["ok"] for r in rows), via="build-verify")
         emit(rows, lambda rows: print("\n".join(cg.lines(rows, act.upper()))))
         if act == "build-gate" and all(r["ok"] for r in rows):
             print("\nThe tree is recorded. The OWNER now compiles it, from a normal terminal (this changes the power scheme):\n"
