@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 
 from . import task
+from ..core import nowindow
 
 FK = Path(__file__).resolve().parents[2]
 
@@ -113,6 +114,10 @@ def awake_script(pid):
     return "\n".join([AWAKE_TYPE, AWAKE_ON, f"Wait-Process -Id {int(pid)} -ErrorAction SilentlyContinue", AWAKE_OFF])
 
 
+DETACHED_PROCESS = 0x00000008
+AWAKE_CREATE_FLAGS = DETACHED_PROCESS | nowindow.NO_WINDOW
+
+
 def hold_awake(pid, run=subprocess.run, platform=None, popen=subprocess.Popen, which=shutil.which):
     """Start (through WMI, so it outlives the session) a hidden PowerShell holding the stay-awake request until `pid`
     exits -> {"pid": the holder's pid}; refuses a pid that is not running. On Linux: systemd-inhibit holding off idle
@@ -132,15 +137,20 @@ def hold_awake(pid, run=subprocess.run, platform=None, popen=subprocess.Popen, w
                    f"while kill -0 {int(pid)} 2>/dev/null; do sleep 30; done"],
                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return {"pid": p.pid}
+    nw = nowindow.flags(0, "win32")        # P28: the helper powershell runs leave no console host behind
     chk = run(["powershell", "-NoProfile", "-Command", f"if (Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue) {{ 'yes' }}"],
-              capture_output=True, text=True, timeout=60).stdout.strip()
+              capture_output=True, text=True, timeout=60, creationflags=nw).stdout.strip()
     if chk != "yes":
         raise task.Refused(f"process {pid} is not running")
     enc = base64.b64encode(awake_script(pid).encode("utf-16-le")).decode("ascii")
     cl = f"powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand {enc}"
-    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" + _ps_quote(cl)
-          + "}; Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
-    parts = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
+    # P28: the holder is created DETACHED_PROCESS | CREATE_NO_WINDOW (no console, so no conhost.exe) and hidden
+    ps = ("$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0; "
+          f"CreateFlags=[uint32]{AWAKE_CREATE_FLAGS}}}; "
+          "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" + _ps_quote(cl)
+          + "; ProcessStartupInformation=$si}; Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
+    parts = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60,
+                creationflags=nw).stdout.split()
     if len(parts) != 2 or parts[0] != "0":
         raise task.Refused(f"Windows did not start the stay-awake holder ({' '.join(parts) or 'nothing'})")
     return {"pid": int(parts[1])}
@@ -208,7 +218,8 @@ def launch(args, run=subprocess.run, platform=None, popen=subprocess.Popen, hera
     cl = command_line(args, log)
     ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" + _ps_quote(cl)
           + "; CurrentDirectory=" + _ps_quote(FK) + "}; Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
-    out = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.strip()
+    out = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60,
+              creationflags=nowindow.flags(0, "win32")).stdout.strip()   # the window is WMI's; the helper has none
     parts = out.split()
     if len(parts) != 2 or parts[0] != "0":
         raise task.Refused(f"Windows did not start the window (Win32_Process.Create returned: {out or 'nothing'})")
