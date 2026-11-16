@@ -278,13 +278,16 @@ def materialize(owner_root, workdir, say=print):
     w = Path(workdir)
     if int(_git(w, "rev-list", "--count", "HEAD").decode().strip()) > 1:
         return {"ok": True, "detail": "work tree already carries checkpoints; nothing to apply"}
-    dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines() if l.strip()]
-    if dirty:
-        return {"ok": False, "detail": f"work tree has uncommitted changes: {dirty[:5]}"}
     r = replay(owner_root, workdir, say=say, keep=True)
     try:
         if r["failures"]:
             return {"ok": False, "detail": f"{len(r['failures'])} patch failure(s): {r['failures'][:5]}"}
+        # leftovers of an earlier, half-finished run are paths this run rewrites anyway; anything else is foreign
+        touched = set(r["touched"])
+        dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines()
+                 if l.strip() and l[3:].strip().strip('"') not in touched]
+        if dirty:
+            return {"ok": False, "detail": f"work tree has uncommitted changes: {dirty[:5]}"}
         t = Path(r["scratch"]) / "t"
         for p in r["touched"]:
             d = w / p
@@ -293,8 +296,13 @@ def materialize(owner_root, workdir, say=print):
                 d.write_bytes((t / p).read_bytes())
             elif d.is_file():
                 d.unlink()
-        _git(w, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul",
-             inp="\0".join(r["touched"]).encode("utf-8"))
+        # a path one patch creates and a later one deletes is in neither tree: git add fails on a pathspec that
+        # matches nothing (160: browser/branding/gorilla/Assets.car), so stage only what exists or was tracked
+        known = _git(w, "cat-file", "--batch-check=%(objecttype)",
+                     inp="".join(f"HEAD:{p}\n" for p in r["touched"]).encode("utf-8")).decode("utf-8").splitlines()
+        stage = [p for p, k in zip(r["touched"], known) if (w / p).is_file() or not k.endswith("missing")]
+        if stage:
+            _git(w, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul", inp="\0".join(stage).encode("utf-8"))
         _git(w, "-c", "user.name=fieldkit", "-c", "user.email=fieldkit@localhost", "commit", "-q", "--no-verify",
              "-m", f"checkpoint: public patch set replayed onto pristine {r['pristine'][:10]} ({r['patches']} patches)")
         return {"ok": True, "detail": f"{r['patches']} patch(es) applied over {len(r['touched'])} path(s) and committed"}
