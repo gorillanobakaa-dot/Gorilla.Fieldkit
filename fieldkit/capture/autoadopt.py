@@ -11,6 +11,7 @@ branch and ships it with `fieldkit ship push --auto`: ONE pull request per run. 
 in state/capture/agent-ledger.jsonl with the failed step. Nothing here runs a captured command: the script is only
 read and swapped as text; the test only reads the script. The owner is never asked and no check is weakened.
 """
+import json
 import re
 import shutil
 import subprocess
@@ -63,9 +64,80 @@ def _toolchain(cmd, table):
     return next((tc for tc, names in table.items() if w in names), None)
 
 
-def quality(script_text):
-    """-> a reason string when the script is not fit to adopt, else "". Rules: adopt_rules.yaml; test runners: toolrouter."""
+def _example_acts(cdir):
+    """{episode id: actions} of the episodes the candidate's replay.json names, read from the capture journal (never from the
+    script's text). Each action is (family, template, failed, description, error key); failed comes from the exit code."""
+    from . import recipes as R
+    from . import store as st
+    info = json.loads((Path(cdir) / "replay.json").read_text(encoding="utf-8"))
+    s = st.Store()
+    state = s.state()
+    return {e: R.episode_actions(s, state, state["episodes"][e]) for e in info.get("examples", []) if e in state.get("episodes", {})}
+
+
+def journal_replays(cdir):
+    """How many journal episodes replay THIS candidate's own steps: every step's command family ran in the episode and ended
+    with exit code 0, in the order the script has them. Counted from the journal records, never from the script's header.
+    -> (count, intent); (0, None) when the candidate carries no journal evidence."""
+    from . import distill as D
+    cdir = Path(cdir)
+    try:
+        intent = json.loads((cdir / "replay.json").read_text(encoding="utf-8")).get("intent")
+        acts = _example_acts(cdir)
+    except (OSError, ValueError, KeyError):
+        return 0, None
+    fams = [D.family(ln) for ln in _step_lines((cdir / f"{cdir.name}.sh").read_text(encoding="utf-8")) if ln != "true"]
+    n = 0
+    for seq in acts.values():
+        pos, ok = -1, bool(fams)
+        for f in fams:
+            hit = next((i for i, a in enumerate(seq) if i > pos and a[0] == f and not a[2]), None)
+            if hit is None:
+                ok = False
+                break
+            pos = hit
+        n += ok
+    return n, intent
+
+
+def _git_flag_error(line):
+    """-> a message when `git SUB -flag` uses a flag git's own usage text does not list (`git add -a`), else "". Reads only
+    `git SUB -h`; nothing the candidate says is run. A git that cannot answer is never a reason to refuse."""
+    words = line.split()
+    if len(words) < 3 or words[0] != "git" or words[1].startswith("-") or not any(w.startswith("-") for w in words[2:]):
+        return ""
+    try:
+        r = subprocess.run(["git", words[1], "-h"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    usage = r.stdout + r.stderr
+    if "usage:" not in usage.lower():
+        return ""
+    known = set(re.findall(r"(?<![\w-])(--?[A-Za-z][\w-]*)", usage))
+    for w in words[2:]:
+        if w == "--":
+            break
+        if not w.startswith("-"):
+            continue
+        flag = w.split("=")[0]
+        letters = [flag] if flag.startswith("--") else ["-" + c for c in flag[1:]]
+        bad = [x for x in letters if x not in known]
+        if bad:
+            return f"`{line[:50]}`: git {words[1]} has no {bad[0]} (its own usage text)"
+    return ""
+
+
+def _intent_of_step(line, anchors):
+    from . import distill as D
+    fam = D.family(line)
+    return {i for i, names in anchors.items() if any(fam == a or fam.startswith(a + " ") or line.startswith(a) for a in names)}
+
+
+def quality(script_text, replays=0, intent=None):
+    """-> a reason string when the script is not fit to adopt, else "". Rules: adopt_rules.yaml; test runners: toolrouter.
+    replays: the journal's count (journal_replays); the "(N replayed)" text in the script's header is only a label and is not read."""
     from ..autopilot.toolrouter import TEST_RUNNERS
+    from . import recipes as R
     rules = _rules()
     steps = _step_lines(script_text)
     why = []
@@ -77,13 +149,24 @@ def quality(script_text):
         why.append("steps from more than one toolchain (" + ", ".join(chains) + "): they come from unrelated projects")
     if any(p.search(ln) for ln in steps for p in TEST_RUNNERS):
         why.append("a test-runner command (tests run in GitHub CI, never from a tool)")
-    m = re.search(r"\((\d+) replayed\)", script_text)
-    if not m or int(m.group(1)) < int(rules["min_replayed"]):
-        why.append("never replayed successfully")
+    for rule in rules.get("refuse_steps", []):
+        hit = [ln for ln in steps if re.search(rule["pattern"], ln)]
+        if hit:
+            why.append(f"{rule['name']}: `{hit[0][:50]}` ({rule['why']})")
+    flags = [m for m in (_git_flag_error(ln) for ln in steps) if m]
+    if flags:
+        why.append("broken git step: " + flags[0])
+    if intent and intent in R.ANCHORS:                      # coherence: one intent, one flow
+        foreign = [ln for ln in steps if (a := _intent_of_step(ln, R.ANCHORS)) and intent not in a]
+        if foreign:
+            why.append(f"not one flow: the {intent} candidate carries steps of other intents (`{foreign[0][:40]}`"
+                       f"{', ...' if len(foreign) > 1 else ''}): stitched from unrelated episodes")
+    if replays < int(rules["min_replayed"]):
+        why.append("never replayed successfully (no journal episode replays these steps with exit code 0)")
     return "; ".join(why)
 
 
-def try_candidate(cdir, run_test=None):
+def try_candidate(cdir, run_test=None, replays=None):
     """-> {ok, step, reason, id}. step is the failed step (quality | test | mutate | privacy | shape) or "" when all three passed."""
     cdir = Path(cdir)
     cid = cdir.name
@@ -91,7 +174,8 @@ def try_candidate(cdir, run_test=None):
     missing = [p.name for p in (script, test, card) if not p.is_file()]
     if missing:
         return {"ok": False, "id": cid, "step": "shape", "reason": f"candidate is missing {', '.join(missing)}"}
-    bad = quality(script.read_text(encoding="utf-8"))
+    n, intent = (replays or journal_replays)(cdir)
+    bad = quality(script.read_text(encoding="utf-8"), n, intent)
     if bad:
         return {"ok": False, "id": cid, "step": "quality", "reason": bad}
     for f in (script, test):                      # LF only: a CRLF script cannot be swapped line by line (Windows, 2026-11-10)
