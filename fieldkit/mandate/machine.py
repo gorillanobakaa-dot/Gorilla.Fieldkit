@@ -75,6 +75,16 @@ def _link_keepalive():
     return all(r["ok"] for r in link_keepalive.status())
 
 
+def _telemetry_firewall_task():
+    # the scheduled task that keeps every vctip.exe blocked at the firewall (prereqs/telemetry-firewall-task.ps1)
+    import subprocess
+    import sys
+    if sys.platform != "win32":
+        return True
+    r = subprocess.run(["schtasks", "/query", "/tn", "fieldkit-telemetry-firewall"], capture_output=True, text=True, timeout=30)
+    return r.returncode == 0
+
+
 def _link_rescue_firewall():
     # None (unknown, so it is applied) unless the pinned script's own verify says the rule is present or not needed
     from ..peers import link_keepalive
@@ -82,7 +92,8 @@ def _link_rescue_firewall():
 
 
 VERIFY = {"longpaths_enabled": _longpaths, "git_longpaths": _git_longpaths, "scratch_exclusion": _scratch_exclusion,
-          "link_keepalive": _link_keepalive, "link_rescue_firewall": _link_rescue_firewall}
+          "link_keepalive": _link_keepalive, "link_rescue_firewall": _link_rescue_firewall,
+          "telemetry_firewall_task": _telemetry_firewall_task}
 
 
 def entries(m):
