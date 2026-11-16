@@ -32,6 +32,9 @@ def state_dir():
     return hardlines.STATE
 
 
+# A job run (never Zero, which is an interactive session and compacts by hand) compacts itself at this percent of the
+# auto-compact window. Claude Code only lowers its own threshold with it; a value above its default is ignored.
+AUTOCOMPACT_PCT = "72"
 NO_HELPER = "'credential.helper='"
 
 
@@ -267,6 +270,7 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
     fk_root = str(Path(__file__).resolve().parents[2])
     env = isolated_env()
     env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
+    env.setdefault("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", AUTOCOMPACT_PCT)   # owner 2026-11-16: job sessions compact at ~72%
     env.update(env_extra or {})
     # The prompt always goes on stdin, never argv: a prompt starting with "-" (a link brief opens with its "---" fence)
     # was read by claude as an unknown option and the run died at once (2026-10-22, funny.gorilla); argv also caps it
