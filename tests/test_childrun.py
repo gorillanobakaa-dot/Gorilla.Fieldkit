@@ -29,9 +29,11 @@ def test_the_wall_deadline_stops_a_child_that_keeps_talking():
 
 
 def test_stdin_is_never_a_terminal_a_prompt_reads_end_of_file():
-    code = "import sys; d = sys.stdin.read(); print('EOF' if d == '' else 'GOT', sys.stdin.isatty())"
+    # what matters is that an interactive prompt gets end-of-file at once and never waits for a keyboard. isatty() is
+    # not asserted: on Windows the DEVNULL device (NUL) is a character device, so isatty() is True there (CI 2026-11-16)
+    code = "import sys" + NL + "try:" + NL + "    input('continue? ')" + NL + "    print('GOT')" + NL + "except EOFError:" + NL + "    print('EOF')"
     r = childrun.run([sys.executable, "-c", code], "prompt", deadline_s=30, idle_s=10)
-    assert r.returncode == 0 and r.stdout.split() == [b"EOF", b"False"]
+    assert r.returncode == 0 and r.stdout.split()[-1:] == [b"EOF"], r.stdout
 
 
 def test_input_bytes_and_a_stdin_file_reach_the_child(tmp_path):
