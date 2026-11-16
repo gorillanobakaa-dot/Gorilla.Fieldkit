@@ -249,19 +249,15 @@ def test_the_old_tree_row_does_not_compare_a_tree_with_itself(tmp_path):
 def test_a_tree_patched_in_place_is_compared_with_the_kept_old_tree_not_with_itself(world, tmp_path, monkeypatch):
     w = world["w"]
     old = tmp_path / "vault" / "158.0"
-    _w(old / "app.js", "ANOTHER older upstream text
-")                    # upstream changed app.js since: a copy is lossy
+    _w(old / "app.js", "ANOTHER older upstream text\n")                    # upstream changed app.js since: a copy is lossy
     monkeypatch.setattr(verify, "older_pristine", lambda version: old)
     monkeypatch.setattr(verify, "same_tree", lambda a, b: True)             # the task's workdir is the owner's src
-    _w(world["h"] / "src-158.0" / "app.js", "the owner's OLD tree version of app.js
-")
-    _w(w / "app.js", "the owner's OLD tree version of app.js
-")
+    _w(world["h"] / "src-158.0" / "app.js", "the owner's OLD tree version of app.js\n")
+    _w(w / "app.js", "the owner's OLD tree version of app.js\n")
     git(w, "add", "-A")
     git(w, "commit", "-q", "-m", "checkpoint: copied")
     assert verify.verify("v1")["old_tree_copies"] == ["app.js"]
-    _w(w / "app.js", "patched 160 text, not the old one
-")
+    _w(w / "app.js", "patched 160 text, not the old one\n")
     git(w, "add", "-A")
     git(w, "commit", "-q", "-m", "checkpoint: patched")
     assert verify.verify("v1")["old_tree_copies"] == []
