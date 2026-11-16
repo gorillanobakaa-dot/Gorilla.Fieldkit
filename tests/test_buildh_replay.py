@@ -51,3 +51,16 @@ def test_a_stale_extra_patch_or_a_dirty_tree_fails(tmp_path):
     (w / "a/x.txt").write_text("edited after the build\n", encoding="utf-8", newline=NL)
     r = replay.replay(owner, w, say=lambda *_: None)
     assert not r["ok"] and r["dirty"]
+
+
+def test_materialize_patches_a_pristine_tree_once(tmp_path):
+    owner, w = _setup(tmp_path)
+    _git(w, "reset", "-q", "--hard", "HEAD~1")              # back to the single pristine commit
+    r = replay.materialize(owner, w, say=lambda *_: None)
+    assert r["ok"], r
+    assert (w / "a/x.txt").read_text(encoding="utf-8") == "one\nTWO\n"
+    assert (w / "a/new.txt").is_file() and not (w / "a/gone.txt").exists()
+    top = subprocess.run(["git", "-C", str(w), "status", "--porcelain"], capture_output=True, text=True).stdout
+    assert top.strip() == ""                                 # committed, nothing left over
+    again = replay.materialize(owner, w, say=lambda *_: None)
+    assert again["ok"] and "nothing to apply" in again["detail"]
