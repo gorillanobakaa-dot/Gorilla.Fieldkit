@@ -189,7 +189,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
-STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red commit parks
+STRIKES_AT = 3                                         # STRIKES (rules/CORE.md; = strikes.LIMIT): own red commits per model
 
 
 def _gh(run, repo, *args):
@@ -274,16 +274,21 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
     except ValueError:
         return fail("gh run list", f"not JSON: {out[:200]}")
     reds = (counter or _own_reds)(run, repo, branch, pr["number"], runs, base)
-    if reds >= STRIKES_AT:
-        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI by their own failures. Auto-merge NOT enabled."
-        from . import strikes
-        up = strikes.escalation(branch)
-        if up:                                          # P9: the ladder is not at its top yet: climb, do not park
-            return dict(rep, ok=False, state="escalate", reds=reds, error=why, escalate_to=up,
-                        next=f"ESCALATE (ladder on): next attempt with {up}")
-        return dict(rep, ok=False, state="parked", reds=reds, error=why, escalate_to=None,
-                    next="PARKED (TWO STRIKES; ladder top reached or off): left open for a stronger model's repair; "
-                         "go on with the plan")
+    from . import strikes
+    if reds >= STRIKES_AT or strikes.parked_for(branch):
+        why = (f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI by their own failures "
+               f"(main's reds and unproven reds are not counted). Auto-merge NOT enabled.")
+        parked = strikes.parked_for(branch)
+        step = strikes.ladder_step(strikes.load()["strikes"].get(branch, {}).get("rounds", []))
+        if parked or step is None or step["next"] is None:   # past the top allowed model, or the ladder is off
+            return dict(rep, ok=False, state="parked", reds=reds, escalate_to=None,
+                        error=why + (f" Parked: {parked.get('why', '')}" if parked else ""),
+                        next="PARKED (past the strongest allowed model, or the ladder is off): left open for the owner "
+                             "or a stronger model; go on with the plan")
+        if not step["same"]:                            # P9: the ladder is not at its top yet: climb, do not park
+            return dict(rep, ok=False, state="escalate", reds=reds, error=why, escalate_to=step["next"],
+                        next=f"ESCALATE (ladder on): next attempt with {step['next']}")
+        # the same model retries (below its own limit): nothing blocks the new head
     # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge
     # off) `gh pr merge --auto` merges AT ONCE, before CI ends: PRs #42-#44 there merged 1-4 min ahead of their checks.
     # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
