@@ -1,0 +1,14 @@
+# P41a: the registry tests must fail when check or the cwd lookup is weakened.
+#   fieldkit mutate --plan tests/cookbook_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_cookbook_registry.py
+- file: fieldkit/cookbook/registry.py
+  swap: ['if r not in recipes:', 'if False:']
+  why: "check must flag a recipe that `emerge list` does not know"
+- file: fieldkit/cookbook/registry.py
+  swap: ['if HOME_PATH.search(line.split("#", 1)[0]):', 'if False:']
+  why: "check must flag a machine path"
+- file: fieldkit/cookbook/registry.py
+  swap: ['(best is None or i > best[0])', '(best is None)']
+  why: "the deepest matching folder wins"
+- file: fieldkit/cookbook/registry.py
+  swap: ['if have is not None and have != str(want).lower():', 'if False:']
+  why: "a github name that is not the repo's real name must be flagged"
