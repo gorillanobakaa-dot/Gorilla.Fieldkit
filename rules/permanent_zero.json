@@ -1,5 +1,13 @@
 {
   "decision": "Owner, 2026-11-09: \"Sesiunea 0 intotdeauna scutita de rotatie.\" (Session 0 is always exempt from rotation.)",
   "applies_to": "the permanent Zero only; every other session keeps rotating",
-  "transcripts": ["407131e1-ce0d-40e5-bc4e-e373a9749717"]
+  "transcripts": [
+    "407131e1-ce0d-40e5-bc4e-e373a9749717",
+    "ba55b9dc-fafc-4e4e-ac19-274a70a6dd5c"
+  ],
+  "windows_zero": {
+    "transcript": "ba55b9dc-fafc-4e4e-ac19-274a70a6dd5c",
+    "machine": "[L15-WIN]",
+    "decision": "Owner, 2026-11-16: the Windows laptop has its own Zero (\"The Windows Zero, Firefox 160 build coordination session on the windows laptop\"; \"Can you coordinate with the Windows laptop? ... he's not able to start sessions\"). It holds the Windows net seat and is exempt from rotation like Session 0."
+  }
 }
