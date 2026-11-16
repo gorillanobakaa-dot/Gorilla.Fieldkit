@@ -11,13 +11,26 @@ class R:
         self.returncode, self.stdout, self.stderr = rc, out, ""
 
 
+PAGE = "page\n\n## Files\n\n| File | Bytes | SHA-256 |\n|---|---|---|\n"
+
+
+def test_a_page_without_its_files_table_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
+    (tmp_path / "app.bin").write_bytes(b"x")
+    (tmp_path / "page.md").write_text("just words", encoding="utf-8")
+    called = []
+    r = ship.gh_release(str(tmp_path), "v1", ["app.bin", "--notes-file", "page.md"], mandate=_ok,
+                        run=lambda *a, **k: called.append(a), gate=lambda s, t, h: {"ok": True})
+    assert not r["ok"] and "File | Bytes | SHA-256" in r["error"] and not called
+
+
 def _ok(*a, **k):
     return ("allow", "ok", None)
 
 
 def test_a_release_is_never_created_without_files(tmp_path, monkeypatch):
     monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
-    (tmp_path / "page.md").write_text("p", encoding="utf-8")
+    (tmp_path / "page.md").write_text(PAGE, encoding="utf-8")
     called = []
     r = ship.gh_release(str(tmp_path), "v1", ["--notes-file", "page.md"], mandate=_ok,
                         run=lambda *a, **k: called.append(a), gate=lambda s, t, h: {"ok": True})
@@ -35,7 +48,7 @@ def test_a_release_is_never_created_without_its_page(tmp_path, monkeypatch):
 
 def test_a_missing_file_is_named(tmp_path, monkeypatch):
     monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
-    (tmp_path / "page.md").write_text("p", encoding="utf-8")
+    (tmp_path / "page.md").write_text(PAGE, encoding="utf-8")
     r = ship.gh_release(str(tmp_path), "v1", ["gone.bin", "-F", "page.md"], mandate=_ok,
                         run=lambda *a, **k: None, gate=lambda s, t, h: {"ok": True})
     assert not r["ok"] and "gone.bin" in r["error"]
@@ -44,7 +57,7 @@ def test_a_missing_file_is_named(tmp_path, monkeypatch):
 def test_files_and_page_go_through(tmp_path, monkeypatch):
     monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
     (tmp_path / "app.bin").write_bytes(b"x")
-    (tmp_path / "page.md").write_text("p", encoding="utf-8")
+    (tmp_path / "page.md").write_text(PAGE, encoding="utf-8")
     seen = []
     r = ship.gh_release(str(tmp_path), "v1", ["app.bin", "--title", "v1", "--notes-file", "page.md"], mandate=_ok,
                         run=lambda argv, **k: seen.append(argv) or R("https://x"), gate=lambda s, t, h: {"ok": True})

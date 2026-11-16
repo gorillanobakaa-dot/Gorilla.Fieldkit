@@ -416,17 +416,16 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
 def release_is_empty(repo, extra):
     """Why `gh release create` with EXTRA would publish an empty or page-less release ('' when it would not): it needs
     at least one file argument that exists and a page (--notes-file/-F FILE that exists, or --notes TEXT)."""
-    args, files, notes, i = list(extra), [], False, 0
+    args, files, notes, notes_path, i = list(extra), [], False, None, 0
     while i < len(args):
         a = args[i]
-        if a in ("--notes-file", "-F") and i + 1 < len(args):
-            nf = Path(args[i + 1])
-            notes = notes or (nf if nf.is_absolute() else Path(repo) / nf).is_file()
-            i += 2
+        if a in ("--notes-file", "-F") and i + 1 < len(args) or a.startswith("--notes-file="):
+            nf = Path(a.split("=", 1)[1] if "=" in a else args[i + 1])
+            nf = nf if nf.is_absolute() else Path(repo) / nf
+            if nf.is_file():
+                notes, notes_path = True, nf
+            i += 1 if "=" in a else 2
             continue
-        if a.startswith("--notes-file="):
-            nf = Path(a.split("=", 1)[1])
-            notes = notes or (nf if nf.is_absolute() else Path(repo) / nf).is_file()
         elif a == "--generate-notes":
             notes = True
         elif a in ("--notes", "-n") and i + 1 < len(args):
@@ -447,6 +446,9 @@ def release_is_empty(repo, extra):
         return "no release files given: a release is never created empty"
     if not notes:
         return "no page given (--notes-file PAGE): a release is never created without its page"
+    if notes_path is not None and not re.search(r"(?m)^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|", notes_path.read_text(
+            encoding="utf-8", errors="replace")):
+        return "the page has no 'File | Bytes | SHA-256' table (v0.1.164 shipped without one): add the Files section"
     return ""
 
 
@@ -502,7 +504,10 @@ def add_rows(page, rows):
         # replaced by the first measured one (v0.1.163 shipped with it unfilled and `release verify` found no table)
         head = re.search(r"^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|\s*\n\|[-\s|:]+\n(\|[^\n]*\|[ \t]*\n?)?", page, re.M)
         if not head:
-            raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+            # a page composed without its files table (v0.1.164, 2026-11-16) gets one: the rows come from SHA256SUMS,
+            # never typed, so adding the section is safe
+            page = page.rstrip("\n") + "\n\n## Files\n\n| File | Bytes | SHA-256 |\n|---|---|---|\n"
+            head = re.search(r"^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|\s*\n\|[-\s|:]+\n(\|[^\n]*\|[ \t]*\n?)?", page, re.M)
         rows = list(rows)
         name, size, sha = rows.pop(0)
         page = page[:head.start(1) if head.group(1) else head.end()] + f"| `{name}` | {size:,} | `{sha}` |\n" \
