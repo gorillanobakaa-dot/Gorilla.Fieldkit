@@ -18,7 +18,20 @@ keep:
   - .env
   - id_rsa
   - id_ed25519
-# the places a wipe looks for scattered scripts besides the sweep roots (this computer; missing ones are skipped)
-extra_roots:
-  - ~/Downloads
-  - ~/.cache/fieldkit-scratch
+  - auth
+  - token
+# P40 scope (owner 2026-11-16, final): the clean slate covers ONLY these folders, where agents put the scripts they write
+# on the fly. Never Documents/Scripts, user files or repos. Each entry is one folder (a * matches in the last part; ~, %VAR%
+# and $VAR are expanded; a folder missing on this computer is skipped). Its immediate children are the items counted,
+# digested and recycled; the folder itself stays. Narrow on purpose: config and credential files of the agents are not here.
+scratch_roots:
+  - ~/.cache/fieldkit-scratch          # Linux scratch root (fieldkit scratch)
+  - C:/fk-scratch                      # Windows scratch root
+  - /tmp/claude-*                      # Claude Code temp and scratchpad dirs, Linux
+  - ~/AppData/Local/Temp/claude        # Claude Code temp, Windows
+  - ~/AppData/Local/Temp/claude-*
+  - ~/.gemini/tmp
+  - ~/.gemini/antigravity/scratch
+  - ~/.codex/tmp
+  - ~/.local/share/gorilla-opencode/tmp          # OpenCode work dirs, Linux
+  - ~/AppData/Local/gorilla-opencode/tmp          # OpenCode work dirs, Windows

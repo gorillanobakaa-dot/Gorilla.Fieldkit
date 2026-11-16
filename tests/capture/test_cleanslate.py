@@ -109,3 +109,31 @@ def test_mixed_project_episode_refused():
     assert loop.episode_in_project({"cwd": "/work/gorilla-firefox"}, "firefox")
     assert loop.episode_in_project({"cwd": "/tmp/x"}, "firefox")
     assert loop.episode_in_project({"cwd": "/work/kernel"}, None)
+
+
+def test_scope_is_only_the_scratch_roots(tmp_path):
+    a, outside = tmp_path / "scratch", tmp_path / "Documents" / "Scripts"
+    (a / "job1").mkdir(parents=True)
+    (a / "job1" / "x.py").write_text("x")
+    outside.mkdir(parents=True)
+    (outside / "mine.py").write_text("x")
+    rows = C.scan_items([a])
+    assert [r["name"] for r in rows] == ["job1"] and rows[0]["files"] == 1
+    assert C.counts(rows) == {str(a): {"items": 1, "files": 1}}
+
+
+def test_glob_disposition_digests_link_folders(tmp_path, monkeypatch):
+    root = tmp_path / "scratch"
+    for n in ("link-1", "link-2", "other"):
+        (root / n).mkdir(parents=True)
+    _env(tmp_path, monkeypatch)
+    C.record_disposition(str(root / "link-*"), "transfer copies, already received")
+    chk = C.check(FakeStore(), rows=C.scan_items([root]))
+    assert [r["name"] for r in chk["wipeable"]] == ["link-1", "link-2"] and [r["name"] for r in chk["scripts"]] == ["other"]
+    assert not chk["digested"] and chk["counts"][str(root)]["items"] == 3
+
+
+def test_scratch_roots_data_names_no_documents_or_repos():
+    txt = (C.HERE / "keep.yaml").read_text(encoding="utf-8").lower()
+    roots = txt.split("scratch_roots:")[1]
+    assert "documents" not in roots and "scripts" not in roots and ".config" not in roots

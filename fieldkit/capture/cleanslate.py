@@ -4,11 +4,12 @@
 
 Before capture switches on, a digest check runs:
   store     every captured item is closed (`capture ledger --closed`: nothing raw or processing, nothing lost)
-  scripts   every script under the sweep roots and this computer's scratch and download dirs is adopted (carded), or has
-            a recorded "not worth keeping, because" (state/capture/dispositions.jsonl)
+  scripts   every item in the agents' scratch folders (keep.yaml scratch_roots: nothing else on the computer is looked at)
+            has a recorded "not worth keeping, because" (state/capture/dispositions.jsonl; a glob like ROOT/link-* counts)
+            a read-only count per folder is printed first
 YES  the old store goes into a hash-chained archive bundle (the raw record is kept), the live copy and the digested
      scattered scripts are recycled (`fieldkit size recycle`, never a permanent delete), capture starts empty, tagged
-     with this project only. Adopted (carded) tools are the harness and stay.
+     with this project only. 
 NO   nothing is touched; the undigested items are printed with the command that digests them. A forced wipe of
      undigested material needs `--force-undigested` typed at a real terminal (stdin and stdout are a tty and no agent
      marker is set); a model's call is refused. Keep list: keep.yaml.
@@ -38,9 +39,41 @@ def keep_list():
     return [str(x).lower() for x in (yaml.safe_load((HERE / "keep.yaml").read_text(encoding="utf-8")) or {}).get("keep", [])]
 
 
-def extra_roots():
+def scratch_roots():
+    """The folders a clean slate may touch (keep.yaml scratch_roots), expanded and globbed; missing ones are skipped."""
+    import glob
     d = yaml.safe_load((HERE / "keep.yaml").read_text(encoding="utf-8")) or {}
-    return [Path(os.path.expanduser(x)) for x in d.get("extra_roots", [])]
+    out = []
+    for x in d.get("scratch_roots", []):
+        for g in sorted(glob.glob(os.path.expandvars(os.path.expanduser(str(x))))):
+            if Path(g).is_dir() and Path(g) not in out:
+                out.append(Path(g))
+    return out
+
+
+def scan_items(roots=None):
+    """Read-only: every immediate child of a scratch root, as rows {root, path, name, kind, status, files}. status is always
+    "undigested" here; check() decides. files = script/other files below it (a count, nothing is opened)."""
+    rows = []
+    for root in (scratch_roots() if roots is None else roots):
+        for c in sorted(Path(root).iterdir()):
+            try:
+                n = 1 if c.is_file() or c.is_symlink() else sum(len(f) for _, _, f in os.walk(c))
+            except OSError:
+                n = 0
+            rows.append({"root": str(root), "path": str(c), "name": c.name, "kind": "folder" if c.is_dir() else "file",
+                         "status": "undigested", "files": n})
+    return rows
+
+
+def counts(rows):
+    """-> {root: {items, files}}: the read-only count shown first."""
+    out = {}
+    for r in rows:
+        c = out.setdefault(r["root"], {"items": 0, "files": 0})
+        c["items"] += 1
+        c["files"] += r.get("files", 1)
+    return out
 
 
 def is_kept(path, keep=None):
@@ -67,6 +100,12 @@ def dispositions():
     return out
 
 
+def _disposed(path, disp):
+    import fnmatch
+    n = os.path.normcase(str(Path(path)))
+    return n in disp or any(fnmatch.fnmatch(n, k) for k in disp if any(c in k for c in "*?["))
+
+
 def record_disposition(path, because):
     if not (because or "").strip():
         raise ValueError("a disposition needs a reason: not worth keeping, because ...")
@@ -82,23 +121,22 @@ def _now():
 
 def check(store=None, rows=None, disp=None, keep=None):
     """-> {digested, store: {outstanding, lost, unaccounted, stuck}, scripts: [rows to digest], wipeable: [rows], next}.
-    rows: sweep rows (injected by tests). A script row is digested when carded (adopted: it stays) or has a disposition;
-    only the ones with a disposition are wipeable."""
+    rows: scratch items (injected by tests). An item is digested when it has a disposition (exact path, or a glob such as
+    <root>/link-*) with a reason; digested items are the wipeable ones. Nothing outside scratch_roots is ever looked at."""
     s = store or st.Store()
     s.recover()
     led = s.ledger()
     open_store = {k: led[k] for k in ("outstanding", "lost", "unaccounted", "stuck") if led[k]}
     if rows is None:
-        from ..desk import sweep
-        rows = sweep.scan(list(sweep.roots()) + [r for r in extra_roots() if r.is_dir()])
+        rows = scan_items()
     disp = dispositions() if disp is None else disp
     undigested, wipeable = [], []
     for r in rows:
         if is_kept(r["path"], keep):
             continue
         if r["status"] in ("ok", "stale", "untested"):
-            continue                                      # adopted: carded, part of the harness
-        if os.path.normcase(str(Path(r["path"]))) in disp:
+            continue                                      # carded: part of the harness (rows from a test)
+        if _disposed(r["path"], disp):
             wipeable.append(r)
         else:
             undigested.append(r)
@@ -106,11 +144,11 @@ def check(store=None, rows=None, disp=None, keep=None):
     if open_store:
         nxt = "fieldkit capture classify --apply   (then fieldkit capture distill recipes --apply); then fieldkit capture ledger --closed"
     elif undigested:
-        nxt = ("fieldkit sweep   (adopt each script: fieldkit adopt ..., or record why it goes: "
-               "fieldkit capture start --dispose PATH --because WHY)")
+        nxt = ("adopt what is worth keeping (fieldkit adopt ...), then record why the rest goes: "
+               "fieldkit capture start --dispose 'ROOT/link-*' --because WHY")
     else:
         nxt = "nothing to digest"
-    return {"digested": ok, "store": open_store, "scripts": undigested, "wipeable": wipeable, "next": nxt}
+    return {"digested": ok, "counts": counts(rows), "store": open_store, "scripts": undigested, "wipeable": wipeable, "next": nxt}
 
 
 def archive(project, store_dir=None, out_dir=None):
@@ -183,6 +221,8 @@ def _print(a, d):
         print(json.dumps(d, indent=1, ensure_ascii=False, default=str))
         return
     c = d.get("check") or {}
+    for root, n in (c.get("counts") or {}).items():
+        print(f"  count {root}: {n['items']} item(s), {n['files']} file(s)")
     if d.get("refused"):
         print(f"capture start REFUSED: {d['refused']}")
         for k, v in (c.get("store") or {}).items():
