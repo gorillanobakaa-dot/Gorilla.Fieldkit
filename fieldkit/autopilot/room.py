@@ -450,8 +450,8 @@ def _ear(call, event):
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(str(time.time()), encoding="utf-8")
         full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
-                f"call. Start your ear as its own background command (Bash run_in_background): {link_relay.ear_line(me)}"
-                " ; when it ends, read what it printed and start it again with the line it prints")
+                f"call. Start your ear with the Monitor tool (each line it prints wakes you; --follow never ends): "
+                f"{link_relay.ear_line(me)} ; no Monitor tool: run it as a background Bash command instead")
         # P37 (hook text on a budget): every injected line stays in the conversation, so the 450-byte line is said in
         # full once per session; the nag after it is the short one (same frequency, the line is already in context)
         if only_new(call["session_id"] + ".ear", full):
