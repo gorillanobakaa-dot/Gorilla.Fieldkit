@@ -79,16 +79,19 @@ def test_gh_failure_is_exit_1_text_and_the_push_stands(which):
     assert not r["ok"] and r["gh_failed"] and "gh: boom" in r["error"] and r["branch"] == "feat/x"
 
 
-def test_two_red_commits_park_and_never_call_merge():
+def test_three_red_commits_park_and_never_call_merge(monkeypatch):
+    from fieldkit.lifecycle import models
+    monkeypatch.setattr(models, "ladder_cfg", lambda data=None: {"enabled": False, "own_limit": 3})   # ladder off: the flat park
     gh = Gh(prs=[{"number": 7, "url": URL}],
             runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
                   {"conclusion": "success", "headSha": "c" * 40},
-                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2},
+                  {"conclusion": "failure", "headSha": "d" * 40, "databaseId": 3}])
     r, notes = go(gh)
     assert not r["ok"] and r["state"] == "parked" and not r.get("gh_failed")
     assert not gh.did("pr merge")
     assert notes == [] and "#7" in r["error"] and "feat/x" in r["error"]      # F4: no inbox item
-    assert len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 2
+    assert len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 3
 
 
 def test_two_red_commits_that_fail_on_main_too_are_not_strikes(monkeypatch):
@@ -152,13 +155,14 @@ def test_a_failed_rules_lookup_does_not_merge():
     assert not r["ok"] and r["state"] == "auto-failed" and not gh.did("pr merge")
 
 
-def test_two_red_commits_on_a_ladder_model_escalate_instead_of_parking(monkeypatch):
-    """P9: ladder on, Sonnet failed twice: the next rung is named, nothing is parked, no merge is attempted."""
+def test_three_red_commits_on_a_ladder_model_escalate_instead_of_parking(monkeypatch):
+    """P9: ladder on, Sonnet failed three times: the next rung is named, nothing is parked, no merge is attempted."""
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(strikes.path().parent / "lc"))
     gh = Gh(prs=[{"number": 7, "url": URL}],
             runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
-                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2},
+                  {"conclusion": "failure", "headSha": "d" * 40, "databaseId": 3}])
     r, _ = go(gh)
     assert not r["ok"] and r["state"] == "escalate" and r["escalate_to"] == "opus"
     assert not gh.did("pr " + "merge") and strikes.parked_for("feat/x") is None

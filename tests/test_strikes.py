@@ -266,6 +266,14 @@ def test_f4_an_unreadable_log_is_unproven_never_counted_never_parks():
     assert strikes.parked_for("feat/x") is None
 
 
+def test_record_unproven_is_never_counted_however_often_it_repeats():
+    """Owner 2026-11-16 (PR 553): unlike a flake, an unproven red has no limit past which it counts."""
+    for i, h in enumerate("abcdefgh", 1):
+        r = strikes.record_unproven("feat/u", h * 40, "no ids", pr=553)
+        assert r["unproven"] == i and r["counted"] is False
+    assert strikes.parked_for("feat/u") is None
+
+
 def test_unproven_without_main_evidence_is_escalated_and_filed_once_per_head(monkeypatch):
     ib = Inbox()
     monkeypatch.setattr(strikes, "escalate_for", lambda branch, p=None: "opus")
@@ -340,7 +348,7 @@ def test_f4_recount_prints_own_main_unproven_and_reports_a_parked_branch_below_t
     assert strikes.parked_for("feat/p")                               # never unparked by the tool
     r = strikes.recount("feat/p", fetch=lambda b: runs, logger=lambda run: ["FAILED tests/a.py::t1"],
                         base_of=lambda h: "m" * 40, runner=PASSES)
-    assert r["own"] == 2 and r["would_unpark"] and r["parked"]
+    assert r["own"] == 3 and not r["would_unpark"] and r["parked"]   # every head now names a failed test
 
 
 def test_b2_mains_failure_rules():
