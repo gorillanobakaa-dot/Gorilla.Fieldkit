@@ -202,6 +202,78 @@ def _ps(cmd, run=subprocess.run):
     return r.stdout.strip()
 
 
+def blocked_programs(run=subprocess.run):
+    """-> the lower-cased programs our enabled outbound block rules ('Gorilla telemetry block: ...') name. Windows."""
+    out = _ps("Get-NetFirewallRule -DisplayName '" + RULE_PREFIX + "*' -ErrorAction SilentlyContinue | "
+              "Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' -and $_.Direction -eq 'Outbound' } | "
+              "Get-NetFirewallApplicationFilter | Select-Object -ExpandProperty Program", run)
+    return {b.strip() for b in out.lower().splitlines() if b.strip()}
+
+
+#: the SYSTEM scheduled task of the machine prerequisite telemetry-firewall-task (mandate/prereqs/telemetry-firewall-task.ps1)
+FIREWALL_TASK = "fieldkit-telemetry-firewall"
+
+
+def firewall_task_present(run=subprocess.run):
+    """Is the SYSTEM task that blocks every vctip.exe registered? Windows; elsewhere False."""
+    if sys.platform != "win32":
+        return False
+    try:
+        return run(["schtasks", "/query", "/tn", FIREWALL_TASK], capture_output=True, text=True,
+                   timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def unblocked_vctip(run=subprocess.run, paths=None):
+    """-> every vctip.exe with no outbound block rule yet (a new MSVC unpacked since the task last ran)."""
+    paths = vctip_paths() if paths is None else paths
+    if not paths:
+        return []
+    blocked = blocked_programs(run)
+    return [p for p in paths if p.lower() not in blocked]
+
+
+def vctip_preflight(run=subprocess.run, paths=None, platform=None, task=None):
+    """The emerge preflight row for MSVC telemetry (P28 D): None off Windows or with no vctip.exe on the machine,
+    else (status, line, task_present). Plain reads; nothing changes. WARN, never STOP: the leak gate decides."""
+    if (platform or sys.platform) != "win32":
+        return None
+    paths = vctip_paths() if paths is None else paths
+    if not paths:
+        return None
+    open_ = unblocked_vctip(run, paths)
+    if not open_:
+        return ("ok", f"all {len(paths)} vctip.exe blocked at the firewall", True)
+    task = firewall_task_present(run) if task is None else task
+    how = (f"the task {FIREWALL_TASK} runs before stage 1 (no UAC)" if task else
+           f"task {FIREWALL_TASK} missing: the owner renews the mandate once (fieldkit mandate renew)")
+    return ("warn", f"{len(open_)} of {len(paths)} vctip.exe not blocked yet ({open_[0]}); {how}", task)
+
+
+def run_firewall_task(run=subprocess.run, paths=None, wait_s=60, sleep=None, clock=None):
+    """Start the SYSTEM task as a normal user (its security descriptor lets authenticated users start it, never
+    change it) and wait until every vctip.exe is blocked, at most wait_s seconds. -> (ok, line)."""
+    import time
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    try:
+        r = run(["schtasks", "/run", "/tn", FIREWALL_TASK], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"task {FIREWALL_TASK} not started ({type(e).__name__})"
+    if r.returncode != 0:
+        why = ((r.stderr or "") + (r.stdout or "")).strip()[:120]
+        return False, (f"task {FIREWALL_TASK} not started (exit {r.returncode}: {why}); "
+                       "the owner renews the mandate once (fieldkit mandate renew)")
+    end = clock() + wait_s
+    while True:
+        left = unblocked_vctip(run, paths)
+        if not left:
+            return True, f"task {FIREWALL_TASK} ran: every vctip.exe blocked"
+        if clock() >= end:
+            return False, f"task {FIREWALL_TASK} ran but {len(left)} vctip.exe still open after {wait_s}s ({left[0]})"
+        sleep(3)
+
+
 def machine_rows(run=subprocess.run, env=None, paths=None):
     """-> rows [{check, ok, evidence}] for this computer. Windows only; elsewhere one row says so (Linux: the same
     variables are checked in the environment)."""
@@ -219,11 +291,9 @@ def machine_rows(run=subprocess.run, env=None, paths=None):
         cur = _ps(f"(Get-ItemProperty -Path '{key}' -Name OptIn -ErrorAction SilentlyContinue).OptIn", run)
         rows.append({"check": f"Visual Studio CEIP opted out: {key} OptIn=0", "ok": cur == "0", "evidence": f"is {cur or 'unset'}"})
     paths = vctip_paths() if paths is None else paths
-    blocked = _ps("Get-NetFirewallRule -DisplayName '" + RULE_PREFIX + "*' -ErrorAction SilentlyContinue | "
-                  "Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' -and $_.Direction -eq 'Outbound' } | "
-                  "Get-NetFirewallApplicationFilter | Select-Object -ExpandProperty Program", run).lower().splitlines()
+    blocked = blocked_programs(run)
     for p in paths:
-        ok = p.lower() in {b.strip() for b in blocked}
+        ok = p.lower() in blocked
         rows.append({"check": f"MSVC compiler telemetry blocked at the firewall: {p}", "ok": ok,
                      "evidence": "outbound block rule present" if ok else "no outbound block rule"})
     return rows

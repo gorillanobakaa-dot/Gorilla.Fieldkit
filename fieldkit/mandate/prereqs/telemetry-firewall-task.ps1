@@ -9,6 +9,10 @@
 #   -Action undo     remove the task and the copied script (the firewall rules stay: they only block telemetry)
 # Why a task: a new MSVC version unpacks a new vctip.exe; without this the gate waits for a person to click Yes again.
 # Why a protected copy: a SYSTEM task must never run a file a normal user could rewrite.
+# Why authenticated users may START the task (P28 D, owner 2026-11-16): a new MSVC unpacked mid-session, or a guarded build
+# about to start, must not wait up to an hour or for a UAC click. `schtasks /run /tn fieldkit-telemetry-firewall` by a normal
+# user only starts the pinned, protected SYSTEM script above (read + execute on the task, never write), which only adds
+# block rules. fieldkit emerge does exactly that before stage 1 when a vctip.exe is not blocked yet.
 param([ValidateSet('apply', 'run', 'verify', 'undo')][string]$Action = 'verify')
 $ErrorActionPreference = 'Stop'
 $task = 'fieldkit-telemetry-firewall'
@@ -43,6 +47,10 @@ switch ($Action) {
              (New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Hours 1)))
     $pri = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     Register-ScheduledTask -TaskName $task -Action $act -Trigger $trg -Principal $pri -Force | Out-Null
+    $svc = New-Object -ComObject 'Schedule.Service'; $svc.Connect()
+    $t = $svc.GetFolder('\').GetTask($task)
+    $sd = $t.GetSecurityDescriptor(0xF)
+    if ($sd -notmatch '\(A;;GRGX;;;AU\)') { $t.SetSecurityDescriptor($sd + '(A;;GRGX;;;AU)', 0) }
     Start-ScheduledTask -TaskName $task
     Say "apply: task $task registered, copy at $copy"
   }
