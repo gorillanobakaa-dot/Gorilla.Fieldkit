@@ -26,7 +26,7 @@
     fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
     fieldkit ship tags   [--repo R | --all] [--fix-local]   tags classed, only real candidates flagged; never deletes on GitHub
     fieldkit ship prune|audit --all        every non-archived repo of the owner, one before/after table (shiptags.py)
-    fieldkit ship update [--base main]     merge origin/main into the branch the train's way: generated files
+    fieldkit ship update [--base B]        merge origin/main into the branch the train's way: generated files
                                            regenerated, cards merged entry by entry, proven only a merge (mergeproof.py)
     fieldkit ship proof OURS THEIRS [R]    what each path of a merge is; exit 0 only a merge
     fieldkit ship ci-record SHA            remember GitHub's green CI for SHA, for the offline pre-commit hook
@@ -647,11 +647,16 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--hotfix", default="", metavar="WHY",
                     help="gh-release, push --tag, release: publish inside the one-release-per-batch window "
                          "(security fix or broken release); logged in the room and the ledger, one per window")
-    ap.add_argument("--base", default="main")
+    ap.add_argument("--base", default=None,
+                    help="the base branch; default: the repository's own (origin/HEAD, core/concepts.default_branch): "
+                         "gorilla-firefox is master, Fieldkit main (P38 seam 4)")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
     extra = argv[argv.index("--") + 1:] if "--" in argv else []      # gh-release: what gh release create gets
     a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
+    if a.base is None:
+        from ..core import concepts
+        a.base = concepts.default_branch(a.repo, fallback="main")
     if a.action == "release-ready":
         from . import tagguard
         if not a.tag:

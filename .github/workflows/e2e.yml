@@ -157,3 +157,31 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/prepare_gate.py
+  e2e-firefox-cookbook-linux:
+    # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
+    # entry point prints the release chain.
+    name: e2e-firefox-cookbook-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
+      - run: python -m fieldkit firefox release 1.0
+  e2e-firefox-cookbook-windows:
+    # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
+    # entry point prints the release chain.
+    name: e2e-firefox-cookbook-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
+      - run: python -m fieldkit firefox release 1.0

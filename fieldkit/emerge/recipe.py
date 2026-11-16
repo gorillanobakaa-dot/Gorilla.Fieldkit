@@ -9,7 +9,7 @@ knowledge) and lays an overlay on its stages, or carries its stages inline in th
     baseline_minutes: 90                 # the pre-AI hand script's time for the same job (the overhead target)
     sources:                             # pinned: a file by sha256 (here or in the .manifest.json), a git tree by
       - {id: src, git: "{src}", track: tree}                                  # commit and/or its working state
-      - {id: upstream, git: "{src}/src", base: 3c71aeac..., fetched_by: source}   # base: must stay under HEAD
+      - {id: upstream, git: "{src}/src", base: upstream, fetched_by: source}   # base: must stay under HEAD; "upstream" = the release tag of {version} (core/concepts), else a commit
       - {id: tarball, path: "{work}/linux-7.2.9.tar.xz"}                      # sha256 from the manifest
     patches: {dir: "{harness}/patches", glob: "*.patch"}
     config:                              # the make.conf / USE equivalent, read once per run
@@ -355,7 +355,15 @@ class Recipe:
             want = str(src.get("commit") or "")
             if want and not head.startswith(want) and not want.startswith(head):
                 return "mismatch", head, f"{path}: HEAD {head[:12]}, the recipe pins {want[:12]}"
-            base = str(src.get("base") or "")      # the pinned upstream under our own commits (the patch set)
+            base = str(src.get("base") or "")      # the upstream under our own commits (the patch set)
+            if base == "upstream":                 # never pinned (seam 6): the release tag of the recipe's version
+                from ..core import concepts
+                try:
+                    base, how = concepts.upstream_ref(self.vars.get("version"), path)
+                except ValueError as e:
+                    return "mismatch", head, f"{path}: base: upstream needs the recipe's version ({e})"
+                if not base:
+                    return "mismatch", head, f"{path}: base: upstream: {how}"
             if base:
                 anc = self._run(["git", "-C", str(path), "merge-base", "--is-ancestor", base, "HEAD"],
                                 capture_output=True, timeout=120)

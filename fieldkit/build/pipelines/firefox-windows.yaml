@@ -1,6 +1,6 @@
 name: firefox-windows
 description: >-
-  Build Gorilla Firefox on Windows by driving the existing Gorilla.firefox
+  Build Gorilla Unleashed on Windows by driving the existing Gorilla.firefox
   harness (thermal-capped, staged). Fieldkit adds the resumable state, the
   JSON report and failure triage; the harness keeps the Firefox knowledge
   (3,000-line preflight, 2,700-line diagnoses) and stays the single source.
