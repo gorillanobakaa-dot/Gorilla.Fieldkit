@@ -3,7 +3,7 @@ name: Gorilla Debian kernel
 purpose: "Custom hardened kernel (.deb/.rpm) built from the pinned kernel.org tarball plus the project patches."
 repos:
   - {name: work, github: null, local: "${DOCUMENTS}/Debian.Kernel.Work"}
-  - {name: fieldkit, github: gorillanobakaa-dot/Fieldkit, local: "${FIELDKIT}"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [debian-kernel, kernel-7.0.9-unleashed]
 cookbook:
   - {repo: work, path: CLAUDE.md, what: "the kernel work folder's own rules (P41d will make a real cookbook index)"}

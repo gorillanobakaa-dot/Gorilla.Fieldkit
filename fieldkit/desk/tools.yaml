@@ -1380,7 +1380,7 @@ tools:
   platforms: [windows, linux]
   e2e: {linux: e2e-cookbook-load-linux, windows: e2e-cookbook-load-windows}
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_cookbook_registry.py"]
-  notes: "P41a, owner 2026-11-16 (docs/COOKBOOK-VISION.md). Data: projects/<id>/project.yaml (firefox, gorilla-opencode, debian-kernel, fieldkit); projects/README.md says the fields. The SessionStart hook (hooks/session-start-cookbook.sh) runs `cookbook load --cwd` and injects the brief; in a Firefox folder it adds the migration brief. Unknown cwd: prints no project, exit 0. Words: project registry, cookbook load, brief, session start, cwd."
+  notes: "P41a, owner 2026-11-16 (docs/COOKBOOK-VISION.md). Data: projects/<id>/project.yaml (firefox, gorilla-opencode, debian-kernel, fieldkit); projects/README.md says the fields. The SessionStart hook (`cookbook hook`, Python only so it is the same on Linux and Windows) runs `cookbook load --cwd` and injects the brief; in a Firefox folder it adds the migration brief. Unknown cwd: prints no project, exit 0. Words: project registry, cookbook load, brief, session start, cwd."
 
 - id: core-doctor
   title: "What this computer still needs before Fieldkit works, and the line that installs it; --probe: the machine itself (OS, memory, disk, every Python, git real or Apple's stub, Homebrew, compiler, curl) and the way in (git or zip, lean or full); --lean: only the two packages the core needs"

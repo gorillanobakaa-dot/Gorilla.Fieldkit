@@ -20,7 +20,7 @@ def bad_registry(tmp_path, edit):
 
 
 def test_shipped_registry_is_valid():
-    assert registry.check(recipes=RECIPES) == []
+    assert registry.check(recipes=RECIPES, github=False) == []
     assert {d["id"] for d in registry.load_all()} >= {"firefox", "gorilla-opencode", "debian-kernel", "fieldkit"}
 
 
@@ -32,7 +32,7 @@ def test_shipped_registry_is_valid():
     (lambda t: t.replace("id: fieldkit", "id: other"), "must equal its folder"),
 ])
 def test_check_fails_on_a_bad_project(tmp_path, edit, needle):
-    probs = registry.check(root=bad_registry(tmp_path, edit), recipes=RECIPES)
+    probs = registry.check(root=bad_registry(tmp_path, edit), recipes=RECIPES, github=False)
     assert any(needle in p for p in probs), probs
 
 
@@ -62,3 +62,23 @@ def test_load_json_names_cookbook_and_next(capsys):
 
 def test_check_command_exit_codes(capsys):
     assert cli.main(["check"]) == 0
+
+
+def test_github_name_must_match_the_clone_or_gh():
+    proj = {"id": "x", "repos": [{"name": "a", "github": "o/Fieldkit", "local": "${FIELDKIT}"}]}
+    probs = registry.check_github(proj, remote=lambda p: "o/gorilla.fieldkit", gh=lambda n: None)
+    assert probs and "o/Fieldkit" in probs[0]
+    assert registry.check_github(proj, remote=lambda p: "o/fieldkit", gh=lambda n: None) == []
+    # no clone, gh answers
+    proj = {"id": "x", "repos": [{"name": "a", "github": "o/Fieldkit", "local": "${DOCUMENTS}/nowhere-at-all"}]}
+    assert registry.check_github(proj, remote=lambda p: None, gh=lambda n: "o/gorilla.fieldkit")
+    # neither: not checked
+    assert registry.check_github(proj, remote=lambda p: None, gh=lambda n: None) == []
+
+
+def test_hook_prints_brief_for_a_project_cwd_and_nothing_otherwise(capsys):
+    assert cli.hook(json.dumps({"cwd": HOME + "u/Documents/Gorilla.Opencode"})) == 0
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["hookEventName"] == "SessionStart" and "PROJECT gorilla-opencode" in out["additionalContext"]
+    assert cli.hook(json.dumps({"cwd": "/tmp/nothing"})) == 0 and capsys.readouterr().out == ""
+    assert cli.hook("not json") == 0 and capsys.readouterr().out == ""

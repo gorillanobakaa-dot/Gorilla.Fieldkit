@@ -3,7 +3,7 @@ name: Gorilla Unleashed (Firefox)
 purpose: "Privacy-hardened Firefox fork for Linux (.deb), Windows and macOS 10.13; one migration per upstream release."
 repos:
   - {name: harness, github: gorillanobakaa-dot/gorilla-firefox, local: "${LOCAL:firefox.root}"}
-  - {name: fieldkit, github: gorillanobakaa-dot/Fieldkit, local: "${FIELDKIT}"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [firefox-debian, firefox-windows]
 cookbook:
   - {repo: fieldkit, path: docs/FIREFOX-COOKBOOK.md, what: "the one procedure, Mozilla release to all three systems"}

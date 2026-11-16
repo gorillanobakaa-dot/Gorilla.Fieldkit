@@ -3,7 +3,7 @@ name: Gorilla OpenCode
 purpose: "Privacy-hardened OpenCode fork (Go): Linux, Windows and Mac 10.13 binaries, .deb/.rpm, release page."
 repos:
   - {name: source, github: gorillanobakaa-dot/Gorilla.Opencode, local: "${DOCUMENTS}/Gorilla.Opencode"}
-  - {name: fieldkit, github: gorillanobakaa-dot/Fieldkit, local: "${FIELDKIT}"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [gorilla-opencode]
 cookbook:
   - {repo: source, path: CLAUDE.md, what: "the repo's own rules and layout (P41d will make a real cookbook index)"}

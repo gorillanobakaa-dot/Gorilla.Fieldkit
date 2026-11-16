@@ -84,6 +84,30 @@ def render(p, budget):
     return text
 
 
+def hook(stdin_text):
+    """SessionStart hook, Python only (no sh, no jq: the same on Linux and Windows). Prints nothing for an unknown cwd.
+    In a Firefox project it appends the migration brief (what the old hook gave)."""
+    try:
+        cwd = (json.loads(stdin_text or "{}") or {}).get("cwd")
+    except ValueError:
+        cwd = None
+    proj = registry.by_cwd(cwd) if cwd else None
+    if not proj:
+        return 0
+    text = render(build(proj), 2000)
+    if proj["id"] == "firefox":
+        try:
+            r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "migrate", "brief"],
+                               capture_output=True, text=True, timeout=25)
+            if r.stdout.strip():
+                text += "\nFirefox migration state:\n" + r.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
+          "Project brief (fieldkit cookbook load --cwd; the registry, so no file search is needed):\n" + text}}))
+    return 0
+
+
 def main(argv=None, prog="fieldkit cookbook"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", action="store_true")
@@ -97,7 +121,10 @@ def main(argv=None, prog="fieldkit cookbook"):
     sh = sub.add_parser("show")
     sh.add_argument("id")
     sub.add_parser("check")
+    sub.add_parser("hook", help="SessionStart hook: reads the hook JSON on stdin, prints the brief as hook JSON")
     a = ap.parse_args(argv)
+    if a.cmd == "hook":
+        return hook(sys.stdin.read())
     if a.cmd == "list":
         rows = [{"id": d.get("id"), "name": d.get("name"), "recipes": d.get("recipes")} for d in registry.load_all()]
         print(json.dumps(rows, indent=1) if a.json else "\n".join(f"{r['id']:18} {r['name']}  recipes: {', '.join(r['recipes'] or [])}" for r in rows))

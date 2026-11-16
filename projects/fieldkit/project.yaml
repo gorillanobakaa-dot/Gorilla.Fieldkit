@@ -2,7 +2,7 @@ id: fieldkit
 name: Fieldkit
 purpose: "The deterministic harness: tools, emerge recipes, build harness, agent net (public repo)."
 repos:
-  - {name: fieldkit, github: gorillanobakaa-dot/Fieldkit, local: "${FIELDKIT}"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [fieldkit]
 cookbook:
   - {repo: fieldkit, path: AGENTS.md, what: "Fieldkit's own rules"}

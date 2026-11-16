@@ -9,3 +9,6 @@
 - file: fieldkit/cookbook/registry.py
   swap: ['(best is None or i > best[0])', '(best is None)']
   why: "the deepest matching folder wins"
+- file: fieldkit/cookbook/registry.py
+  swap: ['if have is not None and have != str(want).lower():', 'if False:']
+  why: "a github name that is not the repo's real name must be flagged"

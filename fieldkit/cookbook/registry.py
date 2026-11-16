@@ -2,6 +2,7 @@
 the cwd lookup is a string match on the path's folder names against each project's cwd_markers."""
 import fnmatch
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -61,7 +62,49 @@ def repo_path(proj, name):
     return None
 
 
-def check(root=None, recipes=None):
+def _slug(url):
+    m = re.search(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url.strip())
+    return m.group(1).lower() if m else None
+
+
+def remote_slug(path):
+    """-> owner/name of the origin remote of the git folder PATH (offline), else None."""
+    try:
+        r = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _slug(r.stdout) if r.returncode == 0 else None
+
+
+def gh_slug(name):
+    """-> the canonical owner/name GitHub reports for NAME, else None (gh missing, offline or not signed in)."""
+    try:
+        r = subprocess.run(["gh", "repo", "view", name, "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip().lower() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def check_github(proj, remote=remote_slug, gh=gh_slug):
+    """A repo's github name must equal its local clone's origin (offline); with no clone, `gh repo view` says; with
+    neither, it is not checked. 2026-11-16: Fieldkit was registered as .../Fieldkit, the repo is .../Gorilla.Fieldkit."""
+    probs = []
+    for r in proj.get("repos") or []:
+        want = r.get("github")
+        if not want:
+            continue
+        base = repo_path(proj, r.get("name"))
+        have = remote(base) if base and base.is_dir() else None
+        how = "its local clone's origin remote"
+        if have is None:
+            have, how = gh(want), "`gh repo view`"
+        if have is not None and have != str(want).lower():
+            probs.append(f"{proj['id']}: repo {r.get('name')}: github {want} is not what {how} says ({have})")
+    return probs
+
+
+def check(root=None, recipes=None, github=True):
     """-> list of problem strings; [] when every project.yaml is sound. recipes: names `emerge list` knows."""
     if recipes is None:
         from ..emerge import recipe
@@ -110,6 +153,8 @@ def check(root=None, recipes=None):
         for e in d.get("entry") or []:
             if not isinstance(e, dict) or not e.get("cmd"):
                 problems.append(f"{f}: entry {e!r} needs cmd")
+        if github:
+            problems += check_github(d)
         for line_no, line in enumerate(d["_file"].read_text(encoding="utf-8").splitlines(), 1):
             if HOME_PATH.search(line.split("#", 1)[0]):
                 problems.append(f"{f}:{line_no}: a machine path (use ${{DOCUMENTS}} / ${{LOCAL:..}})")
