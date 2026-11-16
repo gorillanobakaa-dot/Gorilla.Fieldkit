@@ -610,6 +610,11 @@ def verify(task_id):
     #    copy in the vault decides; without one the verdict is UNDETERMINED, never 'fine'.
     key_root = Path(hr) / "src"
     changed = [l for l in _git(w, "diff", "--name-only", root[0], "HEAD").splitlines() if l] if root else []
+    if same_tree(w, key_root):
+        # the task's working copy IS the owner's src (a tree fieldkit emerge patched in place, 2026-11-16 P27 160): there is no
+        # older separate tree to copy from, and every file would match itself. The premise of this row is absent, not met.
+        rep["old_tree_same_dir"] = True
+        changed = []
     old_pristine = older_pristine(t["meta"].get("upstream", {}).get("version"))
     rep["old_tree_copies_harmless"], rep["old_tree_copies_undetermined"] = [], []
     pset0, groups0 = firefox._policy(hr)
@@ -784,6 +789,14 @@ def reopen(task_id, rep=None):
         task.save(t)
         task.journal(t, "reopened", steps=done, why="the tree does not contain what the record said was done")
     return done
+
+
+def same_tree(a, b):
+    """True when two paths are the same folder (after symlinks and case)."""
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return False
 
 
 def problems(rep):

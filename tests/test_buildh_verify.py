@@ -238,3 +238,9 @@ def test_a_port_step_is_superseded_only_by_a_later_hand_step_that_removes_exactl
     assert vf.superseded_by_hand([port, other], port, ["keep"]) is None          # a missing line nobody removed
     assert vf.superseded_by_hand([hand, port], port, ["keep"]) is None           # an EARLIER hand step does not count
     assert vf.superseded_by_hand([port, hand], port, ["keep", "dead"]) is None   # nothing missing
+
+
+def test_the_old_tree_row_does_not_compare_a_tree_with_itself(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert verify.same_tree(tmp_path / "src", tmp_path / "x" / ".." / "src")
+    assert not verify.same_tree(tmp_path / "src", tmp_path)
