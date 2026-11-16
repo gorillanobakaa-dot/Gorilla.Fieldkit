@@ -40,19 +40,19 @@ WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fi
 background.
 
 MODELS. Default Sonnet; Opus or Fable only for parked repairs and reviews, when the model-spend guard allows
-it (`fieldkit/lifecycle/models.py`).
+it.
 
 ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
 
 IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
 "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
-milestone Zero asks the owner to `fieldkit review` (parked ideas and inbox items, answered once).
+milestone Zero asks the owner to `fieldkit review`.
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
 
 USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a script. Sizes, search, hashes:
-`fieldkit size`. No new tool unless needed. A script you must write goes in
+`fieldkit size`. No new tool unless needed. A script you write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it.
 
 DONE. Follow the DONE PROTOCOL (the fieldkit-lifecycle block). Briefs, sitreps, audits and
@@ -75,8 +75,11 @@ after it goes. Explain in layman terms, ADHD style (owner 2026-11-02): result fi
 then the effect on the harness and long-horizon tasks (time, tokens).
 
 DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the main
-laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS: a visible session or `--on peer`).
+laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there.
 MacBook Air 2011, 4 GB: SSH only, never the cable.
 
-CLEAN UP. Yes, without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
+CLEAN UP. Without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
+
+ASK FIRST. Unexpected activity of another session: put the question to it; if confirmed, cooperate. Never assume it
+was unauthorised.
 <!-- /fieldkit-core-rules -->

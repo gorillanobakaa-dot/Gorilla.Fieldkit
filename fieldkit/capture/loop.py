@@ -170,6 +170,9 @@ def write_candidate(rec, out_dir=None, project=None):
     (d / f"{cid}.sh").write_text(_script(rec), encoding="utf-8", newline="\n")
     (d / f"test_{cid}.py").write_text(_test(cid, rec), encoding="utf-8", newline="\n")
     (d / "card.yaml").write_text(_card(cid, rec, f"local/kits/{cid}"), encoding="utf-8")
+    # evidence the adopt gate re-reads from the journal: which episodes replayed, never a count taken on trust
+    (d / "replay.json").write_text(json.dumps({"intent": rec.get("intent"), "examples": rec["episodes"].get("examples", [])}),
+                                   encoding="utf-8", newline="\n")
     return str(d)
 
 
