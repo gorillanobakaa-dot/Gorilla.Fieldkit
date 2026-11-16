@@ -378,6 +378,17 @@ def check(data=None):
 def main(argv):
     """fieldkit models menu [--json] [--refresh] [--check] [--device NAME] | models remember JOB A P M R"""
     argv = list(argv)
+    if "--help" in argv or "-h" in argv:
+        if argv[:1] == ["remember"]:
+            print("usage: fieldkit models remember JOB_TYPE AGENT PROVIDER MODEL REASONING\n"
+                  "  record the owner's choice for headless jobs of JOB_TYPE (checked against choice.yaml and the spend guard)")
+        else:
+            print("usage: fieldkit models menu [--json] [--refresh] [--check] [--device NAME]\n"
+                  "  --device NAME  measure the menu on the other computer over the cable\n"
+                  "  --refresh      measure again instead of the cached live lists\n"
+                  "  --check        check choice.yaml (stale names, unknown providers); exit 3 on findings\n"
+                  "  --json         JSON")
+        return 0
     if argv[:1] == ["remember"]:
         if len(argv) < 6:
             print("models remember JOB_TYPE AGENT PROVIDER MODEL REASONING")

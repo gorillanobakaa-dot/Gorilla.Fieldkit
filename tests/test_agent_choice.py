@@ -129,3 +129,13 @@ def test_a_person_picks_by_number_and_reasoning():
     r = choice.pick("code", rows=rows, interactive=True, ask=lambda _: "1 high", out=lambda *_: None)
     assert r == {"ok": True, "agent": "agy", "provider": "google", "model": "gemini-4-hydrogen-high",
                  "reasoning": "high", "how": "picked"}
+
+
+def test_menu_and_remember_answer_help_with_every_flag_their_cards_name(capsys):
+    from fieldkit.lifecycle import choice
+    assert choice.main(["--help"]) == 0
+    out = capsys.readouterr().out
+    for flag in ("--device", "--refresh", "--check", "--json"):
+        assert flag in out
+    assert choice.main(["remember", "--help"]) == 0
+    assert "JOB_TYPE AGENT PROVIDER MODEL REASONING" in capsys.readouterr().out
