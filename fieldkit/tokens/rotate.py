@@ -154,13 +154,14 @@ def verdict(context_last, usd, cfg=None, window=None, compact=False, compactions
         ctx = label.startswith("context")
         share = (f" ({round(value * 100 / window)}% of the {_fmt(window, label)} window)"
                  if ctx and window and window != DEFAULTS["window"] else "")
-        if value >= rot and compact and ctx:
-            level = max(level, 1)
-            why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}, but the session "
-                       f"compacts itself (compacted {compactions} time(s)): WARN, not a rotation")
-        elif value >= rot:
-            level = max(level, 2)
-            why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}")
+        if value >= rot:
+            if compact and ctx:     # a self-compacting session: context alone is WARN, never ROTATE
+                level = max(level, 1)
+                why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}, but the session "
+                           f"compacts itself (compacted {compactions} time(s)): WARN, not a rotation")
+            else:
+                level = max(level, 2)
+                why.append(f"{label} {_fmt(value, label)}{share} >= ROTATE {_fmt(rot, label)}")
         elif value >= warn:
             level = max(level, 1)
             why.append(f"{label} {_fmt(value, label)}{share} >= WARN {_fmt(warn, label)}")
