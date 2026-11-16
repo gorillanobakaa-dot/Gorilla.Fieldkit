@@ -33,8 +33,8 @@ TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the
 2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
 Windows laptop every heavy command runs under `fieldkit guard --`, one at a time.
 
-TWO STRIKES (owner, 2026-10-29). A PR or job that fails CI twice by its own failures is parked by
-`fieldkit ship ci-wait` (main's red is not its own). Leave it for a stronger model; go on. No third try.
+TWO STRIKES (owner 2026-11-16). Only OWN reds count (not main's, not unproven); 3 on one model
+send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
 
 WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
 background.

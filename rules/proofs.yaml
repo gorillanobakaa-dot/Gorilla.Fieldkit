@@ -199,8 +199,8 @@ TWO STRIKES:
     test: tests/test_strikes.py::test_push_to_a_parked_branch_is_refused_and_nothing_is_run
     mutate:
     - fieldkit/method/ship.py
-    - 'if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round'
-    - 'if False:               # TWO STRIKES: no third round'
+    - 'if strikes.parked_for(st["branch"]):               # parked: no more rounds'
+    - 'if False:               # parked: no more rounds'
   - demand: task start refuses a brief naming a parked branch or PR (no third try)
     test: tests/test_strikes.py::test_task_start_refuses_a_brief_naming_the_parked_branch
     mutate:

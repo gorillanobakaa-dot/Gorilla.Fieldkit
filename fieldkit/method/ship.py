@@ -6,7 +6,7 @@
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
     fieldkit ship push --auto [--title T] [--body-file F]
                                            push the branch, open its PR if none, turn GitHub auto-merge on for the pushed
-                                           commit, exit; GitHub merges on green CI. 2+ OWN red commits (strikes.whose_red; main's reds do not count): PARKED, exit 3
+                                           commit, exit; GitHub merges on green CI. 3 OWN red commits on one model (strikes.whose_red; main's and unproven reds never count) climb to a stronger model; PARKED only past the strongest allowed, exit 3
     fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
                                            its commit can publish: version, notes, page, CI green (tagguard.py)
     fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
@@ -163,7 +163,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         return dict(st, pushed=False, next="",
                     said=f"nothing to push: origin/{st['branch']} is already at {(st.get('local') or '')[:12]}")
     from . import strikes
-    if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round
+    if strikes.parked_for(st["branch"]):               # parked: no more rounds
         return dict(st, ok=False, pushed=False, state="parked", error=strikes.refusal([st["branch"]]),
                     next="parked, go on with the plan; nothing was pushed")
     from ..integration import gate                       # docs/INTEGRATION.md: a branch that adds a capability not built in

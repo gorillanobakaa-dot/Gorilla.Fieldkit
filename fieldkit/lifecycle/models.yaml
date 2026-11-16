@@ -15,7 +15,7 @@ ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycl
 escalation:
   enabled: true                   # owner order 2026-11-11: climb before parking
   ladder: [haiku, sonnet, opus, fable]
-  own_limit: 2
+  own_limit: 3
   attempts: escalation.jsonl      # in the lifecycle state folder
   risky: [guard, hook, fan, security, release, mandate]   # job-type words that get a top-model plan review first
   review_model: opus
