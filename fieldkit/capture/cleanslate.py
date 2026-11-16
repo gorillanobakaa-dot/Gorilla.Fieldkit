@@ -76,8 +76,13 @@ def counts(rows):
     return out
 
 
-def is_kept(path, keep=None):
-    p = "/" + str(path).replace("\\", "/").lower().strip("/") + "/"
+def is_kept(path, keep=None, root=None):
+    """The keep list is matched below the scratch root only: /AppData/Local/ above it is not the owner's local/ folder."""
+    p = str(path).replace("\\", "/").lower()
+    r = str(root or "").replace("\\", "/").lower().rstrip("/")
+    if r and p.startswith(r + "/"):
+        p = p[len(r):]
+    p = "/" + p.strip("/") + "/"
     return any(k in p for k in (keep if keep is not None else keep_list()))
 
 
@@ -132,7 +137,7 @@ def check(store=None, rows=None, disp=None, keep=None):
     disp = dispositions() if disp is None else disp
     undigested, wipeable = [], []
     for r in rows:
-        if is_kept(r["path"], keep):
+        if is_kept(r["path"], keep, r.get("root")):
             continue
         if r["status"] in ("ok", "stale", "untested"):
             continue                                      # carded: part of the harness (rows from a test)
@@ -205,7 +210,7 @@ def start(project, lesson, minutes=None, force=False, dry_run=False, store=None,
         else:
             return {**out, "refused": f"could not recycle {live}; nothing started", "next": "fieldkit size recycle " + str(live)}
     for r in chk["wipeable"]:
-        if not is_kept(r["path"], keep) and Path(r["path"]).exists() and rc(r["path"]):
+        if not is_kept(r["path"], keep, r.get("root")) and Path(r["path"]).exists() and rc(r["path"]):
             out["recycled"].append(r["path"])
     out["wiped"] = True
     from . import switch

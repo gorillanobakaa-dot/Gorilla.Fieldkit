@@ -18,7 +18,7 @@ class FakeStore:
 
 
 def row(path, status="untracked"):
-    return {"path": path, "status": status, "name": path.rsplit("/", 1)[-1], "kind": "script", "cards": [], "root": "/r", "age_days": 1}
+    return {"path": path, "status": status, "name": path.rsplit("/", 1)[-1], "kind": "script", "cards": [], "root": str(__import__("pathlib").Path(path).parent), "age_days": 1}
 
 
 def _env(tmp_path, monkeypatch):
@@ -67,7 +67,8 @@ def test_keep_list_survives(tmp_path, monkeypatch):
     keep.parent.mkdir()
     keep.write_text("x")
     assert C.is_kept(str(keep)) and C.is_kept("/work/.ssh/id_rsa") and C.is_kept("/x/Fieldkit/fieldkit/a.py")
-    r, recycled, _ = _go(tmp_path, monkeypatch, FakeStore(), [row(str(keep))], disp={C.os.path.normcase(str(keep)): {"because": "x"}})
+    kr = dict(row(str(keep)), root=str(tmp_path))
+    r, recycled, _ = _go(tmp_path, monkeypatch, FakeStore(), [kr], disp={C.os.path.normcase(str(keep)): {"because": "x"}})
     assert r["started"] and str(keep) not in recycled and r["check"]["scripts"] == []
 
 
