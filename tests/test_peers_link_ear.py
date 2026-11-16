@@ -80,3 +80,23 @@ def test_ear_brief_and_line_say_deaf_and_how_to_start(home, monkeypatch):
     assert "relay listen --as claude:aaaa1111@L15 --since 5" in link_relay.ear_line(ME)
     link_relay._ear_write(ME, {"off": 5, "pid": os.getpid()})
     assert link_relay.ear_brief(ME, alive=lambda pid: True) == {"state": "running", "unheard": 0}
+
+
+def test_ear_write_retries_a_locked_target_and_never_raises(tmp_path, monkeypatch):
+    """Windows WinError 5: os.replace fails while another ear holds the file; the write retries, then gives up quietly."""
+    monkeypatch.setattr(link_relay, "ear_path", lambda station: tmp_path / "ears" / "me.json")
+    real, fails = os.replace, {"n": 2}
+
+    def flaky(a, b):
+        if fails["n"] > 0:
+            fails["n"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real(a, b)
+    monkeypatch.setattr(link_relay.os, "replace", flaky)
+    assert link_relay._ear_write(ME, {"pid": 1}, pause=0) is True
+    assert json.loads((tmp_path / "ears" / "me.json").read_text(encoding="utf-8")) == {"pid": 1}
+    fails["n"] = 99
+    assert link_relay._ear_write(ME, {"pid": 2}, tries=3, pause=0) is False
+    assert json.loads((tmp_path / "ears" / "me.json").read_text(encoding="utf-8")) == {"pid": 1}
+    assert not list((tmp_path / "ears").glob("*.tmp"))
+

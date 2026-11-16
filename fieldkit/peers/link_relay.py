@@ -270,12 +270,26 @@ def ear_read(station):
         return {}
 
 
-def _ear_write(station, d):
+def _ear_write(station, d, tries=20, pause=0.05):
+    """Write the ear state atomically. On Windows os.replace raises PermissionError (WinError 5) while another process
+    has the target open (a second ear starting, a comms check reading it): retry, then give up for this round -> False
+    (the ear writes again on its next change; a crash here would kill the listener)."""
     p = ear_path(station)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
+    tmp = p.with_name(f"{p.stem}.{os.getpid()}.tmp")       # per process: two writers never share one temp file
     tmp.write_text(json.dumps(d), encoding="utf-8")
-    os.replace(tmp, p)
+    for i in range(tries):
+        try:
+            os.replace(tmp, p)
+            return True
+        except PermissionError:
+            if i + 1 < tries:
+                time.sleep(pause)
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+    return False
 
 
 def ear_state(station, alive=local_peers.pid_alive):
