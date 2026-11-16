@@ -670,13 +670,16 @@ class Emerge:
 
     def run(self, only=None):
         # under a liveness beacon: heartbeat + every stage's container members (fieldkit liveness check sees it)
-        from ..core import liveness
+        from ..core import checkout_hold, liveness
+        # P29: hold the checkouts this run reads, so no sync / listener / train fast-forwards them mid-build
+        held = checkout_hold.hold(f"emerge {self.recipe.name}", watched_repos(self.recipe))
         cap = self._capture_begin()
         try:
             with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
                 return self._run_all(only)
         finally:
             self._capture_end(cap)
+            checkout_hold.release(held)
 
     def _capture_begin(self):
         """Capture is on for the whole build (owner 2026-11-10); a switch someone else turned on is never ours to turn off."""
