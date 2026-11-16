@@ -64,7 +64,7 @@ STAGES = [
     {"id": "S9", "name": "Publish",
      "what": "export-hand; the public patch set replayed onto pristine upstream equals the built tree; privacy scans; "
              "push only on the maintainer's recorded yes.",
-     "gate": "Identical tree hash; scans clean; pushed.",
+     "gate": "Identical tree hash; every port lesson a rule, a tool or a recorded no-rule (S9.lessons); scans clean; pushed.",
      "commands": ["export-hand TASK", "privacy scan --git", "decide B-PUBLISH-TASK publish"]},
 ]
 STAGE = {s["id"]: s for s in STAGES}
@@ -314,7 +314,8 @@ def gate_S2(m):
 def gate_S3(m):
     from ..briefs import producers as bp
     out = []
-    opn = [s for s in m.t["steps"] if s.get("status") in ("pending", "failed", "blocked", "deferred") and not s["id"].startswith("final")]
+    from ..core import concepts                      # P38: one definition of a closed step (rebase-set uses it too)
+    opn = concepts.open_steps(m.t["steps"], final=False)
     for s in opn[:25]:
         out.append(item(f"S3.step:{s['id']}", False, f"step {s['id']} closed", f"{s.get('status')}: {'; '.join(s.get('last_why') or [])[:200]}",
                         f"{FH} next {m.tid}" if s.get("kind") != "owner" else f"{FH} deferred {m.tid} {s['id']}",
@@ -553,6 +554,14 @@ def gate_S9(m, deep=True):
                     f"{rp[-1]['t']}: tree {str(rp[-1].get('tree'))[:10]}" if rp else
                     "no replay proof recorded",
                     f"{FH} replay {m.tid}"))
+    from ..buildh import lessonrules                  # P38: a migration does not close with unconverted lessons
+    try:
+        waiting = lessonrules.split(task.lessons(m.tid))[0]
+    except Exception as e:  # noqa: BLE001 - unreadable lessons or rules fail closed
+        waiting = [{"lesson": f"lessons or fieldkit/firefox/lesson_rules.yaml unreadable: {e}"}]
+    out.append(item("S9.lessons", not waiting, "every port lesson is a rule, a tool or a recorded no-rule",
+                    f"{len(waiting)} waiting: " + "; ".join(str(w.get("lesson"))[:80] for w in waiting[:3]) if waiting
+                    else "none waiting", f"fieldkit firefox lessons {m.tid}"))
     pv = m.cache("privacy")
     ok, why = _fresh(m, pv, "tree")
     out.append(item("S9.privacy", ok and not pv["data"].get("findings"), "privacy scan of what git would publish is clean",

@@ -1,4 +1,4 @@
-# Gorilla Firefox on Windows: the firefox-windows pipeline (the Gorilla.firefox harness keeps the Firefox
+# Gorilla Unleashed on Windows: the firefox-windows pipeline (the Gorilla.firefox harness keeps the Firefox
 # knowledge) with keys, tiers and the checks the owner approved once (test cost audit, 2026-10-26):
 #   iterate  -> preflight .. package (a doc commit in the harness rebuilds nothing)
 #   install  -> + package checks, install, post-install: once, on the build that is installed
@@ -7,7 +7,7 @@
 name: firefox-windows
 pipeline: firefox-windows
 description: >-
-  Gorilla Firefox for Windows from the pinned upstream tag plus the patch set, through the Gorilla.firefox harness;
+  Gorilla Unleashed for Windows from the upstream release tag of the version plus the patch set, through the Gorilla.firefox harness;
   package checks and post-install once on the installed build, the leak gate once per release.
 baseline_minutes: 90
 vars:
@@ -20,8 +20,9 @@ latest:                             # never pinned (owner 2026-11-11): the porte
   upstream_tag:                     # the release tag the harness pins (versions.lock.json), never a commit in the recipe
     - {file: "{harness}/config/versions.lock.json", regex: '"upstream_tag":\s*"([^"]+)"'}
 sources:
-  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath
-  - {id: upstream, git: "{harness}/src", base: "{upstream_tag}", fetched_by: source}
+  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath.
+  # base: upstream = Mozilla's release tag of {version} (core/concepts.upstream_tag), never a pinned commit (P38)
+  - {id: upstream, git: "{harness}/src", base: upstream, fetched_by: source}
 patches: {dir: "{harness}/gorilla-patchset/patches", glob: "*"}
 config:
   mandate: gorilla-firefox

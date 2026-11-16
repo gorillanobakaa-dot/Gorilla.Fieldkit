@@ -415,10 +415,24 @@ class LinkOffloader:
 
 
 # -- preflight: the recipe's own checks, once, before stage 1 ---------------------------------------------------------
-def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None):
-    """-> [(name, status, line)]. Plain reads; nothing changes."""
+def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None, rows_planned=None):
+    """-> [(name, status, line)]. Plain reads; nothing changes. When every stage to build is offloaded
+    (core/concepts.measured_on), this machine's pins, disk, RAM, long paths and thermal cap are not the build's: one
+    row names the device whose own `emerge run --local` preflight measures them (2026-11-16, seam 5)."""
     import shutil
+    from ..core import concepts
     rows = []
+    if rows_planned is not None:
+        local, devices = concepts.measured_on(rows_planned)
+        if not local:
+            rows.append(("machine", OK, f"every stage to build runs on {', '.join(devices)}: its own preflight "
+                                        "(emerge run --local there) measures its source pins, disk, RAM and toolchain"))
+            if offloads:
+                m = recipe.config_digest().get("mandate") if recipe.config_spec.get("mandate") else None
+                rows.append(("mandate", OK if isinstance(m, dict) else WARN,
+                             "in force for the offload jobs" if isinstance(m, dict)
+                             else f"no mandate entry ({m}): offloaded stages fall back to this machine where they can"))
+            return rows
     for s in recipe.sources:
         st, _v, why = recipe.pin(s)
         if st == "ok" or (st == "absent" and s.get("fetched_by")):
@@ -529,7 +543,8 @@ class Emerge:
             elif cached:
                 row.update(action="skip", why=f"key {key[:12]} built on {cached}, outputs verified")
             elif o and not self.local_only and (not here or o.get("prefer")):
-                row.update(action="offload", why=f"to {target_text(o.get('device'), self.household)}"
+                row.update(action="offload", device=str(o.get("device") or ""),
+                           why=f"to {target_text(o.get('device'), self.household)}"
                            + ("" if here else f" (needs {s.get('platforms')})"))
             elif not here:
                 row.update(action="not-here", why=f"needs {s.get('platforms')}, this is {host()['system']}"
@@ -556,7 +571,7 @@ class Emerge:
         docs, docs_why = self._docs_mode()
         rows = self.classify(keys, docs)
         checks = self.checks if self.checks is not None else own_checks(
-            self.recipe, self.mode, [r for r in rows if r["action"] == "offload"])
+            self.recipe, self.mode, [r for r in rows if r["action"] == "offload"], rows_planned=rows)
         todo = [r for r in rows if r["action"] in ("run", "offload")]
         known = [r["eta_s"] for r in todo if r["eta_s"] is not None]
         return {"recipe": self.recipe.name, "mode": self.mode, "host": self.who, "docs_only": docs,

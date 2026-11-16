@@ -502,6 +502,21 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     cited = dec.citations(t, list(s.get("allowed") or []))
     if cited:
         head += [""] + cited
+    try:                                    # P38: the lessons of earlier ports, as written rules (lesson_rules.yaml)
+        from . import lessonrules as _lr
+        pr = _lr.port_rules_text()
+        # after the instructions, and only what fits: the budget trim must never cut the instructions themselves
+        room = budget_chars - len("\n".join(head)) - len(body) - 200
+        if pr and room > 0:
+            rules = ["PORT RULES (lessons of earlier ports; follow them before asking for a model step):"]
+            for line in pr:
+                if sum(len(x) + 1 for x in rules) + len(line) > room:
+                    break
+                rules.append(line)
+            if len(rules) > 1:
+                head += [""] + rules
+    except Exception:  # noqa: BLE001 - a broken rules file never stops a port; the S9.lessons gate reports it
+        pass
     text = "\n".join(head) + "\n\n" + body
     if len(text) > budget_chars:
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
