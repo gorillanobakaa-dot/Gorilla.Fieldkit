@@ -18,6 +18,7 @@ into a scratch git index built from the pristine tree, and `git write-tree` give
 built tree is HEAD's tree, and the working copy must have no uncommitted change, or the comparison means nothing.
 Fail closed: any patch failure, a dirty working copy or a different hash is a FAIL, with the differing paths.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -132,6 +133,45 @@ def refreshed_lists(task_id, workdir):
     return out
 
 
+def unregistered_groups(owner_root):
+    """-> [(group folder, patch count)] for every folder of the patch set holding *.patch files that the policy does
+    not name at all (a disabled group is named, so it is a decision; an unnamed one is a loss nobody chose).
+
+    2026-11-16 (Firefox 160): export-hand wrote 21.PORT.FIXES.160 and 22.EGRESS.LOCKDOWN.160 and only PRINTED "register
+    new groups". Nobody did; for five days the build, the replay and the Windows recipe skipped them without a word -
+    a privacy cut (the on-device LLM excision) and two port fixes among them. Now the replay fails and names them."""
+    try:
+        pol = json.loads((Path(owner_root) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    root, named = Path(owner_root) / pol.get("patchset_root", "patches"), set(pol.get("groups") or {})
+    if not root.is_dir():
+        return []
+    return [(d.name, n) for d in sorted(root.iterdir())
+            if d.is_dir() and d.name not in named and (n := len(list(d.rglob("*.patch"))))]
+
+
+def register_groups(owner_root, say=print):
+    """Name every unregistered group of the set in the policy, enabled, after the groups already there, with the
+    first paragraph of its README as the reason. -> the names added. export-hand made these folders from the tree that
+    was built, so leaving them out is the loss; replay then proves the order (2026-11-16, Firefox 160)."""
+    lost = unregistered_groups(owner_root)
+    if not lost:
+        return []
+    f = Path(owner_root) / "config" / "patch_policy.json"
+    pol = json.loads(f.read_text(encoding="utf-8"))
+    root = Path(owner_root) / pol.get("patchset_root", "patches")
+    for g, n in lost:
+        readme = root / g / "README.md"
+        text = readme.read_text(encoding="utf-8", errors="replace") if readme.is_file() else ""
+        para = next((b.strip().replace("\n", " ") for b in text.split("\n\n") if b.strip() and not b.lstrip().startswith("#")), "")
+        pol["groups"][g] = {"status": "enabled", "reason": (para or f"exported by build-harness export-hand ({n} patches)")[:600]
+                            + " (registered by export-hand; replay proves the order)"}
+        say(f"  registered {g} in config/patch_policy.json ({n} patch(es), enabled, applied after the groups before it)")
+    f.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    return [g for g, _ in lost]
+
+
 def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=(), include=None, refreshed=None):
     """-> {ok, replayed, built, pristine, failures, dirty, differ, patches, scratch}.
     `extra_exclude` {group: {patch name}} and `skip` (group names) are for rebase.py: a replay as if the policy
@@ -140,6 +180,7 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
     w = Path(workdir)
     pset, policy = firefox._policy(owner_root)
     groups = [(g, s) for g, s in policy.items() if s.get("status") == "enabled" and g not in skip]
+    lost = unregistered_groups(owner_root)
     pristine = _git(w, "rev-list", "--max-parents=0", "HEAD").decode().split()[0]
     built = _git(w, "rev-parse", "HEAD^{tree}").decode().strip()
     dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines() if l.strip()]
@@ -199,6 +240,8 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
         res["replayed"] = _git(w, "write-tree", env=env).decode().strip()
         if res["replayed"] != built:
             res["differ"] = _git(w, "diff-tree", "-r", "--name-status", res["replayed"], built).decode("utf-8", "replace").splitlines()[:40]
+        res["failures"] += [f"UNREGISTERED GROUP {g}: {n} patch(es) on disk that config/patch_policy.json does not name, so "
+                            "no build or replay ever applies them; register the group (or move it out of the set)" for g, n in lost]
         res["ok"] = not res["failures"] and not dirty and res["replayed"] == built
     finally:
         if not keep:

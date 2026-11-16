@@ -1052,7 +1052,10 @@ def run(a, emit):
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
         r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True),
                       dry=bool(getattr(a, "dry_run", False)))
-        print("register new groups in config/patch_policy.json if they are not there; then prove the set: build-harness replay " + tid)
+        if not getattr(a, "dry_run", False):
+            from . import replay as _rp
+            _rp.register_groups(owner, say=lambda m: print(m, flush=True))     # a printed hint was missed for 5 days
+        print("prove the set: build-harness replay " + tid + "  (an unregistered group now fails the replay)")
         return 0
     if act == "release-check":
         from . import releasecheck as rc_
