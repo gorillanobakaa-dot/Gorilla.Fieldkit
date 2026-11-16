@@ -25,6 +25,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..core import childrun
 from . import firefox, task
 
 ENV = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "LC_ALL": "C"}
@@ -91,15 +92,15 @@ def _apply_patch(pf, scratch):
     if b"GIT binary patch" in text:
         # outside any repository (the ceiling stops git finding one above the scratch folder), so paths are
         # relative to the scratch tree
-        r = subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "-p1", "--whitespace=nowarn", str(pf)],
-                           cwd=str(scratch), capture_output=True,
-                           env={**ENV, "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)})
+        r = childrun.run(["git", "-c", "core.autocrlf=false", "apply", "-p1", "--whitespace=nowarn", str(pf)],
+                         f"git apply {pf.name}", cwd=str(scratch),
+                         env={**ENV, "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)})
     else:
-        with open(pf, "rb") as fh:
-            # --binary: Strawberry's patch.exe 2.5.9 aborts on LF patches read in text mode ("Expression: hunk",
-            # Windows CI 2026-10-16); the bytes are compared exactly anyway. No effect on Linux.
-            r = subprocess.run([firefox._patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0", "--binary",
-                                "-d", str(scratch)], stdin=fh, capture_output=True, timeout=600)
+        # --binary: Strawberry's patch.exe 2.5.9 aborts on LF patches read in text mode ("Expression: hunk",
+        # Windows CI 2026-10-16); the bytes are compared exactly anyway. No effect on Linux.
+        # --batch + childrun: never a question on a terminal, a deadline and a stall stop (P29: 67 min hang, 160)
+        r = childrun.run([firefox._patch_exe(), "-p1", "--forward", "--batch", "--no-backup-if-mismatch", "--fuzz=0",
+                          "--binary", "-d", str(scratch)], f"patch {pf.name}", stdin_path=pf)
     out = (r.stdout + r.stderr).decode("utf-8", "replace")
     return r.returncode == 0 and "previously applied" not in out, out
 
