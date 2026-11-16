@@ -368,7 +368,9 @@ def unfinished(steps):
     # 2026-11-16 (160): an OBSOLETE step is closed, not unfinished - what it would patch is gone from the new release
     # (a renamed string, a removed function), `verify` re-judges it from the tree, and the migration's S3 gate already
     # counts it closed. Counting it here refused write=1 on a finished port (24 obsolete steps, none open).
-    return [x.get("id") for x in steps or [] if x.get("status") not in ("done", "obsolete")]
+    # P38: the one definition of a closed step is core/concepts (the S3 gate calls it too)
+    from ..core import concepts
+    return [x.get("id") for x in concepts.open_steps(steps, final=True)]
 
 
 def run(owner_root, workdir, major, write=False, say=print):

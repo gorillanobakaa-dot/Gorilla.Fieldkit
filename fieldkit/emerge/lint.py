@@ -15,6 +15,9 @@ Each finding names the recipe, the place and the fix:
             A toolchain floor (go 1.24 for macOS 10.13) is not a product version: `toolchain_pins: {VAR: WHY}`
   ONE-OS    a stage that runs on one system and says `offload: false` without `platforms_why`: the other system
             can never build it (a stage with no offload gets one by itself: recipe.auto_offload)
+  BASE      a git source whose `base:` is a commit id while the recipe resolves `version` with `latest:`: the
+            base of version N is not the base of N+1 (2026-11-16: firefox-windows kept 158's 3c71aeacdb under 160).
+            Write `base: upstream` (the release tag of {version}, core/concepts.upstream_ref)
   PATH      a machine path written in a recipe (/home/NAME, C:\\Users\\NAME): ${DOCUMENTS}, ${HOME}, ${LOCAL:key}
 Exit 0 clean, 3 findings. CI runs it on every recipe (tests/test_emerge_lint.py).
 """
@@ -50,6 +53,12 @@ def lint_spec(name, spec, pipeline_spec=None, pipeline_resolved=()):
                     and k not in pipeline_resolved:
                 out.append(("PIN", f"pipeline {pipeline_spec.get('name')} vars.{k}",
                             f"{v!r} is one version and recipe {name} does not resolve {k} with `latest:`"))
+    if "version" in latest:
+        for src in spec.get("sources") or []:
+            b = str((src or {}).get("base") or "")
+            if re.fullmatch(r"[0-9a-f]{7,40}", b):
+                out.append(("BASE", f"{name} sources.{src.get('id')}.base", f"{b[:12]} is one version's commit and "
+                            "the recipe's version is `latest:`: write `base: upstream`"))
     if NAME_VERSION.search(str(spec.get("name", name))) and not spec.get("archive"):
         out.append(("NAME", name, "named after one version: make it general (version from `latest:`) or mark "
                     "`archive: WHY` if it only checks an archived release"))

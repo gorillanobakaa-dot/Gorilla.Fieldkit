@@ -7,7 +7,7 @@
 name: firefox-windows
 pipeline: firefox-windows
 description: >-
-  Gorilla Firefox for Windows from the pinned upstream tag plus the patch set, through the Gorilla.firefox harness;
+  Gorilla Firefox for Windows from the upstream release tag of the version plus the patch set, through the Gorilla.firefox harness;
   package checks and post-install once on the installed build, the leak gate once per release.
 baseline_minutes: 90
 vars:
@@ -17,8 +17,9 @@ latest:                             # never pinned (owner 2026-11-11): the porte
     - {local: firefox.version}
     - {newest: "${DOCUMENTS}/FIREFOX.WORK/work/firefox-*", regex: '^firefox-(\d+(?:\.\d+)+)$'}
 sources:
-  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath
-  - {id: upstream, git: "{harness}/src", base: 3c71aeacdb296402e41fb2084b13e797d1770642, fetched_by: source}
+  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath.
+  # base: upstream = Mozilla's release tag of {version} (core/concepts.upstream_tag), never a pinned commit (P38)
+  - {id: upstream, git: "{harness}/src", base: upstream, fetched_by: source}
 patches: {dir: "{harness}/gorilla-patchset/patches", glob: "*"}
 config:
   mandate: gorilla-firefox
