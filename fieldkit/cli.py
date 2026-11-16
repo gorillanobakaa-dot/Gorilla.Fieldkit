@@ -2563,6 +2563,7 @@ def build_parser():
     bh.add_argument("--adapted", default="", help="submit: the MODEL declares an adapted port (a symbol renamed upstream, code moved) with its reason; judged by meaning, saved as a proposal for the owner's one-go acceptance, no attempt spent")
     bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")
     bh.add_argument("--harness", help="start: the Gorilla.firefox folder to read patches from (default firefox.root)")
+    bh.add_argument("--emerge", action="store_true", help="start: record the tree `fieldkit emerge` already patched (--pin, --workdir, --harness); idempotent")
     bh.add_argument("--agent", help="drive: the agent command (default gorilla-opencode)")
     bh.add_argument("--max-jobs", type=int, help="drive: stop after this many jobs")
     bh.add_argument("--job-timeout", help="drive: time limit per job, e.g. 45m")
