@@ -75,16 +75,16 @@ def test_a_failing_own_test_is_refused_at_test(env):
 def test_a_script_with_nothing_to_break_is_refused(env):
     d = Path(loop.write_candidate(_rec("recipe-zz-empty", []), env / "c"))
     r = A.try_candidate(d)
-    assert not r["ok"] and r["step"] == "mutate", r
+    assert not r["ok"] and r["step"] in ("quality", "mutate"), r      # no steps: no journal replay of them, nothing to break
 
 
 def test_mutation_proof_each_check_can_fail(env, monkeypatch):
     """Break each check in turn: the good candidate must then be refused or the bad one let through (so each check bites)."""
     # without the mutate check the blind test would pass
+    real_mutate = A.M.mutate
     monkeypatch.setattr(A.M, "mutate", lambda plan, test, **kw: {"baseline": "passed", "ok": True, "results": [], "survived": 0, "refused": 0})
     assert A.try_candidate(_blind(env))["ok"], "mutate check removed: the blind test goes through, so the check is what refuses it"
-    monkeypatch.undo()
-    monkeypatch.setenv("FIELDKIT_CAPTURE_DIR", str(env / "store"))
+    monkeypatch.setattr(A.M, "mutate", real_mutate)
     # without the privacy check the leaky candidate would pass
     monkeypatch.setattr(A.privacy, "scan_path", lambda p: {})
     assert A.try_candidate(_leaky(env))["ok"], "privacy check removed: the leak goes through, so the check is what refuses it"
