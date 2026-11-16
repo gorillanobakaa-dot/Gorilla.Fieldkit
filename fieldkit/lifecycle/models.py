@@ -767,7 +767,7 @@ def main(argv=None):
         return 0
     if argv[:1] == ["block"] and len(argv) >= 2:
         ag = argv[1]
-        until = "always"
+        until = None            # a quota block ends by itself (cooldown_minutes); --until DATE|always only when the owner says
         why = "quota maxed out / blocked by owner"
         if "--until" in argv:
             i = argv.index("--until")
