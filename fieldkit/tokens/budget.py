@@ -6,7 +6,8 @@ writing: I am preparing the handover and starting a new VISIBLE session automati
 meters, the same handover note and PLAN.md section, the same session-name numbering), so there is no second rotation
 mechanism.
 
-    fraction = the worse of  context per call / ctx_rotate   and   session dollars / usd_rotate
+    fraction = the worse of  context per call / the context ROTATE line (rotate.ctx_lines)  and  session dollars / usd_rotate;
+               a session that compacts itself (rotate.can_compact) counts its dollars only (P28 C)
     (the budget is the ROTATE line of rotate.py; the defaults are 120k tokens per call and $75)
     HALF  at >= 50%: one line in the session's context: "you are at half the budget"
     STOP  at >= 90%: the tool writes the handover (rotate.handover), writes the successor's brief, and lists the
@@ -37,7 +38,11 @@ ARCHIVE_MAX = 12
 def fraction(row, cfg=None):
     """The share of the budget (the ROTATE line) this session has used: the worse of its two meters, 0.0 .. n."""
     cfg = cfg or rotate.config()
-    return max(row.get("context_last", 0) / cfg["ctx_rotate"], (row.get("usd") or 0.0) / cfg["usd_rotate"])
+    dollars = (row.get("usd") or 0.0) / cfg["usd_rotate"]
+    if row.get("compactable"):              # a session that compacts itself never hands over for context (P28 C)
+        return dollars
+    _warn, rot = rotate.ctx_lines(row.get("window"), cfg)
+    return max(row.get("context_last", 0) / rot, dollars)
 
 
 def level(frac):
