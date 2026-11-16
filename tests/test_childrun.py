@@ -4,8 +4,11 @@ Firefox 160 lost 67 minutes to one patch.exe that never ended in replay._apply_p
 and prove it is stopped, named, and fails the step."""
 import sys
 import time
+from pathlib import Path
 
 from fieldkit.core import childrun
+
+NL = chr(10)
 
 
 def test_a_silent_idle_child_is_stopped_as_a_stall_and_named():
@@ -19,9 +22,7 @@ def test_a_silent_idle_child_is_stopped_as_a_stall_and_named():
 
 
 def test_the_wall_deadline_stops_a_child_that_keeps_talking():
-    code = "import time
-while True:
-    print('x', flush=True); time.sleep(0.2)"
+    code = NL.join(["import time", "while True:", "    print('x', flush=True); time.sleep(0.2)"])
     r = childrun.run([sys.executable, "-c", code], "chatty", deadline_s=4, idle_s=60)
     assert r.status == "timeout" and r.returncode == 124
     assert b"TIMEOUT chatty" in r.stderr
@@ -35,12 +36,10 @@ def test_stdin_is_never_a_terminal_a_prompt_reads_end_of_file():
 
 def test_input_bytes_and_a_stdin_file_reach_the_child(tmp_path):
     echo = [sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read().upper())"]
-    r = childrun.run(echo, "bytes", input=b"hunk
-", deadline_s=30, idle_s=10)
+    r = childrun.run(echo, "bytes", input=("hunk" + NL).encode(), deadline_s=30, idle_s=10)
     assert r.returncode == 0 and r.stdout.strip() == b"HUNK"
     f = tmp_path / "a.patch"
-    f.write_bytes(b"diff
-")
+    f.write_bytes(("diff" + NL).encode())
     r = childrun.run(echo, "file", stdin_path=f, deadline_s=30, idle_s=10)
     assert r.stdout.strip() == b"DIFF"
 
@@ -52,7 +51,6 @@ def test_a_failing_child_keeps_its_exit_code_and_is_not_a_stall():
 
 
 def test_patch_callers_pass_batch_or_force_so_patch_never_asks():
-    from pathlib import Path
     root = Path(childrun.__file__).resolve().parents[1]
     for rel in ("buildh/replay.py", "buildh/firefox.py", "buildh/snapshot.py", "buildh/task.py", "build/kmigrate.py"):
         t = (root / rel).read_text(encoding="utf-8")
