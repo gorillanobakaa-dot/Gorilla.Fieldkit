@@ -41,6 +41,7 @@
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit compileonce [build|check] [--force] pre-compile all Python modules to .pyc bytecode ahead of time
+    fieldkit once run|check|watch|forget|list    a command that already succeeded is not run or asked again (done:true JSON)
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
@@ -1987,6 +1988,10 @@ def build_parser():
                         help="pre-compile all Python modules in fieldkit/ and kits/ into validated .pyc bytecode "
                              "ahead of time: build [--force], check (fieldkit compileonce)")
     co.add_argument("args", nargs=argparse.REMAINDER)
+    on = sub.add_parser("once", add_help=False,
+                        help="a command that already succeeded is skipped: run|check [--key K] [--state PATH] -- CMD, "
+                             "watch --key K (stop on no news), forget KEY, list; one JSON line done:true|false (fieldkit once)")
+    on.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -3366,6 +3371,9 @@ def main(argv=None):
     if args[:1] == ["compileonce"]:                   # ahead-of-time .pyc bytecode compilation and check
         from . import compileonce
         return compileonce.main(args[1:])
+    if args[:1] == ["once"]:                          # already succeeded? one JSON line done:true|false (P28 E)
+        from . import once
+        return once.main(args[1:])
     if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
         from .image import cli as image_cli
         return image_cli.main(args[1:])
