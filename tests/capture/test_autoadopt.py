@@ -58,7 +58,8 @@ def test_a_privacy_finding_is_refused_at_privacy(env):
 
 def test_a_failing_own_test_is_refused_at_test(env):
     d = _good(env)
-    (d / "recipe-zz-good.sh").write_text("echo no strict header\n", encoding="utf-8")
+    # keeps the replayed-OK header so it gets past the quality gate; only the strict header is gone
+    (d / "recipe-zz-good.sh").write_text("# candidate tool distilled from 3 captured episodes (3 replayed)\necho no strict header\n", encoding="utf-8")
     r = A.try_candidate(d)
     assert not r["ok"] and r["step"] == "test", r
 
