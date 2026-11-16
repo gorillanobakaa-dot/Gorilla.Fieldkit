@@ -16,6 +16,9 @@ latest:                             # never pinned (owner 2026-11-11): the porte
   version:
     - {local: firefox.version}
     - {newest: "${DOCUMENTS}/FIREFOX.WORK/work/firefox-*", regex: '^firefox-(\d+(?:\.\d+)+)$'}
+    - {file: "{harness}/config/versions.lock.json", regex: '"firefox_version":\s*"([^"]+)"'}
+  upstream_tag:                     # the release tag the harness pins (versions.lock.json), never a commit in the recipe
+    - {file: "{harness}/config/versions.lock.json", regex: '"upstream_tag":\s*"([^"]+)"'}
 sources:
   # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath.
   # base: upstream = Mozilla's release tag of {version} (core/concepts.upstream_tag), never a pinned commit (P38)
