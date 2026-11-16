@@ -91,6 +91,16 @@ machine_prerequisites:
     apply: [-Action, apply]
     undo: [-Action, undo]
     verify: link_keepalive
+  - id: telemetry-firewall-task
+    os: windows
+    admin: true
+    what: "scheduled task fieldkit-telemetry-firewall (SYSTEM; at startup, at logon, hourly) that adds an OUTBOUND BLOCK firewall rule for every vctip.exe (Microsoft compiler telemetry uploader) under Visual Studio and each user's .mozbuild\\vs, so a new MSVC version never needs a UAC click again (owner 2026-11-16, Firefox 160 build gate); the script is copied to C:\\ProgramData\\Gorilla, writable by SYSTEM and Administrators only"
+    cost: "a SYSTEM task runs a pinned, root-protected script that only adds block rules for vctip.exe; no port opened, nothing allowed, nothing sent; the rules stay when undone (they only block telemetry)"
+    script: fieldkit/mandate/prereqs/telemetry-firewall-task.ps1
+    sha256: d1189d155400c4ce825883125178354e90c494f2345723bcbadaedb9cb64e1a1
+    apply: [-Action, apply]
+    undo: [-Action, undo]
+    verify: telemetry_firewall_task
   - id: link-keepalive-linux
     os: linux
     admin: false
