@@ -23,6 +23,7 @@ AGENTS = {
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"], ""),
     "antigravity": (["antigravity", "Antigravity", "agy"], None, ""),
     "agy": (["agy", "antigravity"], ["--version"], ""),
+    "kiro": (["kiro-cli", "kiro"], ["--version"], ""),             # P39: Kiro CLI (kiro-cli), else the Kiro IDE
 }
 VERSION_TIMEOUT = 5
 

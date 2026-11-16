@@ -127,7 +127,15 @@ def _install_verify(arg=None, **_):
     return installverify.probe_lines(arg)
 
 
-PROBES = {"install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
+def _choice(arg=None, **_):
+    """P39: this computer's agent > provider > model > reasoning menu, measured here (its agents, its quota blocks, its
+    local LLM server). Besides `--version` it runs only an agent's own read-only model list (`agy models`, 10 s cap)."""
+    from ..lifecycle import choice
+    rows = choice.menu()
+    return choice.render(rows, socket.gethostname()).splitlines(), rows
+
+
+PROBES = {"choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
           "sessions": _sessions}
 
 

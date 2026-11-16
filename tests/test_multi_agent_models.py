@@ -8,59 +8,29 @@ from fieldkit.lifecycle import models, routing, tasks
 from fieldkit.peers import agentfind, link
 
 
-def test_all_five_agents_and_models_in_catalogue():
+def test_every_agent_comes_from_choice_yaml_with_providers_and_reasoning():
+    """P39: the catalogue is choice.yaml, four levels; no invented or stale name."""
     cat = models.agents_catalog()
-    for required_agent in ("antigravity", "agy", "codex", "gorilla-opencode", "claude"):
-        assert required_agent in cat, f"missing agent {required_agent}"
-        assert len(cat[required_agent]["models"]) >= 3
-        assert cat[required_agent]["thinking_levels"] == [
-            "lowest",
-            "low",
-            "medium",
-            "high",
-            "max",
-        ]
-
-    # Antigravity & agy must include Frontier/Ultra models: hydrogen, argon, carbon, etc.
-    for ag in ("antigravity", "agy"):
-        mset = set(cat[ag]["models"])
-        for frontier in (
-            "hydrogen",
-            "argon",
-            "carbon",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "claude-sonnet-4-5",
-            "claude-opus-4-6",
-        ):
-            assert frontier in mset
+    for required in ("claude", "codex", "agy", "antigravity", "gemini", "gorilla-opencode", "kiro"):
+        assert required in cat, f"missing agent {required}"
+        assert cat[required]["providers"] and cat[required]["thinking_levels"]
+    assert "lmstudio" in cat["gorilla-opencode"]["providers"] and "ollama" in cat["codex"]["providers"]
+    from fieldkit.lifecycle import choice
+    stale = set(choice.load()["stale"])
+    assert not stale & set(m for v in cat.values() for m in v["models"])
 
 
-def test_generic_gemini_rejected_and_specific_choice_validated(
-    tmp_path: Path, monkeypatch
-):
+def test_generic_and_stale_names_refused_and_specific_choice_validated(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path))
-    # Generic "gemini" as agent or model is rejected with a clear message
-    r_ag = models.validate_agent_choice("gemini", "argon", "high")
-    assert r_ag["ok"] is False
-    assert "generic" in r_ag["why"].lower()
-
-    r_mod = models.validate_agent_choice("antigravity", "gemini", "high")
-    assert r_mod["ok"] is False
-    assert "generic" in r_mod["why"].lower()
-
-    # Valid specific combinations across agents & thinking levels
-    for a, m, t in [
-        ("antigravity", "hydrogen", "lowest"),
-        ("antigravity", "argon", "medium"),
-        ("antigravity", "carbon", "max"),
-        ("agy", "argon", "high"),
-        ("codex", "gpt-5-codex", "high"),
-        ("codex", "o3", "max"),
-        ("gorilla-opencode", "qwen3-coder", "medium"),
-    ]:
-        res = models.validate_agent_choice(a, m, t)
-        assert res["ok"] is True, f"expected valid for {a}/{m}/{t}: {res}"
+    r_mod = models.validate_agent_choice("agy", "gemini", "high")
+    assert r_mod["ok"] is False and r_mod["verdict"] == "generic-refused"
+    assert models.validate_agent_choice("antigravity", "claude-sonnet-5-5-medium", "high")["verdict"] == "stale-model"
+    assert models.validate_agent_choice("codex", "gpt-5-codex", "high")["verdict"] == "stale-model"
+    assert models.validate_agent_choice("claude", "sonnet", "lowest")["verdict"] == "invalid-thinking"
+    assert models.validate_agent_choice("claude", "gpt-5.5", "high")["verdict"] == "invalid-model-for-agent"
+    assert models.validate_agent_choice("claude", "sonnet", "xhigh")["ok"] is True
+    g = models.validate_agent_choice("codex", "gpt-5.5", "high")       # the spend guard applies to every agent
+    assert g["verdict"] in ("model-refused", "allowed")
 
 
 def test_claude_is_available_unless_its_quota_is_out_and_a_quota_block_expires(tmp_path: Path, monkeypatch):
@@ -99,19 +69,19 @@ def test_mandatory_choice_prompt_when_unspecified_and_persisted_choice(
     res = models.validate_agent_choice(None, None, None, require_explicit=True)
     assert res["ok"] is False
     assert (
-        "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
+        models.CHOICE_PROMPT
         in res["prompt"]
     )
 
     # Persist choice via routing.set_choice
-    saved = routing.set_choice("solo", "argon", agent="agy", thinking="high")
+    saved = routing.set_choice("solo", "claude-sonnet-5-5-medium", agent="agy", thinking="high")
     assert saved["agent"] == "agy"
-    assert saved["ceiling"] == "argon"
+    assert saved["ceiling"] == "claude-sonnet-5-5-medium"
     assert saved["thinking"] == "high"
 
     ch = routing.choice()
     assert ch["agent"] == "agy"
-    assert ch["ceiling"] == "argon"
+    assert ch["ceiling"] == "claude-sonnet-5-5-medium"
     assert ch["thinking"] == "high"
 
 
@@ -135,7 +105,7 @@ def test_autopilot_and_link_default_start_have_all_five_agents(
     assert r_missing["ok"] is False
     assert r_missing["needs_choice"] is True
     assert (
-        "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
+        models.CHOICE_PROMPT
         in r_missing["prompt"]
     )
 
@@ -156,7 +126,13 @@ def test_tasks_start_blocks_unspecified_or_claude_and_starts_chosen_agent(
     brief = tmp_path / "brief.md"
     brief.write_text("# Brief\nTest task.\n", encoding="utf-8")
 
-    # 1. Calling tasks.start with no agent/model/thinking raises ValueError with the mandatory question
+    # 1. No agent/model/thinking and no person: the owner's recorded choice, else an inbox item (no hidden fallback)
+    from fieldkit.lifecycle import choice
+    from fieldkit.autopilot import inbox as ib
+    asked = []
+    monkeypatch.setattr(choice, "menu", lambda **kw: [])
+    monkeypatch.setattr(ib, "add", lambda *a, **k: asked.append(a))
+    monkeypatch.setattr(choice, "_tty", lambda: False)
     with pytest.raises(ValueError) as exc_missing:
         tasks.start(
             brief,
@@ -166,10 +142,7 @@ def test_tasks_start_blocks_unspecified_or_claude_and_starts_chosen_agent(
             worktree=lambda r, i: (None, "test"),
             launch=lambda cmd: {"pid": 1234, "log": "test.log"},
         )
-    assert (
-        "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
-        in str(exc_missing.value)
-    )
+    assert "no recorded choice" in str(exc_missing.value) and asked
 
     # 2. Calling tasks.start with an agent whose quota is out raises ValueError
     models.mark_agent_unavailable("claude", reason="weekly quota 100%")
@@ -193,16 +166,16 @@ def test_tasks_start_blocks_unspecified_or_claude_and_starts_chosen_agent(
         title="valid-agy",
         plan="O3",
         agent="agy",
-        model="argon",
+        model="claude-sonnet-5-5-medium",
         thinking="high",
         require_choice=True,
         worktree=lambda r, i: (None, "test"),
         launch=lambda cmd: {"pid": 1234, "log": "test.log"},
     )
     assert r3["agent"] == "agy"
-    assert r3["model"] == "argon"
+    assert r3["model"] == "claude-sonnet-5-5-medium"
     assert r3["thinking"] == "high"
     runbook = Path(r3["runbook"]).read_text(encoding="utf-8")
     assert "coding_agent: agy" in runbook
-    assert "model: argon" in runbook
+    assert "model: claude-sonnet-5-5-medium" in runbook
     assert "thinking: high" in runbook

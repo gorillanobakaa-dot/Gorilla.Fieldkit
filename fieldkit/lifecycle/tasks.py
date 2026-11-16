@@ -203,6 +203,9 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             role="worker",
             origin="task start" + (f" --on {on}" if on else ""),
         )
+        if not vchk["ok"] and vchk.get("needs_choice"):     # P39: the person picks from what works now; headless:
+            from . import choice, counsel                    # the owner's recorded choice per job type, else inbox
+            vchk = choice.resolve(counsel.work_kind(text) or "task", origin="task start" + (f" --on {on}" if on else ""))
         if not vchk["ok"]:
             raise ValueError(vchk["why"])
         agent = vchk["agent"]
@@ -566,9 +569,23 @@ def settle(tasks, alive=None):
                                  "auth_marked": True})
                     continue
                 t["status"] = "died"
+                _agent_quota(t)                              # P39: a quota error in its log blocks its agent until reset
                 t.setdefault("answer", f"process {t['pid']} ended with no report; its log: {t.get('log') or '-'}")
                 out.append(t["id"])
     return out
+
+
+def _agent_quota(t, read=None):
+    """A died task's log tail ends in a quota / limit error: block its coding agent until the reset (choice.note_failure).
+    -> the block record or None."""
+    if not t.get("log"):
+        return None
+    try:
+        tail = (read or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")))(t["log"])[-4000:]
+    except OSError:
+        return None
+    from . import choice
+    return choice.note_failure(t.get("agent") or "claude", tail)
 
 
 def resume_waiting(tasks, check=None, launch=None):
