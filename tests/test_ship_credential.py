@@ -67,7 +67,10 @@ def test_ships_gh_calls_carry_ships_environment(in_run, monkeypatch, tmp_path):
         seen.append((argv[:3], (kw.get("env") or {}).get("GH_CONFIG_DIR")))
         return R()
     monkeypatch.setattr("fieldkit.core.sync._slug", lambda repo: "o/r")
-    ship.gh_release(str(tmp_path), "v1", mandate=lambda *a, **k: ("allow", "test", None), run=fake)
+    (tmp_path / "app.bin").write_bytes(b"x")
+    (tmp_path / "page.md").write_text("page\n\n| File | Bytes | SHA-256 |\n|---|---|---|\n", encoding="utf-8")
+    ship.gh_release(str(tmp_path), "v1", ["app.bin", "--notes-file", "page.md"],
+                    mandate=lambda *a, **k: ("allow", "test", None), run=fake, gate=lambda s, t, h: {"ok": True})
     gh = train.GH.__new__(train.GH)
     gh.repo, gh.run, gh.slug = str(tmp_path), fake, "o/r"
     gh.merge(7, "abc")
