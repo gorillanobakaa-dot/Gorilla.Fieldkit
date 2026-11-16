@@ -1311,6 +1311,22 @@ tools:
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macair.py"]
   notes: "Born 2026-10-22 when the owner made the MacBook Air a maintained target. Drives gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe, never copied here). preflight reads 17 Mac decisions from the source before a two-hour build (Sandy Bridge not native, fonts bundled, Segoe UI + Consolas, Segoe UI interface, thin greyscale text, About window and add-ons logo inside the 11-inch budget 669/459 px). verify on the Air: fonts held open, stroke of a known sentence on a neutral grey page (2.11 px, Linux 2.12), LCD colour 0 %."
 
+- id: fieldkit-firefox
+  title: 'The one Firefox cookbook for Linux (.deb), Windows and macOS 10.13: where each system stands, the one next step, the whole release chain, the handover package to Windows or the Mac (checked, SHA-256, sent over the cable or SSH), every port lesson and its rule'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, firefox]
+  path: ${FIELDKIT}/fieldkit/firefox/cli.py
+  inputs:
+    - {name: command, type: choice, choices: [status, next, release, handover, lessons, knowledge], required: true, help: "status first; handover VERSION --to windows|mac after S8"}
+    - {name: json, flag: --json, type: flag, required: false, help: "as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {3: "handover: a check failed, nothing sent; lessons: a lesson is not yet a rule", 1: "no version and no task on this machine"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_firefox_cookbook_e2e.py"]
+  notes: "P38, owner order 2026-11-16 (Firefox 160 failed at the seams between tools, never inside one). Data: fieldkit/firefox/cookbook.yaml (systems, steps S0-S9 + handover/build per OS, knowledge map) and lesson_rules.yaml; one definition per concept: fieldkit/core/concepts.py. The procedure in words: docs/FIREFOX-COOKBOOK.md. The e2e test runs a toy Firefox through every seam; tests/firefox_cookbook_mutations.yaml breaks each seam 1-7."
+
 - id: core-doctor
   title: "What this computer still needs before Fieldkit works, and the line that installs it; --probe: the machine itself (OS, memory, disk, every Python, git real or Apple's stub, Homebrew, compiler, curl) and the way in (git or zip, lean or full); --lean: only the two packages the core needs"
   harness: core

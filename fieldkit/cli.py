@@ -406,6 +406,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_firefox(a):
+    from .firefox import cli as ffcli
+    return ffcli.main(a.args, prog="fieldkit firefox")
+
+
 def cmd_macair(a):
     from .macair import macair
     return macair.main(a.args, prog="fieldkit macair")
@@ -1761,6 +1766,11 @@ def build_parser():
                              "decisions, 11-inch budget, export the patch series, recreate, install, verify on the Mac")
     ma.add_argument("args", nargs=argparse.REMAINDER)
     ma.set_defaults(fn=cmd_macair)
+    ff = sub.add_parser("firefox", add_help=False,
+                        help="the one Firefox cookbook (Linux .deb, Windows, macOS 10.13): status, next, release, "
+                             "handover VERSION --to windows|mac, lessons, knowledge")
+    ff.add_argument("args", nargs=argparse.REMAINDER)
+    ff.set_defaults(fn=cmd_firefox)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -3158,6 +3168,9 @@ def main(argv=None):
                                                            "text-compare"):
         from .shot import look                        # look has its own parser; read/speedtest/verdict stay below
         return look.main(args[1:], prog="fieldkit shot")
+    if args[:1] == ["firefox"]:                       # the Firefox cookbook has its own parser (P38)
+        from .firefox import cli as ffcli
+        return ffcli.main(args[1:], prog="fieldkit firefox")
     if args[:1] == ["macair"]:                        # macair has its own parser: every argument goes to it
         from .macair import macair
         return macair.main(args[1:], prog="fieldkit macair")

@@ -1761,6 +1761,16 @@
    "explain"
   ]
  },
+ "firefox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-firefox"
+  ]
+ },
  "firmware check": {
   "platforms": [
    "linux"
