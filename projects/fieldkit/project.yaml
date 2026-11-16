@@ -1,0 +1,19 @@
+id: fieldkit
+name: Fieldkit
+purpose: "The deterministic harness: tools, emerge recipes, build harness, agent net (public repo)."
+repos:
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
+recipes: [fieldkit]
+cookbook:
+  - {repo: fieldkit, path: AGENTS.md, what: "Fieldkit's own rules"}
+  - {repo: fieldkit, path: rules/CORE.md, what: "the rules for every project"}
+  - {repo: fieldkit, path: docs/HARNESS-PLAN.md, what: "the plan, item by item"}
+  - {repo: fieldkit, path: docs/COOKBOOK-VISION.md, what: "the cookbook design (P41)"}
+entry:
+  - {cmd: "fieldkit plan next", what: "the next plan item"}
+  - {cmd: "fieldkit testcost staged", what: "the tests covering what you changed"}
+tests:
+  - {cmd: "fieldkit testcost staged", paths: ["fieldkit/", "tests/"]}
+platforms: [linux, windows]
+plan_words: [Fieldkit, harness]
+cwd_markers: ["Fieldkit", "Fieldkit-*"]

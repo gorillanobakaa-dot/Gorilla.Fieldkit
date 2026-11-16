@@ -406,6 +406,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_cookbook(a):
+    from .cookbook import cli as cbcli
+    return cbcli.main(a.args, prog="fieldkit cookbook")
+
+
 def cmd_firefox(a):
     from .firefox import cli as ffcli
     return ffcli.main(a.args, prog="fieldkit firefox")
@@ -1772,6 +1777,10 @@ def build_parser():
                              "handover VERSION --to windows|mac, lessons, knowledge")
     ff.add_argument("args", nargs=argparse.REMAINDER)
     ff.set_defaults(fn=cmd_firefox)
+    cb = sub.add_parser("cookbook", add_help=False,
+                        help="the deterministic project load (P41a): load ID|--cwd PATH, list, show ID, check")
+    cb.add_argument("args", nargs=argparse.REMAINDER)
+    cb.set_defaults(fn=cmd_cookbook)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -3169,6 +3178,9 @@ def main(argv=None):
                                                            "text-compare"):
         from .shot import look                        # look has its own parser; read/speedtest/verdict stay below
         return look.main(args[1:], prog="fieldkit shot")
+    if args[:1] == ["cookbook"]:                      # the project load has its own parser (P41a)
+        from .cookbook import cli as cbcli
+        return cbcli.main(args[1:], prog="fieldkit cookbook")
     if args[:1] == ["firefox"]:                       # the Firefox cookbook has its own parser (P38)
         from .firefox import cli as ffcli
         return ffcli.main(args[1:], prog="fieldkit firefox")
