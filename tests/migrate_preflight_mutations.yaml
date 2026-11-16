@@ -1,0 +1,57 @@
+# fieldkit migrate preflight (P29): every check must be CAUGHT.
+#   fieldkit mutate --plan tests/migrate_preflight_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_migrate_preflight.py tests/test_buildh_setproof.py
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '                if mp in rev.ls() and not excised(mp):                 # present and still built'
+  - '                if mp in rev.ls():                                     # present and still built'
+  why: a module left in a directory the patch set no longer builds is gone at run time (LAZY, excised)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '            if not re.search(r"\.\s*" + re.escape(sym) + r"\b", text):'
+  - '            if True:'
+  why: a used lazy getter whose module is gone must be reported (LAZY)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '            for i in sorted(used_r - reg_r - upstream_unreg)]'
+  - '            for i in sorted(set())]'
+  why: a Setting used but never registered must be reported (SETTING)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '        if not dropped:'
+  - '        if True:'
+  why: an id whose only .ftl the document no longer links must be reported (FLUENT unlinked)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '    if j < 0 or "try" in body[:j]:'
+  - '    if True:'
+  why: an empty support baseURL with an unguarded new URL must be reported (SUPPORT-LINK)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '                elif pf.name in talk:'
+  - '                elif False:'
+  why: a group whose reason names a foreign patch it does not declare is a CONTRADICTION (linux 0122)
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '                elif pf.name in waivers:'
+  - '                elif False:'
+  why: a carry_on entry with no reason is STALE, never a silent skip
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '    if not (here / "core" / "childrun.py").is_file():'
+  - '    if False:'
+  why: no child-stall guard must fail the stall check
+- file: fieldkit/migrate/preflight.py
+  swap:
+  - '    if fails:'
+  - '    if False:'
+  why: a failed check must make the verdict FAIL
+- file: fieldkit/buildh/setproof.py
+  swap:
+  - '                if other and waiver:'
+  - '                if other:'
+  why: a foreign patch with a blank carry_on reason must fail the set proof, not be waived
+- file: fieldkit/migrate/cli.py
+  swap:
+  - '    return 0 if r["verdict"] == "PASS" else (3 if not r["ok"] else 1)'
+  - '    return 0'
+  why: a FAIL verdict must exit 3 so the recipe stops before compile
