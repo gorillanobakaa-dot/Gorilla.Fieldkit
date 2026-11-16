@@ -55,6 +55,7 @@ def test_s5_wants_the_replay_proven_on_this_tree(tmp_path):
 def test_s5_wants_the_set_committed_and_pushed(tmp_path):
     remote, o = tmp_path / "remote.git", tmp_path / "owner"
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    o.mkdir()
     _owner(o, {"01.A": "enabled"}, ["01.A"])
     _git(o, "init", "-q")
     _git(o, "-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A")
