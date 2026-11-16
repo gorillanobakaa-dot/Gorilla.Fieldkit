@@ -91,6 +91,8 @@ def rows(install_dir, register, say=print, timeout=300, files=None, **change):
     names = removed(register)
     files = CHROME_FILES if files is None else list(files)
     addresses = ["about:" + n for n in names] + files
+    # the probe spends up to ~8 s per address (settle, read, tab close) after the start: the budget grows with the list
+    timeout = max(timeout, 90 + 10 * len(addresses))
     r = pb.run(install_dir, str(probe_file(addresses)), wait=10, timeout=timeout, say=say, **change)
     got, done = parse(r["lines"])
     return judge(names, files, got, done)
