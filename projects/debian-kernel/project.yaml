@@ -1,0 +1,19 @@
+id: debian-kernel
+name: Gorilla Debian kernel
+purpose: "Custom hardened kernel (.deb/.rpm) built from the pinned kernel.org tarball plus the project patches."
+repos:
+  - {name: work, github: null, local: "${DOCUMENTS}/Debian.Kernel.Work"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Fieldkit, local: "${FIELDKIT}"}
+recipes: [debian-kernel, kernel-7.0.9-unleashed]
+cookbook:
+  - {repo: work, path: CLAUDE.md, what: "the kernel work folder's own rules (P41d will make a real cookbook index)"}
+  - {repo: fieldkit, path: fieldkit/emerge/recipes/debian-kernel.yaml, what: "the kernel build as stages"}
+entry:
+  - {cmd: "fieldkit emerge plan debian-kernel", what: "what a kernel build would do"}
+  - {cmd: "fieldkit emerge status debian-kernel", what: "the last run, stage by stage"}
+tests:
+  - {cmd: "fieldkit emerge run debian-kernel --mode check", paths: ["fieldkit/emerge/recipes/debian-kernel.yaml"]}
+platforms: [linux]
+platforms_why: "the kernel packages are built and installed on Debian"
+plan_words: [kernel]
+cwd_markers: ["Debian.Kernel.Work"]

@@ -1605,6 +1605,16 @@
    "compileonce"
   ]
  },
+ "cookbook": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-cookbook"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",

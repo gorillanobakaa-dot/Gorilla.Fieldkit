@@ -180,3 +180,10 @@ Never `git merge origin/main` by hand on a PR branch when `ship update` can do i
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;
 then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never change their copy yourself.
+
+## The project brief (P41a)
+
+`fieldkit cookbook load ID|--cwd PATH` prints a bounded brief of a registered project (Firefox, Gorilla OpenCode, the
+kernel, Fieldkit): purpose, where its cookbook and recipes are, current state, the next command. The SessionStart hook
+runs it by cwd, so do not search the disk to learn where things are: read the brief. `cookbook list|show ID|check`;
+the registry is `projects/<id>/project.yaml` (projects/README.md).
