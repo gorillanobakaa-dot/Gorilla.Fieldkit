@@ -92,11 +92,18 @@ def prepare(task_id, repo, tag, title, notes, assets, supersede=None, supersede_
         bad = [n for n, a in res.get("artifacts", {}).items()
                if Path(a["file"]).name in hashes and hashes[Path(a["file"]).name] != a.get("sha256")]
         row("the assets are the files build-verify proved", not bad, f"differ: {bad}" if bad else "every built file matches")
+    from ..core import host
     from ..method import releasegate
     asset_names = [a.name for a in assets]
     if releasegate.is_windows_release(tag, asset_names):
         win_blocker = releasegate.windows_installer_blocker(tag, asset_names)
-        row("Windows release includes an installer (.exe/.msi)", not win_blocker, win_blocker or "installer present")
+        r = host.os_row(
+            rows,
+            ("windows", "linux", "macos"),
+            "Windows release includes an installer (.exe/.msi)",
+            lambda: (not win_blocker, win_blocker or "installer present"),
+        )
+        say(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence']}")
         if br.is_file():
             it_ok = _installer_test_ok(task_id)
             row("installer-test passed for this Windows build", it_ok,
