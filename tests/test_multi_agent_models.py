@@ -92,12 +92,14 @@ def test_autopilot_and_link_default_start_have_all_five_agents(
     for agent_name in (
         "antigravity",
         "agy",
+        "gemini",
         "codex",
         "gorilla-opencode",
         "claude",
     ):
         assert agent_name in models.CODING_AGENTS
         assert agent_name in link.DEFAULT_START
+        assert agent_name in link.AGENTS
         assert agent_name in agentfind.AGENTS
 
     # Verify agent_run refuses when choice is omitted
@@ -179,3 +181,46 @@ def test_tasks_start_blocks_unspecified_or_claude_and_starts_chosen_agent(
     assert "coding_agent: agy" in runbook
     assert "model: claude-sonnet-5-5-medium" in runbook
     assert "thinking: high" in runbook
+
+
+def test_agent_run_builds_valid_cli_args_for_agy_antigravity_and_gemini(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path))
+    monkeypatch.setenv("FIELDKIT_AUTOPILOT_STATE", str(tmp_path / "ap"))
+    seen = []
+
+    class FakeOut:
+        rc = 0
+        timed_out = False
+        out = "{}"
+        err = ""
+
+    from fieldkit.core import contain
+    monkeypatch.setattr(contain, "run", lambda args, **kw: seen.append((args, kw)) or FakeOut())
+    monkeypatch.setattr(ap_run, "agent_exe", lambda ag: f"/bin/{ag}")
+
+    for ag in ("agy", "antigravity"):
+        res = ap_run.agent_run(
+            ag, "hello", cwd=tmp_path, model="claude-sonnet-5-5-medium", thinking="high", max_turns=50
+        )
+        assert res["ok"] is True
+        argv, kw = seen[-1]
+        assert argv[0] == "/bin/agy"
+        assert "--print" in argv and "--dangerously-skip-permissions" in argv
+        assert "--effort" in argv and "high" in argv
+        assert "chat" not in argv and "--thinking" not in argv
+        assert kw["stdin_text"] == "hello"
+
+    res_g = ap_run.agent_run(
+        "gemini", "hello", cwd=tmp_path, model="gemini-4-hydrogen-high", thinking="medium", max_turns=50
+    )
+    # Without a mandate allowing gemini-4-*, spend guard refuses BEFORE launching
+    assert res_g["ok"] is False and res_g["refused"] is True
+    monkeypatch.setattr(models, "check_model", lambda m, **kw: {"ok": True, "model": m, "tier": "premium", "why": "test"})
+    res_g2 = ap_run.agent_run(
+        "gemini", "hello", cwd=tmp_path, model="auto", thinking="medium", max_turns=50
+    )
+    assert res_g2["ok"] is True
+    argv_g, kw_g = seen[-1]
+    assert argv_g[0] == "/bin/gemini"
+    assert "--approval-mode" in argv_g and "yolo" in argv_g
+    assert kw_g["stdin_text"] == "hello"
