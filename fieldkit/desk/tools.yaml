@@ -147,6 +147,7 @@ tools:
   safety: reversible
   notes: 'arm stores the pack SHA-256 and registers the scheduled task "Gorilla night pack" (every 10 min, no elevation, expiry); run refuses an agent, a changed pack or an expired arming, runs each action once, removes the task at the end or at the first failure. Never in a pack: allowlist, dispositions, decision register, harness/hooks, telemetry. Owner 2026-10-19.'
   platforms: [linux, windows]
+  e2e: {linux: e2e-night-pack-linux, windows: e2e-night-pack-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_nightpack.py"]
 
 - id: release-publish
@@ -4186,6 +4187,7 @@ tools:
   effects: [writes-files]
   safety: reversible
   platforms: [windows, linux]
+  e2e: {linux: e2e-bh-request-linux, windows: e2e-bh-request-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_autoport.py"]
   notes: "Only the request is written; the decision and its undo line are in the task journal and the auto-accept ledger (fieldkit autoaccept list)."
 
@@ -5344,6 +5346,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows, linux]
+  e2e: {linux: e2e-bh-leakgate-ci-linux, windows: e2e-bh-leakgate-ci-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_ci.py"]
   notes: "pack and record run on the owner's machine, run only on the runner (root, veth: .github/workflows/leakgate-linux.yml, docs/LEAKGATE-GITHUB.md). THREAT MODEL: GitHub (Microsoft) sees the .deb, the context and every packet log of the run; the repository is public so the run's log is readable by anyone; the .deb travels in a DRAFT release, never as an artifact; the verdict is the gate's own, record never edits it and refuses a result for another binary or with a policy missing."
 
@@ -5530,6 +5533,7 @@ tools:
   safety: reversible
   exits: {3: findings}
   platforms: [linux, windows]
+  e2e: {linux: e2e-bh-capture-linux, windows: e2e-bh-capture-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_capture.py"]
   notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Linux (P9, 2026-11-12): the .deb or tarball is unpacked (dpkg-deb -x, never installed), sockets read with psutil, processes stopped by PID, packets by tcpdump -i any read with dpkg. Tests cover judge(), SNI and pcap parsing, sockets, stop-by-PID and unpacking."
 
@@ -6556,6 +6560,7 @@ tools:
   output: own
   exits: {0: "done", 1: "refused (seen without the owner)", 2: "bad arguments"}
   platforms: [windows, linux]
+  e2e: {linux: e2e-autoaccept-linux, windows: e2e-autoaccept-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_autoaccept.py"]
   notes: "Owner 2026-11-11 (I-04 accepted): long-horizon jobs must not wait on owner clicks. Core is generic (fieldkit/lifecycle/); build-harness is the first caller (fieldkit/buildh/autoport.py). Gates listed in docs/AUTONOMY-GATES.md. --force proof: fieldkit/lifecycle/ownerproof.py."
 
@@ -7578,6 +7583,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-firefox-linux, windows: e2e-harness-firefox-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7590,6 +7596,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-kernel-linux, windows: e2e-harness-kernel-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7602,6 +7609,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-opencode-linux, windows: e2e-harness-opencode-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7700,6 +7708,7 @@ tools:
   safety: safe
   headline: "N idle gap(s) in the window, each with start, end and length."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-idle-report-linux, windows: e2e-idle-report-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py", -k, idle]
   notes: "P9. The recorded fixture tests/fixtures/idle_2026_11_12.json shows 2026-11-12 05:41 to 11:18 as one gap of 5 h 37 min."
 
@@ -7717,6 +7726,7 @@ tools:
   output: own
   exits: {0: "all modules compiled and fresh", 2: "bad usage", 3: "syntax error, missing or stale .pyc file"}
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-compileonce-linux, windows: e2e-compileonce-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_compileonce.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
