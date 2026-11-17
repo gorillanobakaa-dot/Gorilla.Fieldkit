@@ -1899,7 +1899,7 @@ def build_parser():
                                       "and archive_session until shipped (fieldkit/lifecycle/permanence.py)"),
                        ("idle", "idle report --since 24h: the gaps where work was open and nothing acted "
                                 "(fieldkit/lifecycle/idle.py)"),
-                       ("antigravity", "talk to Antigravity sessions: sessions, send, stream, station (antigravity/bridge.py); config checks by the Rust agy-tools: check, doors, migrate-workflows (antigravity/__init__.py)"),
+                       ("antigravity", "talk to Antigravity sessions: sessions, send, stream, listen, station (antigravity/bridge.py); config checks by the Rust agy-tools: check, doors, migrate-workflows (antigravity/__init__.py)"),
                        ("pool", "plan Zero's session pool: keep, recycle idle sessions into a reserve, archive extras, "
                                 "top up; exact app-tool calls in order (fieldkit/lifecycle/pool.py)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "

@@ -10,7 +10,7 @@
         .agent/workflows -> .agents/skills; preview by default; undo moves files to .agent/workflows.undone (nothing
         is ever deleted)
 
-    fieldkit antigravity sessions|send|stream|bind-check|station ...   the session bridge (bridge.rs; docs/ANTIGRAVITY-BRIDGE.md)
+    fieldkit antigravity sessions|send|stream|listen|bind-check|station ...   the session bridge (bridge.rs; docs/ANTIGRAVITY-BRIDGE.md)
 
 This module is a thin wrapper. The binary is built from source by `fieldkit emerge run agy-tools` (pinned by sha256 in
 the recipe report, never committed). Absent: one NEXT line and exit 1. No Python fallback, so a run is never silently
@@ -52,16 +52,23 @@ def run_tool(argv):
     return r.returncode
 
 
-BRIDGE_VERBS = ("sessions", "send", "stream", "bind-check", "station")
+BRIDGE_VERBS = ("sessions", "send", "stream", "bind-check", "station", "listen")
 RUST_BRIDGE = ("sessions", "send", "stream", "bind-check")
+
+
+def _needs_python_bridge(cmd, rest):
+    if cmd not in RUST_BRIDGE:
+        return True
+    return any(a in ("--device", "--station") or a.startswith(("--device=", "--station=")) for a in rest)
 
 
 def run_bridge(cmd, rest):
     """The session bridge: the Rust binary (starts in ~5 ms, waits for agy, leaves no child) when it is built, else
-    the same logic in bridge.py (one NOTE on stderr). `station` is Python: it only calls `fieldkit zero checkin`."""
-    exe = binary() if cmd in RUST_BRIDGE else None
+    the same logic in bridge.py (one NOTE on stderr). `station`, `listen`, and `--device`/`--station` run in Python."""
+    use_python = _needs_python_bridge(cmd, rest)
+    exe = None if use_python else binary()
     if exe is None:
-        if cmd in RUST_BRIDGE:
+        if not use_python:
             print("NOTE: agy-tools is not built; using the slower Python bridge. NEXT: fieldkit emerge run agy-tools",
                   file=sys.stderr)
         from . import bridge
