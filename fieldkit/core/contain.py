@@ -429,8 +429,12 @@ class Container:
                 table[pid], pgrp[pid] = ct, pg
                 kids.setdefault(ppid, []).append(pid)
         else:
+            # Windows has no zombies, and psutil's "status" there takes a whole-system snapshot PER process:
+            # 2.1 s per walk instead of 0.02 s (2026-11-17, 241 processes). Each patch.exe step in replay/set-proof
+            # walks several times, so set-proof over ~1350 patches ran for hours and the pre-push hook looked hung.
+            attrs = ["pid", "ppid", "create_time"] if IS_WIN else ["pid", "ppid", "create_time", "status"]
             try:
-                for p in psutil.process_iter(["pid", "ppid", "create_time", "status"]):
+                for p in psutil.process_iter(attrs):
                     i = p.info
                     if i.get("status") == psutil.STATUS_ZOMBIE or i.get("create_time") is None:
                         continue
