@@ -67,10 +67,136 @@ class Room:
                  "detail": "delivered by the room hook at each session's next prompt or tool call"}]
 
 
+def _local_antigravity_ears(ear_state_fn=None):
+    """-> [(station_id, rec, state_dict)] for local antigravity:* stations in net-stations.json or ears/."""
+    from ..peers import link, link_relay
+    from . import net as zero_net
+    ear_state_fn = ear_state_fn or link_relay.ear_state
+    found = {}
+    here = zero_net.machine()
+    try:
+        for sid, rec in zero_net.load_stations().get("stations", {}).items():
+            if (rec.get("kind") or zero_net.kind_of(sid)) == "antigravity" and zero_net.machine_of(sid) in ("", here):
+                found[sid] = rec
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ears_dir = link.home() / "ears"
+        if ears_dir.is_dir():
+            for p in ears_dir.glob("antigravity_*.json"):
+                try:
+                    d = json.loads(p.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                sid = d.get("station") if isinstance(d, dict) else None
+                if sid and zero_net.machine_of(sid) in ("", here):
+                    found.setdefault(sid, {})
+    except Exception:  # noqa: BLE001
+        pass
+    out = []
+    for sid, rec in sorted(found.items()):
+        try:
+            es = ear_state_fn(sid)
+        except Exception:  # noqa: BLE001
+            es = {"state": "never"}
+        out.append((sid, rec, es))
+    return out
+
+
+def _antigravity_hook_ok(hook_doctor_fn=None):
+    try:
+        if hook_doctor_fn is None:
+            from ..autopilot import room
+            hook_doctor_fn = room.antigravity_doctor
+        return bool(hook_doctor_fn().get("ok"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def antigravity_channels(station=None, ear_state_fn=None, hook_doctor_fn=None):
+    """-> (active_rows, fallback_rows) describing active Antigravity ear / room hook channels."""
+    from ..peers import link_relay
+    ear_state_fn = ear_state_fn or link_relay.ear_state
+    hook_ok = _antigravity_hook_ok(hook_doctor_fn)
+    active, fallback = [], []
+    if station:
+        try:
+            es = ear_state_fn(station)
+        except Exception:  # noqa: BLE001
+            es = {"state": "never"}
+        via_hook = False
+        try:
+            from . import net as zero_net
+            rec = zero_net.load_stations().get("stations", {}).get(station) or {}
+            via_hook = rec.get("via") == "hook"
+        except Exception:  # noqa: BLE001
+            pass
+        if es.get("state") == "running":
+            active.append({"channel": "antigravity", "target": station, "ok": True,
+                           "detail": "active ear running (wakes on delivery)"})
+        elif via_hook or hook_ok:
+            active.append({"channel": "antigravity", "target": station, "ok": True,
+                           "detail": "delivered by the project room hook at each prompt or tool call"})
+        else:
+            fallback.append({"channel": "pull", "target": station, "ok": True,
+                             "detail": "pull only (no active Antigravity ear or project room hook)"})
+        return active, fallback
+
+    for sid, rec, es in _local_antigravity_ears(ear_state_fn):
+        if es.get("state") == "running":
+            active.append({"channel": "antigravity", "target": sid, "ok": True,
+                           "detail": "active ear running (wakes on delivery)"})
+        elif rec.get("via") == "hook" or hook_ok:
+            active.append({"channel": "antigravity", "target": sid, "ok": True,
+                           "detail": "delivered by the project room hook at each prompt or tool call"})
+    if not active and hook_ok:
+        active.append({"channel": "antigravity", "target": "Antigravity GUI hook", "ok": True,
+                       "detail": "delivered by the project room hook at each prompt or tool call"})
+    return active, fallback
+
+
+def antigravity_via(ear_state_fn=None, hook_doctor_fn=None):
+    """-> 'ear' | 'room' | 'pull' for Antigravity station discovery."""
+    for _sid, _rec, es in _local_antigravity_ears(ear_state_fn):
+        if es.get("state") == "running":
+            return "ear"
+    if _antigravity_hook_ok(hook_doctor_fn):
+        return "room"
+    return "pull"
+
+
+class Antigravity:
+    name, mode = "antigravity", "push"
+
+    def __init__(self, station=None, ear_state=None, hook_doctor=None):
+        self._station, self._ear_state, self._hook_doctor = station, ear_state, hook_doctor
+
+    def push(self, entry, net):
+        to = entry.get("to") or "*"
+        if self._station:
+            active, fallback = antigravity_channels(self._station, self._ear_state, self._hook_doctor)
+            return active or fallback
+        if to != "*" and not str(to).startswith("antigravity:"):
+            return []
+        active, _ = antigravity_channels(to if to != "*" else None, self._ear_state, self._hook_doctor)
+        return active
+
+
 class Pull:
     name, mode = "pull", "pull"
 
+    def __init__(self, ear_state=None, hook_doctor=None):
+        self._ear_state, self._hook_doctor = ear_state, hook_doctor
+
     def push(self, entry, net):
+        to = entry.get("to") or "*"
+        active, _ = antigravity_channels(to if str(to).startswith("antigravity:") else None,
+                                         self._ear_state, self._hook_doctor)
+        if str(to).startswith("antigravity:") and active:
+            return []
+        if active:
+            return [{"channel": self.name, "target": "Gemini / Codex", "ok": True,
+                     "detail": "pull only (Antigravity reached via active ear/hook); startup rule makes others check in"}]
         return [{"channel": self.name, "target": "Gemini / Antigravity / Codex", "ok": True,
                  "detail": "pull only: the AGENTS.md / GEMINI.md rule makes them run `fieldkit net checkin` at start"}]
 
@@ -229,7 +355,7 @@ class Cable:
 
 
 def default():
-    return [Room(), OpenCode(), Cable(), Pull()]
+    return [Room(), OpenCode(), Cable(), Antigravity(), Pull()]
 
 
 def inbox_items(since, inbox=None):

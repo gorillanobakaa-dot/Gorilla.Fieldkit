@@ -143,3 +143,46 @@ def test_linux_exe_version_is_the_dpkg_package_version():
     def none(cmd, **k):
         return subprocess.CompletedProcess(cmd, 1, "", "no path found")
     assert find._dpkg_version("/opt/x", run=none) == ""
+
+
+@pytest.mark.parametrize("osname,home,env,gui_proc,agy_path", [
+    ("linux", "/h", {}, (101, "antigravity", "/opt/Antigravity/antigravity"), "/h/.local/bin/agy"),
+    ("darwin", "/Users/u", {}, (102, "Electron", "/Applications/Antigravity.app/Contents/MacOS/Electron"),
+     "/Applications/Antigravity.app/Contents/Resources/app/bin/agy"),
+    ("win32", "C:/u", {"LOCALAPPDATA": "C:/u/AppData/Local", "APPDATA": "C:/u/AppData/Roaming"},
+     (103, "Antigravity.exe", "C:/u/AppData/Local/Programs/Antigravity/Antigravity.exe"),
+     "C:/u/AppData/Local/Programs/Antigravity/bin/agy.cmd"),
+])
+def test_agy_never_resolves_to_running_antigravity_gui(osname, home, env, gui_proc, agy_path):
+    glob, isfile = fs({gui_proc[2], agy_path})
+    run = runner({agy_path: "agy 1.2.3", gui_proc[2]: ""})
+    r = agentfind.find_one("agy", which=lambda e: None, procs=[gui_proc], run=run, glob=glob, isfile=isfile,
+                           osname=osname, home=home, env=env)
+    assert r["installed"] and r["path"] == agy_path and r["how"] == "known place" and r["running"] == []
+    # When agy is not installed at all, running GUI must not impersonate agy CLI
+    glob2, isfile2 = fs({gui_proc[2]})
+    r_none = agentfind.find_one("agy", which=lambda e: None, procs=[gui_proc], run=run, glob=glob2, isfile=isfile2,
+                                osname=osname, home=home, env=env)
+    assert not r_none["installed"] and r_none["path"] == ""
+    # Meanwhile "antigravity" still detects the GUI IDE/app
+    if osname != "darwin":
+        r_gui = agentfind.find_one("antigravity", which=lambda e: None, procs=[gui_proc], run=run, glob=glob,
+                                   isfile=isfile, osname=osname, home=home, env=env)
+        assert r_gui["installed"] and r_gui["path"] == gui_proc[2] and r_gui["running"] == [gui_proc[0]]
+
+
+def test_antigravity_sessions_probe(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_AGY_HOME", str(tmp_path))
+    d = tmp_path / ".gemini" / "antigravity" / "conversations"
+    d.mkdir(parents=True)
+    (d / "gui1.db").write_text("x")
+    c = tmp_path / ".gemini" / "antigravity-cli" / "conversations"
+    c.mkdir(parents=True)
+    (c / "cli1.db").write_text("x")
+    r = link_probe.run("antigravity-sessions")
+    assert r["ok"] and "gui1" in r["text"] and "cli1" in r["text"]
+    r_cli = link_probe.run("antigravity-sessions", "cli")
+    assert r_cli["ok"] and [x["id"] for x in r_cli["data"]] == ["cli1"]
+    assert not link_probe.run("antigravity-sessions", "bad")["ok"]
+    # OpenCode sessions probe remains unchanged
+    assert link_probe.run("sessions", sessions_fn=lambda: [{"name": "opencode-1"}])["text"] == "opencode-1"
