@@ -136,7 +136,7 @@ def here(tmp_path, monkeypatch):
     return tmp_path
 
 
-def receiver(faults=(), windows=False, case_insensitive=False):
+def receiver(faults=(), windows=False, case_insensitive=False, dirs=None):
     """connect() for put_stream: each call is a new connection to an in-process receiver; faults[i] for the i-th."""
     k, calls, threads = os.urandom(32), [0], []
 
@@ -147,7 +147,7 @@ def receiver(faults=(), windows=False, case_insensitive=False):
             try:
                 w = lt.Wire(b)
                 req = w.line()
-                lt.receive_stream(b, req, bytes(w.buf), windows=windows, case_insensitive=case_insensitive)
+                lt.receive_stream(b, req, bytes(w.buf), windows=windows, case_insensitive=case_insensitive, dirs=dirs)
             except (OSError, ConnectionError, ValueError):
                 pass
             finally:
@@ -311,3 +311,33 @@ def test_the_resume_answer_for_a_big_tree_stays_one_short_line(here, monkeypatch
     monkeypatch.setattr(lt, "LINE", 4096)                     # one offset per file would be ~9 KB here
     r = lt.put_stream(tree, retries=0, connect=receiver())
     assert r["ok"] and r["files"] == 3000, r
+
+
+def test_put_stream_delivers_to_approved_folders_and_refuses_unapproved(here):
+    dirs = {k: here / k for k in ("desktop", "downloads", "documents")}
+    src = here / "report.pdf"
+    src.write_bytes(b"pdf-bytes")
+    # nothing approved yet -> received/ gets it, requested folders are reported refused
+    r = lt.put_stream(src, retries=0, connect=receiver(dirs=dirs), to_desktop=True,
+                      to_folders=["downloads", "documents"])
+    assert r["ok"] and (here / "home" / "received" / "report.pdf").read_bytes() == b"pdf-bytes"
+    assert any("not on the Desktop" in s for s in r["saved"])
+    assert any("not in Downloads" in s for s in r["saved"])
+    assert any("not in Documents" in s for s in r["saved"])
+    assert not any(p.exists() for p in dirs.values())
+
+    # approve downloads + desktop, leave documents unapproved
+    assert link.approve(confirm=True, say=lambda m: None, accept_folders=["desktop", "downloads"]) == 0
+    r = lt.put_stream(src, retries=0, connect=receiver(dirs=dirs), to_desktop=True,
+                      to_folders=["downloads", "documents"])
+    assert r["ok"]
+    assert (dirs["desktop"] / "report.pdf").read_bytes() == b"pdf-bytes"
+    assert (dirs["downloads"] / "report.pdf").read_bytes() == b"pdf-bytes"
+    assert not dirs["documents"].exists()
+    assert any("not in Documents" in s for s in r["saved"])
+    # second send never overwrites
+    src.write_bytes(b"pdf-v2")
+    r2 = lt.put_stream(src, retries=0, connect=receiver(dirs=dirs), to_folders=["downloads"])
+    assert r2["ok"]
+    assert (dirs["downloads"] / "report.pdf").read_bytes() == b"pdf-bytes"
+    assert (dirs["downloads"] / "report-1.pdf").read_bytes() == b"pdf-v2"
