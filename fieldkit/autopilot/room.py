@@ -436,14 +436,15 @@ def _ear(call, event):
         return ""
     if event not in ("UserPromptSubmit", "PreToolUse", "SessionStart"):
         return ""
-    if "relay listen" in str((call.get("tool_input") or {}).get("command") or ""):
+    if "relay listen" in str((call.get("tool_input") or {}).get("command") or "") or "antigravity listen" in str((call.get("tool_input") or {}).get("command") or ""):
         return ""
     try:
         from ..peers import link, link_relay
         from ..zero import net
         if not link.household():
             return ""
-        me = net.hook_station(call["session_id"])
+        kind = call.get("_agent_kind")
+        me = net.hook_station(call["session_id"], kind=kind)
         if link_relay.ear_state(me)["state"] == "running":
             return ""
         if event == "PreToolUse":
@@ -455,9 +456,15 @@ def _ear(call, event):
                 pass
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(str(time.time()), encoding="utf-8")
-        full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
-                f"call. Start your ear with the Monitor tool (each line it prints wakes you; --follow never ends): "
-                f"{link_relay.ear_line(me)} ; no Monitor tool: run it as a background Bash command instead")
+        if kind == "antigravity":
+            short_id = (call["session_id"] or "?")[:8]
+            full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
+                    f"call. Start your ear as a background command: {link_relay.fieldkit_command()} antigravity listen "
+                    f"--as {short_id}")
+        else:
+            full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
+                    f"call. Start your ear with the Monitor tool (each line it prints wakes you; --follow never ends): "
+                    f"{link_relay.ear_line(me)} ; no Monitor tool: run it as a background Bash command instead")
         # P37 (hook text on a budget): every injected line stays in the conversation, so the 450-byte line is said in
         # full once per session; the nag after it is the short one (same frequency, the line is already in context)
         if only_new(call["session_id"] + ".ear", full):
@@ -569,25 +576,86 @@ def _context(call, event):
     return out
 
 
+_AGY_EVENTS = {
+    "pre_user_prompt": "UserPromptSubmit",
+    "PreUserPrompt": "UserPromptSubmit",
+    "UserPromptSubmit": "UserPromptSubmit",
+    "pre_tool_use": "PreToolUse",
+    "PreToolUse": "PreToolUse",
+    "pre_run_command": "PreToolUse",
+    "pre_write_to_file": "PreToolUse",
+    "PreInvocation": "PreToolUse",
+    "post_tool_use": "PostToolUse",
+    "PostToolUse": "PostToolUse",
+    "PostInvocation": "PostToolUse",
+    "session_start": "SessionStart",
+    "SessionStart": "SessionStart",
+}
+
+
+def _normalize_call(call, agent=None):
+    """Normalize Claude Code and Antigravity GUI stdin JSON payloads into one hook call dict."""
+    if not isinstance(call, dict):
+        return {}
+    out = dict(call)
+    if not out.get("session_id"):
+        sid = out.get("conversation_id") or out.get("conversationId") or out.get("sessionId")
+        if sid:
+            out["session_id"] = str(sid)
+    if not out.get("cwd"):
+        roots = out.get("workspace_roots")
+        cwd = out.get("working_directory") or out.get("workspace") or (roots[0] if isinstance(roots, list) and roots else None)
+        if cwd:
+            out["cwd"] = str(cwd)
+    if out.get("prompt") is None:
+        prompt = out.get("user_prompt") if out.get("user_prompt") is not None else out.get("message")
+        if prompt is not None:
+            out["prompt"] = prompt
+    if not out.get("tool_name"):
+        tn = out.get("toolName") or out.get("tool")
+        if tn:
+            out["tool_name"] = tn
+    if out.get("tool_input") is None:
+        ti = out.get("toolInput") if out.get("toolInput") is not None else (out.get("arguments") or out.get("input"))
+        if ti is not None:
+            out["tool_input"] = ti
+    raw_ev = out.get("hook_event_name") or out.get("hookEventName") or out.get("event") or out.get("agent_action_name")
+    if raw_ev in _AGY_EVENTS:
+        out["hook_event_name"] = _AGY_EVENTS[raw_ev]
+    elif raw_ev and not out.get("hook_event_name"):
+        out["hook_event_name"] = raw_ev
+    is_agy = (agent == "antigravity" or out.get("agent") == "antigravity" or out.get("source") == "antigravity"
+              or out.get("client") == "antigravity" or any(k in out for k in ("conversation_id", "conversationId", "workspace_roots", "agent_action_name")))
+    if is_agy:
+        out["_agent_kind"] = "antigravity"
+    elif agent:
+        out["_agent_kind"] = agent
+    return out
+
+
 def pretool(call):
     """The room's half of the one tool-call hook (C6): called by toolrouter.hook, in its process, for a call it lets
     through. Writes the room line, registers the hog's processes, renews the net lease. -> the added context or "".
     Never raises."""
     try:
+        call = _normalize_call(call)
         write(call)
         return _context(call, "PreToolUse")
     except Exception:
         return ""
 
 
-def hook(stdin=None):
-    """Claude Code hook (UserPromptSubmit). Never blocks, never fails the call. PostToolUse: nothing (C6: the tool
-    router's PreToolUse hook does it, one Python start per tool call, not two)."""
+def hook(stdin=None, agent=None):
+    """Claude Code / Antigravity hook (UserPromptSubmit / PreToolUse). Never blocks, never fails the call.
+    PostToolUse: nothing (C6: PreToolUse does it, one Python start per tool call, not two)."""
     try:
-        call = json.loads((stdin or sys.stdin).read() or "{}")
+        raw = json.loads((stdin or sys.stdin).read() or "{}")
+        call = _normalize_call(raw, agent=agent)
         event = call.get("hook_event_name") or ("PostToolUse" if call.get("tool_name") else "UserPromptSubmit")
         if event == "PostToolUse":
             return 0
+        if event == "PreToolUse":
+            write(call)
         ctx = _context(call, event)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
@@ -723,12 +791,102 @@ def apply(settings=None, python=None, keep_dir=None):
                                       "checked: ROOM HOOKS OK" if back["ok"] else f"NOT OK after writing: {back}"]
 
 
+AGY_HOOK_CMD = '"{py}" -m fieldkit.autopilot.room --hook --agent antigravity'
+
+
+def antigravity_hooks_path(project=None):
+    """Project-level Antigravity hooks file (.agents/hooks.json). Never touches global user home config."""
+    return Path(project or Path.cwd()) / ".agents" / "hooks.json"
+
+
+def antigravity_doctor(project=None, python=None):
+    """-> {"ok", "missing", "stale", "settings", "snippet"} for project-level `.agents/hooks.json`."""
+    p = antigravity_hooks_path(project)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else data
+    missing, stale = [], []
+    for ev in ("PreToolUse", "UserPromptSubmit"):
+        groups = hooks.get(ev, []) if isinstance(hooks.get(ev), list) else []
+        if not _has(groups, "fieldkit.autopilot.room"):
+            missing.append(ev)
+        if _console_hooks(groups):
+            stale.append("console:" + ev)
+    py = nowindow.windowless(python or sys.executable)
+    cmd = AGY_HOOK_CMD.format(py=py)
+    snippet = {
+        "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": cmd, "timeout": 15}]}],
+        "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]}],
+    }
+    snippet = {ev: snippet[ev] for ev in missing}
+    return {"ok": not missing and not stale, "missing": missing, "stale": stale, "settings": str(p),
+            "snippet": snippet}
+
+
+def antigravity_install(project=None, python=None, keep_dir=None):
+    """Safely wire project-level `.agents/hooks.json` for Antigravity GUI (backs up existing file aside first).
+    Never modifies the user's global home config. -> (code, lines)."""
+    import shutil
+    p = antigravity_hooks_path(project)
+    r = antigravity_doctor(project, python)
+    if r["ok"]:
+        return 0, [f"ANTIGRAVITY HOOKS OK ({p}): nothing to change"]
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if p.is_file():
+        bak_dir = Path(keep_dir) if keep_dir else p.parent
+        bak_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, bak_dir / f"hooks.json.bak.{time.strftime('%y-%m-%d-%H-%M-%S')}")
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        hooks = data["hooks"] = {}
+    done = []
+    for ev in ("PreToolUse", "UserPromptSubmit"):
+        if ev in r["missing"]:
+            existing = hooks.get(ev) if isinstance(hooks.get(ev), list) else []
+            existing.extend(r["snippet"][ev])
+            hooks[ev] = existing
+            done.append(f"{ev}: antigravity room hook added")
+        if "console:" + ev in r["stale"]:
+            for h in _console_hooks(hooks.get(ev, [])):
+                h["command"] = _windowless_cmd(h["command"])
+            done.append(f"{ev}: hook runs under pythonw (no console window)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    back = antigravity_doctor(project, python)
+    return (0 if back["ok"] else 3), [f"{p}: " + "; ".join(done),
+                                      "checked: ANTIGRAVITY HOOKS OK" if back["ok"] else f"NOT OK after writing: {back}"]
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--hook"]:
         from ..core import nowindow
         nowindow.prepare()
-        return hook()
+        agent = argv[argv.index("--agent") + 1] if "--agent" in argv and argv.index("--agent") + 1 < len(argv) else None
+        return hook(agent=agent)
+    if argv[:1] == ["antigravity-hooks"]:
+        proj = argv[argv.index("--project") + 1] if "--project" in argv and argv.index("--project") + 1 < len(argv) else None
+        if "--install" in argv:
+            code, lines = antigravity_install(proj)
+            print("\n".join(x for x in lines if x))
+            return code
+        r = antigravity_doctor(proj)
+        if "--json" in argv:
+            print(json.dumps(r, indent=1))
+        else:
+            print("ANTIGRAVITY HOOKS " + ("OK" if r["ok"] else "; ".join(
+                x for x in ("MISSING: " + ", ".join(r["missing"]) if r["missing"] else "",
+                            "STALE: " + ", ".join(r["stale"]) if r["stale"] else "") if x)) + f"  ({r['settings']})")
+        return 0 if r["ok"] else 3
     if argv[:1] == ["tail"]:
         print("\n".join(tail(argv[1] if len(argv) > 1 else 40)))
         return 0

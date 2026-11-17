@@ -64,7 +64,7 @@ AGENTS = {
     "opencode": (["opencode"], ["--version"]),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"]),
     "antigravity": (["antigravity", "Antigravity", "agy"], None),
-    "agy": (["agy", "antigravity"], ["--version"]),
+    "agy": (["agy"], ["--version"]),
 }
 # How a session is STARTED for "ask": coding agents (claude, antigravity, agy, gemini, codex, gorilla-opencode)
 # run through `fieldkit autopilot <agent>` with their explicit model and thinking level.
@@ -210,7 +210,8 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app", "install-app", "purge-app")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app", "install-app", "purge-app",
+             "antigravity-send")
 KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
@@ -1091,6 +1092,38 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
                                      thinking=req.get("thinking"))
         _log(f"ask #{item['n']} from {req.get('from_host')} for {req.get('agent')}: {why}")
         return {"ok": True, "stored": item["n"], "started": started, "why": why}
+    if verb == "antigravity-send":
+        from ..antigravity import bridge
+        reg, why = approvals()
+        allowed = set(reg.get("allow_start") or [])
+        if not (allowed & {"agy", "antigravity"}):
+            _log(f"REFUSED antigravity-send from {req.get('from_host')}: {why}")
+            return {"ok": False, "error": f"not allowed: {why}; link.yaml allow_start must include 'agy' or 'antigravity'"}
+        prompt = str(req.get("prompt") or "")
+        conversation = req.get("conversation")
+        continue_latest = bool(req.get("continue_latest"))
+        project = req.get("project")
+        mode = req.get("mode")
+        if not prompt:
+            return {"ok": False, "error": "missing prompt"}
+        if project is not None and (not isinstance(project, str) or any(c in project for c in "\r\n\0")):
+            return {"ok": False, "error": "invalid project"}
+        if mode is not None and (not isinstance(mode, str) or not bridge._ID.match(mode)):
+            return {"ok": False, "error": f"bad mode {mode!r}"}
+        agy_bin = bridge.find_agy()
+        if not agy_bin:
+            return {"ok": False, "error": "agy not found on this computer"}
+        try:
+            res = bridge.send(prompt, conversation=conversation, continue_latest=continue_latest,
+                              project=project, mode=mode, agy=agy_bin)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        _log(f"antigravity-send from {req.get('from_host')} src={res.get('src')} rc={res.get('rc')}")
+        out = {"ok": res["rc"] == 0, "rc": res["rc"], "src": res["src"], "reply": res["reply"],
+               "stderr": res.get("stderr", ""), "host": socket.gethostname()}
+        if res["rc"] != 0:
+            out["error"] = f"agy exited {res['rc']}"
+        return out
     return {"ok": False, "error": f"unknown verb {verb!r}"}
 
 
