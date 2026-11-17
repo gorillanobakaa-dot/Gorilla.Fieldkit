@@ -308,6 +308,8 @@ def targeted(station, net=None):
         return [ch.OpenCode(sessions=only)]
     if k == "claude":
         return [ch.Room()]
+    if k == "antigravity":
+        return [ch.Antigravity(station=station)]
     return [ch.Pull()]
 
 

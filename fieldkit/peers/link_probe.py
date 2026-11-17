@@ -119,6 +119,17 @@ def _sessions(arg=None, sessions_fn=None, **_):
     return [str(r.get("name") if isinstance(r, dict) else r) for r in rows] or ["no messageable session"], rows
 
 
+def _antigravity_sessions(arg=None, sessions_fn=None, **_):
+    if arg is not None and arg not in ("all", "desktop", "cli"):
+        raise ValueError("antigravity-sessions source must be all, desktop, or cli")
+    source = arg or "all"
+    if sessions_fn is None:
+        from ..antigravity import bridge
+        sessions_fn = bridge.list_sessions
+    rows = sessions_fn(source)
+    return [f"{r['source']:<8} {r['id']}" for r in rows] or ["no antigravity sessions"], rows
+
+
 def _install_verify(arg=None, **_):
     """`fieldkit install verify PRODUCT` on this computer, from the release itself: lines + {ok, os, rows}."""
     from ..method import installverify
@@ -136,7 +147,7 @@ def _choice(arg=None, **_):
 
 
 PROBES = {"choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
-          "sessions": _sessions}
+          "sessions": _sessions, "antigravity-sessions": _antigravity_sessions}
 
 
 def run(name, arg=None, **kw):
