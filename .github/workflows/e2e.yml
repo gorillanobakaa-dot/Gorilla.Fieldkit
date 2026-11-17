@@ -476,3 +476,26 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m fieldkit cookbook check
       - run: python -m fieldkit cookbook load fieldkit --no-state
+  e2e-cmd-check-linux:
+    # P9: the real entry point judges a command against the live argparse tree.
+    name: e2e-cmd-check-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/cmd_check.py
+  e2e-cmd-check-windows:
+    name: e2e-cmd-check-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/cmd_check.py
