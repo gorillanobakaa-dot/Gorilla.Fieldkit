@@ -175,6 +175,7 @@ tools:
   safety: reversible
   notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run. Linux (P9, 2026-11-12): the same round trip with the .deb - apt-get with sudo -n, every file byte-identical to dpkg-deb -x, --version, apt-get purge, no file left, package state and launchers as before; refuses (never removes) a package that is already present unless remove-existing=1.'
   platforms: [linux, windows]
+  e2e: {linux: e2e-installer-test-linux, windows: e2e-installer-test-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_installertest.py"]
 
 - id: room
@@ -976,6 +977,7 @@ tools:
   output: own
   exits: {0: "clean", 3: "findings (duplicate, conflict, over budget, files differ, hook over its cap)"}
   platforms: [windows, linux]
+  e2e: {linux: e2e-rules-song-linux, windows: e2e-rules-song-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rules_song.py"]
 
 - id: thermal-profile-daemon
@@ -6907,6 +6909,25 @@ tools:
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
 
+- id: cmd
+  title: "A command is checked before it is given - every fieldkit command in a text (a sudoers line, a brief, an inbox command, a doc, a bash -c, a PowerShell line) looked up in the LIVE argparse command tree (fieldkit/core/cmdtree.json, regenerated from every verb's own parser; a stale tree fails CI); exit 3 on an unknown verb or sub-verb with the closest real command (did you mean: fieldkit build-harness leakgate). The same lookup refuses an unknown verb in inbox add, task lint/start and the PreToolUse tool router, and scans docs, rules, skills, cards and generated unit lines in CI"
+  harness: core
+  entry: [python, -m, fieldkit, cmd]
+  path: ${FIELDKIT}/fieldkit/core/cmdtree.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, tree, write, stale], help: "check TEXT or --file F; tree prints the tree; write regenerates cmdtree.json; stale exits 3 when it is out of date"}
+    - {name: file, flag: --file, type: path, required: false, help: "read the text from this file ('-' = stdin)"}
+    - {name: no-flags, flag: --no-flags, type: bool, required: false, help: "judge verbs only"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "an unknown command was found (check) or the tree is stale (stale)"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-cmd-check-linux, windows: e2e-cmd-check-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_cmdtree.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Owner 2026-11-12 (plan P9): a sudoers line for `python -m fieldkit leakgate *` (no such verb; the real one is `fieldkit build-harness leakgate TASK`) reached the owner and stopped a job. Top-level verbs are exact; below them a word is a finding only when a real command is close to it (several verbs route sub-verbs by hand before argparse). Flags are judged on leaf parsers only. A line that says a command does not exist is skipped. Mutations: tests/cmdtree_mutations.yaml. Regenerate: python -m fieldkit.core.cmdtree write."
+
 - id: onestart
   title: "One ask at the start - every owner-only action a long job may need (CLI login, mandate, GitHub ruleset, model rungs, owner_steps door, machine prerequisites) listed in one registry, pre-checked when a job starts (task start, emerge run, goal run), asked ONCE on one screen, one yes applies all; unattended or declined, the job starts anyway and each step takes its fallback; mid-job `inbox add` of a registry command is refused"
   harness: core
@@ -6920,6 +6941,7 @@ tools:
   output: own
   exits: {2: "bad usage", 3: "ask: declined, unattended or nothing proven"}
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-onestart-linux, windows: e2e-onestart-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_onestart.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-11-11/12 (plan P9): approvals belong at the start of a job, never halfway. Registry fieldkit/lifecycle/onestart.yaml; journal state/lifecycle/onestart.jsonl, gaps onestart-gaps.jsonl. FIELDKIT_ONESTART=off skips (tests). Mutations: tests/onestart_mutations.yaml. `fieldkit review` also runs an approved inbox item's command at the owner's terminal (review.run_approved, journal state/review-ran.jsonl)."
@@ -7117,6 +7139,7 @@ tools:
   output: own
   exits: {0: "no gap and no problem", 3: "a gap exists, or a single-system item has no valid record (a new one, or a stale record)"}
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-parity-os-linux, windows: e2e-parity-os-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_osparity.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-11-12: a permanent audit of Windows-Linux parity that says what to do to remove each gap, runs on either system with the same result. Static: reads the repo only. docs/PLATFORMS.md is generated; CI (platformcheck) fails a new single-system item without a record in fieldkit/desk/os_parity.yaml. Execution stays separate: fieldkit task start BRIEF."
@@ -7623,6 +7646,7 @@ tools:
   safety: read-only
   output: own
   platforms: [linux, windows]
+  e2e: {linux: e2e-ship-batch-collect-linux, windows: e2e-ship-batch-collect-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
@@ -7637,6 +7661,7 @@ tools:
   safety: irreversible
   output: own
   platforms: [linux, windows]
+  e2e: {linux: e2e-ship-batch-build-linux, windows: e2e-ship-batch-build-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
@@ -7651,6 +7676,7 @@ tools:
   safety: irreversible
   output: own
   platforms: [linux, windows]
+  e2e: {linux: e2e-ship-batch-run-linux, windows: e2e-ship-batch-run-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
@@ -7665,6 +7691,7 @@ tools:
   safety: read-only
   output: own
   platforms: [linux, windows]
+  e2e: {linux: e2e-ship-batch-status-linux, windows: e2e-ship-batch-status-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
@@ -7679,6 +7706,7 @@ tools:
   safety: read-only
   output: own
   platforms: [linux, windows]
+  e2e: {linux: e2e-ship-batch-select-linux, windows: e2e-ship-batch-select-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
@@ -7694,6 +7722,7 @@ tools:
   safety: reversible
   headline: "KEEPER: N action(s), what it did and why; the timer is installed while anything is open and removed when nothing is."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-keeper-tick-linux, windows: e2e-keeper-tick-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py"]
   notes: "P9, 2026-11-12: Zero ended a turn with jobs in flight and nothing woke it for 5.5 h. Rules are data in fieldkit/lifecycle/keeper.yaml; the timer reuses zero/schedule (systemd user timer, Task Scheduler). The Stop hook (tokens/rotate.py) warns when Zero ends a turn with work open and no keeper timer. Mutation plan tests/keeper_mutations.yaml."
 
@@ -7782,6 +7811,7 @@ tools:
   safety: safe
   headline: "PERMANENCE: N finding(s); one line each (UNCOMMITTED, UNPUSHED, UNMERGED) ending in the NEXT command; exit 3 on a finding."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-permanence-check-linux, windows: e2e-permanence-check-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_permanence.py"]
   notes: "Owner order 2026-11-15 after a day of fixes by many sessions. ENDCHECK covered only open PRs without a ci-wait. Hooks: Stop (tokens/rotate.py, blocks once), tool router (refuses archive_session on UNCOMMITTED or UNPUSHED), keeper rule permanence (stale after 2 h, said in the room). All fail open. Mutation plan tests/permanence_mutations.yaml."
 

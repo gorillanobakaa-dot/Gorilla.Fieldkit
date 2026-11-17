@@ -85,6 +85,13 @@ def lint(text, root=".", plan=None):
                               "OS; docs/METHODS.md 'done means it ran there')"))
     elif e2e_named(text) and e2e_named(text) not in e2e_jobs(root) and (Path(root) / ".github" / "workflows").is_dir():
         out.append(("refuse", f"E2E job {e2e_named(text)!r} is in no .github/workflows file"))
+    try:
+        from ..core import cmdtree
+        for f in cmdtree.check(text, skip_negated=True, flags=False):
+            out.append(("refuse", "the brief gives a fieldkit command that does not exist (fieldkit cmd check): "
+                        + cmdtree.describe(f)))
+    except Exception:  # noqa: BLE001
+        pass
     n = tokens(text)
     if n > MAX_TOKENS:
         out.append(("warn", f"the brief is about {n} tokens (over {MAX_TOKENS}): point at files and plan rows "
