@@ -204,9 +204,11 @@ def repair(recipe, files, install_dir=None, maps=None, name="repair", why=None, 
 
 
 def _reopen(program):
+    from ..core import procs
     flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0   # DETACHED_PROCESS | NEW_PROCESS_GROUP
-    subprocess.Popen([str(program)], creationflags=flags, start_new_session=sys.platform != "win32",
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = subprocess.Popen([str(program)], creationflags=flags, start_new_session=sys.platform != "win32",
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    procs.record(p.pid, "browser", f"reopened {Path(program).name} after emerge repair", source="tree")
 
 
 def main(recipe, files, install_dir=None, maps=(), name="repair", why=None, base="HEAD", dry_run=False,

@@ -1163,11 +1163,12 @@ def cmd_autopilot(a):
         r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
     elif a.action == "antigravity":
         if a.rest:
-            r = run.agent_run("antigravity", " ".join(a.rest), cwd=a.cwd, model=a.model,
-                              thinking=getattr(a, "thinking", None))
+            r = run.agent_run("antigravity", " ".join(a.rest), cwd=a.cwd,
+                              timeout=a.wall_minutes * 60 if a.wall_minutes else None,
+                              model=a.model, thinking=getattr(a, "thinking", None))
         else:
             r = run.antigravity()
-    elif a.action in ("agy", "codex", "gorilla-opencode"):
+    elif a.action in ("agy", "gemini", "codex", "gorilla-opencode"):
         if not a.rest:
             print(f"autopilot {a.action} PROMPT [--cwd DIR] [--model MODEL] [--thinking LEVEL]")
             return 2
@@ -2194,9 +2195,9 @@ def build_parser():
 
     apl = sub.add_parser("autopilot", parents=[common])
     apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet",
-                                        "antigravity", "agy", "codex", "gorilla-opencode", "login"])
-    apl.add_argument("rest", nargs="*", help="stop: the reason; claude/agy/codex/gorilla-opencode: the prompt; workspace: the folder")
-    apl.add_argument("--cwd", help="claude/agy/codex/gorilla-opencode: the folder the run works in")
+                                        "antigravity", "agy", "gemini", "codex", "gorilla-opencode", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude/agy/gemini/codex/gorilla-opencode: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude/agy/gemini/codex/gorilla-opencode: the folder the run works in")
     apl.add_argument("--max-turns", type=int, default=None, help="claude: turns per session (10000)")
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
