@@ -19,8 +19,8 @@ def fk(*args, cwd=None, env=None):
 
 def last_json(out):
     """The JSON document the command printed (it may be preceded by progress lines)."""
-    i = out.find("{") if out.lstrip().startswith("{") else min(x for x in (out.find("{"), out.find("[")) if x >= 0)
-    return json.loads(out[i:])
+    i = min(x for x in (out.find("{"), out.find("[")) if x >= 0)
+    return json.JSONDecoder().raw_decode(out[i:])[0]   # a NEXT: line may follow the document
 
 
 def git(repo, *a):
