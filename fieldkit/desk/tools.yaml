@@ -6147,7 +6147,7 @@ tools:
   e2e: {windows: e2e-capture-clean-windows, linux: e2e-capture-clean-linux}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_retention.py"]
   exits: {2: "invalid selection", 3: "unresolved, unreadable or unsafe scratch"}
-  notes: "This card exposes the preview. The CLI's --apply action uses fieldkit size recycle only while capture is off. P40 dispositions and keep rules still apply. For a lesson, use fieldkit capture start with a project, workspace, selected agents, and an optional retention age."
+  notes: "This card exposes the preview. The CLI's --apply action uses fieldkit size recycle only while capture is off. P40 dispositions and keep rules cover owned, inactive Kiro Crew allocations at the default scratch root and Gorilla OpenCode tool-test folders under default OS temp. For a lesson, use fieldkit capture start with a project, workspace, selected agents, and an optional retention age."
 
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program

@@ -33,10 +33,17 @@ keep:
   - id_ed25519
   - auth
   - token
+
+protected_roots:
+  - ~/.codex/tmp/arg0      # Codex launcher runtime
+  - ~/.codex/worktrees     # Codex managed project checkouts
+  - ~/.codex/sessions     # original Codex transcripts
+  - ~/Documents/Scripts
+
 # P40 scope (owner 2026-11-16, final): the clean slate covers ONLY these folders, where agents put the scripts they write
 # on the fly. Never Documents/Scripts, user files or repos. Each entry is one folder (a * matches in the last part; ~, %VAR%
 # and $VAR are expanded; a folder missing on this computer is skipped). Its immediate children are the items counted,
-# digested and recycled; the folder itself stays. Narrow on purpose: config and credential files of the agents are not here.
+# digested and recycled; the folder itself stays. Shared OS temp roots select only the named test directories.
 scratch_roots:
   - ~/.cache/fieldkit-scratch          # Linux scratch root (fieldkit scratch)
   - C:/fk-scratch                      # Windows scratch root
@@ -49,8 +56,11 @@ scratch_roots:
   - ~/.local/share/gorilla-opencode/tmp          # OpenCode work dirs, Linux
   - ~/AppData/Local/gorilla-opencode/tmp          # OpenCode work dirs, Windows
 
-protected_roots:
-  - ~/.codex/tmp/arg0      # Codex launcher runtime
-  - ~/.codex/worktrees     # Codex managed project checkouts
-  - ~/.codex/sessions     # original Codex transcripts
-  - ~/Documents/Scripts
+# The default Crew data home only. Relocated roots may contain operator-owned directories.
+kiro_crew_root: ~/.kiro/crew/scratch
+
+# Gorilla OpenCode's internal/llm/tools/main_test.go calls os.MkdirTemp("", "opencode-tools-test").
+# Only direct child directories with Go's decimal suffix qualify.
+temp_item_roots:
+  linux: {path: /tmp, pattern: 'opencode-tools-test[0-9]+'}
+  win32: {path: ~/AppData/Local/Temp, pattern: 'opencode-tools-test[0-9]+'}

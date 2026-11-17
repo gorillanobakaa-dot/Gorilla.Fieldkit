@@ -18,6 +18,9 @@ to recycle it while capture is off. A month is 30 elapsed days. `--all` selects 
 Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --all`
 before starting work. Add `--dry-run` for a preview. Start selected agent sessions after the gate reports success.
 P40 retains protected and unresolved items and checks the prior store before resetting it.
+Kiro Crew coverage is limited to default `~/.kiro/crew/scratch` allocations with verified, inactive owners.
+Gorilla OpenCode coverage includes `opencode-tools-test<digits>` directories under default OS temp.
+Both require P40 disposition evidence. Kiro lesson capture still requires a verified adapter.
 `fieldkit capture off --distill` closes the window and distils that lesson.
 
 ## Before a change: the baseline

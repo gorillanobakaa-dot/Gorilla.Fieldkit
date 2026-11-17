@@ -11,6 +11,8 @@ An owner at a real terminal can pass an open ledger with --force-undigested. The
 import hashlib
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -38,7 +40,7 @@ def keep_list():
 
 
 def scratch_roots():
-    """The folders a clean slate may touch (keep.yaml scratch_roots), expanded and globbed; missing ones are skipped."""
+    """Expand the scratch policy and skip roots missing on this machine."""
     import glob
     out = []
     for x in _policy().get("scratch_roots", []):
@@ -50,7 +52,19 @@ def scratch_roots():
             path = Path(g).absolute()
             if os.path.lexists(path) and path not in out:
                 out.append(path)
+    for path in (_crew_root(), *_temp_item_roots()):
+        if os.path.lexists(path) and path not in out:
+            out.append(path)
     return out
+
+
+def _crew_root():
+    return _expand(_policy()["kiro_crew_root"])
+
+
+def _temp_item_roots():
+    rule = _policy()["temp_item_roots"].get(sys.platform)
+    return {_expand(rule["path"]): re.compile(rule["pattern"])} if rule else {}
 
 
 def _protected(workspace=None):
@@ -71,19 +85,29 @@ def scan_items(roots=None, before=None, keep=None, protected=None):
     keep = keep_list() if keep is None else keep
     protected = _protected() if protected is None else protected
     roots = sorted({Path(p).absolute() for p in (scratch_roots() if roots is None else roots)})
+    temp_items = _temp_item_roots()
+    crew_root = _crew_root()
+    unfiltered = set(roots) - temp_items.keys()
     protected = [*protected, *retention.active_paths(roots)]
     mounts = retention.mount_paths()
     rows = []
     for root in roots:
-        if any(retention.within(root, p) for p in (*protected, *(p for p in roots if p != root and len(p.parts) < len(root.parts)))):
+        if any(retention.within(root, p) for p in (*protected, *(p for p in unfiltered if p != root and len(p.parts) < len(root.parts)))):
             continue
         try:
             device = retention.check_root(root).st_dev
             if str(root) in mounts or os.path.ismount(root):
                 raise OSError(f"scratch root is a mount: {root}")
+            pattern = temp_items.get(root)
+            crew = root == crew_root
+            def kept(path, base):
+                return is_kept(path, keep, base, crew=crew)
+
             for child in sorted(root.iterdir()):
-                snapshot = retention.inspect(child, root, before, lambda p, r: is_kept(p, keep, r), protected, device, mounts)
-                for row in retention.rows_to_check(snapshot):
+                if pattern and not (pattern.fullmatch(child.name) and stat.S_ISDIR(child.lstat().st_mode)):
+                    continue
+                snapshot = retention.inspect(child, root, before, kept, protected, device, mounts, crew=crew)
+                for row in retention.rows_to_check(snapshot, whole=crew or pattern is not None):
                     row["top"] = str(child)
                     rows.append(row)
         except OSError as exc:
@@ -103,13 +127,15 @@ def counts(rows):
     return out
 
 
-def is_kept(path, keep=None, root=None):
+def is_kept(path, keep=None, root=None, *, crew=False):
     """The keep list is matched below the scratch root only: /AppData/Local/ above it is not the owner's local/ folder."""
     p = str(path).replace("\\", "/").lower()
     r = str(root or "").replace("\\", "/").lower().rstrip("/")
     if r and p.startswith(r + "/"):
         p = p[len(r):]
     p = "/" + p.strip("/") + "/"
+    if crew and ("/.quarantine/" in p or "relay" in p):
+        return True
     return any(k in p for k in (keep if keep is not None else keep_list()))
 
 
@@ -304,12 +330,21 @@ def _recycle_one(path, recycle_fn):
         return {"ok": False, "error": str(exc)}
 
 
-def _unchanged(row, before, kept, protected, roots, mounts):
+def _unchanged(row, before, keep, protected, roots, mounts, temp_items, crew_root):
     if "identity" not in row:
         return Path(row["path"]).exists()
     root, top, path = (Path(row[key]) for key in ("root", "top", "path"))
     if root not in roots or str(root) in mounts or top.parent != root or not path.is_relative_to(top):
         return False
+    pattern = temp_items.get(root)
+    crew = root == crew_root
+    if (pattern or crew) and path != top:
+        return False
+    if pattern and not pattern.fullmatch(path.name):
+        return False
+    def kept(candidate, base):
+        return is_kept(candidate, keep, base, crew=crew)
+
     try:
         device = retention.check_root(root).st_dev
         for parent in reversed(path.parents):
@@ -322,7 +357,7 @@ def _unchanged(row, before, kept, protected, roots, mounts):
             with os.scandir(parent) as children:
                 if retention.protected_directory(parent, root, (p.name for p in children)):
                     return False
-        candidate = retention.inspect(path, root, before, kept, protected, device, mounts)
+        candidate = retention.inspect(path, root, before, kept, protected, device, mounts, crew=crew)
         return candidate["identity"] == row["identity"] and not candidate["reason"]
     except OSError:
         return False
@@ -345,8 +380,10 @@ def _apply(out, keep, protected, recycle_fn):
     roots = scratch_roots()
     protected = [*protected, *retention.active_paths(roots)]
     mounts = retention.mount_paths()
+    temp_items = _temp_item_roots()
+    crew_root = _crew_root()
     for row in out["check"]["wipeable"]:
-        if not _unchanged(row, out["check"]["cutoff_ns"], lambda p, r: is_kept(p, keep, r), protected, roots, mounts):
+        if not _unchanged(row, out["check"]["cutoff_ns"], keep, protected, roots, mounts, temp_items, crew_root):
             failed = {"path": row["path"], "error": "scratch item changed since inspection"}
             break
         receipt = _recycle_one(Path(row["path"]), recycle_fn)

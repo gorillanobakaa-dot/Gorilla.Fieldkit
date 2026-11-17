@@ -97,7 +97,7 @@ def active_paths(roots):
 
 def protected_directory(path, root, names):
     markers = {name.lower() for name in names}
-    if markers & {".git", ".hg", ".svn"}:
+    if markers & {".git", ".hg", ".svn"} or len(markers & {"head", "objects", "refs", "commondir"}) >= 2:
         return "checkout or worktree"
     if scratch.MARKER in markers:
         try:
@@ -109,7 +109,43 @@ def protected_directory(path, root, names):
     return None
 
 
-def inspect(path, root, before, kept, protected, device, mounts=()):
+def _crew_owner_alive(pid):
+    import psutil
+
+    if sys.platform == "linux":
+        try:
+            os.killpg(pid, 0)
+            return True
+        except ProcessLookupError:
+            pass
+    return psutil.pid_exists(pid)
+
+
+def _crew_owner_reason(path, device, mounts):
+    marker = path / ".owner"
+    try:
+        info = marker.lstat()
+        if (link(info) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_dev != device
+                or str(marker) in mounts or not 0 < info.st_size <= 4096):
+            return "unverified Kiro Crew owner"
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        with os.fdopen(os.open(marker, flags), "rb") as stream:
+            if os.fstat(stream.fileno()) != info or marker.lstat() != info:
+                return "unverified Kiro Crew owner"
+            raw = stream.read(4097)
+        if len(raw) != info.st_size or not re.fullmatch(rb"[0-9]{1,10}(?:\r?\n[0-9]{1,10})*(?:\r?\n)?", raw):
+            return "unverified Kiro Crew owner"
+        pids = [int(line) for line in raw.splitlines()]
+        if any(not 0 < pid <= 2**31 - 1 for pid in pids):
+            return "unverified Kiro Crew owner"
+        if any(_crew_owner_alive(pid) for pid in pids):
+            return "active Kiro Crew scratch owner"
+    except OSError:
+        return "unverified Kiro Crew owner"
+    return None
+
+
+def inspect(path, root, before, kept, protected, device, mounts=(), *, crew=False):
     """Return a tree snapshot, stopping at directories that must stay intact."""
     info = path.lstat()
     stamp = (info.st_dev, info.st_ino, info.st_mode, info.st_size,
@@ -123,10 +159,15 @@ def inspect(path, root, before, kept, protected, device, mounts=()):
         reason = "link or mount"
     elif kept(path, root) or any(within(path, item) for item in protected):
         reason = "protected path"
+    elif crew and (row["kind"] != "folder" or not re.fullmatch(
+            r"[0-9a-f]{8}|[A-Za-z0-9._-]{1,40}-(?=[0-9]*[a-f])[0-9a-f]{8}", path.name)):
+        reason = "not a Kiro Crew allocation"
     elif row["kind"] == "folder":
         with os.scandir(path) as entries:
             names = sorted(entry.name for entry in entries)
         reason = protected_directory(path, root, names)
+        if reason is None and crew:
+            reason = _crew_owner_reason(path, device, mounts)
         if reason is None:
             children = [inspect(path / name, root, before, kept, protected, device, mounts) for name in names]
             row["files"] = sum(child["files"] for child in children)
@@ -146,9 +187,9 @@ def inspect(path, root, before, kept, protected, device, mounts=()):
     return row
 
 
-def rows_to_check(row):
+def rows_to_check(row, *, whole=False):
     children = row["children"]
     yield {k: v for k, v in row.items() if k != "children"}
-    if row["reason"] in ("recent", "contains retained entries"):
+    if not whole and row["reason"] in ("recent", "contains retained entries"):
         for child in children:
             yield from rows_to_check(child)

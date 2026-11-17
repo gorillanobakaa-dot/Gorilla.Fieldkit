@@ -83,6 +83,68 @@ def test_cleanup_preserves_active_job_and_link(scratch_area, monkeypatch):
     assert not result["wipeable"]
 
 
+def test_kiro_crew_scratch_requires_inactive_owners_and_disposition(tmp_path, monkeypatch):
+    root = tmp_path / ".kiro" / "crew" / "scratch"
+    root.mkdir(parents=True)
+    monkeypatch.setattr(cleanslate, "_crew_root", lambda: root)
+    monkeypatch.setattr(retention, "_crew_owner_alive", lambda pid: pid == 42)
+    owners = {
+        "aaaaaaaa": "41\n",
+        "bbbbbbbb": "41\n42\n",
+        "cccccccc": None,
+        "dddddddd": "41\n0\n",
+        "eeeeeeee": "41\n",
+        "ffffffff": "41\n",
+        ".quarantine": None,
+        "backup-20261105": None,
+    }
+    for name, owner in owners.items():
+        job = root / name
+        job.mkdir()
+        (job / "scratch.py").touch()
+        if owner is not None:
+            (job / ".owner").write_text(owner, encoding="utf-8")
+    (root / "eeeeeeee" / ".crew-relay").touch()
+    (root / "ffffffff" / ".git").mkdir()
+    rows = cleanslate.scan_items(roots=[root], protected=[])
+    result = cleanslate.check(rows=rows, check_store=False, disp={})
+    assert [row["name"] for row in result["scripts"]] == ["aaaaaaaa"]
+    receipt = {retention.normalized(root / "aaaaaaaa"): {"because": "adopted"}}
+    result = cleanslate.check(rows=rows, check_store=False, disp=receipt)
+    assert [row["name"] for row in result["wipeable"]] == ["aaaaaaaa"]
+    assert {row["name"]: row["reason"] for row in result["retained"]} == {
+        "bbbbbbbb": "active Kiro Crew scratch owner",
+        "cccccccc": "unverified Kiro Crew owner",
+        "dddddddd": "unverified Kiro Crew owner",
+        "eeeeeeee": "contains retained entries",
+        "ffffffff": "checkout or worktree",
+        ".quarantine": "protected path",
+        "backup-20261105": "not a Kiro Crew allocation",
+    }
+    row = result["wipeable"][0]
+    (root / "aaaaaaaa" / ".owner").write_text("42\n", encoding="utf-8")
+    assert not cleanslate._unchanged(row, None, cleanslate.keep_list(), [], [root], set(), {}, root)
+
+
+def test_opencode_shared_temp_selects_only_numbered_test_folders(tmp_path, monkeypatch):
+    import re
+
+    temp = tmp_path / "Temp"
+    test_job = temp / "opencode-tools-test4294967"
+    claude = temp / "claude-scratch"
+    for directory in (test_job, claude, temp / "opencode-tools-testing", temp / "toolbox", temp / "review-cache"):
+        directory.mkdir(parents=True)
+        (directory / "fixture.txt").touch()
+    (temp / "opencode-tools-test12").touch()
+    monkeypatch.setattr(cleanslate, "_temp_item_roots",
+                        lambda: {temp: re.compile(r"opencode-tools-test[0-9]+")})
+    rows = cleanslate.scan_items(roots=[temp, claude], protected=[])
+    assert {row["path"] for row in rows} == {str(test_job), str(claude / "fixture.txt")}
+    receipt = {retention.normalized(test_job): {"because": "disposable test fixture"}}
+    result = cleanslate.check(rows=rows, check_store=False, disp=receipt)
+    assert [row["path"] for row in result["wipeable"]] == [str(test_job)]
+
+
 def test_revalidate_and_retry_after_partial_cleanup(scratch_area):
     root, _ = scratch_area
     first, second = root / "a.py", root / "b.py"
