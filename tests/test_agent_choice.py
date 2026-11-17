@@ -96,6 +96,37 @@ def test_a_died_task_with_a_quota_log_blocks_its_agent():
     assert tasks._agent_quota({"agent": "codex", "log": "y.log"}, read=lambda p: "done, PR opened") is None
 
 
+# The real log tail that blocked Claude for two hours on 2026-11-17 with credit left: a FINISHED runbook whose own
+# preflight lines say "budget" and "dollars". Neither the word nor the run is a quota error.
+FINISHED_RUNBOOK = """  preflight: rotate: ROTATE claude-code c67eb841 - session dollars $73.81 >= WARN $40.00 (model budget 60 %)
+    exit 0, 1191 s; done: PR 500 is open with auto-merge on.
+{
+ "ok": true,
+ "done": [
+  "work"
+ ],
+ "failed": [],
+ "blocked": [],
+ "paused": [],
+ "stopped": false
+}
+exit 0
+"""
+
+
+def test_a_finished_run_that_says_budget_blocks_no_agent():
+    from fieldkit.lifecycle import tasks
+    assert tasks._agent_quota({"agent": "claude", "log": "z.log"}, read=lambda p: FINISHED_RUNBOOK) is None
+    assert models.is_agent_available("claude") is True
+    # the bare word is no longer an error phrase, even without the exit 0 line
+    assert models.classify_failure("model budget 60 % used; 3 tasks done", 1) is None
+    # the real errors still block
+    for err in ("Error: Exceeded USD budget (5.00)", "429 Too Many Requests", "Credit balance is too low",
+                "RESOURCE_EXHAUSTED: Quota exceeded for quota metric", "insufficient credit on this account",
+                "Claude AI usage limit reached|1794889202"):
+        assert models.classify_failure(err, 1), err
+
+
 def _rows():
     return [{"agent": "codex", "installed": True, "usable": True, "providers": [
         {"provider": "openai", "usable": True, "private": False, "model_rows": [

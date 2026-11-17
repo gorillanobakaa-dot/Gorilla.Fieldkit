@@ -584,6 +584,9 @@ def _agent_quota(t, read=None):
         tail = (read or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")))(t["log"])[-4000:]
     except OSError:
         return None
+    last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
+    if last == ["exit 0"]:                       # the run itself finished fine: its status lines are not a quota error
+        return None                              # (2026-11-17: a finished runbook blocked Claude for two hours)
     from . import choice
     return choice.note_failure(t.get("agent") or "claude", tail)
 
