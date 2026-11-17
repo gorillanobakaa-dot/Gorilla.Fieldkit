@@ -1585,6 +1585,17 @@
    "ciaudit"
   ]
  },
+ "cmd": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cmd"
+  ]
+ },
  "compileonce": {
   "platforms": [
    "darwin",
@@ -2581,6 +2592,17 @@
   "why": "",
   "ids": [
    "office-scrub"
+  ]
+ },
+ "once": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "once"
   ]
  },
  "onestart": {

@@ -38,6 +38,7 @@ CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fa
 
 ## An xz archive or program you made or ship (.xz, .tar.xz, a .deb, an unpacked app)
 ```
+fieldkit once run|check [--key K] [--state PATH] -- CMD   skip a command the journal records as a success on the same inputs; watch --key K < OUTPUT says done:true (stop) when nothing changed; never re-run or re-ask the owner what already succeeded
 fieldkit compileonce build [--force] | check   pre-compile all Python modules in fieldkit/ and kits/ to .pyc ahead of time; check verifies 0 stale/missing
 fieldkit install app SRC --name APP [--replace] [--apply] [--peer]   install a program on Linux or Windows (or on the peer over the cable) with icons, .desktop / .lnk, caches, and verification
 fieldkit install purge APP [--dir PATH] [--apply] [--peer]           completely remove/quarantine a program on Linux or Windows (processes, folders, shortcuts, registry keys, icon caches)
@@ -162,6 +163,7 @@ fieldkit ship train               Zero: merge the declared PRs one at a time (gh
                                   --match-head-commit), never red, never a head nobody declared; resumable
 fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
 fieldkit ship train --modes       every failure mode this closes, with its check
+fieldkit cmd check TEXT|--file F   a command is checked before it is given: every fieldkit verb looked up in the live command tree (exit 3 + did-you-mean)
 fieldkit ship batch run           many ready PRs, one branch (night/batch-STAMP), one CI, one merge (SOP for 100 machines):
                                   `batch collect` takes only PRs green on every required check at their head; `build`
                                   joins them (a generated-file conflict is regenerated, a real one leaves that PR out);

@@ -113,7 +113,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:firefox-windows` | windows | linux | INCOMPATIBLE | DOCUMENT | the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools) | M |  | fieldkit/build/pipelines/firefox-windows.yaml:16 |
 | `stage:sensors-gorilla` | linux | windows | INCOMPATIBLE | DOCUMENT | gorilla-tpfancontrol and fieldkit hog read the sensors on Windows | M |  | fieldkit/emerge/recipes/sensors-gorilla.yaml:43 |
 | `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:394 |
-| `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:981 |
+| `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:983 |
 | `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
 | `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:45 |
 | `skill:fieldkit-linux-leftovers` | linux | windows | NATIVE-ONLY | CREATE | XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on… | M |  | skills/fieldkit-linux-leftovers/SKILL.md:3 |

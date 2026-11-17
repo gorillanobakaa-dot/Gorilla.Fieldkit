@@ -145,6 +145,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - compileonce.py
+      - once.py
       - ideas.py
       - refusals.py
       - review.py

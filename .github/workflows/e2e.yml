@@ -6,11 +6,11 @@ on:
   pull_request:
     paths:
       - "fieldkit/leakgate/**"
-      - "fieldkit/pycache/**"
       - "fieldkit/integration/**"
       - "fieldkit/lifecycle/pool*"
       - "fieldkit/lifecycle/choice*"
       - "fieldkit/core/prepare*"
+      - "fieldkit/once.py"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
@@ -33,6 +33,246 @@ jobs:
         run: sudo -E env "PATH=$PATH" python -m fieldkit build-harness leakgate-selftest
       - name: allowed connection passes, forbidden one is blocked, in the gate's real namespace
         run: sudo -E env "PATH=$PATH" python .github/e2e/leakgate_linux.py
+  e2e-night-pack-linux:
+    # fieldkit build-harness night-pack: the real entry point; empty pack refused, prepare, status, an unarmed run does nothing.
+    name: e2e-night-pack-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/night_pack.py
+  e2e-night-pack-windows:
+    # fieldkit build-harness night-pack: the real entry point; empty pack refused, prepare, status, an unarmed run does nothing.
+    name: e2e-night-pack-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/night_pack.py
+  e2e-autoaccept-linux:
+    # fieldkit autoaccept: the real entry point on safe paths (.github/e2e/vaio_batch.py autoaccept).
+    name: e2e-autoaccept-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py autoaccept
+  e2e-autoaccept-windows:
+    # fieldkit autoaccept: the real entry point on safe paths (.github/e2e/vaio_batch.py autoaccept).
+    name: e2e-autoaccept-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py autoaccept
+  e2e-compileonce-linux:
+    # fieldkit compileonce: the real entry point on safe paths (.github/e2e/vaio_batch.py compileonce).
+    name: e2e-compileonce-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py compileonce
+  e2e-compileonce-windows:
+    # fieldkit compileonce: the real entry point on safe paths (.github/e2e/vaio_batch.py compileonce).
+    name: e2e-compileonce-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py compileonce
+  e2e-idle-report-linux:
+    # fieldkit idle-report: the real entry point on safe paths (.github/e2e/vaio_batch.py idle-report).
+    name: e2e-idle-report-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py idle-report
+  e2e-idle-report-windows:
+    # fieldkit idle-report: the real entry point on safe paths (.github/e2e/vaio_batch.py idle-report).
+    name: e2e-idle-report-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py idle-report
+  e2e-harness-firefox-linux:
+    # fieldkit harness-firefox: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-firefox).
+    name: e2e-harness-firefox-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-firefox
+  e2e-harness-firefox-windows:
+    # fieldkit harness-firefox: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-firefox).
+    name: e2e-harness-firefox-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-firefox
+  e2e-harness-kernel-linux:
+    # fieldkit harness-kernel: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-kernel).
+    name: e2e-harness-kernel-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-kernel
+  e2e-harness-kernel-windows:
+    # fieldkit harness-kernel: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-kernel).
+    name: e2e-harness-kernel-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-kernel
+  e2e-harness-opencode-linux:
+    # fieldkit harness-opencode: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-opencode).
+    name: e2e-harness-opencode-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-opencode
+  e2e-harness-opencode-windows:
+    # fieldkit harness-opencode: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-opencode).
+    name: e2e-harness-opencode-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py harness-opencode
+  e2e-bh-capture-linux:
+    # fieldkit bh-capture: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-capture).
+    name: e2e-bh-capture-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-capture
+  e2e-bh-capture-windows:
+    # fieldkit bh-capture: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-capture).
+    name: e2e-bh-capture-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-capture
+  e2e-bh-request-linux:
+    # fieldkit bh-request: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-request).
+    name: e2e-bh-request-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-request
+  e2e-bh-request-windows:
+    # fieldkit bh-request: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-request).
+    name: e2e-bh-request-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-request
+  e2e-bh-leakgate-ci-linux:
+    # fieldkit bh-leakgate-ci: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-leakgate-ci).
+    name: e2e-bh-leakgate-ci-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-leakgate-ci
+  e2e-bh-leakgate-ci-windows:
+    # fieldkit bh-leakgate-ci: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-leakgate-ci).
+    name: e2e-bh-leakgate-ci-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py bh-leakgate-ci
   e2e-pycache:
     # the real entry points of fieldkit pycache, on each OS: warm compiles the hot path, audit then finds none stale or
     # missing, profile and compare run and print their verdict line.
@@ -76,6 +316,30 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/pool_plan.py
+  e2e-once-linux:
+    # fieldkit once: the real entry point; a success skipped, a changed input re-run, a repeated watcher line says stop.
+    name: e2e-once-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/once.py
+  e2e-once-windows:
+    # fieldkit once: the real entry point; a success skipped, a changed input re-run, a repeated watcher line says stop.
+    name: e2e-once-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/once.py
   e2e-antigravity-linux:
     name: e2e-antigravity-linux
     runs-on: ubuntu-latest
@@ -232,3 +496,26 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m fieldkit cookbook check
       - run: python -m fieldkit cookbook load fieldkit --no-state
+  e2e-cmd-check-linux:
+    # P9: the real entry point judges a command against the live argparse tree.
+    name: e2e-cmd-check-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/cmd_check.py
+  e2e-cmd-check-windows:
+    name: e2e-cmd-check-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/cmd_check.py

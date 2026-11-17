@@ -147,6 +147,7 @@ tools:
   safety: reversible
   notes: 'arm stores the pack SHA-256 and registers the scheduled task "Gorilla night pack" (every 10 min, no elevation, expiry); run refuses an agent, a changed pack or an expired arming, runs each action once, removes the task at the end or at the first failure. Never in a pack: allowlist, dispositions, decision register, harness/hooks, telemetry. Owner 2026-10-19.'
   platforms: [linux, windows]
+  e2e: {linux: e2e-night-pack-linux, windows: e2e-night-pack-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_nightpack.py"]
 
 - id: release-publish
@@ -4186,6 +4187,7 @@ tools:
   effects: [writes-files]
   safety: reversible
   platforms: [windows, linux]
+  e2e: {linux: e2e-bh-request-linux, windows: e2e-bh-request-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_autoport.py"]
   notes: "Only the request is written; the decision and its undo line are in the task journal and the auto-accept ledger (fieldkit autoaccept list)."
 
@@ -5344,6 +5346,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows, linux]
+  e2e: {linux: e2e-bh-leakgate-ci-linux, windows: e2e-bh-leakgate-ci-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_ci.py"]
   notes: "pack and record run on the owner's machine, run only on the runner (root, veth: .github/workflows/leakgate-linux.yml, docs/LEAKGATE-GITHUB.md). THREAT MODEL: GitHub (Microsoft) sees the .deb, the context and every packet log of the run; the repository is public so the run's log is readable by anyone; the .deb travels in a DRAFT release, never as an artifact; the verdict is the gate's own, record never edits it and refuses a result for another binary or with a policy missing."
 
@@ -5530,6 +5533,7 @@ tools:
   safety: reversible
   exits: {3: findings}
   platforms: [linux, windows]
+  e2e: {linux: e2e-bh-capture-linux, windows: e2e-bh-capture-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_capture.py"]
   notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Linux (P9, 2026-11-12): the .deb or tarball is unpacked (dpkg-deb -x, never installed), sockets read with psutil, processes stopped by PID, packets by tcpdump -i any read with dpkg. Tests cover judge(), SNI and pcap parsing, sockets, stop-by-PID and unpacking."
 
@@ -6556,6 +6560,7 @@ tools:
   output: own
   exits: {0: "done", 1: "refused (seen without the owner)", 2: "bad arguments"}
   platforms: [windows, linux]
+  e2e: {linux: e2e-autoaccept-linux, windows: e2e-autoaccept-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_autoaccept.py"]
   notes: "Owner 2026-11-11 (I-04 accepted): long-horizon jobs must not wait on owner clicks. Core is generic (fieldkit/lifecycle/); build-harness is the first caller (fieldkit/buildh/autoport.py). Gates listed in docs/AUTONOMY-GATES.md. --force proof: fieldkit/lifecycle/ownerproof.py."
 
@@ -6901,6 +6906,25 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py", "${FIELDKIT}/tests/test_zero_command.py"]
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
+
+- id: cmd
+  title: "A command is checked before it is given - every fieldkit command in a text (a sudoers line, a brief, an inbox command, a doc, a bash -c, a PowerShell line) looked up in the LIVE argparse command tree (fieldkit/core/cmdtree.json, regenerated from every verb's own parser; a stale tree fails CI); exit 3 on an unknown verb or sub-verb with the closest real command (did you mean: fieldkit build-harness leakgate). The same lookup refuses an unknown verb in inbox add, task lint/start and the PreToolUse tool router, and scans docs, rules, skills, cards and generated unit lines in CI"
+  harness: core
+  entry: [python, -m, fieldkit, cmd]
+  path: ${FIELDKIT}/fieldkit/core/cmdtree.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, tree, write, stale], help: "check TEXT or --file F; tree prints the tree; write regenerates cmdtree.json; stale exits 3 when it is out of date"}
+    - {name: file, flag: --file, type: path, required: false, help: "read the text from this file ('-' = stdin)"}
+    - {name: no-flags, flag: --no-flags, type: bool, required: false, help: "judge verbs only"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "an unknown command was found (check) or the tree is stale (stale)"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-cmd-check-linux, windows: e2e-cmd-check-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_cmdtree.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Owner 2026-11-12 (plan P9): a sudoers line for `python -m fieldkit leakgate *` (no such verb; the real one is `fieldkit build-harness leakgate TASK`) reached the owner and stopped a job. Top-level verbs are exact; below them a word is a finding only when a real command is close to it (several verbs route sub-verbs by hand before argparse). Flags are judged on leaf parsers only. A line that says a command does not exist is skipped. Mutations: tests/cmdtree_mutations.yaml. Regenerate: python -m fieldkit.core.cmdtree write."
 
 - id: onestart
   title: "One ask at the start - every owner-only action a long job may need (CLI login, mandate, GitHub ruleset, model rungs, owner_steps door, machine prerequisites) listed in one registry, pre-checked when a job starts (task start, emerge run, goal run), asked ONCE on one screen, one yes applies all; unattended or declined, the job starts anyway and each step takes its fallback; mid-job `inbox add` of a registry command is refused"
@@ -7578,6 +7602,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-firefox-linux, windows: e2e-harness-firefox-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7590,6 +7615,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-kernel-linux, windows: e2e-harness-kernel-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7602,6 +7628,7 @@ tools:
   safety: read-only
   output: own
   platforms: [windows, linux]
+  e2e: {linux: e2e-harness-opencode-linux, windows: e2e-harness-opencode-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
   notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
 
@@ -7768,6 +7795,7 @@ tools:
   safety: safe
   headline: "N idle gap(s) in the window, each with start, end and length."
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-idle-report-linux, windows: e2e-idle-report-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_keeper.py", -k, idle]
   notes: "P9. The recorded fixture tests/fixtures/idle_2026_11_12.json shows 2026-11-12 05:41 to 11:18 as one gap of 5 h 37 min."
 
@@ -7785,9 +7813,31 @@ tools:
   output: own
   exits: {0: "all modules compiled and fresh", 2: "bad usage", 3: "syntax error, missing or stale .pyc file"}
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-compileonce-linux, windows: e2e-compileonce-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_compileonce.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
+
+- id: once
+  title: "Already succeeded? A command whose success the journal records on the same inputs is skipped, and a watcher whose output says the same news again is told to stop, on Windows and Linux: exit code plus one JSON line done:true|false with an idempotency key and a state signature"
+  harness: core
+  entry: [python, -m, fieldkit, once]
+  path: ${FIELDKIT}/fieldkit/once.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [run, check, watch, forget, list], help: "run: run CMD unless it already succeeded; check: ask only; watch: compare a watcher's output with its last; forget: a later run runs again; list: latest record per key"}
+    - {name: key, flag: --key, type: str, required: false, help: "the idempotency key (default sha256 of the command and the folder)"}
+    - {name: state, flag: --state, type: str, required: false, help: "an input path (file or folder) whose change voids a recorded success; repeatable"}
+    - {name: file, flag: --file, type: str, required: false, help: "watch: the watcher's output file (default stdin)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "only the JSON line"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {0: "done: succeeded before (skipped) or now, or nothing changed", 2: "bad usage", 3: "not done: it must run, or the watcher saw news"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-once-linux, windows: e2e-once-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_once.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "P28 E, owner order 2026-11-16: a cron watchdog repeated the same nothing-changed line 10 times and the owner was asked to run a command the harness could run. The journal state/once/journal.jsonl (main checkout, append-only) holds every run and watch; forget appends, never erases. Clock stamps are blanked before a watcher's output is compared."
 
 - id: pool-plan
   title: "Zero's session pool in one command: from the list_sessions JSON it decides keep, recycle (clear and rename to a reserve), archive surplus reserves or start new ones, and prints the exact app-tool calls in order (Windows and Linux)"
