@@ -88,7 +88,7 @@ def cmd_task(argv):
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
     ap.add_argument("--plan", help="start, lint: the plan item (a row id of docs/HARNESS-PLAN.md) the brief serves")
-    ap.add_argument("--agent", help="start: the coding agent to run (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--agent", help="start: the coding agent to run (antigravity, agy, gemini, codex, gorilla-opencode, claude)")
     ap.add_argument("--model", help="start: the worker's specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
     ap.add_argument("--thinking", help="start: the reasoning/thinking level (lowest, low, medium, high, max)")
     ap.add_argument("--pin", action="store_true", help="start: keep --model exactly; the router does not go down from it")

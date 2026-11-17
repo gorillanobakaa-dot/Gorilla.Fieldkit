@@ -127,11 +127,11 @@ def link_rows(approvals=None, household=None):
         reg, why = approvals() if approvals else link.approvals()
     except Exception:  # noqa: BLE001
         return []
-    if "claude" in (reg.get("allow_start") or []) and reg.get("cwd"):
+    if (reg.get("allow_start") or []) and reg.get("cwd"):
         return []
     return [_row("link-start", f"link-start:{why}", f"a peer's `fieldkit task start --on` lands in the owner inbox "
-                 f"here: {why}", "the owner, once: allow_start: [claude] + cwd in ~/.fieldkit/link/link.yaml, then "
-                 "`fieldkit peers link approve` (or put it in the mandate's machine prerequisites)")]
+                 f"here: {why}", "the owner, once: allow_start: [claude, antigravity, agy, gemini] + cwd in "
+                 "~/.fieldkit/link/link.yaml, then `fieldkit peers link approve` (or put it in the mandate's machine prerequisites)")]
 
 
 def sealed_prereqs(mandate_mod=None):

@@ -402,9 +402,9 @@ def antigravity(popen=subprocess.Popen, psutil=None, model=None, thinking=None, 
 
 
 def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None, thinking=None,
-              popen=subprocess.Popen, idle_minutes=None, role="worker", require_explicit=True):
-    """Run any supported coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`) with explicit
-    model and thinking level, guarded by the multi-agent quota/block guard and the spend guard."""
+              popen=subprocess.Popen, idle_minutes=None, role="worker", require_explicit=True, max_turns=None):
+    """Run any supported coding agent (`antigravity`, `agy`, `gemini`, `codex`, `gorilla-opencode`, `claude`) with
+    explicit model and thinking level, guarded by the multi-agent quota/block guard and the spend guard."""
     from ..lifecycle import models
     chk = models.validate_agent_choice(agent=agent, model=model, thinking=thinking, require_explicit=require_explicit,
                                        role=role, origin="autopilot")
@@ -415,10 +415,11 @@ def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None,
     chosen_model = chk["model"]
     chosen_thinking = chk["thinking"]
     if ag == "claude":
-        return claude(prompt, cwd=cwd, timeout=timeout,
+        return claude(prompt, cwd=cwd, max_turns=max_turns or 10000, timeout=timeout,
                       env_extra={**(env_extra or {}), "CLAUDE_THINKING_LEVEL": chosen_thinking},
                       model=chosen_model, popen=popen, idle_minutes=idle_minutes, role=role)
-    exe = agent_exe(ag)
+    # Headless Antigravity runs through the `agy` CLI (`antigravity` itself is the GUI IDE binary).
+    exe = (agent_exe("agy") or agent_exe("antigravity")) if ag in ("agy", "antigravity") else agent_exe(ag)
     if not exe:
         return {"ok": False, "rc": 1, "why": f"no {ag} executable found on this machine"}
     fk_root = str(Path(__file__).resolve().parents[2])
@@ -431,7 +432,11 @@ def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None,
     if ag in ("agy", "antigravity"):
         env["AGY_MODEL"] = chosen_model
         env["AGY_THINKING_LEVEL"] = chosen_thinking
-        args = [exe, "chat", "--mode", "agent", "--model", chosen_model, "--thinking", chosen_thinking, "-"]
+        args = [exe, "--print", "--output-format", "stream-json", "--mode", "auto",
+                "--dangerously-skip-permissions", "--model", chosen_model, "--effort", chosen_thinking]
+    elif ag == "gemini":
+        env["GEMINI_MODEL"] = chosen_model
+        args = [exe, "--model", chosen_model, "--approval-mode", "yolo", "--output-format", "stream-json"]
     elif ag == "codex":
         env["OPENAI_MODEL"] = chosen_model
         args = [exe, "exec", "--model", chosen_model, "-c", f'model_reasoning_effort="{chosen_thinking}"', "-"]

@@ -60,12 +60,13 @@ AGENTS = {
     # name -> (executables to look for on PATH and in processes, how its version is asked)
     "claude": (["claude"], ["--version"]),
     "codex": (["codex"], ["--version"]),
+    "gemini": (["gemini"], ["--version"]),
     "opencode": (["opencode"], ["--version"]),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"]),
     "antigravity": (["antigravity", "Antigravity", "agy"], None),
     "agy": (["agy", "antigravity"], ["--version"]),
 }
-# How a session is STARTED for "ask": all five coding agents (claude, antigravity, agy, codex, gorilla-opencode)
+# How a session is STARTED for "ask": coding agents (claude, antigravity, agy, gemini, codex, gorilla-opencode)
 # run through `fieldkit autopilot <agent>` with their explicit model and thinking level.
 DEFAULT_START = {
     "claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
@@ -74,6 +75,8 @@ DEFAULT_START = {
                     "--job", "{job}", "--wall-minutes", "{wall}"],
     "agy": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "agy", "{brief}", "--cwd", "{cwd}",
             "--job", "{job}", "--wall-minutes", "{wall}"],
+    "gemini": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "gemini", "{brief}", "--cwd", "{cwd}",
+               "--job", "{job}", "--wall-minutes", "{wall}"],
     "codex": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "codex", "{brief}", "--cwd", "{cwd}",
               "--job", "{job}", "--wall-minutes", "{wall}"],
     "gorilla-opencode": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "gorilla-opencode", "{brief}", "--cwd", "{cwd}",
@@ -1506,7 +1509,7 @@ def main(argv=None):
     ap.add_argument("--allow", action="append", help="approve: an agent the peer may start (repeatable or a comma list): writes link.yaml, shows it, one yes")
     ap.add_argument("--cwd", help="approve: the folder a started session works in")
     ap.add_argument("--wall-minutes", type=int, help="approve: the budget of a started session")
-    ap.add_argument("--agent", default=None, help="ask: coding agent (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--agent", default=None, help="ask: coding agent (antigravity, agy, gemini, codex, gorilla-opencode, claude)")
     ap.add_argument("--model", default=None, help="ask: specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
     ap.add_argument("--thinking", default=None, help="ask: reasoning/thinking level (lowest, low, medium, high, max)")
     ap.add_argument("--brief")
