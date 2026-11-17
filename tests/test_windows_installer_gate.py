@@ -89,7 +89,9 @@ def test_releasepublish_requires_installer_and_installer_test(tmp_path, monkeypa
     assert r4["ok"]
 
 
-def test_ship_gh_release_blocks_windows_zip_without_installer(tmp_path):
+def test_ship_gh_release_blocks_windows_zip_without_installer(tmp_path, monkeypatch):
+    from fieldkit.core import sync
+    monkeypatch.setattr(sync, "_slug", lambda r: "o/r")
     zip_f = tmp_path / "Gorilla-Unleashed-161.0-win64.zip"
     exe_f = tmp_path / "firefox-161.0.en-US.win64.installer.exe"
     zip_f.write_bytes(b"zip")
