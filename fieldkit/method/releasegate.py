@@ -17,6 +17,39 @@ from pathlib import Path
 import yaml
 
 DEFAULT_HOURS = 24.0
+_WIN_TOKEN = re.compile(r"(?:^|[^a-z0-9])(win64|win32|windows|win-x64|win-x86|amd64-windows|x86_64-pc-windows)(?:[^a-z0-9]|$)")
+_WIN_ARCHIVE_EXT = (".zip", ".7z", ".tar.gz", ".tgz", ".tar.xz", ".tar.zst")
+_INSTALLER_EXE = re.compile(r"(?:installer|setup|install)(?:[^a-z0-9]|$)|\.installer\.exe$")
+
+
+def is_windows_asset(name):
+    """True when a release filename targets Windows (.exe/.msi/.msix/.appx or a Windows-tagged archive)."""
+    n = Path(name).name.lower()
+    if n.endswith((".exe", ".msi", ".msix", ".appx")):
+        return True
+    return bool(_WIN_TOKEN.search(n)) and n.endswith(_WIN_ARCHIVE_EXT)
+
+
+def is_windows_release(tag, asset_names):
+    """True when the release tag targets Windows or any asset targets Windows."""
+    return system_of(tag) == "windows" or any(is_windows_asset(a) for a in (asset_names or ()))
+
+
+def windows_installer_blocker(tag, asset_names):
+    """-> '' if OK, else why a Windows release is refused (missing a click-to-install .exe/.msi)."""
+    if not is_windows_release(tag, asset_names):
+        return ""
+    names = [Path(a).name.lower() for a in (asset_names or ())]
+    if any(n.endswith((".msi", ".msix", ".appx")) for n in names):
+        return ""
+    has_win_archive = any(bool(_WIN_TOKEN.search(n)) and n.endswith(_WIN_ARCHIVE_EXT) for n in names)
+    exes = [n for n in names if n.endswith(".exe")]
+    if exes and (not has_win_archive or any(_INSTALLER_EXE.search(n) for n in exes)):
+        return ""
+    return (
+        "Windows release has no installer (.exe/.msi): every Windows binary must ship a click-to-install "
+        "installer (e.g. *.installer.exe), not only a .zip folder"
+    )
 
 
 def _cfg():

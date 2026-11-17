@@ -50,6 +50,24 @@ def plan_path(tag):
     return PLAN_DIR / f"{tag}.plan.json"
 
 
+def _installer_test_ok(task_id):
+    """True when the task's journal records a passing installer-test as its latest installer-test event."""
+    jp = task.STATE / task_id / "journal.jsonl"
+    if not jp.is_file():
+        return False
+    entries = []
+    for line in jp.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("event") == "installer-test":
+            entries.append(d)
+    return bool(entries) and bool(entries[-1].get("ok"))
+
+
 def prepare(task_id, repo, tag, title, notes, assets, supersede=None, supersede_title=None, supersede_notes=None,
             gh_repo=None, pushes=None, ci=None, checks=None, runner=subprocess.run, say=print):
     """-> {"ok", "rows", "plan"}; writes the plan file when every row passes."""
@@ -74,6 +92,15 @@ def prepare(task_id, repo, tag, title, notes, assets, supersede=None, supersede_
         bad = [n for n, a in res.get("artifacts", {}).items()
                if Path(a["file"]).name in hashes and hashes[Path(a["file"]).name] != a.get("sha256")]
         row("the assets are the files build-verify proved", not bad, f"differ: {bad}" if bad else "every built file matches")
+    from ..method import releasegate
+    asset_names = [a.name for a in assets]
+    if releasegate.is_windows_release(tag, asset_names):
+        win_blocker = releasegate.windows_installer_blocker(tag, asset_names)
+        row("Windows release includes an installer (.exe/.msi)", not win_blocker, win_blocker or "installer present")
+        if br.is_file():
+            it_ok = _installer_test_ok(task_id)
+            row("installer-test passed for this Windows build", it_ok,
+                "passed" if it_ok else f"missing or failed: run fieldkit build-harness installer-test {task_id}")
     row("the release notes exist", Path(notes).is_file(), str(notes))
     if supersede_notes:
         row("the superseded page text exists", Path(supersede_notes).is_file(), str(supersede_notes))
