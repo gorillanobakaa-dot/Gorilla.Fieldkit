@@ -3086,6 +3086,26 @@
    "open": false,
    "v": {}
   },
+  "once": {
+   "c": [
+    "check",
+    "forget",
+    "list",
+    "run",
+    "watch"
+   ],
+   "f": {
+    "--file": 1,
+    "--help": 0,
+    "--journal": 1,
+    "--json": 0,
+    "--key": 1,
+    "--state": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "onestart": {
    "c": [],
    "f": {
