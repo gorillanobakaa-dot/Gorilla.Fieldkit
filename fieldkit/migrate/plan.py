@@ -64,7 +64,7 @@ STAGES = [
     {"id": "S9", "name": "Publish",
      "what": "export-hand; the public patch set replayed onto pristine upstream equals the built tree; privacy scans; "
              "push only on the maintainer's recorded yes.",
-     "gate": "Identical tree hash; scans clean; pushed.",
+     "gate": "Identical tree hash; every port lesson a rule, a tool or a recorded no-rule (S9.lessons); scans clean; pushed.",
      "commands": ["export-hand TASK", "privacy scan --git", "decide B-PUBLISH-TASK publish"]},
 ]
 STAGE = {s["id"]: s for s in STAGES}
@@ -314,7 +314,8 @@ def gate_S2(m):
 def gate_S3(m):
     from ..briefs import producers as bp
     out = []
-    opn = [s for s in m.t["steps"] if s.get("status") in ("pending", "failed", "blocked", "deferred") and not s["id"].startswith("final")]
+    from ..core import concepts                      # P38: one definition of a closed step (rebase-set uses it too)
+    opn = concepts.open_steps(m.t["steps"], final=False)
     for s in opn[:25]:
         out.append(item(f"S3.step:{s['id']}", False, f"step {s['id']} closed", f"{s.get('status')}: {'; '.join(s.get('last_why') or [])[:200]}",
                         f"{FH} next {m.tid}" if s.get("kind") != "owner" else f"{FH} deferred {m.tid} {s['id']}",
@@ -398,6 +399,43 @@ def gate_S5(m):
     out.append(item("S5.packaging", bool(ver) and ver[-1].get("ok"), "packaging checks green (build-verify) after the last build",
                     f"build-verified {ver[-1]['t']}: ok={ver[-1].get('ok')}" if ver else "no build-verified after the last build start",
                     f"{FH} build-verify {m.tid}"))
+    out += gate_patchset_kept(m)
+    return out
+
+
+def gate_patchset_kept(m):
+    """The patches the port made are not lost (2026-11-16, Firefox 160: two groups unregistered and five days of patch
+    work never committed - the Windows build would have shipped without a privacy cut and two port fixes).
+      S5.replay      pristine + the published set = the tree that was built, proven after the last tree change
+      S5.published   the patch-set repo has nothing uncommitted under the set or its policy, and nothing unpushed"""
+    out = []
+    ev = m.events()
+    rp = [e for e in ev if e.get("event") == "replay-proof"]
+    tree = m.tree()
+    last = rp[-1] if rp else None
+    ok = bool(last) and last.get("ok") and last.get("tree") == tree
+    out.append(item("S5.replay", ok, "replay: pristine + the patch set = the built tree (no patch lost)",
+                    (f"replay {last['t']}: ok={last.get('ok')}, tree {str(last.get('tree'))[:10]} (now {str(tree)[:10]})"
+                     + (f"; {'; '.join(last.get('failures') or [])[:200]}" if last.get("failures") else ""))
+                    if last else "never replayed", f"{FH} replay {m.tid}"))
+    o = m.owner
+    if not o or _git(o, "rev-parse", "--git-dir") is None:
+        out.append(item("S5.published", False, "the patch set is committed and pushed", f"no patch-set git repo ({o})",
+                        f"{FH} replay {m.tid}"))
+        return out
+    try:
+        pol = json.loads((Path(o) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        root = pol.get("patchset_root", "patches")
+    except (OSError, ValueError):
+        root = "patches"
+    loose = (_git(o, "status", "--porcelain", "--", root, "config/patch_policy.json", "intents") or "").splitlines()
+    ahead = _git(o, "rev-list", "--count", "@{upstream}..HEAD")
+    ok = not loose and ahead == "0"
+    why = (f"{len(loose)} uncommitted path(s) in the set, e.g. {loose[0][3:][:120]}" if loose else
+           "no upstream branch to push to" if ahead is None else f"{ahead} commit(s) not pushed" if ahead != "0" else
+           "committed and pushed")
+    out.append(item("S5.published", ok, "the patch set is committed and pushed (the other OS builds from it)", why,
+                    f"commit {root}/ and config/ in {o} on a feat/ branch: fieldkit ship push --auto"))
     return out
 
 
@@ -516,6 +554,14 @@ def gate_S9(m, deep=True):
                     f"{rp[-1]['t']}: tree {str(rp[-1].get('tree'))[:10]}" if rp else
                     "no replay proof recorded",
                     f"{FH} replay {m.tid}"))
+    from ..buildh import lessonrules                  # P38: a migration does not close with unconverted lessons
+    try:
+        waiting = lessonrules.split(task.lessons(m.tid))[0]
+    except Exception as e:  # noqa: BLE001 - unreadable lessons or rules fail closed
+        waiting = [{"lesson": f"lessons or fieldkit/firefox/lesson_rules.yaml unreadable: {e}"}]
+    out.append(item("S9.lessons", not waiting, "every port lesson is a rule, a tool or a recorded no-rule",
+                    f"{len(waiting)} waiting: " + "; ".join(str(w.get("lesson"))[:80] for w in waiting[:3]) if waiting
+                    else "none waiting", f"fieldkit firefox lessons {m.tid}"))
     pv = m.cache("privacy")
     ok, why = _fresh(m, pv, "tree")
     out.append(item("S9.privacy", ok and not pv["data"].get("findings"), "privacy scan of what git would publish is clean",

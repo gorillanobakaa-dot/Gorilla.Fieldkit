@@ -423,6 +423,227 @@ def best_model(job_type, min_tries=3, rows=None, data=None):
     return None
 
 
+# ---- Coding agents: the catalogue comes from choice.yaml (P39, owner 2026-11-16), the quota guard lives here --------
+CHOICE_PROMPT = "WHICH CODING AGENT, PROVIDER, MODEL AND REASONING LEVEL WOULD YOU LIKE TO START?"
+
+
+def _choice_data():
+    from . import choice
+    return choice.load()
+
+
+def coding_agents() -> tuple:
+    return tuple((_choice_data().get("agents") or {}))
+
+
+CODING_AGENTS = coding_agents()
+THINKING_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def agents_catalog(data=None) -> dict:
+    """{agent: {title, providers, models, thinking_levels, local}} from choice.yaml; models = the data file's lists plus
+    the live lists choice.menu() cached. No defaults: the person chooses (choice.pick)."""
+    c = _choice_data()
+    provs = c.get("providers") or {}
+    cached = {}
+    try:
+        from . import choice
+        cached = json.loads(choice._state("choice-cache.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        pass
+    out = {}
+    for name, a in (c.get("agents") or {}).items():
+        ms = list(a.get("models") or [])
+        for p in a.get("providers") or []:
+            ms += [m for m in (provs.get(p) or {}).get("models") or [] if m not in ms]
+        src = a.get("live_from") or name
+        ms += [m for m in ((cached.get(f"cmd:{src}") or {}).get("v") or []) if m not in ms]
+        if a.get("live") == "codex-cache":
+            from . import choice
+            ms += [m for m in choice.codex_cache_models() if m not in ms]
+        out[name] = {"title": a.get("title", name), "providers": list(a.get("providers") or []), "models": ms,
+                     "thinking_levels": list(a.get("reasoning") or THINKING_LEVELS),
+                     "local": any((provs.get(p) or {}).get("private") for p in a.get("providers") or [])}
+    return out
+
+
+def agent_availability_path(data=None):
+    from .friction import state_dir
+    return state_dir() / "agent-availability.json"
+
+
+def _read_agent_avail(data=None) -> dict:
+    p = agent_availability_path(data)
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def unavailable_agents(now=None, data=None) -> dict:
+    """Return {agent: {"reason", "until", "source"}} for coding agents currently blocked by quota or owner pin."""
+    now = time.time() if now is None else now
+    d = data or load()
+    acfg = d.get("agent_availability") or {}
+    out = {}
+    for k, val in (acfg.get("unavailable") or {}).items():
+        if not val or not str(val).strip():
+            continue
+        end = _yaml_until(val, now)
+        if end and end > now:
+            out[k.lower()] = {"reason": f"pinned in models.yaml ({val})", "until": end, "source": "owner"}
+    for k, rec in _read_agent_avail(d).items():
+        if rec.get("cleared"):
+            out.pop(k.lower(), None)
+            continue
+        end = float(rec.get("until") or 0)
+        if end > now and (k.lower() not in out or end > out[k.lower()]["until"]):
+            out[k.lower()] = {
+                "reason": rec.get("reason") or "quota limit",
+                "until": end,
+                "source": rec.get("source") or "quota-guard",
+            }
+    return out
+
+
+def agent_availability(agent: str, now=None, data=None) -> tuple[bool, str]:
+    """Return (available: bool, why: str) for a coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`)."""
+    now = time.time() if now is None else now
+    a = (agent or "").strip().lower()
+    if not a:
+        return False, CHOICE_PROMPT
+    unavail = unavailable_agents(now, data)
+    if a in unavail:
+        rec = unavail[a]
+        return False, f"agent {a} is blocked {until_text(rec['until'])} ({rec['source']}: {rec['reason']})"
+    return True, "available"
+
+
+def is_agent_available(agent: str, now=None, data=None) -> bool:
+    return agent_availability(agent, now, data)[0]
+
+
+def mark_agent_unavailable(agent: str, reason: str = "quota limit", until=None, now=None, data=None) -> dict:
+    now = time.time() if now is None else now
+    d = data or load()
+    acfg = d.get("agent_availability") or {}
+    end = _yaml_until(until, now) if isinstance(until, str) else (float(until) if until else now + 60 * float(acfg.get("cooldown_minutes") or 120))
+    if end is None:
+        end = now + 60 * float(acfg.get("cooldown_minutes") or 120)
+    rec = {
+        "reason": str(reason)[:200],
+        "until": end,
+        "source": "owner" if isinstance(until, str) else "quota-guard",
+        "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+    }
+    try:
+        cur = _read_agent_avail(d)
+        cur[(agent or "?").lower()] = rec
+        agent_availability_path(d).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return rec
+
+
+def clear_agent_unavailable(agent: str, data=None) -> None:
+    cur = _read_agent_avail(data)
+    cur[(agent or "").lower()] = {"cleared": True, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        agent_availability_path(data).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def validate_agent_choice(
+    agent: str | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
+    require_explicit: bool = True,
+    role: str = "worker",
+    origin: str = "cli",
+    data=None,
+) -> dict:
+    """Validate (agent, model, thinking) deterministically against choice.yaml and the quota guard.
+
+    - Never a default agent or model: a missing level returns needs_choice with the live menu (choice.menu) so the
+      person picks (choice.pick); headless callers use the owner's recorded choice per job type.
+    - A generic family name ("gemini" as a MODEL) and a stale name (choice.yaml stale:) are refused.
+    - An agent whose quota is out is refused until its reset; the spend guard still applies (claude: check_model).
+    """
+    d = data or load()
+    cat = agents_catalog(d)
+    stale = set(_choice_data().get("stale") or [])
+    a = (agent or "").strip().lower()
+    m = (model or "").strip()
+    t = (thinking or "").strip().lower()
+
+    if m.lower() == "gemini":
+        return {"ok": False, "verdict": "generic-refused", "prompt": CHOICE_PROMPT,
+                "why": "REFUSED: 'gemini' is a family name, not a model; pick one from `fieldkit models menu`"}
+    if m in stale:
+        return {"ok": False, "verdict": "stale-model", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: {m!r} is a stale model name (choice.yaml stale:); pick one from `fieldkit models menu`"}
+    if not a or not m or not t:
+        missing = [k for k, v in (("agent", a), ("model", m), ("thinking", t)) if not v]
+        return {
+            "ok": False, "needs_choice": True, "verdict": "choice-required", "missing": missing, "prompt": CHOICE_PROMPT,
+            "why": f"{CHOICE_PROMPT} (missing: {', '.join(missing)}; `fieldkit models menu` shows what works now; "
+                   "pass --agent A --model M --thinking R, or at a terminal pick from the menu)",
+            "agents": {k: {"available": is_agent_available(k, data=d), "providers": v["providers"],
+                           "models": v["models"], "thinking_levels": v["thinking_levels"]} for k, v in cat.items()},
+        }
+    if a not in cat:
+        return {"ok": False, "verdict": "unknown-agent", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: unknown coding agent {a!r}; choose one of {', '.join(cat)}"}
+    avail_ok, avail_why = agent_availability(a, data=d)
+    if not avail_ok:
+        return {"ok": False, "verdict": "agent-blocked", "agent": a, "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: {avail_why}. {CHOICE_PROMPT}"}
+    acfg = cat[a]
+    if t not in acfg["thinking_levels"]:
+        return {"ok": False, "verdict": "invalid-thinking", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: reasoning {t!r} is not one of {a}'s: {', '.join(acfg['thinking_levels'])}"}
+    known = [x.lower() for x in acfg["models"]]
+    if m.lower() not in known and not acfg["local"]:      # a local server names its own models; it refuses unknown ones
+        return {"ok": False, "verdict": "invalid-model-for-agent", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: model {m!r} is not offered by {a} ({', '.join(acfg['models'])})"}
+    mchk = check_model(m, role=role, origin=f"{origin} ({a})", data=d)       # the spend guard, for EVERY agent
+    if not mchk["ok"]:
+        return {"ok": False, "verdict": "model-refused", "agent": a, "model": m, "thinking": t, "why": mchk["why"]}
+    avail_m, avail_m_why = availability(m, data=d)
+    if not avail_m:
+        return {"ok": False, "verdict": "model-unavailable", "agent": a, "model": m, "thinking": t,
+                "why": f"REFUSED: model {m} is unavailable ({avail_m_why})"}
+    tier_val, why_val = mchk["tier"], mchk["why"]
+    return {"ok": True, "verdict": "allowed", "agent": a, "model": m, "thinking": t, "tier": tier_val,
+            "why": f"agent={a} model={m} thinking={t} ({why_val})"}
+
+
+def status_report(data=None) -> dict:
+    d = data or load()
+    cat = agents_catalog(d)
+    rows = []
+    for name, info in cat.items():
+        ok, why = agent_availability(name, data=d)
+        rows.append({
+            "agent": name,
+            "title": info.get("title", name),
+            "providers": info["providers"],
+            "available": ok,
+            "status_why": why,
+            "models": info["models"],
+            "thinking_levels": info["thinking_levels"],
+        })
+    return {
+        "prompt": CHOICE_PROMPT,
+        "thinking_levels": list(THINKING_LEVELS),
+        "agents": rows,
+        "unavailable_models": unavailable_models(data=d),
+    }
+
+
 def main(argv=None):
     argv = list(argv or [])
     if argv[:1] in (["gguf"], ["bandwidth"]):        # P21: dense or MoE, active parameters, expected speed
@@ -435,6 +656,29 @@ def main(argv=None):
     if argv[:1] == ["tune"]:                         # P22: host analysis, right load settings, lms load
         from . import tune
         return tune.main(argv)
+    if argv[:1] in (["menu"], ["status"], ["ask-choice"], ["remember"]):   # P39: the live four-level menu
+        from . import choice
+        return choice.main(argv[1:] if argv[0] != "remember" else argv)
+    if argv[:1] == ["block"] and len(argv) >= 2:
+        ag = argv[1]
+        until = None            # a quota block ends by itself (cooldown_minutes); --until DATE|always only when the owner says
+        why = "quota maxed out / blocked by owner"
+        if "--until" in argv:
+            i = argv.index("--until")
+            if i + 1 < len(argv):
+                until = argv[i + 1]
+        if "--why" in argv:
+            i = argv.index("--why")
+            if i + 1 < len(argv):
+                why = argv[i + 1]
+        rec = mark_agent_unavailable(ag, why, until=until)
+        print(f"BLOCKED {ag}: {rec['reason']} ({until_text(rec['until'])})")
+        return 0
+    if argv[:1] == ["unblock"] and len(argv) >= 2:
+        ag = argv[1]
+        clear_agent_unavailable(ag)
+        print(f"UNBLOCKED {ag}")
+        return 0
     if argv[:1] == ["table"]:
         tab = success_table()
         if "--json" in argv:
@@ -447,7 +691,10 @@ def main(argv=None):
         print("NEXT: the table decides delegation (best_model); main's reds and flakes are not counted")
         return 0
     if argv[:1] != ["report"]:
-        print("models report [--json]: counts per device and day from the spend ledger\n"
+        print("models menu [--json] [--refresh] [--check] [--device NAME]: what works now, agent > provider > model > reasoning\n"
+              "models remember JOB_TYPE AGENT PROVIDER MODEL REASONING: the owner's choice for headless jobs of a type\n"
+              "models block AGENT [--until YYYY-MM-DD|always] [--why REASON] | models unblock AGENT\n"
+              "models report [--json]: counts per device and day from the spend ledger\n"
               "models table [--json]: success rate per model and job type (plan P9)\n"
               "models gguf FILE|URL: before loading a local model, dense or MoE and the expected speed (P21)\n"
               "models tune MODEL [--apply]: analyse this machine and the GGUF, pick the load settings, load through lms (P22)\n"

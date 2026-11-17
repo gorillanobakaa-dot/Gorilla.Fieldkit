@@ -34,6 +34,7 @@ Doors, and who can act through them (owner's threat model: every channel is a do
   - the key file is named *.key, so the hard lines keep every model from reading or writing it.
 """
 import argparse
+import errno
 import hashlib
 import hmac
 import ipaddress
@@ -61,16 +62,27 @@ AGENTS = {
     "codex": (["codex"], ["--version"]),
     "opencode": (["opencode"], ["--version"]),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"]),
-    "antigravity": (["antigravity", "agy", "Antigravity"], None),
+    "antigravity": (["antigravity", "Antigravity", "agy"], None),
+    "agy": (["agy", "antigravity"], ["--version"]),
 }
-# How a session is STARTED for "ask". Only claude is wired (proven: fieldkit autopilot claude). Others are reported
-# as present but start only with a command the owner writes into link.yaml (start_commands), never a guessed one.
-DEFAULT_START = {"claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
-                            "--job", "{job}", "--wall-minutes", "{wall}"]}
+# How a session is STARTED for "ask": all five coding agents (claude, antigravity, agy, codex, gorilla-opencode)
+# run through `fieldkit autopilot <agent>` with their explicit model and thinking level.
+DEFAULT_START = {
+    "claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
+               "--job", "{job}", "--wall-minutes", "{wall}"],
+    "antigravity": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "antigravity", "{brief}", "--cwd", "{cwd}",
+                    "--job", "{job}", "--wall-minutes", "{wall}"],
+    "agy": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "agy", "{brief}", "--cwd", "{cwd}",
+            "--job", "{job}", "--wall-minutes", "{wall}"],
+    "codex": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "codex", "{brief}", "--cwd", "{cwd}",
+              "--job", "{job}", "--wall-minutes", "{wall}"],
+    "gorilla-opencode": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "gorilla-opencode", "{brief}", "--cwd", "{cwd}",
+                         "--job", "{job}", "--wall-minutes", "{wall}"],
+}
 # 2026-10-22, found on the VAIO by its Claude: --job and --wall-minutes exist only where the long horizon code is
 # (feat/long-horizon); an older `fieldkit autopilot` refused them and the session died at once. Options this
 # computer's autopilot does not offer are dropped (with their value), never passed blind.
-OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model")
+OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model", "--thinking")
 START_GRACE = 2.0           # a started process must still be alive this many seconds later to count as started
 # 2026-10-22, found on the VAIO by its Claude: a started session runs with cwd = the approved folder (the main
 # checkout), and `python -m fieldkit` there loaded THAT checkout's code, not the link's, so no fix on this branch
@@ -195,7 +207,7 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app", "install-app", "purge-app")
 KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
@@ -695,7 +707,7 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None):
+                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None, thinking=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     # Cost guard (lifecycle/models.py), first: this listener checks the model against ITS OWN data and mandate. The
@@ -746,9 +758,13 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
             env["FIELDKIT_CLAUDE_EXE"] = found
     if agent == "claude":
         env["ANTHROPIC_MODEL"] = chosen               # an env or settings model cannot slip past the check
+    if thinking:
+        env["FIELDKIT_THINKING"] = str(thinking)
     if tmpl is DEFAULT_START.get(agent):
-        if agent == "claude":                          # the worker's model (I5); none sent = the cheap default
+        if agent in DEFAULT_START:                     # the worker's model (I5); none sent = the cheap default
             argv += ["--model", chosen]
+        if thinking:
+            argv += ["--thinking", str(thinking)]
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     from . import link_return
     before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
@@ -974,6 +990,25 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         from . import link_probe
         _log(f"start-app {req.get('name')!r} from {req.get('from_host')}")
         return link_probe.start_app(req.get("name"))
+    if verb == "install-app":
+        from ..method import appinstall
+        _log(f"install-app {req.get('name')!r} ({req.get('source')!r}) from {req.get('from_host')}")
+        res = appinstall.run_install(
+            str(req.get("source") or ""),
+            name=str(req.get("name") or "antigravity"),
+            replace=bool(req.get("replace")),
+            apply=bool(req.get("apply")),
+        )
+        return {"ok": bool(res.get("ok")), "result": res, "host": socket.gethostname()}
+    if verb == "purge-app":
+        from ..method import appinstall
+        _log(f"purge-app {req.get('name')!r} from {req.get('from_host')}")
+        res = appinstall.run_purge(
+            str(req.get("name") or ""),
+            apply=bool(req.get("apply")),
+            install_dir=req.get("dir"),
+        )
+        return {"ok": bool(res.get("ok")), "result": res, "host": socket.gethostname()}
     if verb == "tags":
         # read-only, like friction: this computer's live sessions whose title lacks its machine tag (machine.py,
         # 2026-10-27), so `fieldkit sessions tag --check` on any device checks every machine of the household
@@ -1049,7 +1084,8 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb == "ask":
         item = store("ask", req)
         started, why = start_session(str(req.get("agent")), str(req.get("brief") or ""), req.get("from_host"),
-                                     popen=popen, inbox_add=inbox_add, model=req.get("model"))
+                                     popen=popen, inbox_add=inbox_add, model=req.get("model"),
+                                     thinking=req.get("thinking"))
         _log(f"ask #{item['n']} from {req.get('from_host')} for {req.get('agent')}: {why}")
         return {"ok": True, "stored": item["n"], "started": started, "why": why}
     return {"ok": False, "error": f"unknown verb {verb!r}"}
@@ -1078,6 +1114,47 @@ RELOAD_S = 60
 UPDATE_S = 300
 
 
+def bind_options(platform=None):
+    """-> [(level, option, value)] for a listening socket. One listener per port (P28, 2026-11-16): on Windows
+    SO_REUSEADDR lets a SECOND socket bind a port a live listener holds, so every keep-alive start and every reload
+    added a listener (21 `peers link serve` on L15-WIN, all bound to the cable port); SO_EXCLUSIVEADDRUSE refuses it.
+    Elsewhere SO_REUSEADDR only skips TIME_WAIT leftovers and a held port still fails with EADDRINUSE."""
+    if (platform or sys.platform) == "win32":
+        return [(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)]
+    return [(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)]
+
+
+def port_taken(e):
+    """True when a bind failed because another socket holds the address."""
+    return getattr(e, "errno", None) in (errno.EADDRINUSE, 10048) or getattr(e, "winerror", None) in (10048, 10013)
+
+
+def reexec_argv():
+    return list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv)
+
+
+def reexec(platform=None, execv=os.execv, popen=subprocess.Popen, exit=sys.exit):
+    """Re-execute this listener on new code. POSIX: in place (same PID, systemd sees no restart). Windows has no
+    in-place exec: os.execv starts a NEW process and ends this one (P28: each reload gave a listener whose parent was
+    dead, the scheduled task lost its instance and started another every 5 minutes). There: start the replacement,
+    record its PID in serve.pid, and end this one; with bind_options a stray second start exits instead of piling up."""
+    argv = reexec_argv()
+    if (platform or sys.platform) != "win32":
+        execv(sys.executable, argv)
+        return None
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+    p = popen([sys.executable] + argv[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              creationflags=flags, close_fds=True)
+    try:
+        (home() / "serve.pid").write_text(str(p.pid))
+        from ..core import procs
+        procs.record(p.pid, "link-listener", "the cable listener, re-executed on new code")
+    except Exception:  # noqa: BLE001 - the replacement runs either way
+        pass
+    exit(0)
+    return p.pid
+
+
 def self_update(root=None, run=subprocess.run):
     """Bring the listener's own checkout to origin/main: only a clean checkout on main, only a fast-forward (main
     moves only by PRs merged on green CI). -> "moved", "same" or why it was left alone. 2026-10-28: #181 (a worktree
@@ -1098,6 +1175,10 @@ def self_update(root=None, run=subprocess.run):
     rc, dirty = git("status", "--porcelain", "--untracked-files=no")
     if rc != 0 or dirty:
         return "left alone: tracked changes in the checkout"
+    from ..core import checkout_hold     # P29: an emerge run reads this checkout; never move it under the build
+    why = checkout_hold.busy(root)
+    if why:
+        return f"left alone: {why}"
     rc, out = git("fetch", "--quiet", "origin", "main", timeout=120)
     if rc != 0:
         return f"left alone: fetch failed ({out[:120]})"
@@ -1138,8 +1219,18 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
     for me in mine.get("address", []):
         check_address(me, allow_loopback)
         s = socket.socket(socket.AF_INET6 if ":" in me else socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((me, port))
+        for opt in bind_options():
+            s.setsockopt(*opt)
+        try:
+            s.bind((me, port))
+        except OSError as e:
+            s.close()
+            for x in socks:
+                x.close()
+            if port_taken(e):
+                _log(f"{me}:{port} is held by another listener: this one (PID {os.getpid()}) exits (one per port)")
+                return
+            raise
         s.listen(8)
         s.setblocking(False)
         sel.register(s, selectors.EVENT_READ)
@@ -1163,10 +1254,11 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
                 checked = time.time()
                 now_head = code_head()
                 if now_head and now_head != started_head:
-                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing in place (same PID)")
+                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing "
+                         f"({'replacement process' if sys.platform == 'win32' else 'in place, same PID'})")
                     for s in socks:
                         s.close()
-                    os.execv(sys.executable, list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv))
+                    reexec()
             if not ev:
                 continue
             try:
@@ -1414,7 +1506,9 @@ def main(argv=None):
     ap.add_argument("--allow", action="append", help="approve: an agent the peer may start (repeatable or a comma list): writes link.yaml, shows it, one yes")
     ap.add_argument("--cwd", help="approve: the folder a started session works in")
     ap.add_argument("--wall-minutes", type=int, help="approve: the budget of a started session")
-    ap.add_argument("--agent", default="claude")
+    ap.add_argument("--agent", default=None, help="ask: coding agent (antigravity, agy, codex, gorilla-opencode, claude)")
+    ap.add_argument("--model", default=None, help="ask: specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
+    ap.add_argument("--thinking", default=None, help="ask: reasoning/thinking level (lowest, low, medium, high, max)")
     ap.add_argument("--brief")
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--wait", type=float, default=0)
@@ -1484,6 +1578,8 @@ def main(argv=None):
         r = call({"verb": "start-app", "name": name}, timeout=30, device=a.device) if a.device else link_probe.start_app(name)
         print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else
               (f"{'STARTED' if r.get('ok') else 'NOT STARTED'}: {r.get('why') or r.get('error')}"))
+        if not a.device and not a.json:
+            print(f"NEXT: this ran on THIS computer ({r.get('host') or socket.gethostname()}); add --device NAME to start it on the other one")
         return 0 if r.get("ok") else 3
     if a.action == "send":
         if a.needs_you and a.to and a.to.lower() != "owner":
@@ -1497,10 +1593,20 @@ def main(argv=None):
             print(f"NOT HEARD on the other computer: {r.get('heard_why')}", file=sys.stderr)
         return 0 if r.get("ok") else 3
     if a.action == "ask":
-        if not a.brief:
-            print("ask --agent claude --brief FILE (what the new session is for; it is shown fenced as your text)")
+        from ..lifecycle import models
+        chk = models.validate_agent_choice(agent=a.agent, model=a.model, thinking=a.thinking, require_explicit=True,
+                                           role="worker", origin="peers link ask")
+        if not chk["ok"] and chk.get("needs_choice"):        # P39: the same menu on both computers, measured THERE
+            from ..lifecycle import choice
+            chk = choice.resolve("task", origin="peers link ask", device=a.device)
+        if not chk["ok"]:
+            print(chk["why"])
             return 2
-        r = call({"verb": "ask", "agent": a.agent, "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
+        if not a.brief:
+            print("ask --agent AGENT --model MODEL --thinking LEVEL --brief FILE")
+            return 2
+        r = call({"verb": "ask", "agent": chk["agent"], "model": chk["model"], "thinking": chk["thinking"],
+                  "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3
     if a.action == "inbox":

@@ -18,12 +18,14 @@ into a scratch git index built from the pristine tree, and `git write-tree` give
 built tree is HEAD's tree, and the working copy must have no uncommitted change, or the comparison means nothing.
 Fail closed: any patch failure, a dirty working copy or a different hash is a FAIL, with the differing paths.
 """
+import json
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
+from ..core import childrun
 from . import firefox, task
 
 ENV = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "LC_ALL": "C"}
@@ -90,15 +92,15 @@ def _apply_patch(pf, scratch):
     if b"GIT binary patch" in text:
         # outside any repository (the ceiling stops git finding one above the scratch folder), so paths are
         # relative to the scratch tree
-        r = subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "-p1", "--whitespace=nowarn", str(pf)],
-                           cwd=str(scratch), capture_output=True,
-                           env={**ENV, "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)})
+        r = childrun.run(["git", "-c", "core.autocrlf=false", "apply", "-p1", "--whitespace=nowarn", str(pf)],
+                         f"git apply {pf.name}", cwd=str(scratch),
+                         env={**ENV, "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)})
     else:
-        with open(pf, "rb") as fh:
-            # --binary: Strawberry's patch.exe 2.5.9 aborts on LF patches read in text mode ("Expression: hunk",
-            # Windows CI 2026-10-16); the bytes are compared exactly anyway. No effect on Linux.
-            r = subprocess.run([firefox._patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0", "--binary",
-                                "-d", str(scratch)], stdin=fh, capture_output=True, timeout=600)
+        # --binary: Strawberry's patch.exe 2.5.9 aborts on LF patches read in text mode ("Expression: hunk",
+        # Windows CI 2026-10-16); the bytes are compared exactly anyway. No effect on Linux.
+        # --batch + childrun: never a question on a terminal, a deadline and a stall stop (P29: 67 min hang, 160)
+        r = childrun.run([firefox._patch_exe(), "-p1", "--forward", "--batch", "--no-backup-if-mismatch", "--fuzz=0",
+                          "--binary", "-d", str(scratch)], f"patch {pf.name}", stdin_path=pf)
     out = (r.stdout + r.stderr).decode("utf-8", "replace")
     return r.returncode == 0 and "previously applied" not in out, out
 
@@ -132,6 +134,45 @@ def refreshed_lists(task_id, workdir):
     return out
 
 
+def unregistered_groups(owner_root):
+    """-> [(group folder, patch count)] for every folder of the patch set holding *.patch files that the policy does
+    not name at all (a disabled group is named, so it is a decision; an unnamed one is a loss nobody chose).
+
+    2026-11-16 (Firefox 160): export-hand wrote 21.PORT.FIXES.160 and 22.EGRESS.LOCKDOWN.160 and only PRINTED "register
+    new groups". Nobody did; for five days the build, the replay and the Windows recipe skipped them without a word -
+    a privacy cut (the on-device LLM excision) and two port fixes among them. Now the replay fails and names them."""
+    try:
+        pol = json.loads((Path(owner_root) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    root, named = Path(owner_root) / pol.get("patchset_root", "patches"), set(pol.get("groups") or {})
+    if not root.is_dir():
+        return []
+    return [(d.name, n) for d in sorted(root.iterdir())
+            if d.is_dir() and d.name not in named and (n := len(list(d.rglob("*.patch"))))]
+
+
+def register_groups(owner_root, say=print):
+    """Name every unregistered group of the set in the policy, enabled, after the groups already there, with the
+    first paragraph of its README as the reason. -> the names added. export-hand made these folders from the tree that
+    was built, so leaving them out is the loss; replay then proves the order (2026-11-16, Firefox 160)."""
+    lost = unregistered_groups(owner_root)
+    if not lost:
+        return []
+    f = Path(owner_root) / "config" / "patch_policy.json"
+    pol = json.loads(f.read_text(encoding="utf-8"))
+    root = Path(owner_root) / pol.get("patchset_root", "patches")
+    for g, n in lost:
+        readme = root / g / "README.md"
+        text = readme.read_text(encoding="utf-8", errors="replace") if readme.is_file() else ""
+        para = next((b.strip().replace("\n", " ") for b in text.split("\n\n") if b.strip() and not b.lstrip().startswith("#")), "")
+        pol["groups"][g] = {"status": "enabled", "reason": (para or f"exported by build-harness export-hand ({n} patches)")[:600]
+                            + " (registered by export-hand; replay proves the order)"}
+        say(f"  registered {g} in config/patch_policy.json ({n} patch(es), enabled, applied after the groups before it)")
+    f.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    return [g for g, _ in lost]
+
+
 def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=(), include=None, refreshed=None):
     """-> {ok, replayed, built, pristine, failures, dirty, differ, patches, scratch}.
     `extra_exclude` {group: {patch name}} and `skip` (group names) are for rebase.py: a replay as if the policy
@@ -140,6 +181,7 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
     w = Path(workdir)
     pset, policy = firefox._policy(owner_root)
     groups = [(g, s) for g, s in policy.items() if s.get("status") == "enabled" and g not in skip]
+    lost = unregistered_groups(owner_root)
     pristine = _git(w, "rev-list", "--max-parents=0", "HEAD").decode().split()[0]
     built = _git(w, "rev-parse", "HEAD^{tree}").decode().strip()
     dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines() if l.strip()]
@@ -196,9 +238,12 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
             info = "".join(f"{(modes.get(p) or '100644')} {sha}\t{p}\n" for p, sha in sorted(refreshed.items()))
             _git(w, "update-index", "--add", "--index-info", env=env, inp=info.encode("utf-8"))
             res["refreshed"] = sorted(refreshed)
+        res["touched"] = sorted(paths)
         res["replayed"] = _git(w, "write-tree", env=env).decode().strip()
         if res["replayed"] != built:
             res["differ"] = _git(w, "diff-tree", "-r", "--name-status", res["replayed"], built).decode("utf-8", "replace").splitlines()[:40]
+        res["failures"] += [f"UNREGISTERED GROUP {g}: {n} patch(es) on disk that config/patch_policy.json does not name, so "
+                            "no build or replay ever applies them; register the group (or move it out of the set)" for g, n in lost]
         res["ok"] = not res["failures"] and not dirty and res["replayed"] == built
     finally:
         if not keep:
@@ -225,3 +270,49 @@ def run(task_id, say=print):
         say(f"  differs: {d}")
     say(f"REPLAY {'OK' if r['ok'] else 'FAILED'}: {r['patches']} patch(es), {len(r['failures'])} failure(s)")
     return r
+
+
+def materialize(owner_root, workdir, say=print):
+    """Put the public patch set onto a pristine upstream work tree and commit it as one checkpoint (2026-11-16: the
+    160 tree was a fresh clone of the tag, so preflight saw no branding, no stubs, no owner prefs). Same patch
+    order and rules as replay. A tree that already has commits on top of the tag is left alone. -> {ok, detail}."""
+    w = Path(workdir)
+    if int(_git(w, "rev-list", "--count", "HEAD").decode().strip()) > 1:
+        return {"ok": True, "detail": "work tree already carries checkpoints; nothing to apply"}
+    r = replay(owner_root, workdir, say=say, keep=True)
+    try:
+        if r["failures"]:
+            return {"ok": False, "detail": f"{len(r['failures'])} patch failure(s): {r['failures'][:5]}"}
+        # leftovers of an earlier, half-finished run are paths this run rewrites anyway; anything else is foreign
+        touched = set(r["touched"])
+        dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines()
+                 if l.strip() and l[3:].strip().strip('"') not in touched]
+        if dirty:
+            return {"ok": False, "detail": f"work tree has uncommitted changes: {dirty[:5]}"}
+        t = Path(r["scratch"]) / "t"
+        for p in r["touched"]:
+            d = w / p
+            if (t / p).is_file():
+                d.parent.mkdir(parents=True, exist_ok=True)
+                d.write_bytes((t / p).read_bytes())
+            elif d.is_file():
+                d.unlink()
+        # a path one patch creates and a later one deletes is in neither tree: git add fails on a pathspec that
+        # matches nothing (160: browser/branding/gorilla/Assets.car), so stage only what exists or was tracked
+        known = _git(w, "cat-file", "--batch-check=%(objecttype)",
+                     inp="".join(f"HEAD:{p}\n" for p in r["touched"]).encode("utf-8")).decode("utf-8").splitlines()
+        stage = [p for p, k in zip(r["touched"], known) if (w / p).is_file() or not k.endswith("missing")]
+        if stage:
+            _git(w, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul", inp="\0".join(stage).encode("utf-8"))
+        _git(w, "-c", "user.name=fieldkit", "-c", "user.email=fieldkit@localhost", "commit", "-q", "--no-verify",
+             "-m", f"checkpoint: public patch set replayed onto pristine {r['pristine'][:10]} ({r['patches']} patches)")
+        return {"ok": True, "detail": f"{r['patches']} patch(es) applied over {len(r['touched'])} path(s) and committed"}
+    finally:
+        shutil.rmtree(r["scratch"], ignore_errors=True)
+
+
+if __name__ == "__main__":
+    import sys
+    out = materialize(sys.argv[1], sys.argv[2])
+    print(("OK: " if out["ok"] else "FAILED: ") + out["detail"])
+    sys.exit(0 if out["ok"] else 1)

@@ -6,7 +6,8 @@ writing: I am preparing the handover and starting a new VISIBLE session automati
 meters, the same handover note and PLAN.md section, the same session-name numbering), so there is no second rotation
 mechanism.
 
-    fraction = the worse of  context per call / ctx_rotate   and   session dollars / usd_rotate
+    fraction = the worse of  context per call / the context ROTATE line (rotate.ctx_lines)  and  session dollars / usd_rotate;
+               a session that compacts itself (rotate.can_compact) counts its dollars only (P28 C)
     (the budget is the ROTATE line of rotate.py; the defaults are 120k tokens per call and $75)
     HALF  at >= 50%: one line in the session's context: "you are at half the budget"
     STOP  at >= 90%: the tool writes the handover (rotate.handover), writes the successor's brief, and lists the
@@ -37,7 +38,11 @@ ARCHIVE_MAX = 12
 def fraction(row, cfg=None):
     """The share of the budget (the ROTATE line) this session has used: the worse of its two meters, 0.0 .. n."""
     cfg = cfg or rotate.config()
-    return max(row.get("context_last", 0) / cfg["ctx_rotate"], (row.get("usd") or 0.0) / cfg["usd_rotate"])
+    dollars = (row.get("usd") or 0.0) / cfg["usd_rotate"]
+    if row.get("compactable"):              # a session that compacts itself never hands over for context (P28 C)
+        return dollars
+    _warn, rot = rotate.ctx_lines(row.get("window"), cfg)
+    return max(row.get("context_last", 0) / rot, dollars)
 
 
 def level(frac):
@@ -213,6 +218,21 @@ def _headless_sonnet(brief):
     return r.stdout.strip().splitlines()[-1:] or [""]
 
 
+#: WHY A SUCCESSOR IS VISIBLE, NOT HEADLESS (owner, 2026-11-15, written here so no session forgets it):
+#: "no headless" does NOT mean "do not start it". It means start it in the FOREGROUND, as a visible desktop session the
+#: owner can watch and steer. The rule exists because headless (background) sessions were not controlled or directed:
+#: they did not finish their job, filled their context with nothing, spun in place, and passed the job on to yet
+#: another session. A visible session is watched, steered and archived by Zero. Never answer "no headless" by starting
+#: nothing or by leaving a card for the owner to click: Zero starts the visible session itself.
+WHY_VISIBLE = ("VISIBLE, not headless, because headless sessions ran uncontrolled: they did not finish, filled their "
+               "context with nothing, spun in place and passed the job to another session. Not headless does not mean "
+               "do not start: start it in the foreground yourself, never leave a card for the owner. If the app refuses "
+               "start_session (an event turn), reuse the rotated session: it stops its own background tasks (TaskStop) "
+               "and clears itself (clear_session \"self\"), then Zero sends it the brief: same visible session, empty "
+               "context (2026-11-15, Opencode worker 2). Zero also keeps one idle visible \"Reserve N\" session, "
+               "started on an owner turn, to clear and order on an event turn (`fieldkit pool plan` keeps them).")
+
+
 def start_successor(brief, title, origin, send=None, headless=None, now=None):
     """A successor that must be VISIBLE (owner 2026-11-03). The Claude desktop app lets start_session "user_asked" run
     only in a turn the owner's own message started; a turn started by another session's message is refused. So:
@@ -236,7 +256,7 @@ def start_successor(brief, title, origin, send=None, headless=None, now=None):
     _log_successor({**rec, "step": "refused", "line": owner})
     ask = (f"START VISIBLE SUCCESSOR: call start_session initiation \"user_asked\", context \"fresh\", title "
            f"\"{title}\", prompt = the file {brief}. The session that needs it was refused by the app (its turn came "
-           "from a session message). Do not run it headless.")
+           "from a session message). " + WHY_VISIBLE)
     try:
         zero = (send or _send_zero)(ask)
         _log_successor({**rec, "step": "zero", "to": zero})

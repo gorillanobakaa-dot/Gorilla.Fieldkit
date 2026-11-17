@@ -24,35 +24,35 @@ HARD LINES (never, whoever asks):
 - Secrets and credential files: never open, echo or commit them.
 - Telemetry, analytics, crash reports, usage pings: cut out at the source in every project.
 
-BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
-`fieldkit emerge status RECIPE`. Never hand-run stages or re-run one the runner skipped. A
-project with no recipe gets one. Any version, any OS; never pinned or "X only".
+BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
+one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
+Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per OS
+per 24 h, all OSes same day (`--hotfix WHY`, logged).
 
-TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
-packages, never `./...`; Rust: the touched crate). A passed test is never re-run. The full suite runs once, when a
-project is finished (owner, 2026-10-28). On the Windows laptop every heavy command runs under `fieldkit guard --`,
-one at a time.
+TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks (owner,
+2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
+Windows laptop every heavy command runs under `fieldkit guard --`, one at a time.
 
-TWO STRIKES (owner, 2026-10-29). A PR or job that fails CI twice by its own failures is parked by
-`fieldkit ship ci-wait` (main's red is not its own). Leave it for a stronger model; go on. No third try.
+TWO STRIKES (owner 2026-11-16). Only OWN reds count (not main's, not unproven); 3 on one model
+send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
 
 WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
 background.
 
 MODELS. Default Sonnet; Opus or Fable only for parked repairs and reviews, when the model-spend guard allows
-it (`fieldkit/lifecycle/models.py`).
+it.
 
 ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
 
 IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
 "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
-milestone Zero asks the owner to `fieldkit review` (parked ideas and inbox items, answered once).
+milestone Zero asks the owner to `fieldkit review`.
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
 
 USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a script. Sizes, search, hashes:
-`fieldkit size`. No new tool unless needed. A script you must write goes in
+`fieldkit size`. No new tool unless needed. A script you write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it.
 
 DONE. Follow the DONE PROTOCOL (the fieldkit-lifecycle block). Briefs, sitreps, audits and
@@ -75,8 +75,11 @@ after it goes. Explain in layman terms, ADHD style (owner 2026-11-02): result fi
 then the effect on the harness and long-horizon tasks (time, tokens).
 
 DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the main
-laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS: a visible session or `--on peer`).
+laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there.
 MacBook Air 2011, 4 GB: SSH only, never the cable.
 
-CLEAN UP. Yes, without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
+CLEAN UP. Without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
+
+ASK FIRST. Unexpected activity of another session: put the question to it; if confirmed, cooperate. Never assume it
+was unauthorised.
 <!-- /fieldkit-core-rules -->

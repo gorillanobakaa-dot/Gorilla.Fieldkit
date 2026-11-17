@@ -26,6 +26,8 @@ to writing a one-off script for the same job.
 
 ## Commands
 
+- `fieldkit antigravity check|doors|migrate-workflows`: agent config checks (hooks, MCP doors, workflows) by the
+  Rust agy-tools binary (`fieldkit emerge run agy-tools`).
 Every command accepts `--json`.
 
 - Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets or a
@@ -172,6 +174,10 @@ The owner speaks radio procedure. Zero = the net control station (the coordinati
   hook and need not run it.
 - "sitrep" / "roll call" from Zero: answer with all six fields, `-` for none: `fieldkit zero checkin --ref R-ID --job ..
   --state WORKING|BLOCKED|WAITING|DONE|IDLE --branch .. --waiting .. --not-verified .. --shared ..`
+- AUTO-REPORT (2026-11-15): a session holding an order from Zero sends Zero one net line at the end of every turn
+  (`REPORT station [working|done|blocked|rotating] order ...`, the Stop hook, `fieldkit/zero/autoreport.py`; nothing when
+  unchanged; Zero is exempt). The keeper rule `silent_child` (`fieldkit/lifecycle/keeper.yaml`, `silent_after_min` 30)
+  wakes Zero when such a worker is silent, or reports `rotating` (then Zero starts the visible successor, never a card).
 - "has Zero been established?" is answered by `fieldkit zero`. Only Zero runs `rollcall`, `handover`, `close`; a
   command with an older `--epoch` is refused. Leaving: `fieldkit zero checkin --off`.
 
@@ -307,7 +313,13 @@ DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking 
 ## Session rotation (fieldkit rotate)
 
 Every call re-sends the whole conversation, so a long session costs more with every call. At the start of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).
+
+Auto-compact (owner, 2026-11-16): a headless job run (`fieldkit/autopilot/run.py`, `claude()`) sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=72`, so it compacts itself at about 72% of the auto-compact window; the caller can override it through `env_extra`. Zero is an interactive session, never goes through that code, and compacts by hand after writing its state to a file. Claude Code only lowers its threshold with this variable; a desktop session cannot get a per-session value (the Code tab sets variables for every session), so those rotate as before.
 - exit 0 OK: carry on.
 - exit 1 WARN: finish the current job here; the next job starts in a fresh session.
 - exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
 <!-- /fieldkit-rotate-rule -->
+
+- `fieldkit pool plan --sessions FILE.json [--reserve N] [--self ID] [--event-turn]` (`fieldkit/lifecycle/pool.py`, rules `pool.yaml`): Zero's session pool from the `list_sessions` JSON: KEEP / RECYCLE (clear, rename to Reserve N) / ARCHIVE surplus reserves / START; prints exact app-tool calls in order; skill fieldkit-lifecycle.
+- `fieldkit permanence check [--session SID] [--repo R] [--json]` (`fieldkit/lifecycle/permanence.py`): UNCOMMITTED / UNPUSHED / UNMERGED work of every worktree `fieldkit sync` knows; exit 3, each line ends with NEXT. Stop hook blocks once, the tool router refuses `archive_session` while UNCOMMITTED or UNPUSHED, keeper rule `permanence` (keeper.yaml `stale_after_h` 2) tells Zero about stale work.
+- `fieldkit antigravity sessions|send|stream|station|bind-check` (`fieldkit/antigravity/bridge.py`, doc `docs/ANTIGRAVITY-BRIDGE.md`): lists, messages and follows Antigravity (`agy`) sessions here and over the cable; replies are fenced as untrusted data; `station NAME` checks one in on Zero's net as `antigravity:NAME`; no listener of its own (cable relay = the existing link listener), `bind-check` allows loopback or 10.77.0.0/24 only.

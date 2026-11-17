@@ -23,7 +23,7 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ## A test you wrote: prove it can fail
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
-fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost staged                                       names the covering tests; GitHub CI (Linux and Windows) runs them, never this computer (--local only when the owner asks)
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
@@ -36,8 +36,11 @@ In Git Bash, a swap argument that starts with `/` reaches Python already rewritt
 front of the command, or use a `--plan` file (2026-10-25).
 CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fails. The file is always restored.
 
-## An xz archive you made or ship (.xz, .tar.xz, a .deb)
+## An xz archive or program you made or ship (.xz, .tar.xz, a .deb, an unpacked app)
 ```
+fieldkit compileonce build [--force] | check   pre-compile all Python modules in fieldkit/ and kits/ to .pyc ahead of time; check verifies 0 stale/missing
+fieldkit install app SRC --name APP [--replace] [--apply] [--peer]   install a program on Linux or Windows (or on the peer over the cable) with icons, .desktop / .lnk, caches, and verification
+fieldkit install purge APP [--dir PATH] [--apply] [--peer]           completely remove/quarantine a program on Linux or Windows (processes, folders, shortcuts, registry keys, icon caches)
 fieldkit install verify PRODUCT [--peer|--host macair] | self-test [--os all]   installed as its release says on Linux (GNOME), Windows (shortcuts, .ico, exe icon) and macOS (bundle, .icns): binary, every icon size, caches, nothing older shadowing; parity align and the release cycle call it
 fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
 ```
@@ -178,3 +181,10 @@ Never `git merge origin/main` by hand on a PR branch when `ship update` can do i
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;
 then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never change their copy yourself.
+
+## The project brief (P41a)
+
+`fieldkit cookbook load ID|--cwd PATH` prints a bounded brief of a registered project (Firefox, Gorilla OpenCode, the
+kernel, Fieldkit): purpose, where its cookbook and recipes are, current state, the next command. The SessionStart hook
+runs it by cwd, so do not search the disk to learn where things are: read the brief. `cookbook list|show ID|check`;
+the registry is `projects/<id>/project.yaml` (projects/README.md).

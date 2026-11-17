@@ -59,6 +59,7 @@ def cmd_hook(a):
             return 0
         from . import hook
         hook.handle(a.agent, text)
+        switch.ensure_schedule()                           # the scan timer comes back if a path switched on without it
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
     return 0
@@ -342,6 +343,15 @@ def main(argv=None):
     on.add_argument("--lesson", default=None, help="what the harness is being taught (omit it, with capture on, to extend it)")
     on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 10080, one week)")
     on.add_argument("--json", action="store_true")
+    stt = sub.add_parser("start", help="P40: clean slate first (digest check, archive, wipe), then capture on for one project")
+    stt.add_argument("--project", default=None, help="the project this capture is for (episodes of other projects never mix in)")
+    stt.add_argument("--lesson", default=None)
+    stt.add_argument("--for", dest="minutes", type=int, default=None)
+    stt.add_argument("--dry-run", action="store_true", help="only the digest check")
+    stt.add_argument("--force-undigested", action="store_true", help="OWNER ONLY, at a real terminal: wipe undigested material too (it stays in the archive bundle)")
+    stt.add_argument("--dispose", metavar="PATH", help="record that a scattered script is not worth keeping (needs --because)")
+    stt.add_argument("--because")
+    stt.add_argument("--json", action="store_true")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
     off.add_argument("--json", action="store_true")
     off.add_argument("--distill", action="store_true", help="then turn what was captured into candidate tools or ledger lines")
@@ -400,6 +410,12 @@ def main(argv=None):
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
         t.add_argument("--" + k.replace("_", "-"), dest=k, action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "start":
+        from . import cleanslate
+        if not a.dispose and not (a.project and a.lesson):
+            print("capture start: --project NAME and --lesson WHY are required", file=sys.stderr)
+            return 2
+        return cleanslate.cmd(a)
     if a.action == "project":
         from . import projects
         return projects.cmd(a)

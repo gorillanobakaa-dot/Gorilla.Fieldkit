@@ -1,0 +1,22 @@
+# Quality gate for auto-adopt (P30, 2026-11-16): a candidate failing any rule is refused and reported, never adopted.
+# Code: fieldkit/capture/autoadopt.py quality(). Test runners are not listed here: they come from
+# fieldkit/autopilot/toolrouter.py TEST_RUNNERS (one list, not two).
+placeholder: '<[A-Z][A-Z0-9_]*>'     # an unresolved template slot such as <N> or <PATH>
+min_replayed: 1                      # journal episodes (exit code 0, the candidate's own steps) that must replay it; the header text is never read
+# first word of a command -> toolchain. A command with another first word (git, bash, cd, fieldkit...) is neutral.
+# Steps from more than one toolchain mean the steps come from unrelated projects.
+toolchains:
+  go: [go, gofmt]
+  rust: [cargo, rustc, rustup]
+  python: [python, python3, py, pip, pip3, pytest, uv]
+  node: [node, npm, npx, pnpm, yarn, bun]
+  make: [make, cmake, ninja, meson]
+  dotnet: [dotnet, msbuild]
+  java: [mvn, gradle, javac]
+# A step that destroys work or can never run is refused (name, regex on the command line, why). Data, not code.
+refuse_steps:
+  - {name: discards-file-edits, pattern: '^git\s+checkout\s+(-q\s+)?(--\s+)?\S+\.[A-Za-z0-9]{1,5}(\s|$)|^git\s+checkout\s+(-q\s+)?--\s', why: "git checkout of a file throws away its edits"}
+  - {name: hard-reset, pattern: '\bgit\s+reset\s+.*--hard', why: "reset --hard throws away work"}
+  - {name: git-clean, pattern: '\bgit\s+clean\s+.*-[a-z]*f', why: "clean -f deletes untracked files"}
+  - {name: deletes-files, pattern: '(^|[;&|]\s*)(sudo\s+)?rm(\s|$)', why: "a permanent delete; recycle with `fieldkit size recycle`"}
+  - {name: bare-interpreter, pattern: '^(fieldkit\s+guard\s+--\s+)?(python3?|py|bash|sh|node|perl|ruby)\s*$', why: "an interpreter with no script does nothing"}

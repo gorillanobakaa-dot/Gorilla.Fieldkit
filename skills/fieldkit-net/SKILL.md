@@ -44,6 +44,8 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
   --branch "feat/x, PR #n" --waiting "who or what" --not-verified "what is not checked" --shared "shared ground touched"
 ```
 - Leaving the net: `fieldkit zero checkin --off`.
+- The ear (P28 A): `fieldkit peers link relay listen --as STATION --follow`, started with the Monitor tool (each line
+  wakes the session); background Bash only as a fallback (it wakes only when the command ends).
 
 ## Zero
 
@@ -58,6 +60,11 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
   until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool
   router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it
   (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it (2026-10-30 17:17).
+- WAKE (P28 A, owner 2026-11-16): the ear supervisor (`fieldkit peers link relay wake`, run by every `--follow` ear
+  and the hog 5-minute watch, no model) writes `WAKE <session id> <note id>` to Zero for each note older than 20 s
+  that a deaf station has not read. Zero relays it at once with send_message to that session id: "note <id> waits
+  for you on the net; run your ear". No reply or question first. `zero check` and `hog check` count deaf stations
+  with a waiting note as WARN.
 - Idle sessions eat RAM and CPU: Zero runs `fieldkit sessions sweep` on every watchdog wake and archives what it lists.
 - `fieldkit zero schedule --apply` once per computer: the comms check every 15 minutes with nobody awake (revives the
   cable through `fieldkit peers link heal --revive`, retries unacked messages, writes the Board row).
@@ -88,3 +95,5 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
 
 Exit codes: 0 OK, 1 WARN, 2 ALARM, 3 no net, 4 REFUSED. Never edit NET.yaml or the net log by hand: `fieldkit zero log
 --verify` finds a changed line.
+
+Zero never sits idle: `fieldkit keeper status` shows the timer and its last actions; the Stop hook warns when Zero ends a turn with jobs in flight and no keeper timer.

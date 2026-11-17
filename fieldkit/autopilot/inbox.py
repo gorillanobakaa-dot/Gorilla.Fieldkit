@@ -273,6 +273,13 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
     if dry_run:
         say("DRY RUN: nothing sent")
         return 0
+    if release:                                                   # one release per batch (owner order 2026-11-15)
+        from ..core import sync
+        from ..method import releasegate
+        g = releasegate.guard(sync._slug(repo), release)
+        if not g["ok"]:
+            say(f"REFUSED: {g['error']}: {g['next']}")
+            return 3
     if confirm is None:
         if not sys.stdin.isatty():
             say("REFUSED: publish needs the owner typing yes at a real terminal")

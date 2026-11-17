@@ -168,6 +168,76 @@
    "open": false,
    "v": {}
   },
+  "antigravity": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "bind-check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "send": {
+     "c": [],
+     "f": {
+      "--continue": 0,
+      "--conversation": 1,
+      "--help": 0,
+      "--json": 0,
+      "--mode": 1,
+      "--project": 1,
+      "--prompt": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "sessions": {
+     "c": [],
+     "f": {
+      "--device": 1,
+      "--help": 0,
+      "--json": 0,
+      "--source": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "station": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--job": 1,
+      "--state": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "stream": {
+     "c": [],
+     "f": {
+      "--continue": 0,
+      "--conversation": 1,
+      "--help": 0,
+      "--json": 0,
+      "--project": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "app": {
    "c": [],
    "f": {
@@ -191,6 +261,73 @@
      "f": {
       "--help": 0,
       "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
+  "appcapture": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "recycle": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "show": {
+     "c": [],
+     "f": {
+      "--bodies": 0,
+      "--help": 0,
+      "--host": 1,
+      "--json": 0,
+      "--path": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "start": {
+     "c": [],
+     "f": {
+      "--exe": 1,
+      "--help": 0,
+      "--json": 0,
+      "--kind": 1,
+      "--port": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "status": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "stop": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--recycle": 0,
       "-h": 0
      },
      "open": false,
@@ -227,8 +364,11 @@
   },
   "autopilot": {
    "c": [
+    "agy",
     "antigravity",
     "claude",
+    "codex",
+    "gorilla-opencode",
     "login",
     "off",
     "on",
@@ -251,6 +391,7 @@
     "--minutes": 1,
     "--model": 1,
     "--restore": 0,
+    "--thinking": 1,
     "--wall-minutes": 1,
     "-h": 0
    },
@@ -335,6 +476,7 @@
     "leakgate",
     "leakgate-approve",
     "leakgate-baseline",
+    "leakgate-ci",
     "leakgate-context",
     "leakgate-dispositions",
     "leakgate-proposal",
@@ -416,6 +558,7 @@
     "--do": 1,
     "--drive": 0,
     "--dry-run": 0,
+    "--emerge": 0,
     "--fast": 0,
     "--firewall": 0,
     "--fix-locks": 0,
@@ -674,6 +817,23 @@
      "open": false,
      "v": {}
     },
+    "start": {
+     "c": [],
+     "f": {
+      "--because": 1,
+      "--dispose": 1,
+      "--dry-run": 0,
+      "--for": 1,
+      "--force-undigested": 0,
+      "--help": 0,
+      "--json": 0,
+      "--lesson": 1,
+      "--project": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "state": {
      "c": [],
      "f": {
@@ -797,6 +957,80 @@
    "open": false,
    "v": {}
   },
+  "compileonce": {
+   "c": [
+    "build",
+    "check"
+   ],
+   "f": {
+    "--force": 0,
+    "--help": 0,
+    "--json": 0,
+    "--root": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "cookbook": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hook": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "list": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "load": {
+     "c": [],
+     "f": {
+      "--budget": 1,
+      "--cwd": 1,
+      "--help": 0,
+      "--no-state": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "show": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "cost": {
    "c": [
     "daily",
@@ -894,21 +1128,29 @@
     "list",
     "manifest",
     "plan",
+    "repair",
     "repro",
     "run",
     "status"
    ],
    "f": {
+    "--base": 1,
+    "--dry-run": 0,
+    "--files": 1,
     "--help": 0,
+    "--install-dir": 1,
     "--json": 0,
     "--local": 0,
+    "--map": 1,
     "--mode": 1,
+    "--name": 1,
     "--no-fix": 0,
     "--no-guard": 0,
     "--only": 1,
     "--out": 1,
     "--stage": 1,
     "--var": 1,
+    "--why": 1,
     "--with": 1,
     "--write": 0,
     "-h": 0
@@ -1082,6 +1324,95 @@
    },
    "open": false,
    "v": {}
+  },
+  "firefox": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "handover": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--patchset": 1,
+      "--send": 0,
+      "--task": 1,
+      "--to": 1,
+      "--upstream": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "knowledge": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "lessons": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "names": {
+     "c": [],
+     "f": {
+      "--file": 1,
+      "--help": 0,
+      "--json": 0,
+      "--tag": 1,
+      "--title": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "next": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "release": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "status": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "firmware": {
    "c": [],
@@ -1342,6 +1673,17 @@
       "--apply": 0,
       "--help": 0,
       "--remove": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "leaks": {
+     "c": [],
+     "f": {
+      "--act": 0,
+      "--help": 0,
+      "--json": 0,
       "-h": 0
      },
      "open": false,
@@ -1640,6 +1982,20 @@
     }
    }
   },
+  "idle": {
+   "c": [
+    "report"
+   ],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "--min": 1,
+    "--since": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "image": {
    "c": [],
    "f": {
@@ -1756,17 +2112,23 @@
   },
   "install": {
    "c": [
+    "app",
+    "purge",
     "self-test",
     "verify"
    ],
    "f": {
+    "--apply": 0,
+    "--dir": 1,
     "--help": 0,
     "--host": 1,
     "--json": 0,
+    "--name": 1,
     "--os": 1,
     "--peer": 0,
     "--proof": 1,
     "--ref": 1,
+    "--replace": 0,
     "--save-ref": 1,
     "--tag": 1,
     "-h": 0
@@ -1840,6 +2202,23 @@
     "--text-file": 1,
     "--top": 1,
     "--where": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "keeper": {
+   "c": [
+    "install",
+    "remove",
+    "status",
+    "tick"
+   ],
+   "f": {
+    "--dry-run": 0,
+    "--help": 0,
+    "--json": 0,
+    "--scheduled": 0,
     "-h": 0
    },
    "open": false,
@@ -2498,6 +2877,25 @@
    "open": false,
    "v": {}
   },
+  "modelcatalog": {
+   "c": [
+    "verify"
+   ],
+   "f": {
+    "--app": 1,
+    "--catalogue": 1,
+    "--client-flows": 1,
+    "--client-src": 1,
+    "--help": 0,
+    "--json": 0,
+    "--probe": 1,
+    "--provider": 1,
+    "--reference": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "models": {
    "c": [],
    "f": {
@@ -2776,6 +3174,21 @@
    "open": false,
    "v": {}
   },
+  "permanence": {
+   "c": [
+    "check"
+   ],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "--repo": 1,
+    "--session": 1,
+    "--stale-hours": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "pins": {
    "c": [],
    "f": {
@@ -2844,6 +3257,26 @@
    "open": false,
    "v": {}
   },
+  "pool": {
+   "c": [
+    "plan"
+   ],
+   "f": {
+    "--clean": 1,
+    "--event-turn": 0,
+    "--help": 0,
+    "--json": 0,
+    "--no-permanence-lookup": 0,
+    "--now": 1,
+    "--reserve": 1,
+    "--self": 1,
+    "--sessions": 1,
+    "--tag": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "power": {
    "c": [
     "audit",
@@ -2873,6 +3306,19 @@
    "open": true,
    "v": {}
   },
+  "prepare": {
+   "c": [],
+   "f": {
+    "--check": 0,
+    "--help": 0,
+    "--job": 1,
+    "--json": 0,
+    "--use-fallback": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "privacy": {
    "c": [
     "install-hook",
@@ -2888,6 +3334,19 @@
     "--images": 0,
     "--json": 0,
     "--range": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "procs": {
+   "c": [
+    "check",
+    "reap"
+   ],
+   "f": {
+    "--help": 0,
+    "--json": 0,
     "-h": 0
    },
    "open": false,
@@ -3263,16 +3722,24 @@
    "c": [
     "build",
     "check",
+    "hooks",
     "install",
+    "inventory",
     "lint",
-    "prove"
+    "prove",
+    "sync"
    ],
    "f": {
+    "--against": 1,
+    "--apply": 0,
     "--file": 1,
+    "--files": 0,
     "--help": 0,
+    "--home": 1,
     "--json": 0,
     "--only": 1,
     "--repo-only": 0,
+    "--restore": 0,
     "--write": 1,
     "-h": 0
    },
@@ -3497,6 +3964,7 @@
     "--body-file": 1,
     "--fix-local": 0,
     "--help": 0,
+    "--hotfix": 1,
     "--json": 0,
     "--message-file": 1,
     "--offline": 0,
@@ -3529,16 +3997,20 @@
     "check",
     "doctor",
     "example",
+    "gather",
     "render",
     "template"
    ],
    "f": {
     "--help": 0,
+    "--hours": 1,
     "--json": 0,
     "--lang": 1,
     "--md": 0,
     "--order": 1,
+    "--render": 0,
     "--session": 1,
+    "--words": 0,
     "-h": 0
    },
    "open": false,
@@ -3714,6 +4186,7 @@
     "--accept": 1,
     "--act": 0,
     "--again": 0,
+    "--agent": 1,
     "--allow-expensive": 0,
     "--apply": 0,
     "--artefact": 1,
@@ -3737,6 +4210,7 @@
     "--scheduled": 0,
     "--stalled": 1,
     "--status": 1,
+    "--thinking": 1,
     "--title": 1,
     "--tree": 1,
     "--unpark": 1,
@@ -3910,6 +4384,7 @@
      "c": [],
      "f": {
       "--help": 0,
+      "--local": 0,
       "--repo": 1,
       "-h": 0
      },

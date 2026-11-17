@@ -28,6 +28,9 @@ fieldkit pipeline status debian-kernel
 - Every run writes `state/<pipeline>/last-report.json`, and each stage writes a full
   log to `state/<pipeline>/logs/`.
 
+
+The Firefox procedure for all three systems (Linux .deb, Windows, macOS 10.13) is ONE document: docs/FIREFOX-COOKBOOK.md; one entry point: `fieldkit firefox status|next|release|handover VERSION --to windows|mac|lessons`.
+
 ## When a build fails
 
 ```

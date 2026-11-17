@@ -425,3 +425,16 @@ def test_a_merge_tests_only_what_the_branch_itself_changed_in_the_cli_hub(tmp_pa
     names = lambda own: {Path(t).name for t in testcost.plan(tmp_path, paths=paths, own_base=own)["tests"]}
     assert names(mb) == {"test_mine.py"}                       # only what the branch itself changed
     assert "test_theirs.py" in names(None)                     # without the merge base main's lines count too
+
+
+def test_staged_says_what_ci_will_run_and_runs_nothing_without_local(repo, capsys, monkeypatch):
+    """Owner order 2026-11-15: tests run on GitHub, not here. `staged` names them; only --local runs them."""
+    _hub_repo(repo, 3)
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 4\n")
+    git(repo, "add", "-A")
+    ran = []
+    monkeypatch.setattr(testcost.subprocess, "call", lambda *a, **k: ran.append(a) or 0)
+    assert testcost.main(["staged", "--repo", str(repo)]) == 0
+    assert "GitHub CI (Linux and Windows) will run" in capsys.readouterr().err and not ran
+    assert testcost.main(["staged", "--local", "--repo", str(repo)]) == 0
+    assert ran and "pytest" in ran[0][0]

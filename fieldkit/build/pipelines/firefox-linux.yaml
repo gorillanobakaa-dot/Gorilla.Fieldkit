@@ -8,7 +8,7 @@
 # compile errors of the 154 build (signatures/firefox-linux.yaml). Every stage is dry-runnable.
 name: firefox-linux
 description: >-
-  Build Gorilla Firefox on Debian from the public patch set: vault source, mozconfig, patches,
+  Build Gorilla Unleashed on Debian from the public patch set: vault source, mozconfig, patches,
   bootstrap, build, package. Stages that need a Linux desktop say so; the plan runs anywhere.
 vars:
   harness: "${LOCAL:firefox.root}"               # the gorilla-firefox clone (mozconfig, patches/, scripts/)

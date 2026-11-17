@@ -1,0 +1,116 @@
+# P39 (owner order 2026-11-16): the person chooses, on either computer, four levels:
+#   coding agent -> provider -> model -> reasoning
+# "It wasn't only about a model, it was also about the coding agent ... Not only the model, but the provider as well."
+# This file is the ONE source (no agent, provider or model name is typed in code). What works RIGHT NOW is measured
+# live by fieldkit/lifecycle/choice.py: installed (agentfind, and `peers link agents` for the other computer), quota
+# (the agent quota guard), the models an agent or a local server lists. The `models:` below are the fallback when
+# nothing can be asked; a name on `stale:` fails `fieldkit models menu --check`.
+#
+# Threat model (rules/CORE.md): every provider says who can act through it and who learns what. `private: true` marks
+# the option where the prompt and the code never leave this computer; the menu shows it.
+
+checked: 2026-11-16          # the day the fallback lists below were last compared with a live list
+
+# Names that were offered once and are gone or were never real; any of them in this file or a remembered choice is a
+# finding. (Antigravity's 87093edb catalogue: bare hydrogen/argon/carbon are agy's gemini-4-* families, never models.)
+stale: [hydrogen, argon, carbon, claude-opus-4-6, claude-sonnet-4-5, o4-mini, o3, codex-mini, gpt-5-codex,
+        gemini-2.5-pro, gemini-2.5-flash, local/qwen3]
+
+providers:
+  anthropic:
+    title: Anthropic (Claude)
+    who_can_act: "Anthropic, and whoever can compel it, sees every prompt and file the agent sends and the answers"
+    who_learns: "Anthropic: the account, the prompts, the code sent, usage and timing"
+    models: [haiku, sonnet, opus, fable]                     # Claude Code's own aliases: resolved to the newest by the agent
+  openai:
+    title: OpenAI (GPT, Codex)
+    who_can_act: "OpenAI, and whoever can compel it, sees every prompt and file the agent sends and the answers"
+    who_learns: "OpenAI: the account, the prompts, the code sent, usage and timing"
+    models: [gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4-mini]
+  google:
+    title: Google (Gemini, Antigravity)
+    who_can_act: "Google, and whoever can compel it, sees every prompt and file the agent sends and the answers"
+    who_learns: "Google: the Google account, the prompts, the code sent, usage and timing"
+    models: [gemini-4-hydrogen-high, gemini-4-argon-medium, gemini-3.8-flash-medium, claude-opus-5-5-high,
+             claude-sonnet-5-5-medium, gpt-oss-120b-medium]
+  amazon:
+    title: Amazon (Kiro)
+    who_can_act: "Amazon (AWS), and whoever can compel it, sees every prompt and file the agent sends and the answers"
+    who_learns: "Amazon: the AWS Builder ID or account, the prompts, the code sent, usage and timing"
+    models: [auto]                                           # Kiro picks unless told; --list-models needs a login
+  openrouter:
+    title: OpenRouter (many vendors, one key)
+    who_can_act: "OpenRouter AND the vendor it routes to both see every prompt and answer"
+    who_learns: "OpenRouter: the key, prompts, usage; the routed vendor: the prompts"
+    models: []                                               # Gorilla OpenCode's own catalogue (models refresh) lists them
+  lmstudio:
+    title: Local LLM (LM Studio)
+    private: true
+    who_can_act: "nobody outside this computer: the model runs here (LM Studio itself is closed source)"
+    who_learns: "nobody: prompts and code stay on this computer"
+    endpoint: http://127.0.0.1:1234/v1/models
+    models: []                                               # what LM Studio serves now (measured)
+  ollama:
+    title: Local LLM (Ollama)
+    private: true
+    who_can_act: "nobody outside this computer: the model runs here"
+    who_learns: "nobody: prompts and code stay on this computer"
+    endpoint: http://127.0.0.1:11434/api/tags
+    models: []                                               # what Ollama serves now (measured)
+
+# Each agent: the providers it can drive, how its live model list is read (never a command that opens a browser or
+# changes anything), and its reasoning levels.
+#   finder    the agentfind.AGENTS name that says whether it is installed
+#   live      codex-cache: read ~/.codex/models_cache.json | command: run `live_cmd` (10 s cap), one name per line,
+#             first column | aliases: the agent resolves the names itself (no list to read) | none
+agents:
+  claude:
+    title: Claude Code
+    finder: claude
+    providers: [anthropic]
+    live: aliases
+    reasoning: [low, medium, high, xhigh, max]
+  codex:
+    title: OpenAI Codex CLI
+    finder: codex
+    providers: [openai, lmstudio, ollama]                    # codex --oss runs on a local server
+    live: codex-cache
+    reasoning: [low, medium, high, xhigh, max]
+  agy:
+    title: Antigravity CLI (agy)
+    finder: agy
+    providers: [google]
+    live: command
+    live_cmd: [models]
+    reasoning: [low, medium, high, xhigh, max]
+  antigravity:
+    title: Antigravity (IDE)
+    finder: antigravity
+    providers: [google]
+    live: none                                               # the IDE has no list command; agy reads the same account
+    live_from: agy
+    reasoning: [low, medium, high, xhigh, max]
+  gemini:
+    title: Gemini CLI
+    finder: gemini
+    providers: [google]
+    live: none
+    models: [auto, pro, flash]                               # Gemini CLI's own aliases
+    reasoning: [medium]
+  gorilla-opencode:
+    title: Gorilla OpenCode
+    finder: gorilla-opencode
+    providers: [anthropic, openai, google, openrouter, lmstudio, ollama]
+    live: none                                               # its catalogue is checked by `gorilla-opencode models check`
+    reasoning: [low, medium, high, max]
+  kiro:
+    title: Kiro CLI
+    finder: kiro
+    providers: [amazon]
+    live: none                                               # `kiro-cli chat --list-models` opens a browser when logged out
+    reasoning: [medium]
+
+# Headless jobs (no person present) use the owner's pre-recorded choice for that job type (state/lifecycle/choices.json,
+# `fieldkit models remember JOB_TYPE AGENT PROVIDER MODEL REASONING`), else they stop with an owner inbox item. Never a
+# hidden fallback, never "claude unless told".
+cache_minutes: 60            # a live model list is re-read after this long (choice-cache.json in state/lifecycle/)

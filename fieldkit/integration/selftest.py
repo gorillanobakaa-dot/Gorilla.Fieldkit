@@ -73,6 +73,13 @@ def satisfy(st, cfg, ctype, rule, name):
         st.files[f"tests/test_{name}.py"] = ""
     elif t == "card_platforms":
         st.cards[name]["platforms"] = list(cfg.get("required_systems", ["windows", "linux"]))
+    elif t == "card_e2e":
+        osn = list(cfg.get("required_systems", ["windows", "linux"]))
+        runs = {"windows": "windows-latest", "linux": "ubuntu-latest", "macos": "macos-latest"}
+        st.cards[name]["e2e"] = {o: f"e2e-{name}-{o}" for o in osn}
+        for o in osn:
+            st.add(".github/workflows/e2e.yml", f"jobs:\n  e2e-{name}-{o}:\n    runs-on: {runs[o]}" if not st.files.get(
+                ".github/workflows/e2e.yml") else f"  e2e-{name}-{o}:\n    runs-on: {runs[o]}")
     else:
         raise ValueError(f"self-test cannot satisfy rule type {t!r}")
 
@@ -118,7 +125,7 @@ def run(kind):
         clean = Path(tmp) / "clean"
         clean.mkdir()
         build(clean, kind)
-        r = core.run_check(clean)
+        r = core.run_check(clean, strict=True)
         good = r["ok"] and r["kind"] == kind
         ok &= good
         out.append(f"{'ok    ' if good else 'FAIL  '} clean fixture passes" + ("" if good else f": {r['gaps'][:3]}"))
@@ -129,7 +136,7 @@ def run(kind):
                 d = Path(tmp) / f"omit{n}"
                 d.mkdir()
                 build(d, kind, (ctype, rule["id"]))
-                r = core.run_check(d)
+                r = core.run_check(d, strict=True)
                 want = "*" if rule.get("scope") == "kind" else PRIMARY[kind][ctype]
                 hit = [g for g in r["gaps"] if g["surface"] == rule["id"] and g["capability"] == want]
                 ok &= bool(hit)

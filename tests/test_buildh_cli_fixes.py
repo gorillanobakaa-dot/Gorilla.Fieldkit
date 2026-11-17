@@ -211,3 +211,20 @@ def test_embedded_hosts_reads_unpacked_resources_when_there_is_no_omni_ja(tmp_pa
     out = audit.embedded_hosts(lambda rel: (tmp_path / rel).read_bytes(), loose_root=tmp_path)
     assert out["tracker.example.org"] == ["loose:browser/chrome/a.js"] and out["deep.example.net"] == ["libxul.so"]
     assert audit.embedded_hosts(lambda rel: (tmp_path / rel).read_bytes()) .get("tracker.example.org") is None   # old behaviour kept without loose_root
+
+
+def test_build_verify_journals_build_verified_so_the_s5_gate_can_see_it(monkeypatch):
+    """2026-11-15, 160: the S5 gate reads `build-verified` and names `build-verify` as its NEXT; only the build runner
+    wrote the event, so verifying an existing build could never turn S5 green."""
+    from fieldkit.buildh import compile as cg, task
+    seen = []
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid})
+    monkeypatch.setattr(task, "journal", lambda t, ev, **kw: seen.append((t["id"], ev, kw)))
+    monkeypatch.setattr(cg, "verify", lambda tid: [{"check": "c", "ok": True, "evidence": "e"}])
+    monkeypatch.setattr(cg, "lines", lambda rows, title: [title])
+    cli.main(["build-harness", "build-verify", "t1"])
+    assert ("t1", "build-verified", {"ok": True, "via": "build-verify"}) in seen
+    seen.clear()
+    monkeypatch.setattr(cg, "verify", lambda tid: [{"check": "c", "ok": False, "evidence": "e"}])
+    cli.main(["build-harness", "build-verify", "t1"])
+    assert ("t1", "build-verified", {"ok": False, "via": "build-verify"}) in seen

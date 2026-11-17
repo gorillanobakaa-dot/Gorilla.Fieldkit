@@ -121,7 +121,7 @@ What it never does (each one a test, `tests/cilocal_mutations.yaml` proves each 
 | a proof for a test failure on GitHub | only a known runner outage is infrastructure; a log that names a failed test never is, and anything unrecognised is a test failure (fail closed) |
 | a proof for any commit but the PR head | the head is read before and after the run; a full 40-hex match or nothing |
 | a proof for the other OS | the OS of the job is the OS of the machine that ran it; the other OS's GitHub green is still required |
-| a red local check step without a strike | it counts as a GitHub red would (TWO STRIKES); a red in setup (checkout, venv, pip) proves nothing either way |
+| a red local check step without a strike | it counts as a GitHub red would (strikes); a red in setup (checkout, venv, pip) proves nothing either way |
 | a workflow step it cannot reproduce | an unknown action, expression or condition refuses the whole run |
 | merging past a ruleset that pins the check to the GitHub Actions app | a commit status cannot satisfy it; that is said, and the owner gets one inbox item with the ruleset change |
 

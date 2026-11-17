@@ -21,7 +21,9 @@ AGENTS = {
     "gemini": (["gemini"], ["--version"], ""),
     "opencode": (["opencode"], ["--version"], ""),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"], ""),
-    "antigravity": (["antigravity", "agy", "Antigravity"], None, ""),
+    "antigravity": (["antigravity", "Antigravity", "agy"], None, ""),
+    "agy": (["agy", "antigravity"], ["--version"], ""),
+    "kiro": (["kiro-cli", "kiro"], ["--version"], ""),             # P39: Kiro CLI (kiro-cli), else the Kiro IDE
 }
 VERSION_TIMEOUT = 5
 
@@ -50,7 +52,7 @@ def known_dirs(stem, osname=None, home=None, env=None):
                      j(la, "Claude*", "app-*", "resources", "claude.exe")]
     else:
         mac = osname == "darwin"
-        pats += [j(home, ".local", "bin", stem), j(home, ".claude", "local", stem), j(home, ".npm-global", "bin", stem),
+        pats += [j(home, ".local", "bin", stem), j(home, ".local", "opt", "*", stem), j(home, ".claude", "local", stem), j(home, ".npm-global", "bin", stem),
                  j(home, ".nvm", "versions", "node", "*", "bin", stem), j(home, ".bun", "bin", stem),
                  j(home, "go", "bin", stem), "/usr/local/bin/" + stem, "/usr/bin/" + stem, "/opt/homebrew/bin/" + stem,
                  "/opt/*/" + stem, "/opt/*/bin/" + stem, "/usr/lib/*/" + stem, "/usr/lib/*/bin/" + stem,

@@ -749,7 +749,7 @@ def main(argv=None, prog="fieldkit overhead"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("job", nargs="?", help="a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, "
-                                           "'baselines', 'causes' (hours lost per refusal cause, P23), 'counsel' (advisor / reviewer / climb per job, P9), or 'bash-calls' (every foreground Bash call by kind, with --since)")
+                                           "'baselines', 'causes' (hours lost per refusal cause, P23), 'counsel' (advisor / reviewer / climb per job, P9), 'bash-calls' (every foreground Bash call by kind, with --since), or 'models' (tokens per model per job and Zero session, P34)")
     ap.add_argument("--session", action="append", default=[], help="a Claude Code session id (prefix) of this job")
     ap.add_argument("--since")
     ap.add_argument("--until")
@@ -769,6 +769,24 @@ def main(argv=None, prog="fieldkit overhead"):
             for r in rows:
                 print(f"  {r['kind']:30s} {r['calls']:5d} calls {fmt(r['seconds']):>10}  median {r['median']:6.1f}s")
             print("NEXT: the top rows are where waiting goes; run them in the background or under fieldkit guard")
+        return 0
+    if a.job == "models":                         # P34/P35: tokens per model, per job and per Zero session
+        from .lifecycle import modelmix
+        zs = ""
+        try:
+            from .zero import net as _net
+            zs = (_net.zero_of(_net.load_net()) or "").split(":")[-1].split("@")[0]      # the session's first 8
+        except Exception:                         # noqa: BLE001 - no net: no Zero row
+            pass
+        rs = modelmix.rows(claude_projects(), a.since or "2020-01-01", zs)
+        if a.json:
+            print(json.dumps(rs, indent=1))
+        else:
+            print("\n".join(modelmix.lines(rs)))
+            exp = sum(r["input"] + r["output"] + r["cache_read"] + r["cache_write"] for r in rs if r["tier"] == "expensive")
+            tot = sum(r["input"] + r["output"] + r["cache_read"] + r["cache_write"] for r in rs) or 1
+            print(f"NEXT: {100 * exp // tot}% of the tokens ran on opus or fable; a ZERO row on an expensive model is "
+                  "gathering the cheap models should do (fieldkit sitrep gather, Agent model=haiku)")
         return 0
     if a.job == "counsel":
         from .lifecycle import counsel            # P9: per job, the advisor it had and how often the worker asked it

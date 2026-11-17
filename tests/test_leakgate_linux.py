@@ -265,7 +265,7 @@ def test_tcpdump_satisfies_the_packet_sensor_the_judge_requires():
     assert not any("required sensor" in x for p in fail.values() for x in p)
     without = [e for e in LINUX_SENSORS if e["sensor"] != "tcpdump"]
     fail, _ = gate.judge(without, {"entries": []}, {}, ["/b"], [], 3, True, False)
-    assert any("pktmon" in x for x in fail["NETWORK_POLICY"]) and any("pktmon" in x for x in fail["DNS_POLICY"])
+    assert any(gate.packet_sensor_name() in x for x in fail["NETWORK_POLICY"]) and any(gate.packet_sensor_name() in x for x in fail["DNS_POLICY"])
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")

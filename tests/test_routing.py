@@ -60,7 +60,8 @@ def test_default_choice_is_cheap_and_accept_is_per_day(monkeypatch):
     routing.set_choice("multi", "opus")
     ch = routing.choice()
     assert (ch["mode"], ch["ceiling"], ch["fresh"]) == ("multi", "opus", True)
-    assert routing.choice(today=time.time() + 5 * 86400)["ceiling"] == "sonnet"      # stale -> cheap again
+    later = routing.choice(today=time.time() + 5 * 86400)                            # midnight never resets it
+    assert (later["mode"], later["ceiling"], later["fresh"]) == ("multi", "opus", False)
     with pytest.raises(ValueError):
         routing.set_choice("duo", "sonnet")
     with pytest.raises(ValueError):
@@ -86,6 +87,18 @@ def test_multi_caps_the_parallel_jobs():
     assert not routing.admit(live, None, alive=lambda p: True)[0]
     assert routing.admit(dict(list(live.items())[:2]), None, alive=lambda p: True)[0]
     assert routing.admit({}, "vaio")[0]
+
+
+def test_yesterdays_choice_still_admits_multi_today():
+    routing.set_choice("multi", "sonnet")
+    p = routing._choice_path()
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    rec["accepted"] = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+    p.write_text(json.dumps(rec), encoding="utf-8")
+    ch = routing.choice()
+    assert (ch["mode"], ch["fresh"]) == ("multi", False)                               # only a reminder
+    live = {"T1": job(1, pid=7)}
+    assert routing.admit(live, None, alive=lambda p: True, ch=ch)[0]                   # not "solo runs 1 job"
 
 
 def brief(tmp_path, text):

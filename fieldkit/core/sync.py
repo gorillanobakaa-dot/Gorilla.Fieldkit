@@ -172,6 +172,11 @@ def apply(row, ci=ci_green):
         row["why"] += f"; refused: {row['ci']}" + (f" (and {len(skipped) - 1} commit(s) below it)" if len(skipped) > 1 else "")
         return row
     row["ci"] = ev
+    from . import checkout_hold            # P29: a running build holds this checkout
+    held = checkout_hold.busy(row["repo"])
+    if held:
+        row["why"] += f"; refused: {held}; the build reads it, sync again when it ends"
+        return row
     _git(row["repo"], "merge", "--ff-only", "--quiet", target)
     left = int(_git(row["repo"], "rev-list", "--count", f"HEAD..{row['upstream']}"))
     took = row["behind"] - left
@@ -251,6 +256,19 @@ def run(do_apply=False, extra=(), fetch=True):
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
                 rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
+    try:                                              # P37: the private store of untracked instruction files
+        from .. import rules_song
+        stored = rules_song.store_apply(rules_song.inventory(), restore=False) if do_apply else []
+        rows.append({"repo": "instruction files", "ok": True, "verdict": "STORED" if stored else "OK",
+                     "why": "; ".join(stored) or "fieldkit rules sync (hashes), rules lint --files (duplicates)"})
+    except Exception as e:  # noqa: BLE001 - informational: never fails the session-start sync
+        rows.append({"repo": "instruction files", "ok": True, "verdict": "SKIPPED", "why": str(e)[:100]})
+    if do_apply:
+        try:
+            from .. import compileonce
+            compileonce.build(ROOT)
+        except Exception:  # noqa: BLE001 - bytecode pre-compile is best-effort inside sync
+            pass
     return rows
 
 

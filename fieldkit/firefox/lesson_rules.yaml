@@ -1,0 +1,108 @@
+# Lessons that became rules (P38, owner order 2026-11-16). A port submit carries `lesson: ...`; a migration does not
+# close while a lesson matches no entry here (fieldkit firefox lessons TASK; the S9.lessons gate).
+# Each entry is ONE of:
+#   kind: tool       a harness tool does it now: `tool` says which, `test` is the test that proves it
+#   kind: port-rule  a written rule every port step is given (task.next prints them under PORT RULES): `rule`
+#   kind: no-rule    recorded why it does not become a rule: `because`
+# `match` is a regular expression (case-insensitive) over the lesson text. 158: 12 lessons, 12 rules; 160: 109
+# lessons (60 distinct) folded into the families below. Merge a new lesson into a family before adding one.
+- id: fluent-rename-2-suffix
+  kind: tool
+  match: "renamed with a 2 suffix|put the patch's wording on the new id"
+  tool: "build-harness rebase-set: rebase.fluent_moves finds Gorilla wording a superseded patch gave a message whose id upstream renamed (tabs3 -> tabs4) and names the live successor"
+  test: tests/test_buildh_rebase.py
+- id: fluent-orphans
+  kind: tool
+  match: "before removing a Fluent message, find what still uses its id"
+  tool: "build-harness fluent-check: every removed message id is no longer used by visible UI (fluent.orphans)"
+  test: tests/test_buildh_fluent_orphans.py
+- id: failed-hunk-is-a-step
+  kind: tool
+  match: "hunk that failed to apply must always become a step"
+  tool: "build-harness rebase-set: replay lists every patch that fails on pristine; carried() checks each superseded patch line by line"
+  test: tests/test_buildh_rebase.py
+- id: moved-declaration-partly
+  kind: tool
+  match: "upstream moves a declaration the removed block used|upstream adds a clause to a condition"
+  tool: "build-harness rebase-set: carried() reports PARTLY with the exact lines (an added line missing, a removed line still there)"
+  test: tests/test_buildh_rebase.py
+- id: grafted-repair
+  kind: tool
+  match: "GORILLA REPAIR .* grafted verbatim|messages are then upstream's own and must stay"
+  tool: "build-harness fluent-check (a removed message still in use is an orphan) and rebase-set carried() (ALREADY-UPSTREAM)"
+  test: tests/test_buildh_fluent_orphans.py
+- id: stale-proposal
+  kind: tool
+  match: "proposal saved before later steps edited the same file can conflict"
+  tool: "build-harness accept: a proposal is applied three-way and, when it still conflicts, its step goes back to failed (task.accept)"
+  test: tests/test_buildh_task.py
+
+# -- Firefox 160 families --------------------------------------------------------------------------------------------
+- id: gorilla-wording-trigger
+  kind: port-rule
+  match: "word-triggered|brand-word hunk|gorilla word|gorilla marker word|quotes (a|another) ui label|insertion point"
+  rule: "The Gorilla wording patch is word-triggered (page, profile, bookmarks, toolbar): when upstream rewrote a message and the trigger word is gone, add nothing; when it is still there, insert the Gorilla word before it. A quoted UI label equals the real label in browser.ftl, with the Gorilla word on the surrounding noun."
+- id: dropped-sentence
+  kind: port-rule
+  match: "drops? a sentence|deleted a sentence|dropped sentence|drops the phrase|tie-break"
+  rule: "When upstream drops a sentence a hunk rewrites, port only the wording of what upstream kept and never re-add the dropped sentence; the added-text check does not demand it, and the auto-accept tie-break decides from the upstream diff."
+- id: fluent-trailing-n-rename
+  kind: port-rule
+  match: "fluent message renamed by a trailing -n|renamed fluent message|renamed message|declared message rename|by id stem|stem before (the )?-?n|platform\\(\\) selector"
+  rule: "A Fluent message renamed upstream (a trailing -N bump, or a declared rename OLD -> NEW) keeps its Gorilla text change: match it by the id stem before -N, put the Gorilla word on the new text at the same place (before the final noun phrase), carry it onto every PLATFORM() variant, and declare `renames: OLD -> NEW` in the submit."
+- id: upstream-comment-wording
+  kind: port-rule
+  match: "rewords a removed comment"
+  rule: "When upstream rewords a comment inside a removed block, keep upstream's wording and port only the code lines."
+- id: delete-by-content
+  kind: port-rule
+  match: "delete-only hunk|only deletes lines|deletes? the same lines by content|only deletes a (block|statement)|only removes lines already absent|matching on the element id|match the element by id|lazy getter already gone|already gone upstream"
+  rule: "A delete-only hunk deletes the same lines by content wherever they now sit: a block is bounded by its first and last lines (or the comment before it and the next unchanged statement), a statement by its left-hand side, an element by its id; what upstream already removed is obsolete, not a model step."
+- id: removed-whole-despite-drift
+  kind: port-rule
+  match: "removed (block|call|getter block|element) .*(gained|changed)|still counts as that block|still removed whole|is removed whole|gained an? (extra|new) attribute"
+  rule: "A removed block, call, getter or element whose inside changed upstream (an extra argument, a new attribute, a changed condition) is still removed whole; the meaning check accepts removal of the whole statement, and a new attribute line is kept in the Gorilla comment when the check names it."
+- id: whole-function-by-name
+  kind: port-rule
+  match: "whole function body|function by (its )?name|by function name|remove a whole function|replace to its closing brace|rename inside the removed lines is moot"
+  rule: "A hunk that replaces or removes a whole function body (a lock, an early return) matches the function by name and replaces to its closing brace; upstream edits and renames inside the removed body are irrelevant."
+- id: early-return-anchor
+  kind: port-rule
+  match: "early-return|early return|excised stub|guarded function"
+  rule: "A Gorilla early return or EXCISED stub goes at the very top of the upstream method when its old context is gone or upstream reordered the body; anchor it on the guard just above when the context line after it moved."
+- id: rename-map
+  kind: port-rule
+  match: "rename map|renamed window-id accessor|upstream rename of a removed (ai )?module|aiwindow path|new upstream actors for a removed module"
+  rule: "Keep a rename map for upstream renames of removed modules and getters (AIWindowAccountAuth -> AuthProvider, isSmartTabGroupingAllowed -> isAutoTabGroupingAvailable) and match a removed AI module's getter by its aiwindow path; new upstream actors of a removed module need their own removal, listed by module path."
+- id: absorbed-upstream
+  kind: port-rule
+  match: "already contains the effect|already carries the effect|mark the patch absorbed|mark the hunk absorbed|absent-upstream|hunk is satisfied|resolve it alone"
+  rule: "When upstream already carries a fix's effect (or deleted the function a lock guards, and the constructor lock holds), mark the hunk absorbed or absent-upstream with no edit; it is not a model step."
+- id: locked-pref-successor
+  kind: port-rule
+  match: "locked-off .*pref|boolean pref into a string pref|ai-feature pref|lock (it|the new name) (false|off)|successor gate"
+  rule: "A pref Gorilla locks off that upstream renames, splits by #ifdef channel or turns into a string pref is locked in its new form in every preprocessor branch (aitab.enabled -> aitab.menus under NIGHTLY_BUILD), with the Gorilla locked values in place of the upstream block."
+- id: loose-context
+  kind: port-rule
+  match: "context line gained a parameter|match the context loosely|re-wrapped by prettier|ignoring line breaks|trailing context moved|appends at end of file|first and last context lines|diff alignment"
+  rule: "Context is matched loosely: a context line that gained a parameter matches by the function name, lines re-wrapped by prettier match ignoring line breaks, an append whose trailing context moved goes at the end of the file, and a JSON hunk is placed by its first and last context lines, not by line count."
+- id: occurrence-count
+  kind: port-rule
+  match: "should-be-gone check must count occurrences"
+  rule: "A 'line should be gone' check counts occurrences, not presence: generic lines (Preferences.addSetting({, a CSS property) legitimately remain elsewhere in the file."
+- id: list-survivors
+  kind: port-rule
+  match: "appends entries to a list the patch removes"
+  rule: "When upstream appends entries to a list the patch removes from, remove only the Gorilla-excised entries and write the survivors so the removed opener line is gone."
+- id: css-variable-rename
+  kind: port-rule
+  match: "renames a css variable"
+  rule: "When upstream renames a CSS variable on a line the patch replaces, match the line by its property and replace the whole value."
+- id: skipped-call-new-bail
+  kind: port-rule
+  match: "skips a call under a pref|wraps a call in a pref guard"
+  rule: "A hunk that skips or guards a call under a pref is checked against any new upstream bail or 'nothing found' check that depends on the skipped call's effect; that check is exempted under the same guard."
+- id: empty-done-keys
+  kind: no-rule
+  match: "extra empty keys in a done\\(\\) answer"
+  because: "harmless by the lesson's own words: nothing reads those keys, so no check or rule would change a result"

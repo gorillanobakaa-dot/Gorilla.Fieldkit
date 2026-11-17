@@ -35,7 +35,7 @@ groups:
     sources: [hog/*.py]
   - name: observe
     title: See inside the machine, the same on Linux, Windows and macOS - who holds a file or a port, a process in full, folder changes, what a process opens, its usage over time, system events
-    sources: [observe/*.py]
+    sources: [observe/*.py, appcapture/*.py, modelcatalog/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
     sources: [lifecycle/*.py]
@@ -48,6 +48,9 @@ groups:
   - name: tokens
     title: What AI coding sessions cost and where their tokens went, and session rotation - monster sessions handed over to fresh ones
     sources: [tokens/*.py]
+  - name: antigravity
+    title: Antigravity - agent config checks (hooks, MCP doors, plugins, workflow migration) run by the Rust agy-tools binary built from source, and the session bridge (list, send, stream, a station on Zero's net; loopback and cable only)
+    sources: [antigravity/*.py]
   - name: skills
     title: Agent Skills - every agentskills.io rule checked, network doors in adopted skills, the same skills installed on every machine, and the adopted Anthropic skills' scripts as commands
     sources: [skills/*.py]
@@ -138,6 +141,7 @@ groups:
       - buildh/upstream.py
       - buildh/vault.py
       - buildh/worker.py
+      - compileonce.py
       - ideas.py
       - refusals.py
       - review.py
@@ -156,6 +160,7 @@ groups:
       - review_verdict.py
       - rules.py
       - rules_lint.py
+      - rules_song.py
       - suite_offload.py
       - testsplit.py
 
@@ -289,6 +294,12 @@ groups:
   - name: macair
     title: "Gorilla for the MacBook Air (old Intel Macs, macOS 10.13): the Mac decisions checked in the source, the 11-inch layout budget, the published patch series, install and measured verification on the Mac"
     sources: ["macair/*.py"]
+  - name: firefox
+    title: "The one Firefox cookbook (Linux .deb, Windows, macOS 10.13): status, next step, release chain, handover package, lessons as rules"
+    sources: ["firefox/*.py"]
+  - name: cookbook
+    title: "The project registry (projects/<id>/project.yaml) and the deterministic brief loaded at session start by cwd: load, list, show, check"
+    sources: ["cookbook/*.py"]
 
   - name: netbench
     title: Network benches B1-B5 (bytes, load time, throughput, HTTP/3 buffers, RAM, keepalive) through an emulated link, local servers only

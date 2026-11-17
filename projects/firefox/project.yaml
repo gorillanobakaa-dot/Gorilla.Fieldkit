@@ -1,0 +1,21 @@
+id: firefox
+name: Gorilla Unleashed (Firefox)
+purpose: "Privacy-hardened Firefox fork for Linux (.deb), Windows and macOS 10.13; one migration per upstream release."
+repos:
+  - {name: harness, github: gorillanobakaa-dot/gorilla-firefox, local: "${LOCAL:firefox.root}"}
+  - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
+recipes: [firefox-debian, firefox-windows]
+cookbook:
+  - {repo: fieldkit, path: docs/FIREFOX-COOKBOOK.md, what: "the one procedure, Mozilla release to all three systems"}
+  - {repo: fieldkit, path: fieldkit/firefox/cookbook.yaml, what: "the same procedure as data (steps S0-S9, systems)"}
+  - {repo: fieldkit, path: fieldkit/firefox/lesson_rules.yaml, what: "port lessons and the rule each became"}
+entry:
+  - {cmd: "fieldkit firefox status", what: "where each system stands"}
+  - {cmd: "fieldkit firefox next", what: "the one next step, with its command"}
+  - {cmd: "fieldkit build-harness migrate brief", what: "every migration under control, 3 lines each"}
+tests:
+  - {cmd: "python -m pytest -q tests/test_firefox_cookbook_e2e.py", paths: ["fieldkit/firefox/", "fieldkit/migrate/", "fieldkit/buildh/"]}
+platforms: [linux, windows, macos]
+decisions: {repo: harness, path: decisions/PRODUCT-DECISIONS.yaml}
+plan_words: [Firefox, P27, P38]
+cwd_markers: ["FIREFOX.WORK", "gorilla-firefox", "Gorilla.firefox"]

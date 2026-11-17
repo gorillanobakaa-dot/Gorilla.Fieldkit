@@ -11,9 +11,14 @@
     migrate close TASK                     the finish (S9 gate green): capture off, what the migration recorded distilled
     migrate work TASK ITEM                 open a work item of the current stage (the drift guard needs one)
     migrate park TASK "why"                park a side problem as a ticket;  migrate unpark TASK P-001 "resolution"
+    migrate landed TASK I-x FILE "QUOTE" "why"   the intent is in the tree in another form; the quote is re-checked
     migrate intents TASK [--json]          ledger coverage and the per-intent statuses that are not green
     migrate intake TASK [--json]           the S1 intake items and their dispositions
     migrate consistency TASK [--json]      documents and tools against the register and the build
+    migrate preflight [harness=DIR] [src=DIR] [rev=REV] [root=REV] [pristine=DIR] [version=V]
+                      [recipe=NAME] [platform=windows,linux] [skip=set-proof,...]
+                                           before a compile: the patched tree, the patch policy, set-proof, the
+                                           stage key and the stall guard -> one verdict (PASS/FAIL/INCOMPLETE)
 
 TASK may be left out when `--task` is given or a current task exists.
 """
@@ -23,7 +28,7 @@ from pathlib import Path
 from ..buildh import task
 from . import plan
 
-SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "close", "work", "park", "unpark", "intents", "intake",
+SUBS = ("brief", "preflight", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "close", "work", "park", "unpark", "landed", "intents", "intake",
         "consistency")
 
 
@@ -109,11 +114,35 @@ def brief_lines(state_root=None, harness_root=None):
     return out
 
 
+def _preflight(a, emit):
+    """P29: migrate preflight -> exit 0 PASS, 3 FAIL, 1 INCOMPLETE (a check could not run)."""
+    from ..core import settings
+    from . import preflight
+    kv = {}
+    for x in a.args[1:]:
+        if "=" not in x:
+            raise task.Refused(f"migrate preflight takes key=value arguments, not {x!r} (see fieldkit/migrate/cli.py)")
+        k, v = x.split("=", 1)
+        kv[k.strip()] = v.strip()
+    harness = kv.get("harness") or settings.expand("${LOCAL:firefox.root}", strict=False)
+    if not harness or "${" in harness:
+        raise task.Refused("migrate preflight: no harness (harness=DIR, or firefox.root in fieldkit.local.json)")
+    plats = tuple(p for p in kv.get("platform", "").split(",") if p) or None
+    pristine = kv.get("pristine") or preflight._pristine_for(kv.get("version"))
+    r = preflight.run(harness, src=kv.get("src"), rev=kv.get("rev", "HEAD"), base_rev=kv.get("root"),
+                      pristine=pristine, recipe=kv.get("recipe", "firefox-windows"),
+                      skip=tuple(s for s in kv.get("skip", "").split(",") if s), platforms=plats)
+    emit(r, lambda r: print("\n".join(preflight.lines(r))))
+    return 0 if r["verdict"] == "PASS" else (3 if not r["ok"] else 1)
+
+
 def run(a, emit, current_id):
     if a.args and a.args[0] == "brief":
         lines = brief_lines()
         emit({"lines": lines}, lambda r: print("\n".join(r["lines"])) if r["lines"] else None)
         return 0
+    if a.args and a.args[0] == "preflight":
+        return _preflight(a, emit)
     sub, tid, rest, kv = _split(a, current_id)
     as_json = getattr(a, "json", False)
     say = (lambda msg: None) if as_json else (lambda msg: print(msg, flush=True))
@@ -129,6 +158,14 @@ def run(a, emit, current_id):
             raise task.Refused("migrate unpark TASK P-001 \"how it was resolved\"")
         e = guard.unpark(tid, rest[0], " ".join(rest[1:]))
         emit(e, lambda r: print(f"CLOSED {r['id']}: {r['resolution']}"))
+        return 0
+    if sub == "landed":
+        from . import landed
+        rest = [x for x in a.args[1:] if x != tid]          # raw: a quoted tree line may hold "=" (kv must not eat it)
+        if len(rest) < 4:
+            raise task.Refused('migrate landed TASK I-x FILE "QUOTE" "why it landed differently"')
+        r = landed.record(tid, rest[0], rest[1], rest[2], " ".join(rest[3:]))
+        emit(r, lambda r: print(f"LANDED {r['intent']}: {r['evidence']}\nNEXT: fieldkit build-harness migrate check {tid} --only S2"))
         return 0
     m = plan.Migration(tid)
     if sub == "seed":

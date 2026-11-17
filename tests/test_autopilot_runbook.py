@@ -99,3 +99,15 @@ def test_build_harness_runbook_reads_action_and_file_and_refuses_without_a_file(
     assert cli.main(["build-harness", "runbook", "status", str(rb)]) == 0
     assert "RUNBOOK x.md" in capsys.readouterr().out
     assert cli.main(["build-harness", "runbook", "status"]) != 0
+
+
+def test_a_brief_quoting_a_fenced_log_survives_the_runbook_round_trip(tmp_path):
+    """2026-11-15: a keeper fix brief quoted a CI log with ``` inside; the 3-backtick block ended early and every fix
+    job died at load ("found unexpected end of stream")."""
+    from fieldkit.lifecycle import tasks
+    brief = 'Fix PR 496.\nLog tail:\n```\nFAILED tests/x.py::t - "quoted" \\\\ back\n```\nmore after\n'
+    p = tmp_path / "t.md"
+    p.write_text(tasks.runbook_text("T-1", brief, tmp_path, 30), encoding="utf-8")
+    steps = runbook.load(p)["steps"] if isinstance(runbook.load(p), dict) else runbook.load(p)
+    step = steps[0] if isinstance(steps, list) else steps
+    assert step["agent"] == brief

@@ -103,14 +103,20 @@ def full_brief(text, tid, on=None, title=""):
     return text.rstrip() + "\n" + head + protocol.brief_tail(None if on else tid, headless=True) + back
 
 
-def runbook_text(tid, brief, cwd, wall, model=None):
+def runbook_text(tid, brief, cwd, wall, model=None, agent=None, thinking=None):
     import yaml
     step = {"id": "work", "title": f"task {tid}", "agent": brief, "cwd": str(cwd),
             "budget": {"wall_minutes": int(wall)}}
     if model:
         step["model"] = model                  # the worker's model, from roles.yaml or --model (HARNESS-PLAN I5)
+    if agent:
+        step["coding_agent"] = agent
+    if thinking:
+        step["thinking"] = thinking
+    body = yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True)
+    fence = "`" * max(3, 1 + max((len(r) for r in re.findall(r"`+", body)), default=0))   # longer than any run inside
     return (f"# fieldkit task {tid}\n\nWritten by `fieldkit task start`; run headless by fieldkit autopilot.\n\n"
-            "```runbook\n" + yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True) + "```\n")
+            f"{fence}runbook\n" + body + f"{fence}\n")
 
 
 def brief_hash(text):
@@ -140,14 +146,14 @@ class DefectOpen(ValueError):
 
 
 class Parked(ValueError):
-    """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
+    """The brief names a branch or PR that was parked by strikes (its own CI failures beat every allowed model); the message says which."""
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
           worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None, pin=False,
-          park=None):
+          park=None, agent=None, thinking=None, require_choice=False):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
-    one, Parked when it names a parked branch or PR (TWO STRIKES), BriefRefused when it names no plan id
+    one, Parked when it names a parked branch or PR (strikes), BriefRefused when it names no plan id
     (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief is still started somewhere
     (unless again). `worktree`: (repo, tid) -> (path or None, why); default
     worktrees.make. `model`: the worker's model (default: roles.yaml worker.default); `accept`: the acceptance
@@ -169,27 +175,6 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     if plan:
         text += f"\nPLAN ITEM: {plan}"
     tid = task_id(text, now)
-    from . import routing
-    ok, why = routing.admit(ledger(), on, now)           # solo / multiplayer (routing.yaml): the quota guard
-    if not ok:
-        routing.log({"id": tid, "action": "refused", "why": why})
-        raise routing.ModeRefused(why)
-    if model and not pin:                                # the owner's ceiling passes the cost guard BEFORE the router
-        from . import models as _models, roles as _roles
-        _models.require(_roles.worker_model(model, allow_expensive=allow_expensive), "worker", "task start")
-    if not pin:                                          # the router goes down from the ceiling, never above it
-        r = routing.route(text, model, pin, plan)
-        routing.log({"id": tid, "action": r["action"], "model": r["model"], "why": r["why"]})
-        if r["action"] == "park":
-            (park or routing.park)(text.splitlines()[0][:100], f"{r['why']}; start it with --model {model or 'fable'} "
-                                   "--pin --allow-expensive if the owner agrees")
-            raise routing.ModelParked(f"parked in the owner inbox: {r['why']}")
-        if r["model"]:
-            model = r["model"]
-    from . import roles
-    model = roles.worker_model(model, allow_expensive=allow_expensive)
-    from . import models
-    model = models.require(model, "worker", "task start" + (f" --on {on}" if on else ""))   # a hard refusal, logged
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
     h = brief_hash(text)
@@ -203,10 +188,72 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         raise AlreadyStarted(f"already started: {twin['id']} on {twin.get('on')} at {twin.get('at')} "
                              f"({twin.get('title', '')[:60]}); `fieldkit task status` says how it stands; "
                              "--again starts it anyway")
+    from . import routing
+    if require_choice or agent is not None or thinking is not None:
+        from . import models as _models
+        ch = routing.choice()
+        eff_agent = agent or ch.get("agent") or None
+        eff_model = model or (ch.get("ceiling") if ch.get("agent") else None)
+        eff_thinking = thinking or ch.get("thinking") or None
+        vchk = _models.validate_agent_choice(
+            agent=eff_agent,
+            model=eff_model,
+            thinking=eff_thinking,
+            require_explicit=True,
+            role="worker",
+            origin="task start" + (f" --on {on}" if on else ""),
+        )
+        if not vchk["ok"] and vchk.get("needs_choice"):     # P39: the person picks from what works now; headless:
+            from . import choice, counsel                    # the owner's recorded choice per job type, else inbox
+            vchk = choice.resolve((counsel.work_kind(text) or {}).get("kind") or "task", origin="task start" + (f" --on {on}" if on else ""))
+        if not vchk["ok"]:
+            raise ValueError(vchk["why"])
+        agent = vchk["agent"]
+        model = vchk["model"]
+        thinking = vchk["thinking"]
+        pin = True
+    ok, why = routing.admit(ledger(), on, now)           # solo / multiplayer (routing.yaml): the quota guard
+    if not ok:
+        routing.log({"id": tid, "action": "refused", "why": why})
+        raise routing.ModeRefused(why)
+    if model and not pin:                                # the owner's ceiling passes the cost guard BEFORE the router
+        from . import models as _models, roles as _roles
+        _models.require(_roles.worker_model(model, allow_expensive=allow_expensive), "worker", "task start")
+    if not pin:                                          # the router goes down from the ceiling, never above it
+        requested = model or routing.choice()["ceiling"]
+        r = routing.route(text, model, pin, plan)
+        routing.log({"id": tid, "action": r["action"], "model": r["model"], "why": r["why"]})
+        if r["action"] == "park":
+            (park or routing.park)(text.splitlines()[0][:100], f"{r['why']}; start it with --model {model or 'fable'} "
+                                   "--pin --allow-expensive if the owner agrees")
+            raise routing.ModelParked(f"parked in the owner inbox: {r['why']}")
+        if r["model"]:
+            model = r["model"]
+        from . import counsel                            # P35: the work kind may go lower (gather, report) or up (code)
+        k = counsel.apply_kind(text, model or "sonnet")
+        rungs = counsel.ladder()
+        if k["changed"] and requested and (counsel.rung_index(k["model"], rungs) or 0) > (
+                counsel.rung_index(requested, rungs) or 0):
+            k["changed"] = False                         # the owner's --model is a ceiling: never raised above it
+        if k["changed"]:
+            routing.log({"id": tid, "action": "work-kind", "model": k["model"], "why": k["why"]})
+            model = k["model"]
+    else:
+        from . import counsel
+        waste = counsel.waste_note(text, model or "")
+        if waste:
+            findings = list(findings) + [("warn", waste)]
+    if not agent or agent == "claude":
+        from . import roles
+        model = roles.worker_model(model, allow_expensive=allow_expensive)
+        from . import models
+        model = models.require(model, "worker", "task start" + (f" --on {on}" if on else ""))   # a hard refusal, logged
     brief = full_brief(text, tid, on, title)
+    chosen_agent = agent or "claude"
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
-           "status": "started", "hash": h, "wall": int(wall), "model": model,
+           "status": "started", "hash": h, "wall": int(wall), "agent": chosen_agent, "model": model,
+           "thinking": thinking or "",
            "plan": plan or (re.search(r"PLAN ITEM:\s*([A-Z]\d+)", text) or [None, ""])[1]}
     warns = [m for sev, m in findings if sev == "warn"]
     if warns:
@@ -215,8 +262,8 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         rec.update(accept=accept, accept_cwd=str(Path(cwd or os.getcwd()).resolve()), failures=0)
     if on:
         from ..peers import link
-        r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief, "model": model}, timeout=30,
-                                device=on)
+        r = (call or link.call)({"verb": "ask", "agent": chosen_agent, "brief": brief, "model": model,
+                                 "thinking": thinking}, timeout=30, device=on)
         ok = bool(r.get("ok") and r.get("started"))
         rec.update(how="link ask", answer=r.get("why") or r.get("error") or "",
                    status="started" if ok else "not-started")
@@ -233,17 +280,20 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             _room(f"task:{tid}", f"task not-started {rec['on']}: {rec['title']} ({rec['answer']})")
             return rec
         rec.update(worktree=str(wt) if wt else "", worktree_why=wwhy)
-        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall, model),
+        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall, model,
+                                   agent=chosen_agent, thinking=thinking),
                       encoding="utf-8")
-        from . import modelauth
-        auth = modelauth.check()
-        if not auth["ok"]:                 # P9 f: the job waits for the login, it is not launched into a death
-            rec.update(how="autopilot runbook", runbook=str(rb), status=modelauth.WAITING,
-                       answer=modelauth.wait_line(auth)[:300])
-            modelauth.file_inbox(auth["why"])
-            _append(rec)
-            _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec['answer']})")
-            return rec
+        if chosen_agent == "claude":
+            from . import modelauth
+            auth = modelauth.check()
+            if not auth["ok"]:                 # P9 f: the job waits for the login, it is not launched into a death
+                rec.update(how="autopilot runbook", runbook=str(rb), status=modelauth.WAITING,
+                           answer=modelauth.wait_line(auth)[:300])
+                modelauth.file_inbox(auth["why"])
+                _append(rec)
+                _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec['answer']})")
+                return rec
+        launch_given = launch is not None
         if launch is None:
             from ..buildh import window
             launch = window.launch
@@ -251,6 +301,12 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             r = launch(["runbook", "run", str(rb)])
             rec.update(how="autopilot runbook", runbook=str(rb), pid=r.get("pid"), log=r.get("log"))
             worktrees.own(wt, r.get("pid"), tid)
+            if not launch_given and rec.get("pid"):     # P9: a real job runs, so the keeper timer is there to move work on
+                try:
+                    from . import keeper
+                    rec["keeper"] = keeper.ensure_timer()
+                except Exception:  # noqa: BLE001 - the timer is a courtesy of the start, never a reason to fail it
+                    pass
         except Exception as e:  # noqa: BLE001 - the refusal is the answer, recorded
             rec.update(how="autopilot runbook", runbook=str(rb), status="not-started", answer=str(e)[:300])
             worktrees.own(wt, -1, tid)               # no process: reap takes the tree back once it is clean
@@ -347,10 +403,39 @@ def gate(tid, task, result, reviewer=None, fixer=None):
     return v
 
 
+class E2EMissing(ValueError):
+    """A port-to-an-OS task reported done without the end-to-end CI job that proves it ran there (plan P37)."""
+
+
+def e2e_refusal(task, note, root="."):
+    """-> the sentence refusing `done`, or ''. A task whose brief ports a feature to an OS is done only when its brief
+    (an `E2E: JOB` line) or its done note names a job of .github/workflows that exists."""
+    from . import brieflint
+    b = task.get("brief")
+    try:
+        text = Path(b).read_text(encoding="utf-8") if b and Path(b).is_file() else ""
+    except OSError:
+        text = ""
+    if not brieflint.ports_to_os(text or task.get("title", "")):
+        return ""
+    jobs = brieflint.e2e_jobs(root)
+    named = brieflint.e2e_named(text)
+    if named and named in jobs:
+        return ""
+    if any(j in (note or "") for j in jobs):
+        return ""
+    return ("this task ports a feature to an OS, and `done` needs the end-to-end CI job that RAN it there: name a job "
+            "of .github/workflows in --note (e.g. e2e-leakgate-linux), or `E2E: JOB` in the brief")
+
+
 def report(tid, status, branch="", pr="", note="", source="local", reviewer=None, fixer=None):
     if status not in STATUSES[1:]:
         raise ValueError(f"status is one of {', '.join(STATUSES[1:])}")
     task = ledger().get(tid) or {}
+    if status == "done" and source != "verdict":
+        why = e2e_refusal(task, note)
+        if why:
+            raise E2EMissing(why)
     verdict = {}
     if status == "done" and task.get("accept") and source != "verdict":
         verdict = gate(tid, task, note, reviewer, fixer) or {}
@@ -484,9 +569,26 @@ def settle(tasks, alive=None):
                                  "auth_marked": True})
                     continue
                 t["status"] = "died"
+                _agent_quota(t)                              # P39: a quota error in its log blocks its agent until reset
                 t.setdefault("answer", f"process {t['pid']} ended with no report; its log: {t.get('log') or '-'}")
                 out.append(t["id"])
     return out
+
+
+def _agent_quota(t, read=None):
+    """A died task's log tail ends in a quota / limit error: block its coding agent until the reset (choice.note_failure).
+    -> the block record or None."""
+    if not t.get("log"):
+        return None
+    try:
+        tail = (read or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")))(t["log"])[-4000:]
+    except OSError:
+        return None
+    last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
+    if last == ["exit 0"]:                       # the run itself finished fine: its status lines are not a quota error
+        return None                              # (2026-11-17: a finished runbook blocked Claude for two hours)
+    from . import choice
+    return choice.note_failure(t.get("agent") or "claude", tail)
 
 
 def resume_waiting(tasks, check=None, launch=None):

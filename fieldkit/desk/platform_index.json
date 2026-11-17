@@ -290,6 +290,47 @@
    "admit"
   ]
  },
+ "antigravity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "antigravity-bridge"
+  ]
+ },
+ "antigravity check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-check"
+  ]
+ },
+ "antigravity doors": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-doors"
+  ]
+ },
+ "antigravity migrate-workflows": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "darwin not proven: the e2e jobs run Linux and Windows only",
+  "ids": [
+   "antigravity-migrate-workflows"
+  ]
+ },
  "app": {
   "platforms": [
    "darwin",
@@ -299,6 +340,16 @@
   "why": "sources and launchers tested with faked registries, .desktop folders, mdfind output and process tables for all three systems; run live on Windows 2026-10-31; Linux and macOS not run",
   "ids": [
    "app"
+  ]
+ },
+ "appcapture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Proxy variables and CA bundles work the same on both; the app profile names the per-OS executable. Not run on Windows or macOS yet.",
+  "ids": [
+   "appcapture"
   ]
  },
  "audio": {
@@ -786,6 +837,16 @@
   "why": "",
   "ids": [
    "bh-leakgate-baseline"
+  ]
+ },
+ "build-harness leakgate-ci": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-ci"
   ]
  },
  "build-harness leakgate-context": {
@@ -1535,6 +1596,27 @@
    "cmd"
   ]
  },
+ "compileonce": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "compileonce"
+  ]
+ },
+ "cookbook": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-cookbook"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1698,6 +1780,16 @@
   "why": "",
   "ids": [
    "explain"
+  ]
+ },
+ "firefox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-firefox"
   ]
  },
  "firmware check": {
@@ -1913,6 +2005,17 @@
    "ideas"
   ]
  },
+ "idle report": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "idle-report"
+  ]
+ },
  "image accept": {
   "platforms": [
    "darwin",
@@ -2019,6 +2122,17 @@
   "why": "",
   "ids": [
    "fieldkit-jobs"
+  ]
+ },
+ "keeper tick": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keeper-tick"
   ]
  },
  "laptop alerts say": {
@@ -2269,6 +2383,16 @@
    "metrics"
   ]
  },
+ "modelcatalog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Pure Python reading files; no OS-specific call.",
+  "ids": [
+   "modelcatalog"
+  ]
+ },
  "models gguf": {
   "platforms": [
    "darwin",
@@ -2278,6 +2402,28 @@
   "why": "",
   "ids": [
    "models-gguf"
+  ]
+ },
+ "models menu": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-menu"
+  ]
+ },
+ "models remember": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-remember"
   ]
  },
  "models tune": {
@@ -2765,6 +2911,17 @@
    "peers-wait"
   ]
  },
+ "permanence check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "permanence-check"
+  ]
+ },
  "pins": {
   "platforms": [
    "darwin",
@@ -2814,6 +2971,17 @@
   "why": "",
   "ids": [
    "plan"
+  ]
+ },
+ "pool plan": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pool-plan"
   ]
  },
  "power audit": {
@@ -2867,6 +3035,17 @@
    "prefix-diff"
   ]
  },
+ "prepare": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "prepare"
+  ]
+ },
  "privacy scan": {
   "platforms": [
    "linux",
@@ -2875,6 +3054,16 @@
   "why": "",
   "ids": [
    "privacy-scan"
+  ]
+ },
+ "procs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Linux: zombies and the child subreaper (contain.reap_orphans). Windows: no zombies; orphaned trees and the job object give the same verdicts. macOS has no subreaper (prctl) and no test runner here: not claimed.",
+  "ids": [
+   "procs"
   ]
  },
  "publish": {
@@ -3149,7 +3338,8 @@
   ],
   "why": "",
   "ids": [
-   "rules"
+   "rules",
+   "rules-song"
   ]
  },
  "runbook": {

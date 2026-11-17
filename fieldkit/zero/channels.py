@@ -87,19 +87,91 @@ class OpenCode:
         send = self._send or peers.send
         text = human(entry, net)[:PUSH_MAX]
         out = []
+        to = entry.get("to") or "*"
+        if to != "*" and not str(to).startswith("opencode:"):
+            # 2026-11-15: a message to Zero (a Claude Code station) was pushed to every OpenCode session as input.
+            # Owner, same day: he WANTS to see Zero's traffic in OpenCode, just not mixed with his own text and not
+            # as the model's input. So it goes as a CC: flagged, shown to the person only (OpenCode type "cc").
+            return self._copy(entry, net, text, sessions, send)
         try:
             live = sessions()
         except Exception as e:  # noqa: BLE001 - a broken register must not stop the other channels
             return [{"channel": self.name, "target": "-", "ok": False, "detail": f"register unreadable: {e}"}]
+        if to != "*":
+            want = to.split(":", 1)[1].split("@", 1)[0]
+            live = [s for s in live if s.get("name") == want]
+        told = _told_load() if entry.get("kind") == "open" else {}
+        epoch_key = str(net.get("epoch"))
         for s in live:
             name = s.get("name")
+            if entry.get("kind") == "open" and name in told.get(epoch_key, []):
+                continue  # NET OPEN once per station per epoch (a repeat check-in is not news)
             try:
                 r = send(name, text + f" (as station: --as opencode:{name})", as_name="fieldkit-zero")
                 out.append({"channel": self.name, "target": name, "ok": bool(r.get("ok")),
                             "detail": "sent" if r.get("ok") else str(r.get("error"))})
+                if r.get("ok") and entry.get("kind") == "open":
+                    told.setdefault(epoch_key, []).append(name)
+            except Exception as e:  # noqa: BLE001
+                out.append({"channel": self.name, "target": name, "ok": False, "detail": str(e)})
+        if entry.get("kind") == "open":
+            _told_save({epoch_key: told.get(epoch_key, [])})
+        return out
+
+
+    def _copy(self, entry, net, text, sessions, send):
+        """A display-only copy of Zero's traffic (sent to Zero or by Zero) to every OpenCode session. Never input to a
+        model: OpenCode shows a "cc" request and never queues it. A setting (fieldkit.local.json
+        zero.mirror_to_opencode, default true, owner 2026-11-15) turns it off."""
+        if not mirror_on():
+            return [{"channel": self.name, "target": "-", "ok": True, "detail": "mirror to OpenCode is off"}]
+        zero = (net.get("zero") or {}).get("station")
+        if entry.get("kind") != "msg" or not zero or zero not in (entry.get("from"), entry.get("to")):
+            return [{"channel": self.name, "target": "-", "ok": True,
+                     "detail": f"not for OpenCode (addressed to {entry.get('to')}); not pushed"}]
+        try:
+            live = sessions()
+        except Exception as e:  # noqa: BLE001
+            return [{"channel": self.name, "target": "-", "ok": False, "detail": f"register unreadable: {e}"}]
+        out = []
+        for s in live:
+            name = s.get("name")
+            try:
+                r = send(name, f"from {entry.get('from')} to {entry.get('to')}: {entry.get('text', '')}"[:PUSH_MAX],
+                         as_name="fieldkit-zero", kind="cc")
+                out.append({"channel": self.name, "target": name, "ok": bool(r.get("ok")),
+                            "detail": "copy sent (display only)" if r.get("ok") else str(r.get("error"))})
             except Exception as e:  # noqa: BLE001
                 out.append({"channel": self.name, "target": name, "ok": False, "detail": str(e)})
         return out
+
+
+def mirror_on():
+    from ..core import settings
+    try:
+        v = (settings.local_settings().get("zero") or {}).get("mirror_to_opencode", True)
+    except Exception:  # noqa: BLE001 - an unreadable setting keeps the default
+        return True
+    return v is not False
+
+
+def _told_path():
+    from . import net
+    return net.coord() / "net-open-told.json"
+
+
+def _told_load():
+    try:
+        return json.loads(_told_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _told_save(d):
+    try:
+        _told_path().write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def fake_cable_call(req, device=None, timeout=None):

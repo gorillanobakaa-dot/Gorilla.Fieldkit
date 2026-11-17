@@ -1,4 +1,4 @@
-# Gorilla Firefox on Windows: the firefox-windows pipeline (the Gorilla.firefox harness keeps the Firefox
+# Gorilla Unleashed on Windows: the firefox-windows pipeline (the Gorilla.firefox harness keeps the Firefox
 # knowledge) with keys, tiers and the checks the owner approved once (test cost audit, 2026-10-26):
 #   iterate  -> preflight .. package (a doc commit in the harness rebuilds nothing)
 #   install  -> + package checks, install, post-install: once, on the build that is installed
@@ -7,7 +7,7 @@
 name: firefox-windows
 pipeline: firefox-windows
 description: >-
-  Gorilla Firefox for Windows from the pinned upstream tag plus the patch set, through the Gorilla.firefox harness;
+  Gorilla Unleashed for Windows from the upstream release tag of the version plus the patch set, through the Gorilla.firefox harness;
   package checks and post-install once on the installed build, the leak gate once per release.
 baseline_minutes: 90
 vars:
@@ -16,9 +16,13 @@ latest:                             # never pinned (owner 2026-11-11): the porte
   version:
     - {local: firefox.version}
     - {newest: "${DOCUMENTS}/FIREFOX.WORK/work/firefox-*", regex: '^firefox-(\d+(?:\.\d+)+)$'}
+    - {file: "{harness}/config/versions.lock.json", regex: '"firefox_version":\s*"([^"]+)"'}
+  upstream_tag:                     # the release tag the harness pins (versions.lock.json), never a commit in the recipe
+    - {file: "{harness}/config/versions.lock.json", regex: '"upstream_tag":\s*"([^"]+)"'}
 sources:
-  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath
-  - {id: upstream, git: "{harness}/src", base: 3c71aeacdb296402e41fb2084b13e797d1770642, fetched_by: source}
+  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath.
+  # base: upstream = Mozilla's release tag of {version} (core/concepts.upstream_tag), never a pinned commit (P38)
+  - {id: upstream, git: "{harness}/src", base: upstream, fetched_by: source}
 patches: {dir: "{harness}/gorilla-patchset/patches", glob: "*"}
 config:
   mandate: gorilla-firefox
@@ -30,20 +34,68 @@ toolchain:
   - [rustc, --version]
   - [cargo, --version]
 preflight: {disk_gb: 60, ram_gb: 16, path: "{harness}"}
+# the emergency repair (owner 2026-11-17: "small fix = one step, never full emerge"): fieldkit emerge repair
+repair:
+  source: "{harness}/src"
+  patches: "{harness}/gorilla-patchset/patches"
+  series: 21.PORT.FIXES
+  program: firefox.exe
+  packages: [omni.ja, browser/omni.ja]
+  extensions: [.mjs, .js, .jsm, .sys.mjs, .css, .ftl, .html, .xhtml, .json, .svg, .png, .properties, .dtd]
+  max_files: 10
+  check: {pages: ["about:newtab", "about:home"], dprs: [1]}
 stages:
+  patchset: {always_run: true, bucket: tools}      # idempotent: only a pristine work tree is patched
   preflight: {always_run: true, bucket: tools}
   deps: {uses: [toolchain, config, inputs], inputs: ["{harness}/harness/*.py"], needs: []}
-  source: {uses: [config, inputs], inputs: ["{harness}/harness/*.py"], needs: [deps]}
-  bootstrap: {uses: [toolchain, config], needs: [source]}
+  # P29 cause 4: the tree this stage records is the patched one, so a new patch set must re-run it (lint STALE-KEY)
+  source: {uses: [config, patches, inputs], inputs: ["{harness}/harness/*.py"], needs: [deps]}
+  # P29: never compile a tree the preflight fails (exit 3, NEXT "do not compile"); always runs, the tree may change
+  migrate-preflight: {always_run: true, bucket: tools, needs: [source]}
+  bootstrap: {uses: [toolchain, config], needs: [source, migrate-preflight]}
   build: {uses: [sources, patches, config, toolchain], needs: [bootstrap]}
   package: {uses: [sources, patches, config], needs: [build], outputs: ["{harness}/state/artifacts.json"]}
   restore-power: {always_run: true, bucket: tools}
 extra_stages:
+  # the install tier reads a build-harness task; a version ported on the other machine has none here (2026-11-16, P27
+  # 160: package-checks refused "no task 'firefox-160.0'"). The record of the tree emerge built, its two checks
+  # (final-checks, the owner's preflight), the build gate and build-verify (build-result.json, which install reads).
+  - id: harness-task
+    platforms: [windows]
+    tier: install
+    always_run: true
+    bucket: tools
+    needs: [package]
+    fix: false              # an unapproved plan is the owner's one approve (the inbox), never a model
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, start, firefox, --emerge, --pin, "{version}", --workdir, "{harness}/src", --harness, "{harness}", --task, "{task}"], cwd: "${FIELDKIT}"}
+  - id: harness-steps
+    platforms: [windows]
+    tier: install
+    always_run: true
+    bucket: tools
+    needs: [harness-task]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, next, "{task}"], cwd: "${FIELDKIT}"}
+  - id: build-gate
+    platforms: [windows]
+    tier: install
+    always_run: true
+    bucket: tests
+    needs: [harness-steps]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, build-gate, "{task}", --harness, "{harness}"], cwd: "${FIELDKIT}"}
+    triage: firefox-windows
+  - id: build-verify
+    platforms: [windows]
+    tier: install
+    always_run: true
+    bucket: tests
+    needs: [build-gate]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, build-verify, "{task}"], cwd: "${FIELDKIT}"}
+    triage: firefox-windows
   - id: package-checks
     platforms: [windows]
     tier: install
     bucket: tests
-    needs: [package]
+    needs: [build-verify]
     run: {cmd: ["{py}", -m, fieldkit, build-harness, verify, "{task}"], cwd: "${FIELDKIT}"}
     triage: firefox-windows
   - id: install

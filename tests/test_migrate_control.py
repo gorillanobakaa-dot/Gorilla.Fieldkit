@@ -60,8 +60,23 @@ def red_gate(*_):
 
 
 # -- gates ----------------------------------------------------------------------------------------------------------
-def test_s5_gate_follows_the_tree(mig):
-    assert plan.gate(mig.make(), "S5")["ok"]
+def _published(owner, tmp_path):
+    """The patch-set repo committed and pushed, as S5.published wants (2026-11-16)."""
+    import subprocess
+    g = lambda *a: subprocess.run(["git", "-C", str(owner), "-c", "user.email=t@example.com", "-c", "user.name=t", *a],
+                                  check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", "--bare", str(tmp_path / "remote.git")], check=True)
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "x", "--allow-empty")
+    g("remote", "add", "origin", str(tmp_path / "remote.git"))
+    g("push", "-q", "-u", "origin", "HEAD")
+
+
+def test_s5_gate_follows_the_tree(mig, tmp_path):
+    task.journal(task.load("t1"), "replay-proof", ok=True, tree="T1")
+    _published(mig.owner, tmp_path)
+    assert plan.gate(mig.make(), "S5")["ok"], plan.gate(mig.make(), "S5")
     g = plan.gate(mig.make("T2"), "S5")
     assert not g["ok"] and "the tree is now T2" in ids(g)["S5.build"]["evidence"]
     assert ids(g)["S5.build"]["command"].endswith("build-run t1")

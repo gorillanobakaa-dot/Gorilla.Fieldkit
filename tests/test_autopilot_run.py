@@ -205,3 +205,22 @@ def test_claude_on_path_comes_before_the_install_folders(no_claude, tmp_path, mo
     put(tmp_path / ".local" / "bin" / no_claude)
     monkeypatch.setattr(run.shutil, "which", lambda name: "/on/path/claude")
     assert run.claude_exe() == "/on/path/claude"
+
+
+def test_a_job_run_compacts_itself_at_72_percent_unless_the_caller_says_otherwise(state, monkeypatch):
+    seen = []
+
+    class P:
+        returncode, pid = 0, 1
+
+        def __init__(self, args, **kw):
+            seen.append(kw.get("env") or {})
+
+        def communicate(self, input=None, timeout=None):
+            return "{}", ""
+    monkeypatch.setattr(run, "claude_cmd", lambda: ["claude"])
+    monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+    assert run.claude("hello", popen=P)["ok"]
+    assert run.claude("hello", popen=P, env_extra={"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"})["ok"]
+    assert seen[0].get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") == "72"
+    assert seen[1].get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") == "60"

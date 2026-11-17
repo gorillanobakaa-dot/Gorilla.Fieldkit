@@ -1,0 +1,79 @@
+# The Firefox cookbook as data (P38, owner order 2026-11-16): one procedure from "Mozilla released X" to "released on
+# all three systems". `fieldkit firefox status|next|release` reads this file; docs/FIREFOX-COOKBOOK.md is the same
+# procedure in words. A step names the ONE command that does it and the gate that proves it. Change the data first.
+# {v} is the Firefox version (160.0), {task} the Linux migration task (firefox-{major}-linux).
+
+# The one product name and naming scheme on every system (owner 2026-11-16: "the Firefox will always be called Gorilla
+# Unleashed across all the versions, followed by the number of the version ... the same name across all three").
+# core/concepts reads this; `fieldkit firefox names` and the REL gate fail on any other form. Technical ids (the
+# package name gorilla-unleashed, the harness repo Gorilla.firefox) stay as they are.
+naming:
+  name: "Gorilla Unleashed"
+  display: "{name} {version}"
+  file: "Gorilla-Unleashed-{version}-{os}-{arch}.{ext}"
+  tag: "v{version}-{os}"
+  title: "{name} {version} ({OS})"
+  # The batch release (owner 2026-11-17: "when they click on the latest link, they see all the builds there for Linux,
+  # for Windows, and for Mac OS X"): one release per version carrying every system's files, marked Latest. The
+  # per-system releases stay as they are.
+  batch_tag: "v{version}"
+  batch_title: "{name} {version}"
+  os_title: {linux: Linux, windows: Windows, mac: macOS}
+  # an outward name matching one of these is wrong (rename it or make it a pointer)
+  old_names: ['Gorilla[ _]Firefox', 'gorilla-air', 'Gorilla Air\b', 'for old Macs']
+  # Fieldkit files whose outward text must use the name (the CI test scans them)
+  scan: [fieldkit/emerge/recipes/firefox-debian.yaml, fieldkit/emerge/recipes/firefox-windows.yaml,
+         fieldkit/build/pipelines/firefox-linux.yaml, fieldkit/build/pipelines/firefox-windows.yaml,
+         docs/FIREFOX-COOKBOOK.md]
+
+systems:
+  linux:
+    what: "the VAIO-native .deb (-march=native -O3 on purpose, for VAIO owners)"
+    device: vaio
+    recipe: firefox-debian
+    harness: "fieldkit build-harness (the migration S0-S9), on Linux"
+    skill: fieldkit-build
+  windows:
+    what: "the Windows build, for everyone else"
+    device: l15
+    recipe: firefox-windows
+    harness: "fieldkit emerge firefox-windows + the Gorilla.firefox harness on the L15 (harness/gorilla_build.py, config/versions.lock.json, mozconfig.win64)"
+    skill: fieldkit-emerge
+  mac:
+    what: "Gorilla Unleashed for old Intel Macs, macOS 10.13 (MacBook Air 2011: SSH only, never the cable)"
+    device: macair
+    recipe: null
+    harness: "fieldkit macair (gorilla-firefox/macos-legacy/recreate-mac.sh), install and verify over SSH"
+    skill: fieldkit-macair-browser
+
+# The order. Linux ports first (the patch set is made there); Windows and Mac build from the published set.
+steps:
+  - {id: S0, system: linux, does: "preflight: inventory, previous release audit, machine ready", run: "fieldkit build-harness migrate seed {task}", gate: "S0"}
+  - {id: S1, system: linux, does: "upstream intake: every new pref, host, module, about: page has a disposition", run: "fieldkit build-harness migrate intake {task}", gate: "S1"}
+  - {id: S2, system: linux, does: "mechanical apply of the patch set in policy order", run: "fieldkit build-harness next {task}", gate: "S2"}
+  - {id: S3, system: linux, does: "intent port (rebase-set, port steps; every lesson matched in fieldkit/firefox/lesson_rules.yaml)", run: "fieldkit build-harness rebase-set {task}", gate: "S3"}
+  - {id: S4, system: linux, does: "tree verification (verify, truthbound, decisions)", run: "fieldkit build-harness verify {task}", gate: "S4"}
+  - {id: S5, system: linux, does: "build, build-verify, export-hand + register + replay; the set committed and pushed", run: "fieldkit emerge run firefox-debian", gate: "S5"}
+  - {id: S6, system: linux, does: "install and proof (post-install --drive)", run: "fieldkit build-harness install {task}", gate: "S6"}
+  - {id: S7, system: linux, does: "leak gate --release", run: "fieldkit build-harness leakgate {task} --release", gate: "S7"}
+  - {id: S8, system: linux, does: "claims and consistency", run: "fieldkit build-harness claims {task} --strict", gate: "S8"}
+  - {id: H-win, system: windows, does: "handover package to the L15 (patch-set commit, upstream tag, replay proof, lessons, steps)", run: "fieldkit firefox handover {v} --to windows --send", gate: "handover"}
+  - {id: B-win, system: windows, does: "build on the L15 from the published set (base: upstream = the release tag of {v})", run: "fieldkit emerge run firefox-windows", gate: "emerge"}
+  - {id: H-mac, system: mac, does: "handover package to the Mac side (scp over SSH)", run: "fieldkit firefox handover {v} --to mac --send", gate: "handover"}
+  - {id: B-mac, system: mac, does: "Mac decisions preflight, recreate, app-check, install, verify on the Air", run: "fieldkit macair preflight", gate: "macair"}
+  - {id: S9, system: linux, does: "publish: export-hand, replay = built tree, lessons ruled (S9.lessons), privacy, the owner's yes", run: "fieldkit build-harness export-hand {task}", gate: "S9"}
+  - {id: REL, system: all, does: "one release per system (v{v}.0.0-linux, -windows, -mac) AND the batch release v{v}.0.0 'Gorilla Unleashed {v}.0' carrying every system's files, published last with --latest (owner 2026-11-17: the Latest link shows every build); the plain-language page first", run: "fieldkit firefox names --tag v{v}.0.0 --title 'Gorilla Unleashed {v}.0'", gate: "names (file, tag, title in the one scheme), then fieldkit release-page compose; the batch release is the Latest"}
+
+# Where the knowledge lives (P38 item 10). The cookbook is the one procedure; these are its sources, never a second truth.
+knowledge:
+  - {place: "docs/FIREFOX-COOKBOOK.md", holds: "the one procedure (this file in words)"}
+  - {place: "docs/THE-BUILD-HARNESS-EXPLAINED.md", holds: "how the build-harness works inside (S0-S9 details)"}
+  - {place: "docs/HIDDEN-PAGES.md, docs/ABOUT-PAGES.md", holds: "which about: pages are cut or kept, and why"}
+  - {place: "fieldkit/core/concepts.py", holds: "closed step, base branch, stage device, upstream tag, platform groups, product name"}
+  - {place: "fieldkit/firefox/lesson_rules.yaml", holds: "every port lesson as a tool, a port rule or a recorded no-rule"}
+  - {place: "state/build-harness/<task>/ (journal.jsonl, lessons.jsonl)", holds: "what each migration did (git-ignored)"}
+  - {place: "gorilla-firefox: config/patch_policy.json, patches/*/README.md", holds: "the patch set and its order"}
+  - {place: "gorilla-firefox: intents/ (INTENTS.yaml, CONSISTENCY.yaml), decisions/PRODUCT-DECISIONS.yaml", holds: "why each patch exists; the owner's decisions"}
+  - {place: "gorilla-firefox: macos-legacy/recreate-mac.sh", holds: "the public Mac recipe"}
+  - {place: "L15: Gorilla.firefox (harness/gorilla_build.py, config/versions.lock.json, mozconfig.win64)", holds: "the Windows harness"}
+  - {place: "skills fieldkit-build, fieldkit-emerge, fieldkit-macair-browser", holds: "how an agent drives each system (they point here)"}

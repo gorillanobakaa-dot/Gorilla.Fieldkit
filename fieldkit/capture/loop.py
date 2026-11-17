@@ -76,8 +76,23 @@ def begin(lesson, who, home=None, py=None, now=None):
     cur = switch.read()
     if switch.is_on(cur, now) and not cur.get("legacy"):
         return {"owner": False, "who": who, "since": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"), "note": f"already on ({cur.get('owner') or 'by hand'})"}
-    d = switch.turn_on(lesson, BUILD_MAX_MINUTES, home=_home(home), py=py, now=now, owner=who, cap=BUILD_MAX_MINUTES)
-    return {"owner": True, "who": who, "since": d["since"], "note": f"on until {d['until']}"}
+    proj = project_of(lesson) or project_of(who)
+    note = ""
+    if proj and not os.environ.get("FIELDKIT_CAPTURE_NO_CLEANSLATE"):
+        # P40: the same start gate as `capture start`. Digested -> wiped; undigested -> nothing is wiped and the run goes on
+        # (a build never waits), the refusal is in the note and the ledger.
+        from . import cleanslate
+        try:
+            g = cleanslate.start(proj, lesson, minutes=BUILD_MAX_MINUTES, turn_on=lambda *a, **k: switch.turn_on(
+                a[0], BUILD_MAX_MINUTES, home=_home(home), py=py, now=now, owner=who, cap=BUILD_MAX_MINUTES, project=k.get("project")))
+            if g.get("started"):
+                d = g["switch"]
+                return {"owner": True, "who": who, "since": d["since"], "note": f"clean slate, on until {d['until']}"}
+            note = "; clean slate skipped: " + str(g.get("refused"))
+        except Exception as exc:  # noqa: BLE001 - the gate never fails a build
+            note = f"; clean slate error {type(exc).__name__}"
+    d = switch.turn_on(lesson, BUILD_MAX_MINUTES, home=_home(home), py=py, now=now, owner=who, cap=BUILD_MAX_MINUTES, project=proj)
+    return {"owner": True, "who": who, "since": d["since"], "note": f"on until {d['until']}{note}"}
 
 
 def end(token, home=None, run=None, system=None, now=None):
@@ -155,6 +170,9 @@ def write_candidate(rec, out_dir=None, project=None):
     (d / f"{cid}.sh").write_text(_script(rec), encoding="utf-8", newline="\n")
     (d / f"test_{cid}.py").write_text(_test(cid, rec), encoding="utf-8", newline="\n")
     (d / "card.yaml").write_text(_card(cid, rec, f"local/kits/{cid}"), encoding="utf-8")
+    # evidence the adopt gate re-reads from the journal: which episodes replayed, never a count taken on trust
+    (d / "replay.json").write_text(json.dumps({"intent": rec.get("intent"), "examples": rec["episodes"].get("examples", [])}),
+                                   encoding="utf-8", newline="\n")
     return str(d)
 
 
@@ -182,6 +200,13 @@ def _auto_adopt(res, who, ship=None, repo=None):
     res["adopt"] = done
 
 
+def episode_in_project(ep, tag):
+    """P40: episodes never mix projects. With a project tag, an episode whose working directory names another project is out
+    (one with no recognisable project is kept: it cannot be proved foreign)."""
+    other = project_of(ep.get("cwd"))
+    return not tag or not other or other == tag
+
+
 def _project_of_group(who, eps):
     """The project of an intent group: the run's own (lesson or job name), else the most common one among its episodes' cwd."""
     from collections import Counter
@@ -192,7 +217,7 @@ def _project_of_group(who, eps):
     return c.most_common(1)[0][0] if c else None
 
 
-def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None):
+def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None, project=None):
     """The whole chain on the store; -> {candidates:[path], adopted:[id], ledger:[reason], ...}. Never raises: a failure is a
     ledger line. Candidates are tried and adopted by themselves (autoadopt) unless adopt is False or FIELDKIT_CAPTURE_NO_ADOPT=1."""
     from . import classify as C
@@ -208,7 +233,9 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
         sm, assigned = D.stage4(s)
         D.apply_intents(s, assigned)
         state = s.state()
-        fresh = {eid: e for eid, e in state.get("episodes", {}).items() if not since or str(e.get("end", "")) >= since}
+        proj_tag = project or project_of(who) or switch.read().get("last_project")
+        fresh = {eid: e for eid, e in state.get("episodes", {}).items()
+                 if (not since or str(e.get("end", "")) >= since) and episode_in_project(e, proj_tag)}
         intents = sorted({e.get("intent") for e in fresh.values() if e.get("intent")})
         sigs = {}
         for intent in intents:

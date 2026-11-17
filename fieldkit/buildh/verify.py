@@ -425,6 +425,8 @@ def _upstream_changes_inside_removed_blocks(new_pristine, old_pristine, rel, hr)
     # non-added lines above and below it are lines the hunks remove
     added = set(added_idx)
     for i in added_idx:
+        if new_lines[i] in removed:
+            continue          # a line the fork's hunks remove verbatim loses nothing, whatever stands around it (tabgroup-menu.js, 160)
         up = next((new_lines[j] for j in range(i - 1, -1, -1) if j not in added and new_lines[j]), None)
         down = next((new_lines[j] for j in range(i + 1, len(new_lines)) if j not in added and new_lines[j]), None)
         if up not in removed or down not in removed:
@@ -508,6 +510,11 @@ def verify(task_id):
         if s["kind"] == "model" and "hunk" in a:
             m = re.search(r"-h(\d+)$", s["id"])
             by_key[(a["patch"], a["file"], int(m.group(1)) if m else -1)] = s
+    try:
+        from ..migrate import landed as _landed
+        landed_h = _landed.proven_hunks(t)
+    except Exception:
+        landed_h = {}
     for key, s in by_key.items():
         # `dropped_by` is what task.drop writes (2026-10-16: the 167 steps of a dropped 098 still read as 106 false
         # completions because only `dropped_by_owner` was skipped)
@@ -594,6 +601,10 @@ def verify(task_id):
             # very check wrong for this step: upstream renamed the message and dropped words the literal text wants back
             rep.setdefault("waived_by_tiebreak", []).append({"step": s["id"], "by": s["override_by"], "was": d})
             v, d = "WAIVED", f"the tie-break ruled the text check wrong here: {s['override_by']}"
+        if v in ("NOT-APPLIED", "PARTIAL") and s["status"] == "obsolete" and key in landed_h:
+            # the intent landed in another form, proven by a verbatim quote re-read now (`migrate landed`)
+            rep.setdefault("landed", []).append({"step": s["id"], "was": d, "proof": landed_h[key]})
+            v, d = "LANDED", landed_h[key]
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file
@@ -602,6 +613,16 @@ def verify(task_id):
     key_root = Path(hr) / "src"
     changed = [l for l in _git(w, "diff", "--name-only", root[0], "HEAD").splitlines() if l] if root else []
     old_pristine = older_pristine(t["meta"].get("upstream", {}).get("version"))
+    if same_tree(w, key_root):
+        # the task's working copy IS the owner's src (a tree fieldkit emerge patched in place, 2026-11-16 P27 160): comparing it
+        # with itself matches every file. The owner's old tree is then the kept copy src-<older version> (the 158 tree);
+        # without it the row cannot be judged and says so, it is never skipped as fine.
+        old_tree = Path(hr) / f"src-{old_pristine.name}" if old_pristine is not None else None
+        if old_tree is not None and old_tree.is_dir():
+            key_root = old_tree
+        else:
+            rep["old_tree_same_dir"] = True
+            changed = []
     rep["old_tree_copies_harmless"], rep["old_tree_copies_undetermined"] = [], []
     pset0, groups0 = firefox._policy(hr)
     shipped = set()                                               # files the patch set itself ships whole: expected identical
@@ -617,6 +638,10 @@ def verify(task_id):
             continue
         p, k = w / rel, key_root / rel
         if not (p.is_file() and k.is_file() and p.stat().st_size == k.stat().st_size and _sha(p) == _sha(k)):
+            continue
+        if old_pristine is not None and not (old_pristine / rel).is_file() and subprocess.run(
+                ["git", "-C", str(w), "cat-file", "-e", f"{root[0]}:{rel}"], capture_output=True).returncode != 0:
+            rep["old_tree_copies_harmless"].append(rel)       # in neither upstream version: the fork's own file, nothing to lose
             continue
         if old_pristine is None or not (old_pristine / rel).is_file():
             rep["old_tree_copies_undetermined"].append(rel)
@@ -775,6 +800,14 @@ def reopen(task_id, rep=None):
         task.save(t)
         task.journal(t, "reopened", steps=done, why="the tree does not contain what the record said was done")
     return done
+
+
+def same_tree(a, b):
+    """True when two paths are the same folder (after symlinks and case)."""
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return False
 
 
 def problems(rep):

@@ -102,6 +102,14 @@ def test_an_injection_is_capped_and_repeats_are_one_row():
     assert room.context([]) == ""
 
 
+def test_the_room_text_tells_the_reader_to_ask_the_actor_first():
+    """I-30 (owner 2026-11-16): a surprising row is a question to that session, never 'the owner did not approve'."""
+    room.unseen("s2")
+    room.write(call("s1", "Bash", command="git commit -m a"))
+    ctx = room.context(room.unseen("s2"))
+    assert ctx.splitlines()[-1] == room.ASK_FIRST and "ask that session" in ctx and "never assume" in ctx
+
+
 def test_the_hook_writes_shows_and_never_fails(capsys):
     room.unseen("s2")
     assert room.pretool(call("s1", "Bash", command="git commit -m a")) == ""   # s1 sees nothing of its own
@@ -282,7 +290,9 @@ def test_a_session_whose_ear_is_not_running_is_told_the_line_every_time(monkeypa
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
     first = said()
     assert first.startswith("EAR NOT RUNNING") and "relay listen --as claude:r1@" in first and "--since 7" in first
-    assert said().startswith("EAR NOT RUNNING")                      # every prompt while it is down: not deduped
+    second = said()
+    assert second.startswith("EAR NOT RUNNING")                      # every prompt while it is down: still told ...
+    assert second != first and len(second) < len(first) // 3          # ... P37: in full once, then the short reminder
     assert said(cmd="fk peers link relay listen --as x") == ""        # the call that starts it
     alive["pid"] = 4242
     assert said(sid="r3") == ""                                      # its ear runs: nothing to say
@@ -292,3 +302,20 @@ def test_a_session_whose_ear_is_not_running_is_told_the_line_every_time(monkeypa
     monkeypatch.delenv("FIELDKIT_AUTOPILOT")
     monkeypatch.setattr(link, "household", lambda: {})
     assert said(sid="r5") == ""                                      # no cable on this computer
+
+
+def test_hook_riders_are_capped_and_the_injected_bytes_recorded(monkeypatch, capsys, tmp_path):
+    """P37: what a hook injects stays in the conversation for ever, so the non-exempt riders are cut to the event's cap
+    (rules/song.yaml), NET lines are never cut, and every injection's bytes are recorded for `fieldkit rules hooks`."""
+    from fieldkit import rules_song
+    log = tmp_path / "hook-bytes.jsonl"
+    monkeypatch.setattr(rules_song, "hook_log", lambda: log)
+    big = "\n".join(f"hog: note {chr(97 + i)} " + "x" * 90 for i in range(26))   # distinct once digits are normalized
+    monkeypatch.setattr(room, "_hog", lambda call, event, ctx: big)
+    monkeypatch.setattr(room, "_net", lambda call, event, ctx: ctx + "\nNET: a message that must arrive")
+    call = {"session_id": "cap1", "hook_event_name": "UserPromptSubmit", "prompt": "go"}
+    room.hook(io.StringIO(json.dumps(call)))
+    ctx = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert "NET: a message that must arrive" in ctx and "B of hook notes cut" in ctx and len(ctx) < 1200
+    rec = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
+    assert rec[-1]["event"] == "UserPromptSubmit" and rec[-1]["bytes"] == len(ctx.encode("utf-8"))

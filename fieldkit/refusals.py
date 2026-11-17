@@ -36,6 +36,11 @@ _HEADER = ("# Open problems - the one list\n\nStatus: OPEN / PR / DONE.\n\n"
 
 
 def state(root=None):
+    """The ledger's folder. FIELDKIT_REFUSALS_DIR (tests/conftest.py) redirects it when no root is given, so a test's
+    fixture refusals never reach the real ledger, which goes over the cable as LEDGER1 notes (2026-11-16: Windows
+    test runs flooded the VAIO with rows like "tests/test_x.py::test_y ... (feat/x)")."""
+    if root is None and os.environ.get("FIELDKIT_REFUSALS_DIR"):
+        return Path(os.environ["FIELDKIT_REFUSALS_DIR"])
     return state_root(root or ROOT) / "state"
 
 

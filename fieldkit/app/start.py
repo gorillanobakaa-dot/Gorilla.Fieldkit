@@ -40,6 +40,38 @@ def exec_argv(exec_line, args):
     return argv + list(args)
 
 
+def linux_gui_env(environ=None, uid=None):
+    """Discover XDG_RUNTIME_DIR, WAYLAND_DISPLAY, DISPLAY, XAUTHORITY and DBUS_SESSION_BUS_ADDRESS for the active
+    Linux desktop session when started from a background service (such as systemd fieldkit-link.service) that has no
+    DISPLAY/WAYLAND_DISPLAY set."""
+    env = dict(os.environ if environ is None else environ)
+    if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
+        return env
+    try:
+        u = uid if uid is not None else (os.getuid() if hasattr(os, "getuid") else 1000)
+    except Exception:  # noqa: BLE001
+        u = 1000
+    rt = f"/run/user/{u}"
+    if os.path.isdir(rt):
+        env.setdefault("XDG_RUNTIME_DIR", rt)
+        if os.path.exists(f"{rt}/bus"):
+            env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={rt}/bus")
+        for w in ("wayland-0", "wayland-1"):
+            if os.path.exists(f"{rt}/{w}"):
+                env.setdefault("WAYLAND_DISPLAY", w)
+                break
+        for g in sorted(os.listdir(rt)):
+            if g.startswith(".mutter-Xwaylandauth."):
+                env.setdefault("XAUTHORITY", f"{rt}/{g}")
+                break
+    if os.path.isdir("/tmp/.X11-unix"):
+        for x in sorted(os.listdir("/tmp/.X11-unix")):
+            if x.startswith("X") and x[1:].isdigit():
+                env.setdefault("DISPLAY", f":{x[1:]}")
+                break
+    return env
+
+
 def _detached_kw(osname):
     if osname == "win32":
         return {"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
@@ -52,6 +84,10 @@ def plan(match, args, osname, which=shutil.which):
     k, t = match["launch"]["kind"], match["launch"]["target"]
     if k == "exe":
         return "CreateProcess" if osname == "win32" else "exec", [t, *args], True
+    if k == "schtask":
+        if osname != "win32":
+            return "", None, False
+        return "scheduled task (elevated, no UAC)", ["schtasks", "/run", "/tn", t], False
     if k == "lnk":
         return "ShellExecute (the shortcut)", None, False
     if k == "appsfolder":
@@ -85,7 +121,8 @@ def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, p
                                "unelevated, never through UAC or sudo"}
     method, argv, direct = plan(match, list(args), osname, which)
     if not method:
-        return {**base, "why": f"refused: {match['path']} is an install folder, not a program"}
+        return {**base, "why": f"refused: {match['path']} is an install folder, not a program"
+                if match["launch"]["kind"] != "schtask" else "refused: a scheduled-task launcher runs on Windows only"}
     base["method"] = method
     before = {p[0] for p in procs()}
     pid = None
@@ -95,6 +132,9 @@ def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, p
                 return {**base, "why": "refused: a shortcut takes no arguments (it defines its own)"}
             (startfile or getattr(os, "startfile"))(match["launch"]["target"])
         else:
+            if osname.startswith("linux") and sys.platform.startswith("linux"):
+                for k, v in linux_gui_env().items():
+                    os.environ.setdefault(k, v)
             p = popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                       **_detached_kw(osname))
             pid = p.pid
@@ -105,10 +145,11 @@ def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, p
     sleep(wait)
     now = procs()
     alive = {x[0] for x in now}
-    stems = {F.norm(match["name"]), F.norm(os.path.splitext(os.path.basename(match["path"] or ""))[0])} - {""}
+    exes = [match["path"] or "", match.get("exe") or ""]
+    stems = {F.norm(match["name"])} | {F.norm(os.path.splitext(os.path.basename(x))[0]) for x in exes} - {""}
     new = [(pid_, n, e) for pid_, n, e in now if pid_ not in before and
-           (F.norm(os.path.splitext(n or "")[0]) in stems or (e and match["launch"]["kind"] == "exe"
-                                                              and os.path.normcase(e) == os.path.normcase(match["path"])))]
+           (F.norm(os.path.splitext(n or "")[0]) in stems or (e and (match["launch"]["kind"] == "exe" or match.get("exe"))
+                                                              and os.path.normcase(e) in {os.path.normcase(x) for x in exes if x}))]
     pids = [x[0] for x in new]
     if direct and pid in alive and pid not in pids:
         pids.insert(0, pid)

@@ -1,6 +1,7 @@
 # Version: 1.1.0 · updated 26-10-31-21-00
-"""TWO STRIKES (rules/CORE.md; owner, 2026-10-29): a branch or PR that fails CI twice is PARKED, never tried a third
-time, and the plan goes on. Deterministic, no model.
+"""THREE STRIKES (rules/CORE.md; owner, 2026-10-29, limit 3 and escalation 2026-11-16): a branch or PR with LIMIT (3) own
+failed CI rounds on one model is handed to the next stronger model (models.yaml ladder, spend guard applies); it is
+PARKED only when the strongest allowed model also failed, with the reason in plain words. Deterministic, no model.
 
     fieldkit strikes list [--json]               the failed CI rounds per branch and what is parked
     fieldkit strikes park ID [--why TEXT]        park by hand (ID: a branch name or a PR number)
@@ -9,16 +10,18 @@ time, and the plan goes on. Deterministic, no model.
     fieldkit strikes recount BRANCH              re-read the recorded rounds through whose_red: own/main/unproven per
                                                  head; parked branches whose own count drops below 2 are reported
 
-A failed round is one red CI verdict on one head commit; the same head read red twice is one round. The second
-failed round parks: a record in state/parked.json (git-ignored), an owner inbox item with the PR, the branch and both
-failures. Then `fieldkit ship ci-wait` exits 4 (NEXT: parked, go on with the plan), `fieldkit ship push` refuses the
+A failed round is one red CI verdict on one head commit; the same head read red twice is one round. Only the
+branch's OWN red is a round. The park (past the top allowed model, or ladder off after LIMIT rounds) writes a record in
+state/parked.json (git-ignored) and an owner inbox item with the PR, the branch, every failure and why. Then `fieldkit ship ci-wait` exits 4 (NEXT: parked, go on with the plan), `fieldkit ship push` refuses the
 branch, `fieldkit task start` refuses a brief that names the branch or its PR (`#N`), and `fieldkit plan next` shows
 the parked items on one line.
 
-WHOSE RED (plan P9, F4): a red round is a strike only when at least one failed test id PASSES when run on the PR's merge
-base with main (a direct run of exactly those ids on a fresh detached worktree; a green main CI proves nothing, its push
-CI runs only targeted tests). Every id failing there too = main's red, no strike. Ids unreadable or not runnable =
-unproven: recorded, FLAKE_LIMIT of them per branch forgiven, the next counts (fail closed).
+WHOSE RED (plan P9, F4; 2026-11-16 PR 553): a red round is a strike only when at least one failed test id PASSES when
+run on the PR's merge base with main (a direct run of exactly those ids on a fresh detached worktree; a green main CI
+proves nothing, its push CI runs only targeted tests). Every id failing there too = main's red, no strike. When that run
+cannot be made, `prove_more` reads main's own failed CI runs (the merge base's and the newest red): the ids a main run
+also failed = main's red. Still unknown = UNPROVEN: recorded, NEVER a strike and never a park (a verdict of "I do not
+know" is not evidence against the branch); the next step is a stronger model that judges it (`escalate_to`).
 
 Exit 0 fine, 2 bad input, 3 refused or found parked, 4 parked by this call (ci-wait).
 """
@@ -33,8 +36,9 @@ from pathlib import Path
 
 from . import emit
 
-LIMIT = 2                                   # failed rounds that park a branch
-FLAKE_LIMIT = 2                             # flake rounds forgiven per branch; the next one counts (fail closed)
+LIMIT = 3                                   # own failed rounds on one model before the next stronger model takes over
+FLAKE_LIMIT = 2                             # timing-flake rounds forgiven per branch; the next one counts (fail closed)
+DEFAULT_MODEL = "sonnet"                    # a round whose model is unknown ran on the default rung (rules: MODELS)
 TIMING = Path(__file__).with_name("timing_tests.yaml")
 PARKED_EXIT = 4
 ENV = "FIELDKIT_PARKED_FILE"
@@ -56,11 +60,11 @@ def load(p=None):
     a file that cannot be read as JSON is an error (it would be rewritten empty on the next record)."""
     p = Path(p or path())
     if not p.exists():
-        return {"strikes": {}, "parked": {}, "log": []}
+        return {"strikes": {}, "parked": {}, "log": [], "cleared": {}}
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
         return {"strikes": dict(d.get("strikes") or {}), "parked": dict(d.get("parked") or {}),
-                "log": list(d.get("log") or [])}
+                "log": list(d.get("log") or []), "cleared": dict(d.get("cleared") or {})}
     except (OSError, ValueError, AttributeError) as e:
         raise StoreError(f"{p} cannot be read ({e}); fix or move it, nothing was changed") from e
 
@@ -125,10 +129,11 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None, model=None
             rec["climbed"] = step["next"]
             _rung(branch, step["cur"], step["next"], f"{step['own']} own failures on {step['cur']}", step["skipped"])
     if n >= LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):
-        why = "failed CI twice"
+        why = f"{n} own failed CI rounds (limit {LIMIT}); the escalation ladder is off"
         if step is not None:                              # ladder on: parked only past the top allowed rung
             tried = _tried(rec["rounds"])
-            why = f"failed CI on every allowed rung ({tried})"
+            why = (f"{n} own failed CI rounds ({tried}); no stronger model is allowed now"
+                   + (f" ({', '.join(step['skipped'])} skipped)" if step["skipped"] else ""))
             _rung(branch, step["cur"], None, why, step["skipped"])
         d["parked"][branch] = {"pr": rec.get("pr"), "at": _now(), "why": why, "rounds": rec["rounds"][:]}
         new = True
@@ -244,22 +249,36 @@ def mains_failure(own_log, main_log, own_checks=(), main_checks=()):
 
 
 def record_unproven(branch, head, why="", pr=None, p=None):
-    """One red round of `head` whose owner could not be proven. -> {"unproven": N, "counted": bool}: the round past
-    FLAKE_LIMIT is counted as a strike by the caller (fail closed, as record_flake)."""
+    """One red round of `head` whose owner could not be proven. -> {"unproven": N, "counted": False, "new": bool}.
+    NEVER counted (owner, 2026-11-16, PR 553: "I do not know" punished the branch): the caller escalates instead."""
     d = load(p)
     rec = d["strikes"].setdefault(branch, {"pr": pr, "rounds": []})
     un = rec.setdefault("unproven", [])
-    if all(r["head"] != head for r in un):
+    new = all(r["head"] != head for r in un)
+    if new:
         un.append({"head": head, "at": _now(), "why": str(why)[:400]})
     save(d, p)
-    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT}
+    return {"unproven": len(un), "counted": False, "new": new}
 
 
-def whose_red(branch_head, failed_ids, base_sha, runner, job=""):
+def whose_red(branch_head, failed_ids, base_sha, runner, job="", more=None):
     """F4 / plan P9: -> (verdict, evidence). `runner(base_sha, ids, job)` runs exactly `ids` (never a suite) on a fresh
     detached tree of `base_sha` and returns {id: "pass" | "fail"}. "own": at least one failed id passes on the merge
     base with main. "main": every failed id also fails there. "unproven": no ids, no base, or the run gave no answer
-    for them (a raise counts as no answer)."""
+    for them (a raise counts as no answer). `more(ids)` -> ("main", evidence) | None: asked only when the direct run
+    is unproven (main's own CI runs, see prove_more); it can make the red main's, never the branch's."""
+    kind, ev = _whose_red(branch_head, failed_ids, base_sha, runner, job)
+    if kind == "unproven" and more is not None and failed_ids:
+        try:
+            got = more(sorted({x.replace("\\", "/") for x in failed_ids}))
+        except Exception:  # noqa: BLE001 - no extra evidence, the red stays unproven (never a strike)
+            got = None
+        if got and got[0] == "main":
+            return "main", f"{got[1]} (direct run on the merge base: {ev})"
+    return kind, ev
+
+
+def _whose_red(branch_head, failed_ids, base_sha, runner, job=""):
     ids = sorted({x.replace("\\", "/") for x in failed_ids or ()})
     if not ids:
         return "unproven", "no failed test id could be read from the log"
@@ -314,18 +333,95 @@ def default_runner(base_sha, ids, job="", repo="."):
                        timeout=300, cwd=repo)
 
 
-def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None, inbox=None, p=None):
+def prove_more(ids, base_sha="", fetch=None, logger=None):
+    """2026-11-16 (PR 553): when the failed ids cannot be run on the merge base, main's OWN failed CI runs speak: the run
+    at the merge base, then the newest three red runs of main. -> ("main", evidence) when one of them failed every id,
+    else None. Never says "own": only a direct run can."""
+    runs = (fetch or (lambda: runs_from_gh("main")))()
+    red = [r for r in runs if r.get("conclusion") == "failure"]
+    pick = [r for r in red if base_sha and r.get("headSha") == base_sha] + [r for r in red if r.get("headSha") != base_sha][:3]
+    for r in pick:
+        main_ids = {x.replace("\\", "/") for x in failed_tests((logger or run_log)(r))}
+        if ids and set(ids) <= main_ids:
+            return "main", (f"main's own CI run on {str(r.get('headSha') or '?')[:10]} fails the same test(s): "
+                            f"{', '.join(list(ids)[:3])}")
+    return None
+
+
+def default_proof(ids, base_sha=""):
+    try:
+        return prove_more(ids, base_sha)
+    except Exception:  # noqa: BLE001 - gh down: no extra evidence
+        return None
+
+
+def diff_note(ids, base_sha, head, repo="."):
+    """-> a plain sentence on whether the branch touches the failing test files at all ("" when git cannot say). Only a
+    note for the report: a branch can break a test it never touches, so it never decides."""
+    try:
+        r = subprocess.run(["git", "diff", "--name-only", f"{base_sha}...{head}"], capture_output=True, text=True,
+                           timeout=60, cwd=repo)
+        if r.returncode:
+            return ""
+        changed = {x.strip() for x in r.stdout.splitlines() if x.strip()}
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    files = sorted({i.split("::")[0] for i in ids})
+    hit = [f for f in files if f in changed]
+    return (f"the branch changes the failing test file(s) {', '.join(hit[:3])}" if hit else
+            f"the branch does not touch the failing test file(s) {', '.join(files[:3])} (it may still break them)")
+
+
+def escalate_for(branch, p=None):
+    """-> the model that should judge or repair next: the next usable rung above the last attempt (models.climb with the
+    rung's own failures used up; the spend guard and availability apply), None when nobody stronger is allowed."""
+    try:
+        from ..lifecycle import models
+        d = load(p)
+        rounds = (d["strikes"].get(branch) or d["parked"].get(branch) or {}).get("rounds", [])
+        cur = (rounds[-1].get("model") if rounds else "") or attempt_model() or DEFAULT_MODEL
+        step = models.climb(cur, int(models.ladder_cfg().get("own_limit") or LIMIT))
+        return step["next"] if step["next"] and step["next"] != cur else None
+    except (OSError, KeyError, ValueError, StoreError):
+        return None
+
+
+def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None, inbox=None, p=None, proof=None):
     """One red CI verdict of `head`, judged by whose_red. -> {"kind": own|main|unproven, "evidence", "counted": bool,
-    "rounds", "parked", "new"}; only `counted` rounds are strikes (an unproven round past FLAKE_LIMIT counts)."""
-    kind, ev = whose_red(head, failed_tests(log), base_sha, runner or default_runner, job)
+    "rounds", "parked", "new"}; only an OWN round is a strike. An unproven red is never counted: it is recorded, filed
+    once in the owner's inbox, and `escalate_to` names the stronger model that should judge it (None: nobody stronger)."""
+    if head in set(load(p).get("cleared", {}).get(branch, [])):    # forgiven by an unpark: never counted again,
+        return {"kind": "forgiven", "evidence": "counted before the owner's unpark", "counted": False,  # by any
+                "parked": parked_for(branch, p) is not None}                                          # caller
+    ids = failed_tests(log)
+    proof = proof or default_proof
+    kind, ev = whose_red(head, ids, base_sha, runner or default_runner, job,
+                         more=lambda i: proof(i, base_sha))
     if kind == "main":
         _attempt(branch, job, False, p)
         return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
-    if kind == "unproven" and not record_unproven(branch, head, f"{ev}; {why}", pr=pr, p=p)["counted"]:
-        return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
-    s = record_failure(branch, head, why, pr=pr, inbox=inbox, p=p)
+    if kind == "unproven":
+        note = diff_note(sorted(ids), base_sha, head) if ids and base_sha else ""
+        ev = f"{ev}{'; ' + note if note else ''}"
+        r = record_unproven(branch, head, f"{ev}; {why}", pr=pr, p=p)
+        up = escalate_for(branch, p)
+        if r["new"]:
+            _inbox_unproven(branch, head, pr, ev, up, inbox)
+        return {"kind": kind, "evidence": ev, "counted": False, "escalate_to": up,
+                "parked": parked_for(branch, p) is not None}
+    s = record_failure(branch, head, f"own failure: {ev}; {why}", pr=pr, inbox=inbox, p=p)
     _attempt(branch, job, kind == "own", p)
     return dict(s, kind=kind, evidence=ev, counted=True)
+
+
+def _inbox_unproven(branch, head, pr, ev, up, inbox=None):
+    if inbox is None:
+        from ..autopilot import inbox as ib
+        inbox = ib.add
+    who = f"{up} judges it next" if up else "no stronger model is allowed now, so the owner decides"
+    inbox(f"UNPROVEN red {branch} ({'PR #' + str(pr) if pr else 'no PR yet'})",
+          f"Head {head[:10]} is red and nobody could prove whose fault it is: {ev}. Not counted as a strike, not parked; "
+          f"{who}.", f"fieldkit strikes check {branch}")
 
 
 def _attempt(branch, job, own, p=None):
@@ -360,8 +456,8 @@ def ladder_step(rounds):
         from ..lifecycle import models
         if not models.ladder_cfg().get("enabled") or not rounds:
             return None
-        cur = rounds[-1].get("model") or ""
-        own = sum(1 for r in rounds if (r.get("model") or "") == cur)
+        cur = rounds[-1].get("model") or DEFAULT_MODEL    # 2026-11-16: unknown was "off the ladder" = park at once
+        own = sum(1 for r in rounds if (r.get("model") or DEFAULT_MODEL) == cur)
         return dict(models.climb(cur, own), cur=cur, own=own)
     except (OSError, KeyError):
         return None
@@ -385,8 +481,10 @@ def _inbox(branch, rec, inbox=None):
         inbox = ib.add
     pr = f"PR #{rec['pr']}" if rec.get("pr") else "no PR yet"
     fails = "; ".join(f"{r['head'][:10]}: {r['why'] or 'red'}" for r in rec["rounds"])
-    inbox(f"PARKED {branch} ({pr})", f"TWO STRIKES: {branch} ({pr}) failed CI twice - {fails}. {_tried(rec['rounds'])}. "
-          "Not tried again; left open for a stronger model's repair.", f"fieldkit strikes unpark {rec.get('pr') or branch}")
+    inbox(f"PARKED {branch} ({pr})", f"STRIKES: {branch} ({pr}) was parked: {rec.get('why') or 'own failed CI rounds'}. "
+          f"Own failures, one per head: {fails}. {_tried(rec['rounds'])}. "
+          "Not tried again; left open for the owner or a stronger model than any tried.",
+          f"fieldkit strikes unpark {rec.get('pr') or branch}")
 
 
 def park(ident, why="parked by hand", inbox=None, p=None):
@@ -409,7 +507,11 @@ def unpark(ident, note="", who=None, p=None):
     if br is None or br not in d["parked"]:
         return {"ok": False, "state": "not-parked", "error": f"{ident} is not parked"}
     rec = d["parked"].pop(br)
-    d["strikes"].pop(br, None)
+    st = d["strikes"].pop(br, None) or {}
+    # 2026-11-15: the red heads counted before the unpark stay forgiven. check() re-reads every red head that
+    # `gh run list` still shows; without this list the next push recounted them and parked the branch again at once.
+    heads = {r.get("head") for r in (rec.get("rounds") or []) + (st.get("rounds") or []) if r.get("head")}
+    d.setdefault("cleared", {})[br] = sorted(set(d.get("cleared", {}).get(br, [])) | heads)
     d["log"].append({"at": _now(), "action": "unpark", "branch": br, "pr": rec.get("pr"), "note": note,
                      "by": who or os.environ.get("USER") or os.environ.get("USERNAME") or "?"})
     save(d, p)
@@ -434,9 +536,9 @@ def refusal(branches, p=None):
     out = []
     for br in branches:
         r = d["parked"][br]
-        out.append(f"{br}{' (PR #' + str(r['pr']) + ')' if r.get('pr') else ''} is PARKED: it failed CI twice "
-                   f"({r['at']}). Not tried a third time; the owner or a stronger model repairs it, then "
-                   f"`fieldkit strikes unpark {r.get('pr') or br}`.")
+        out.append(f"{br}{' (PR #' + str(r['pr']) + ')' if r.get('pr') else ''} is PARKED since {r['at']}: "
+                   f"{r.get('why') or 'own failed CI rounds'}. The owner or a stronger model than any tried repairs it, "
+                   f"then `fieldkit strikes unpark {r.get('pr') or br}`.")
     return " ".join(out)
 
 
@@ -448,7 +550,7 @@ def parked_line(p=None):
         return ""
     if not d["parked"]:
         return ""
-    return "PARKED (two strikes): " + ", ".join(
+    return "PARKED (strikes): " + ", ".join(
         f"{b}" + (f" #{r['pr']}" if r.get("pr") else "") for b, r in sorted(d["parked"].items()))
 
 
@@ -489,14 +591,15 @@ def red_heads(runs):
 def check(branch, fetch=runs_from_gh, inbox=None, p=None, logger=run_log, base_of=merge_base, runner=None):
     """Record every head of `branch` whose workflow run failed (one round per head), each judged by whose_red.
     -> the last record's answer, plus `own`/`main`/`unproven` head counts."""
-    heads = red_heads(fetch(branch))
+    forgiven = set(load(p).get("cleared", {}).get(branch, []))
+    heads = {h: r for h, r in red_heads(fetch(branch)).items() if h not in forgiven}
     res = {"rounds": len(load(p)["strikes"].get(branch, {}).get("rounds", [])), "parked": parked_for(branch, p) is not None,
            "new": False}
     kinds = {"own": 0, "main": 0, "unproven": 0}
     for sha, run in heads.items():
         r = count_red(branch, sha, logger(run), base_of(sha), run.get("name") or "red", job=run.get("name") or "",
                       runner=runner, inbox=inbox, p=p)
-        kinds[r["kind"]] += 1
+        kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
         res = dict(res, **{k: r[k] for k in ("rounds", "parked", "new") if k in r})
     return dict(res, ok=True, branch=branch, **kinds)
 
@@ -527,8 +630,10 @@ def recount(branch, fetch=runs_from_gh, p=None, logger=run_log, base_of=merge_ba
 
 
 def _list_lines(d):
-    out = [f"{b}{' #' + str(r['pr']) if r.get('pr') else ''}: {len(r['rounds'])} failed round(s)"
-           + (" - PARKED" if b in d["parked"] else "") for b, r in sorted(d["strikes"].items())]
+    out = [f"{b}{' #' + str(r['pr']) if r.get('pr') else ''}: {len(r['rounds'])} own failed round(s)"
+           + (f", {len(r.get('unproven') or [])} unproven (not counted)" if r.get("unproven") else "")
+           + (f" - PARKED: {d['parked'][b].get('why', '')}" if b in d["parked"] else "")
+           for b, r in sorted(d["strikes"].items())]
     out += [f"{b}: PARKED by hand ({r['why']})" for b, r in sorted(d["parked"].items()) if b not in d["strikes"]]
     return out or ["no failed CI rounds recorded"]
 
