@@ -418,9 +418,10 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
     return {"ok": False, "state": "network", "tag": tag, "error": last[-300:], "next": "try again later"}
 
 
-def release_is_empty(repo, extra):
-    """Why `gh release create` with EXTRA would publish an empty or page-less release ('' when it would not): it needs
-    at least one file argument that exists and a page (--notes-file/-F FILE that exists, or --notes TEXT)."""
+def release_is_empty(repo, extra, tag=""):
+    """Why `gh release create` with EXTRA would publish an empty, page-less, or installer-less Windows release
+    ('' when it would not): it needs at least one file argument that exists, a page (--notes-file/-F FILE that
+    exists, or --notes TEXT), and for Windows releases a click-to-install .exe/.msi."""
     args, files, notes, notes_path, i = list(extra), [], False, None, 0
     while i < len(args):
         a = args[i]
@@ -454,6 +455,10 @@ def release_is_empty(repo, extra):
     if notes_path is not None and not re.search(r"(?m)^\|\s*File\s*\|\s*Bytes\s*\|\s*SHA-256\s*\|", notes_path.read_text(
             encoding="utf-8", errors="replace")):
         return "the page has no 'File | Bytes | SHA-256' table (v0.1.164 shipped without one): add the Files section"
+    from . import releasegate
+    win_blocker = releasegate.windows_installer_blocker(tag, [f.name for f in real])
+    if win_blocker:
+        return win_blocker
     return ""
 
 
@@ -477,7 +482,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
     g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
     if not g["ok"]:
         return g
-    empty = release_is_empty(repo, extra)
+    empty = release_is_empty(repo, extra, tag=tag)
     if empty:          # v0.1.164 (2026-11-16) was created with no files and no page: its own install checks failed
         return {"ok": False, "state": "bad-input", "tag": tag, "error": empty,
                 "next": "give the release files and --notes-file PAGE after --; nothing was published"}
