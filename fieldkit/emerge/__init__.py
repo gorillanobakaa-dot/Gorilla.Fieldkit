@@ -15,6 +15,10 @@ no model in the loop unless a stage fails, no owner clicks.
     fieldkit emerge export RECIPE [--out F]                  every recorded key and its outputs' sha256
     fieldkit emerge repro RECIPE --with F                    the same keys built elsewhere: same bytes or not
     fieldkit emerge forget RECIPE [--stage S]                drop cache records (the outputs themselves stay)
+    fieldkit emerge repair RECIPE --files F ... [--map SRC=ARCHIVE:MEMBER] [--base REV] [--name SLUG] [--why TEXT]
+                               [--dry-run]                  the emergency repair: a small frontend fix straight into
+                                                            the installed build, checked, exported as the next patch;
+                                                            no stages (fieldkit/emerge/repair.py)
     fieldkit emerge lint [RECIPE]                            a recipe is general: no pinned product version, no
                                                             version-named recipe (unless `archive:`), no single-OS
                                                             stage that can never be offloaded, no machine path
@@ -65,7 +69,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit emerge", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["list", "plan", "run", "status", "manifest", "export", "repro", "forget",
-                                       "lint"])
+                                       "lint", "repair"])
     ap.add_argument("recipe", nargs="?")
     ap.add_argument("--mode", default="iterate", choices=sorted(MODES))
     ap.add_argument("--var", action="append", default=[], help="k=v: a recipe/pipeline variable (repeat)")
@@ -77,6 +81,13 @@ def main(argv=None):
     ap.add_argument("--out", help="export: the file")
     ap.add_argument("--with", dest="other", help="repro: another machine's export")
     ap.add_argument("--stage", help="forget: only this stage")
+    ap.add_argument("--files", nargs="+", default=[], help="repair: the edited source files (relative to source)")
+    ap.add_argument("--map", action="append", default=[], help="repair: SRC=ARCHIVE:MEMBER when a name is ambiguous")
+    ap.add_argument("--base", default="HEAD", help="repair: the commit the patch is exported against")
+    ap.add_argument("--name", default="repair", help="repair: the patch file's slug")
+    ap.add_argument("--why", help="repair: one line for the patch header")
+    ap.add_argument("--install-dir", help="repair: the installed build (default: the registered install)")
+    ap.add_argument("--dry-run", action="store_true", help="repair: print the mapping, change nothing")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.action == "list":
@@ -95,8 +106,12 @@ def main(argv=None):
     except (RecipeError, ValueError) as e:
         print(f"fieldkit emerge: {e}")
         return 2
+    if a.action == "repair":
+        from . import repair
+        return repair.main(r, a.files, install_dir=a.install_dir, maps=a.map, name=a.name, why=a.why, base=a.base,
+                           dry_run=a.dry_run, as_json=a.json)
     if a.action == "plan":
-        pl = Emerge(r, mode=a.mode, local_only=a.local).plan()
+        pl =Emerge(r, mode=a.mode, local_only=a.local).plan()
         print(json.dumps(pl, indent=1, default=str) if a.json else "\n".join(plan_lines(pl)))
         return 2 if pl["preflight_status"] == "stop" else 0
     if a.action == "run":

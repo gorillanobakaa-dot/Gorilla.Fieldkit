@@ -252,3 +252,15 @@ def test_fieldkit_firefox_files_use_the_one_name():
     assert cli.name_check() == []
     assert cli.main(["names", "--tag", "v160.0-linux", "--title", "Gorilla Unleashed 160.0 (Linux)"]) == 0
     assert cli.main(["names", "--tag", "macbook-air"]) == 3
+
+
+def test_the_batch_release_of_a_version_carries_every_system():
+    """Owner 2026-11-17: the Latest link shows the Linux, Windows and macOS builds together: tag v160.0.0, title
+    'Gorilla Unleashed 160.0'. The per-system names still pass; a wrong or old name still fails."""
+    from fieldkit.core import concepts
+    assert concepts.batch_tag("160.0.0") == "v160.0.0" and concepts.batch_title("160.0") == "Gorilla Unleashed 160.0"
+    assert concepts.name_problems("tag", "v160.0.0") == [] and concepts.name_problems("title", "Gorilla Unleashed 160.0") == []
+    assert concepts.name_problems("tag", "v160.0.0-linux") == []
+    assert concepts.name_problems("title", "Gorilla Unleashed 160.0 (Linux)") == []
+    assert concepts.name_problems("title", "Gorilla Firefox 160.0")
+    assert concepts.name_problems("tag", "release-160")

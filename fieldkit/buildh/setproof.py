@@ -288,7 +288,13 @@ def prove(patchset, pristine_repo, platform, say=print):
                 # applies harmlessly but builds nothing here: undeclared, it is the other system's patch ported blind.
                 # Still applied below, so the patches after it see the tree the port would make.
                 other = foreign_only({b for _a, b in _SECTION.findall(body)}, platform)
-                if other:
+                waiver = str(((raw.get(g) or {}).get("carry_on") or {}).get(platform, {}).get(pf.name) or "").strip()
+                if other and waiver:
+                    # P29 cause 3: carried on purpose, declared with a reason (migrate preflight's policy check proves
+                    # the waiver is not stale); never a silent skip, the line says WAIVED and why
+                    res.setdefault("waived", []).append({"patch": rel, "why": f"writes only {other} files",
+                                                         "reason": waiver})
+                elif other:
                     res["failures"].append({"patch": rel, "why": f"writes only {other} files", "depends_on": None,
                                             "foreign": other})
                 ok, out = replay._apply_patch(pf_use, t)
@@ -361,6 +367,8 @@ def lines(r):
                        f"{r['platform']} leaves out -> add it to exclude_on.{r['platform']}")
         else:
             out.append(f"  FAILS {f['patch']}: {f['why']}")
+    for w in r.get("waived") or []:
+        out.append(f"  WAIVED {w['patch']}: {w['why']}, carried on {r['platform']} on purpose: {w['reason']}")
     for l in r.get("lazy") or []:
         out.append(f"  UNDECLARED LAZY {l}")
     for c in r.get("pref_conflicts") or []:

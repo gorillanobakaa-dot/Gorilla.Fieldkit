@@ -618,11 +618,13 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
         # --binary: the work tree holds upstream's LF bytes (cloned with core.autocrlf=false). Without it the Windows
         # GNU patch 2.5.9 (Strawberry, GnuWin32) reads an LF-only patch in text mode and aborts with the assertion
         # "Expression: hunk" (CI, 2026-10-15). On Linux --binary changes nothing.
-        r = subprocess.run([firefox._patch_exe(), "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
-                           cwd=t["workdir"], capture_output=True, text=True)
+        from ..core import childrun          # P29: deadline + stall stop, stdin never a terminal
+        r = childrun.run([firefox._patch_exe(), "-p1", "--fuzz=0", "--force", "--binary", "--no-backup-if-mismatch",
+                          "-i", str(root / p)], f"patch {p}", cwd=t["workdir"])
         if r.returncode != 0:
             revert_to_checkpoint(t)
-            raise Refused(f"the kept patch {p} does not apply on the pristine files: {(r.stdout + r.stderr)[-300:]}")
+            tail = (r.stdout + r.stderr).decode("utf-8", "replace")[-300:]
+            raise Refused(f"the kept patch {p} does not apply on the pristine files: {tail}")
         reapplied.append(p)
     withdrawn = _proposals_dir(t) / "withdrawn"
     for x in drop_steps:

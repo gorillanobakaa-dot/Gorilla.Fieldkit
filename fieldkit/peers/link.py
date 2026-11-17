@@ -1175,6 +1175,10 @@ def self_update(root=None, run=subprocess.run):
     rc, dirty = git("status", "--porcelain", "--untracked-files=no")
     if rc != 0 or dirty:
         return "left alone: tracked changes in the checkout"
+    from ..core import checkout_hold     # P29: an emerge run reads this checkout; never move it under the build
+    why = checkout_hold.busy(root)
+    if why:
+        return f"left alone: {why}"
     rc, out = git("fetch", "--quiet", "origin", "main", timeout=120)
     if rc != 0:
         return f"left alone: fetch failed ({out[:120]})"

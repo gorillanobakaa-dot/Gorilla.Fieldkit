@@ -13,6 +13,11 @@ naming:
   file: "Gorilla-Unleashed-{version}-{os}-{arch}.{ext}"
   tag: "v{version}-{os}"
   title: "{name} {version} ({OS})"
+  # The batch release (owner 2026-11-17: "when they click on the latest link, they see all the builds there for Linux,
+  # for Windows, and for Mac OS X"): one release per version carrying every system's files, marked Latest. The
+  # per-system releases stay as they are.
+  batch_tag: "v{version}"
+  batch_title: "{name} {version}"
   os_title: {linux: Linux, windows: Windows, mac: macOS}
   # an outward name matching one of these is wrong (rename it or make it a pointer)
   old_names: ['Gorilla[ _]Firefox', 'gorilla-air', 'Gorilla Air\b', 'for old Macs']
@@ -57,7 +62,7 @@ steps:
   - {id: H-mac, system: mac, does: "handover package to the Mac side (scp over SSH)", run: "fieldkit firefox handover {v} --to mac --send", gate: "handover"}
   - {id: B-mac, system: mac, does: "Mac decisions preflight, recreate, app-check, install, verify on the Air", run: "fieldkit macair preflight", gate: "macair"}
   - {id: S9, system: linux, does: "publish: export-hand, replay = built tree, lessons ruled (S9.lessons), privacy, the owner's yes", run: "fieldkit build-harness export-hand {task}", gate: "S9"}
-  - {id: REL, system: all, does: "one release for the batch, the plain-language page first", run: "fieldkit firefox names --tag v{v}-linux --title 'Gorilla Unleashed {v} (Linux)'", gate: "names (file, tag, title in the one scheme), then fieldkit release-page compose"}
+  - {id: REL, system: all, does: "one release per system (v{v}.0.0-linux, -windows, -mac) AND the batch release v{v}.0.0 'Gorilla Unleashed {v}.0' carrying every system's files, published last with --latest (owner 2026-11-17: the Latest link shows every build); the plain-language page first", run: "fieldkit firefox names --tag v{v}.0.0 --title 'Gorilla Unleashed {v}.0'", gate: "names (file, tag, title in the one scheme), then fieldkit release-page compose; the batch release is the Latest"}
 
 # Where the knowledge lives (P38 item 10). The cookbook is the one procedure; these are its sources, never a second truth.
 knowledge:

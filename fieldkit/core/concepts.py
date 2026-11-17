@@ -174,6 +174,16 @@ def release_tag(version, os_name):
     return naming()["tag"].format(version=_v(version), os=_os(os_name))
 
 
+def batch_tag(version):
+    """v160.0.0: the one release of a version that carries every system's files (owner 2026-11-17)."""
+    return naming()["batch_tag"].format(version=_v(version))
+
+
+def batch_title(version):
+    n = naming()
+    return n["batch_title"].format(name=n["name"], version=_v(version))
+
+
 def release_title(version, os_name):
     n = naming()
     return n["title"].format(name=n["name"], version=_v(version), OS=n["os_title"][_os(os_name)])
@@ -197,6 +207,7 @@ def name_problems(kind, value):
     for old in n["old_names"]:
         if re.search(old, v, re.I):
             out.append(f"{kind} {v!r}: old product name /{old}/; it is {n['name']!r}")
-    if kind in ("file", "tag", "title") and not re.match(_scheme(n[kind]), v):
+    if kind in ("file", "tag", "title") and not re.match(_scheme(n[kind]), v) and \
+            not (n.get(f"batch_{kind}") and re.match(_scheme(n[f"batch_{kind}"]), v)):   # the all-systems release
         out.append(f"{kind} {v!r} is not in the one scheme {n[kind]!r}")
     return out

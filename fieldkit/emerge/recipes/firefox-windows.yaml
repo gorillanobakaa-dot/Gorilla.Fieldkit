@@ -34,12 +34,25 @@ toolchain:
   - [rustc, --version]
   - [cargo, --version]
 preflight: {disk_gb: 60, ram_gb: 16, path: "{harness}"}
+# the emergency repair (owner 2026-11-17: "small fix = one step, never full emerge"): fieldkit emerge repair
+repair:
+  source: "{harness}/src"
+  patches: "{harness}/gorilla-patchset/patches"
+  series: 21.PORT.FIXES
+  program: firefox.exe
+  packages: [omni.ja, browser/omni.ja]
+  extensions: [.mjs, .js, .jsm, .sys.mjs, .css, .ftl, .html, .xhtml, .json, .svg, .png, .properties, .dtd]
+  max_files: 10
+  check: {pages: ["about:newtab", "about:home"], dprs: [1]}
 stages:
   patchset: {always_run: true, bucket: tools}      # idempotent: only a pristine work tree is patched
   preflight: {always_run: true, bucket: tools}
   deps: {uses: [toolchain, config, inputs], inputs: ["{harness}/harness/*.py"], needs: []}
-  source: {uses: [config, inputs], inputs: ["{harness}/harness/*.py"], needs: [deps]}
-  bootstrap: {uses: [toolchain, config], needs: [source]}
+  # P29 cause 4: the tree this stage records is the patched one, so a new patch set must re-run it (lint STALE-KEY)
+  source: {uses: [config, patches, inputs], inputs: ["{harness}/harness/*.py"], needs: [deps]}
+  # P29: never compile a tree the preflight fails (exit 3, NEXT "do not compile"); always runs, the tree may change
+  migrate-preflight: {always_run: true, bucket: tools, needs: [source]}
+  bootstrap: {uses: [toolchain, config], needs: [source, migrate-preflight]}
   build: {uses: [sources, patches, config, toolchain], needs: [bootstrap]}
   package: {uses: [sources, patches, config], needs: [build], outputs: ["{harness}/state/artifacts.json"]}
   restore-power: {always_run: true, bucket: tools}

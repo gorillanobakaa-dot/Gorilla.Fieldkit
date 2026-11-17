@@ -17,6 +17,10 @@ fieldkit emerge run RECIPE [--mode iterate|install|release] [--only S] [--var k=
 fieldkit emerge status RECIPE                         last report + overhead
 fieldkit emerge manifest RECIPE [--write]             pin file sources by sha256 (never moves a recorded pin)
 fieldkit emerge export RECIPE --out F / repro RECIPE --with F    same key on two machines = same bytes?
+fieldkit emerge repair RECIPE --files F ... [--dry-run]    EMERGENCY small frontend fix (JS/CSS/FTL/...): straight
+                                                      into the installed omni archive, checked on the recipe's
+                                                      pages, put back on FAIL, exported as the next port-fix patch.
+                                                      Never a full emerge for a one-file fix (owner 2026-11-17).
 ```
 
 

@@ -429,8 +429,12 @@ class Container:
                 table[pid], pgrp[pid] = ct, pg
                 kids.setdefault(ppid, []).append(pid)
         else:
+            # Windows has no zombies, and psutil's "status" there takes a whole-system snapshot PER process:
+            # 2.1 s per walk instead of 0.02 s (2026-11-17, 241 processes). Each patch.exe step in replay/set-proof
+            # walks several times, so set-proof over ~1350 patches ran for hours and the pre-push hook looked hung.
+            attrs = ["pid", "ppid", "create_time"] if IS_WIN else ["pid", "ppid", "create_time", "status"]
             try:
-                for p in psutil.process_iter(["pid", "ppid", "create_time", "status"]):
+                for p in psutil.process_iter(attrs):
                     i = p.info
                     if i.get("status") == psutil.STATUS_ZOMBIE or i.get("create_time") is None:
                         continue
@@ -560,8 +564,9 @@ class Container:
 
     # -- run to the end, or to the deadline
     def run(self, cmd, cwd=None, env=None, stdin_text=None, stdout_path=None, merge=False, deadline_s=None,
-            on_tick=None, popen=None, keep_tail=200_000, idle_s=None, busy_s=None, on_busy=None):
+            on_tick=None, popen=None, keep_tail=200_000, idle_s=None, busy_s=None, on_busy=None, stdin_path=None):
         """Run cmd to completion or its wall deadline. Output to files, never pipes (FM-3). -> Outcome.
+        stdin: stdin_text, else the file stdin_path (bytes, P29 core/childrun), else DEVNULL - never a terminal.
         idle_s (FM-9, the silent stall): no PROGRESS for that long (its output did not grow AND its processes used
         less than IDLE_CPU_S of CPU) stops the container: status "stalled", the output tail kept on disk
         (Outcome.tail_file), the stall logged, put in the ROOM and shown by `fieldkit liveness check`.
@@ -582,7 +587,8 @@ class Container:
         try:
             if stdin_text is not None:
                 in_p.write_text(stdin_text, encoding="utf-8")
-            fin = open(in_p, "rb") if stdin_text is not None else subprocess.DEVNULL
+            fin = (open(in_p, "rb") if stdin_text is not None
+                   else open(stdin_path, "rb") if stdin_path is not None else subprocess.DEVNULL)
             fout = open(out_p, "ab" if stdout_path else "wb")
             ferr = fout if merge else open(err_p, "wb")
             try:
