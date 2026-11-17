@@ -4,6 +4,8 @@
     fieldkit capture off [--distill]                         hooks out, periodic scan disabled; --distill then makes candidate tools
                                                              (fieldkit emerge run does on/off/distill by itself, see capture/loop.py)
     fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
+    fieldkit capture clean (--all | --keep-last AGE) [--apply] preview scratch retention, or recycle eligible items
+    fieldkit capture start --project NAME --lesson WHY      clean scratch and start capture, with optional --workspace and --agents
     fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
     fieldkit capture scan [--json] [--limit N]               journal the work calls the transcripts hold that no hook captured (idempotent)
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
@@ -28,9 +30,10 @@ import argparse
 import collections
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from . import store as st
+from . import lesson, store as st
 
 LATER_FLAGS = ["kinds", "roots", "transform", "procedure", "failure-to-check", "languages", "workflows", "registration",
                "fresh-session"]
@@ -53,13 +56,17 @@ def _emit(a, data, lines):
 
 def cmd_hook(a):
     try:
+        observed = datetime.now(timezone.utc)
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
         from . import switch
         if not switch.is_on():                             # off or expired: record nothing (owner, 2026-11-08)
             return 0
         from . import hook
-        hook.handle(a.agent, text)
-        switch.ensure_schedule()                           # the scan timer comes back if a path switched on without it
+        with lesson.lock():
+            state = switch.read()
+            if switch.is_on(state):
+                hook.handle(a.agent, text, scope=state.get("scope"), observed=observed)
+                switch.ensure_schedule()                   # heal the timer while this switch still owns it
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
     return 0
@@ -67,9 +74,11 @@ def cmd_hook(a):
 
 def cmd_scan(a):
     from . import scan, switch
-    if a.scheduled and not switch.is_on():
-        return 0
-    r = scan.scan(st.Store(), limit=a.limit)
+    with lesson.lock():
+        state = switch.read()
+        if a.scheduled and not switch.is_on(state):
+            return 0
+        r = scan.scan(st.Store(), limit=a.limit, scope=state.get("scope"))
     if a.scheduled:
         return 0
     r["next"] = "fieldkit capture coverage --strict, then fieldkit capture ledger --strict"
@@ -114,6 +123,17 @@ def cmd_ledger(a):
 
 
 def cmd_absorb(a):
+    from . import switch
+
+    with lesson.lock():
+        if switch.read().get("scope"):
+            _emit(a, {"next": "finish and archive the scoped lesson before importing another store"},
+                  ["capture absorb refused during a scoped lesson's store lifetime"])
+            return 3
+        return _absorb(a)
+
+
+def _absorb(a):
     """absorb DIR...: each stray store (a worktree's state/capture, or the worktree itself) into the shared one."""
     s, rows = st.Store(), []
     for d in a.dirs:
@@ -347,11 +367,21 @@ def main(argv=None):
     stt.add_argument("--project", default=None, help="the project this capture is for (episodes of other projects never mix in)")
     stt.add_argument("--lesson", default=None)
     stt.add_argument("--for", dest="minutes", type=int, default=None)
-    stt.add_argument("--dry-run", action="store_true", help="only the digest check")
-    stt.add_argument("--force-undigested", action="store_true", help="OWNER ONLY, at a real terminal: wipe undigested material too (it stays in the archive bundle)")
+    stt.add_argument("--dry-run", action="store_true", help="preview scratch eligibility and the store gate without changes")
+    stt.add_argument("--force-undigested", action="store_true", help="OWNER ONLY: proceed past an open queue after verifying its archive. Scratch still requires disposition.")
     stt.add_argument("--dispose", metavar="PATH", help="record that a scattered script is not worth keeping (needs --because)")
     stt.add_argument("--because")
     stt.add_argument("--json", action="store_true")
+    stt.add_argument("--workspace", help="existing project directory for the lesson boundary")
+    stt.add_argument("--agents", help="comma-separated verified agents, for example claude,gemini")
+    clean = sub.add_parser("clean", help="preview scratch retention, or recycle eligible items with --apply")
+    clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
+    clean.add_argument("--json", action="store_true")
+    for parser in (stt, clean):
+        selection = parser.add_mutually_exclusive_group(required=parser is clean)
+        selection.add_argument("--all", action="store_true", help="select scratch of any age")
+        selection.add_argument("--keep-last", "--older-than", metavar="AGE",
+                               help="recycle older scratch, for example 30m, 2w, or '1 month'")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
     off.add_argument("--json", action="store_true")
     off.add_argument("--distill", action="store_true", help="then turn what was captured into candidate tools or ledger lines")
@@ -410,9 +440,9 @@ def main(argv=None):
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
         t.add_argument("--" + k.replace("_", "-"), dest=k, action="store_true")
     a = ap.parse_args(argv)
-    if a.action == "start":
+    if a.action in ("start", "clean"):
         from . import cleanslate
-        if not a.dispose and not (a.project and a.lesson):
+        if a.action == "start" and not a.dispose and not (a.project and a.lesson):
             print("capture start: --project NAME and --lesson WHY are required", file=sys.stderr)
             return 2
         return cleanslate.cmd(a)
@@ -421,7 +451,10 @@ def main(argv=None):
         return projects.cmd(a)
     if a.action in ("on", "off", "state"):
         from . import switch
-        return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
+        if a.action == "state":
+            return switch.cmd_state(a)
+        with lesson.lock():
+            return (switch.cmd_on if a.action == "on" else switch.cmd_off)(a)
     return {"absorb": cmd_absorb, "hook": cmd_hook, "scan": cmd_scan, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
             "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "adopted": cmd_adopted, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 

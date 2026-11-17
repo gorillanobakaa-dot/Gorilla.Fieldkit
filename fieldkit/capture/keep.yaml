@@ -2,8 +2,14 @@
 # case-insensitive substrings of the full path with / as separator. Credential files are never opened, only kept.
 keep:
   - /.git/                 # every checkout and worktree metadata
+  - /.hg/
+  - /.svn/
   - /fieldkit/             # the Fieldkit checkout
   - /local/                # the owner's own tools, sources and tests
+  - /capture/
+  - /capture-archive/
+  - /transcripts/
+  - /sessions/
   - /toolchains/
   - /.cargo/
   - /.rustup/
@@ -13,6 +19,13 @@ keep:
   - /.gnupg/
   - /.aws/
   - /.config/gh/
+  - /.netrc/
+  - /.npmrc/
+  - /.pypirc/
+  - /.git-credentials/
+  - .pem/
+  - .pfx/
+  - .key/
   - credentials
   - secret
   - .env
@@ -35,3 +48,9 @@ scratch_roots:
   - ~/.codex/tmp
   - ~/.local/share/gorilla-opencode/tmp          # OpenCode work dirs, Linux
   - ~/AppData/Local/gorilla-opencode/tmp          # OpenCode work dirs, Windows
+
+protected_roots:
+  - ~/.codex/tmp/arg0      # Codex launcher runtime
+  - ~/.codex/worktrees     # Codex managed project checkouts
+  - ~/.codex/sessions     # original Codex transcripts
+  - ~/Documents/Scripts

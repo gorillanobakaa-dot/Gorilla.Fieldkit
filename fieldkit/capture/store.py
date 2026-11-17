@@ -408,6 +408,8 @@ class Store:
         rec = redact(rec)
         rec.setdefault("timestamp", now())
         chash = content_hash(rec)
+        if rec.get("lesson_id") and event:
+            chash = sha(canon([chash, event]))
         with self.tx() as st:
             iid = st["by_hash"].get(chash)
             if iid:
@@ -467,6 +469,8 @@ class Store:
                     except Exception:             # noqa: BLE001
                         rec = None
                     rec = rec or hook.unparsed(ev["agent"], payload)
+                    if isinstance(payload, dict) and payload.get("_fk_lesson"):
+                        rec.update(lesson_id=payload["_fk_lesson"], timestamp=payload["_fk_admitted_at"])
                     self.record(rec, event=eid)
                     made += 1
         st = self.state()

@@ -122,9 +122,16 @@ def parse(agent, p, store=None):
     cwd = _first(p, "cwd", "workdir", "directory") or os.getcwd()
     session = str(_first(p, "session_id", "sessionId", "sessionID", "session") or "")
     scanned = "fk_timestamp" in p                          # `capture scan` read this call from a transcript, no hook saw it
-    base = {"agent": agent, "session": session, "cwd": cwd, "env": {} if scanned else dict(os.environ),
-            "timestamp": p.get("fk_timestamp") or st.now(), "origin": f"{'scan' if scanned else 'hook'}:{agent}:{ev}"}
-    prompt = p.get("fk_prompt") or "" if scanned else last_prompt(_first(p, "transcript_path", "transcriptPath")) or ""
+    scoped = p.get("_fk_lesson")
+    base = {"agent": agent, "session": session, "cwd": cwd, "env": {} if scanned or scoped else dict(os.environ),
+            "timestamp": p.get("_fk_admitted_at") or p.get("fk_timestamp") or st.now(),
+            "origin": f"{'scan' if scanned else 'hook'}:{agent}:{ev}"}
+    if scoped:
+        base["lesson_id"] = scoped
+    if scanned or scoped:
+        prompt = p.get("fk_prompt") or ""
+    else:
+        prompt = last_prompt(_first(p, "transcript_path", "transcriptPath")) or ""
     if str(ev).lower() in ("stop", "subagentstop", "sessionend", "afteragent"):
         src = prompt or "(no prompt found)"
         if scanned:                                        # one marker per scanned session, never merged with another's
@@ -190,7 +197,7 @@ def opencode_payload(text, env=None):
             "tool_response": resp, "session_id": env.get("GORILLA_HOOK_SESSION", ""), "cwd": os.getcwd()}
 
 
-def handle(agent, text, store=None):
+def handle(agent, text, store=None, scope=None, observed=None):
     """Journal one hook event. Returns the item id (None when the event is not work). Never raises."""
     store = store or st.Store()
     try:
@@ -199,6 +206,10 @@ def handle(agent, text, store=None):
                 (json.loads(text) if text and text.strip() else {"raw": text or ""})
         except ValueError:
             payload = {"raw": text}
+        if scope:
+            from . import lesson
+            iid, _ = lesson.record(store, scope, agent, payload, observed)
+            return iid
         try:
             rec = parse(agent, payload, store)
         except Exception as exc:                           # noqa: BLE001

@@ -11,6 +11,15 @@ compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorilla
 Look in docs/METHODS.md before inventing a procedure. When you invent one, add a row there, and turn it into a
 tool with a test. Every command below takes `--json`; text output ends with `NEXT:` when there is a next step.
 
+## A clean capture lesson
+
+`fieldkit capture clean --keep-last 2w` previews eligible scratch older than 14 days. Add `--apply` at the CLI
+to recycle it while capture is off. A month is 30 elapsed days. `--all` selects eligible scratch at any age.
+Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --all`
+before starting work. Add `--dry-run` for a preview. Start selected agent sessions after the gate reports success.
+P40 retains protected and unresolved items and checks the prior store before resetting it.
+`fieldkit capture off --distill` closes the window and distils that lesson.
+
 ## Before a change: the baseline
 ```
 fieldkit regress record before -- python -m pytest -q -rA      (or go test -v ./..., or their own suite)
