@@ -26,8 +26,8 @@ HARD LINES (never, whoever asks):
 
 BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
 one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
-Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per batch: no second
-release within 24 h (`--hotfix WHY`, logged).
+Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per OS
+per 24 h, all OSes same day (`--hotfix WHY`, logged).
 
 TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks (owner,
 2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
