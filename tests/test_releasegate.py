@@ -86,3 +86,21 @@ def test_system_of_reads_the_tag_suffix():
     assert rg.system_of("v158.0-win64-build2") == "windows"
     assert rg.system_of("macbook-air") == "mac"
     assert rg.system_of("v1.2.3") == "" and rg.system_of("v158.0-2") == ""
+
+
+def test_every_place_that_publishes_a_release_goes_through_the_gate():
+    """Drift guard (2026-11-15): a new `gh release create` or tag push that skips releasegate would bring back one
+    release per fix. Every module that runs one must call releasegate.guard."""
+    import re
+    from pathlib import Path
+    root = Path(rg.__file__).resolve().parents[1]
+    publishers = []
+    for f in root.rglob("*.py"):
+        if f.name in ("mandate.py", "hardlines.py", "releasegate.py"):      # they describe or block, never publish
+            continue
+        t = f.read_text(encoding="utf-8", errors="replace")
+        if re.search(r'\[\s*"gh",\s*"release",\s*"create"|\("release", "create"|\["release", "create"|"release", "create", tag', t):
+            publishers.append(f)
+    assert publishers, "the scan found no publisher: fix the pattern"
+    missing = [str(f.relative_to(root)) for f in publishers if "releasegate" not in f.read_text(encoding="utf-8", errors="replace")]
+    assert not missing, f"publishes a release without the one-release-per-batch gate: {missing}"
