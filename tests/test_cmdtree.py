@@ -105,12 +105,18 @@ def test_inbox_add_refuses_a_command_that_does_not_exist(tmp_path, monkeypatch):
     assert not (tmp_path / "inbox").exists() or not list((tmp_path / "inbox").glob("*.json"))
 
 
+def not_unknown(cmd):
+    r = toolrouter.route(cmd)
+    return r is None or r["route"] != "unknown-fieldkit-command"
+
+
 def test_the_tool_router_refuses_an_unknown_verb_and_allows_a_real_one():
     r = toolrouter.route("fieldkit leakgate foo")
     assert r and r["route"] == "unknown-fieldkit-command" and "build-harness leakgate" in r["use"]
     assert toolrouter.route("fieldkit build-harness leakgate foo") is None
-    assert toolrouter.route("git commit -m 'the fieldkit nosuch thing'") is None      # a quoted message is no command
-    assert toolrouter.route("git commit -m \"fieldkit nosuch thing\"") is None      # the quoted text starts with the word
+    # a quoted message is no command; on Windows git commit routes to the guard (heavy work), never to this check
+    assert not_unknown("git commit -m 'the fieldkit nosuch thing'")
+    assert not_unknown("git commit -m \"fieldkit nosuch thing\"")                 # the quoted text starts with the word
     assert toolrouter.route("bash -c 'fieldkit nosuch thing'")                        # but bash -c is one
 
 
