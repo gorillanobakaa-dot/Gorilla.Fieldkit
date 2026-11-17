@@ -9,12 +9,13 @@ import tempfile
 from pathlib import Path
 
 
-def fk(*args, cwd=None, env=None):
+def fk(*args, cwd=None, env=None, both=False):
     r = subprocess.run([sys.executable, "-m", "fieldkit", *args], capture_output=True, text=True, timeout=300,
                        encoding="utf-8", errors="replace", cwd=cwd, env=dict(os.environ, **(env or {})))
     print(r.stdout[-3000:], r.stderr[-3000:])
     assert "Traceback" not in r.stderr, r.stderr
-    return r.returncode, r.stdout
+    # the REFUSED line goes to stderr: both=True reads stdout and stderr together
+    return r.returncode, (r.stdout + r.stderr) if both else r.stdout
 
 
 def last_json(out):
@@ -27,7 +28,7 @@ def git(repo, *a):
     subprocess.run(["git", "-C", str(repo), "-c", "user.name=e2e", "-c", "user.email=e2e", *a],
                    check=True, capture_output=True)
 
-rc, out = fk("build-harness", "installer-test", "e2e-no-such-task")
+rc, out = fk("build-harness", "installer-test", "e2e-no-such-task", both=True)
 assert rc == 2, rc
 assert "REFUSED: no task 'e2e-no-such-task'" in out, out
 print("E2E OK: installer-test on", sys.platform)
