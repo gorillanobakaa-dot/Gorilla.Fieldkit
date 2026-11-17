@@ -432,8 +432,9 @@ def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None,
     if ag in ("agy", "antigravity"):
         env["AGY_MODEL"] = chosen_model
         env["AGY_THINKING_LEVEL"] = chosen_thinking
-        args = [exe, "--print", "--output-format", "stream-json", "--mode", "auto",
-                "--dangerously-skip-permissions", "--model", chosen_model, "--effort", chosen_thinking]
+        args = [exe, "--output-format", "stream-json", "--mode", "auto",
+                "--dangerously-skip-permissions", "--model", chosen_model, "--effort", chosen_thinking,
+                f"--print={prompt}"]
     elif ag == "gemini":
         env["GEMINI_MODEL"] = chosen_model
         args = [exe, "--model", chosen_model, "--approval-mode", "yolo", "--output-format", "stream-json"]
@@ -453,7 +454,7 @@ def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None,
     own = liveness.beacon("autopilot", Path(cwd or os.getcwd()).name, label).start() if liveness.current() is None else None
     try:
         o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
-                        stdin_text=prompt, popen=popen, idle_s=idle)
+                        stdin_text="" if ag in ("agy", "antigravity") else prompt, popen=popen, idle_s=idle)
     finally:
         if own:
             own.close()

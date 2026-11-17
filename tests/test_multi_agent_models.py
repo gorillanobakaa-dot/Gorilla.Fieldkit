@@ -205,10 +205,11 @@ def test_agent_run_builds_valid_cli_args_for_agy_antigravity_and_gemini(tmp_path
         assert res["ok"] is True
         argv, kw = seen[-1]
         assert argv[0] == "/bin/agy"
-        assert "--print" in argv and "--dangerously-skip-permissions" in argv
+        assert "--print=hello" in argv and "--dangerously-skip-permissions" in argv
+        assert argv.index("--output-format") < argv.index("--print=hello")
         assert "--effort" in argv and "high" in argv
         assert "chat" not in argv and "--thinking" not in argv
-        assert kw["stdin_text"] == "hello"
+        assert kw["stdin_text"] == ""
 
     res_g = ap_run.agent_run(
         "gemini", "hello", cwd=tmp_path, model="gemini-4-hydrogen-high", thinking="medium", max_turns=50
