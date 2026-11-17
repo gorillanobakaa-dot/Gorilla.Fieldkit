@@ -26,6 +26,16 @@ x-offload: &vaio
   project: gorilla-firefox
   tree: "${FIELDKIT}/fieldkit/emerge/recipes"
   wall: 240
+# the emergency repair (owner 2026-11-17: "small fix = one step, never full emerge"): fieldkit emerge repair
+repair:
+  source: "{src}"
+  patches: "{harness}/patches"
+  series: 21.PORT.FIXES
+  program: firefox
+  packages: [omni.ja, browser/omni.ja]
+  extensions: [.mjs, .js, .jsm, .sys.mjs, .css, .ftl, .html, .xhtml, .json, .svg, .png, .properties, .dtd]
+  max_files: 10
+  check: {pages: ["about:newtab", "about:home"], dprs: [1]}
 stages:
   deps: {uses: [toolchain], needs: [], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, deps, --local, --no-fix]}}
   source: {uses: [config], needs: [deps], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, source, --local, --no-fix]}}

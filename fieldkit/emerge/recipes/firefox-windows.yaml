@@ -34,6 +34,16 @@ toolchain:
   - [rustc, --version]
   - [cargo, --version]
 preflight: {disk_gb: 60, ram_gb: 16, path: "{harness}"}
+# the emergency repair (owner 2026-11-17: "small fix = one step, never full emerge"): fieldkit emerge repair
+repair:
+  source: "{harness}/src"
+  patches: "{harness}/gorilla-patchset/patches"
+  series: 21.PORT.FIXES
+  program: firefox.exe
+  packages: [omni.ja, browser/omni.ja]
+  extensions: [.mjs, .js, .jsm, .sys.mjs, .css, .ftl, .html, .xhtml, .json, .svg, .png, .properties, .dtd]
+  max_files: 10
+  check: {pages: ["about:newtab", "about:home"], dprs: [1]}
 stages:
   patchset: {always_run: true, bucket: tools}      # idempotent: only a pristine work tree is patched
   preflight: {always_run: true, bucket: tools}
