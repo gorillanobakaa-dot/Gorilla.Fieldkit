@@ -114,7 +114,7 @@ with its exact blocker; `fieldkit capture workflow list` shows them. Replay-back
 | unicode-escape-fix | incompatible | native in Fieldkit now | `fieldkit pyliterals` (batch 2): only drive paths, file must parse |
 | advanced-distill | incompatible | Fieldkit already has it | `fieldkit capture distill` (stages 1-7) |
 | assessed-word-count | incompatible | Fieldkit already has it | the academic harness counts words (`fieldkit academic`, skill fieldkit-academic) |
-| benchmark-aggregate | incompatible | Fieldkit already has it | `fieldkit model-eval` / `fieldkit mcp-eval` report their runs |
+| benchmark-aggregate | incompatible | Fieldkit already has it | `fieldkit mcp-eval` reports its runs |
 | build-phases-split | incompatible | Fieldkit already has it | `fieldkit overhead` (bare parts: migrate, compile, package) |
 | capture-gap-reconciler | incompatible | Fieldkit already has it | `fieldkit capture distill`; capture is OFF by default now (PR #374) |
 | capture-pair-audit | incompatible | Fieldkit already has it | `fieldkit capture distill pairs` |
@@ -122,7 +122,7 @@ with its exact blocker; `fieldkit capture workflow list` shows them. Replay-back
 | capture-workflow-miner | incompatible | Fieldkit already has it | `fieldkit capture distill recipes`; its 23 candidates are the procedures below |
 | cost-since | incompatible | Fieldkit already has it | `fieldkit cost` / `fieldkit session-cost` |
 | first-user-msg | incompatible | Fieldkit already has it | `fieldkit teach` / `fieldkit board` read transcripts |
-| mandate-trust-pin-verify | incompatible | Fieldkit already has it | `fieldkit mandate-doctor` (fail-closed mandate check) |
+| mandate-trust-pin-verify | incompatible | Fieldkit already has it | `fieldkit mandate doctor` (fail-closed mandate check) |
 | pr-green-ready | incompatible | Fieldkit already has it | `fieldkit ship ci-wait` and the merge train (`fieldkit merge-train`) |
 | pytest-suite-stats | incompatible | Fieldkit already has it | `fieldkit overhead bash-calls` (pytest targeted / full suite rows) and `fieldkit testcost` |
 | rules-assemble-check | incompatible | Fieldkit already has it | `fieldkit rules` / laptop-rules (one source, copied between markers) |

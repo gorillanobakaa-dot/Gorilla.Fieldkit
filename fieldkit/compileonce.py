@@ -92,7 +92,7 @@ def check(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS) -> dict:
 
 
 def build(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS, force: bool = False) -> dict:
-    """Compile all .py files under root/fieldkit and root/kits into .pyc bytecode ahead-of-time."""
+    """Compile every .py file in the DEFAULT_DIRS folders under root into .pyc bytecode ahead-of-time."""
     t0 = time.monotonic()
     root = Path(root).resolve()
     files = iter_py_files(root, dirs=dirs)
