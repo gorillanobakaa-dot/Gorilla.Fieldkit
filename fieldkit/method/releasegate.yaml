@@ -1,3 +1,27 @@
-# One release per batch (owner order 2026-11-15): a repository that published a release less than min_hours ago
-# gets no new one; batch the fixes and release once from main after the last. `--hotfix WHY` is the logged escape.
+# One release per batch PER OPERATING SYSTEM (owner order 2026-11-15; changed by the owner 2026-11-17: "Modify the rule
+# to allow for multiple operating system uploads ... FreeBSD, Linux, Windows, Mac OS, Android and Chrome, then we have
+# 6 builds that need to be uploaded every day"). A repository that published a release for one system less than
+# min_hours ago gets no second release FOR THAT SYSTEM; every other system publishes freely. The system is read from
+# the tag's suffix after the version (v160.0.0-linux -> linux, v158.0-win64-build2 -> windows); a tag with no system
+# (v1.2.3) counts as its own kind, so a plain project still gets one release per batch. `--hotfix WHY` is the logged
+# escape inside one system's window.
 min_hours: 24
+# suffix word -> system; a word not listed is its own system
+systems:
+  linux: linux
+  deb: linux
+  debian: linux
+  windows: windows
+  win: windows
+  win64: windows
+  win32: windows
+  mac: mac
+  macos: mac
+  osx: mac
+  darwin: mac
+  macbook: mac
+  freebsd: freebsd
+  android: android
+  chrome: chromeos
+  chromeos: chromeos
+  ios: ios
