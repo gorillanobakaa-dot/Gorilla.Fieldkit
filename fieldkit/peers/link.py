@@ -606,6 +606,62 @@ def approvals():
     return yaml.safe_load(p.read_text(encoding="utf-8")) or {}, "approved"
 
 
+PUT_FOLDERS = {
+    "desktop": {
+        "key": "accept_to_desktop",
+        "label": "Desktop",
+        "not_msg": "not on the Desktop",
+        "xdg": "XDG_DESKTOP_DIR",
+        "win_reg": "Desktop",
+        "known_guid": "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+    },
+    "downloads": {
+        "key": "accept_to_downloads",
+        "label": "Downloads",
+        "not_msg": "not in Downloads",
+        "xdg": "XDG_DOWNLOAD_DIR",
+        "win_reg": "{374DE290-123F-4565-9164-39C4925E467B}",
+        "known_guid": "{374DE290-123F-4565-9164-39C4925E467B}",
+    },
+    "documents": {
+        "key": "accept_to_documents",
+        "label": "Documents",
+        "not_msg": "not in Documents",
+        "xdg": "XDG_DOCUMENTS_DIR",
+        "win_reg": "Personal",
+        "known_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+    },
+}
+
+
+def normalize_targets(targets, strict=True):
+    """-> ordered deduplicated list of canonical target folder keys from PUT_FOLDERS."""
+    if targets is None:
+        return []
+    raw = [targets] if isinstance(targets, str) else list(targets)
+    out = []
+    for entry in raw:
+        for part in str(entry).split(","):
+            t = part.strip().lower()
+            if not t:
+                continue
+            if t not in PUT_FOLDERS:
+                if strict:
+                    raise ValueError(f"unknown folder {part.strip()!r} (valid: {', '.join(PUT_FOLDERS)})")
+                continue
+            if t not in out:
+                out.append(t)
+    return out
+
+
+def _combine_folders(to_desktop=False, to_folders=None):
+    """-> canonical target folder list combining legacy `to_desktop` bool and `to_folders`."""
+    raw = ["desktop"] if to_desktop else []
+    if to_folders is not None:
+        raw.extend([to_folders] if isinstance(to_folders, str) else list(to_folders))
+    return normalize_targets(raw)
+
+
 LINK_TEMPLATE = """\
 # Which agents the paired computer may ask THIS computer to start, approved by this computer's owner:
 #     fieldkit peers link approve      (a real terminal, typed yes; sha256-pinned; any change voids it)
@@ -617,8 +673,10 @@ cwd: null                # the folder a started session works in (required when 
 wall_minutes: 120
 start_commands: {}       # agent -> argv list with {brief} {cwd} {job} {wall}; only for agents other than claude,
                          # written by the owner, never guessed
-accept_to_desktop: false # true: a file sent with `put --to-desktop` is also copied onto this computer's Desktop
-                         # (always kept in ~/.fieldkit/link/received/; nothing is ever overwritten)
+accept_to_desktop: false   # true: a file sent with `put --to-desktop` is also copied onto this computer's Desktop
+                           # (always kept in ~/.fieldkit/link/received/; nothing is ever overwritten)
+accept_to_downloads: false # true: a file sent with `put --to-downloads` is also copied into this computer's Downloads
+accept_to_documents: false # true: a file sent with `put --to-documents` is also copied into this computer's Documents
 """
 
 
@@ -634,14 +692,14 @@ def render_link_yaml(values):
     return "\n".join(out) + "\n"
 
 
-def approve(confirm=None, say=print, isatty=None, allow=None, cwd=None, wall_minutes=None):
-    """approve: show link.yaml, one typed yes pins it. With allow/cwd/wall it first writes them into link.yaml, so
-    the whole thing is ONE command (owner, 2026-10-22: six steps were too many)."""
+def approve(confirm=None, say=print, isatty=None, allow=None, cwd=None, wall_minutes=None, accept_folders=None):
+    """approve: show link.yaml, one typed yes pins it. With allow/cwd/wall/accept_folders it first writes them into
+    link.yaml, so the whole thing is ONE command (owner, 2026-10-22: six steps were too many)."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         say("REFUSED: never approved from inside an autopilot run")
         return 3
     p = home() / "link.yaml"
-    if allow is not None or cwd is not None or wall_minutes is not None:
+    if allow is not None or cwd is not None or wall_minutes is not None or accept_folders is not None:
         if confirm is None and not (isatty if isatty is not None else sys.stdin.isatty()):
             say("REFUSED: approving needs the owner typing yes at a real terminal (link.yaml left as it was)")
             return 3
@@ -661,6 +719,19 @@ def approve(confirm=None, say=print, isatty=None, allow=None, cwd=None, wall_min
             d["cwd"] = str(Path(cwd).resolve())
         if wall_minutes is not None:
             d["wall_minutes"] = int(wall_minutes)
+        if accept_folders is not None:
+            raw = [accept_folders] if isinstance(accept_folders, str) else list(accept_folders)
+            tokens = [x.strip().lower() for a in raw for x in str(a).split(",") if x.strip()]
+            if tokens == ["none"]:
+                chosen = set()
+            else:
+                try:
+                    chosen = set(normalize_targets(tokens))
+                except ValueError as e:
+                    say(f"PROBLEM: {e}")
+                    return 2
+            for name, info in PUT_FOLDERS.items():
+                d[info["key"]] = name in chosen
         home().mkdir(parents=True, exist_ok=True)
         p.write_text(render_link_yaml(d), encoding="utf-8")
     if not p.is_file():
@@ -815,19 +886,146 @@ def _free(folder, name):
     return p
 
 
+def _win_known_folder(known_guid, reg_name):
+    """Windows Known Folder path via SHGetKnownFolderPath, falling back to User Shell Folders registry."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        import uuid
+        from ctypes import wintypes
+
+        class _GUID(ctypes.Structure):
+            _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                        ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+        u = uuid.UUID(known_guid)
+        guid = _GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8).from_buffer_copy(u.bytes[8:]))
+        ptr = ctypes.c_void_p()
+        rc = ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(ptr))
+        try:
+            if rc == 0 and ptr.value:
+                val = ctypes.wstring_at(ptr.value)
+                if val:
+                    return Path(val)
+        finally:
+            if ptr.value:
+                ctypes.windll.ole32.CoTaskMemFree(ptr)
+    except Exception:
+        pass
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+            value, _ = winreg.QueryValueEx(key, reg_name)
+        expanded = os.path.expandvars(value)
+        if expanded:
+            return Path(expanded)
+    except Exception:
+        pass
+    return None
+
+
+def _xdg_user_dirs(home_path, env):
+    """Parse ~/.config/user-dirs.dirs into {XDG_*_DIR: Path}, expanding $HOME to `home_path`."""
+    cfg = home_path / ".config" / "user-dirs.dirs"
+    if not cfg.is_file():
+        return {}
+    vars_map = {**env, "HOME": str(home_path)}
+    out = {}
+    for raw in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        if not (k.startswith("XDG_") and k.endswith("_DIR")):
+            continue
+        v = v.strip().strip('"').strip("'")
+        if not v:
+            continue
+        v = re.sub(r"\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)",
+                   lambda m: vars_map.get(m.group(1) or m.group(2), m.group(0)), v)
+        if v == "~":
+            p = home_path
+        elif v.startswith("~/"):
+            p = home_path / v[2:]
+        else:
+            p = Path(v)
+            if not p.is_absolute():
+                p = home_path / p
+        out[k] = p
+    return out
+
+
+def resolve_put_folder(folder, dirs=None, home_dir=None, platform=None, env=None):
+    """Resolve `desktop`, `downloads`, or `documents` cross-OS (Windows Known Folders/OneDrive, Linux XDG user-dirs)."""
+    key = str(folder).strip().lower()
+    if key not in PUT_FOLDERS:
+        raise ValueError(f"unknown folder {folder!r} (valid: {', '.join(PUT_FOLDERS)})")
+    info = PUT_FOLDERS[key]
+    if dirs:
+        override = dirs.get(key) if key in dirs else dirs.get(info["label"])
+        if override is not None:
+            return Path(override)
+    plat = sys.platform if platform is None else platform
+    hp = Path(home_dir) if home_dir is not None else Path.home()
+    environ = os.environ if env is None else env
+    if plat == "win32":
+        if home_dir is None:
+            kf = _win_known_folder(info["known_guid"], info["win_reg"])
+            if kf is not None:
+                return kf
+        if home_dir is None or env is not None:
+            for var in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+                od = environ.get(var)
+                if od and (Path(od) / info["label"]).is_dir():
+                    return Path(od) / info["label"]
+        return hp / info["label"]
+    xdg = _xdg_user_dirs(hp, environ)
+    return xdg.get(info["xdg"], hp / info["label"])
+
+
+def requested_folders(req):
+    """-> ordered target folder list from a put-begin / put-stream request (honours legacy `to_desktop` too)."""
+    raw = list(req.get("to_folders") or [])
+    if req.get("to_desktop") and "desktop" not in [str(x).strip().lower() for x in raw]:
+        raw.insert(0, "desktop")
+    return normalize_targets(raw, strict=False)
+
+
+def copy_to_approved_folders(dest, name, targets, dirs=None, home_dir=None):
+    """-> [where it went] : copy dest into each approved folder in `targets`; never overwrites."""
+    clean = normalize_targets(targets)
+    if not clean:
+        return []
+    reg, why = approvals()
+    out = []
+    for target in clean:
+        info = PUT_FOLDERS[target]
+        key = info["key"]
+        if reg.get(key) is True:
+            d = resolve_put_folder(target, dirs=dirs, home_dir=home_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            tgt = _free(d, name)
+            if Path(dest).is_dir():
+                shutil.copytree(dest, tgt)
+            else:
+                shutil.copy2(dest, tgt)
+            out.append(str(tgt))
+        else:
+            reason = why if not reg else f"{key} is not approved in link.yaml"
+            out.append(f"{info['not_msg']}: {reason}")
+    return out
+
+
 def to_desktop_copy(dest, name, desktop=None):
     """-> [where it went] : a copy on the Desktop only when this computer's owner approved accept_to_desktop."""
-    reg, why = approvals()
-    if reg.get("accept_to_desktop") is True:
-        d = Path(desktop or (Path.home() / "Desktop"))
-        d.mkdir(parents=True, exist_ok=True)
-        tgt = _free(d, name)
-        shutil.copy2(dest, tgt)
-        return [str(tgt)]
-    return [f"not on the Desktop: {why if not reg else 'accept_to_desktop is not approved in link.yaml'}"]
+    dirs = {"desktop": desktop} if desktop is not None else None
+    return copy_to_approved_folders(dest, name, ["desktop"], dirs=dirs)
 
 
-def receive(req, desktop=None):
+def receive(req, desktop=None, dirs=None):
     """put-begin / put-chunk / put-end on the receiving side."""
     import base64
     import hashlib
@@ -840,7 +1038,7 @@ def receive(req, desktop=None):
         part = home() / "received" / ".partial"
         part.mkdir(parents=True, exist_ok=True)
         _UPLOADS[uid] = {"name": safe_name(req.get("name")), "size": size, "sha256": str(req.get("sha256", "")).lower(),
-                         "next": 0, "path": part / uid, "desktop": bool(req.get("to_desktop")),
+                         "next": 0, "path": part / uid, "folders": requested_folders(req),
                          "from": req.get("from_host")}
         _UPLOADS[uid]["path"].write_bytes(b"")
         return {"ok": True, "id": uid, "chunk": CHUNK}
@@ -865,22 +1063,26 @@ def receive(req, desktop=None):
             return {"ok": False, "error": "checksum or size mismatch: the file was discarded"}
         dest = _free(home() / "received", u["name"])
         os.replace(u["path"], dest)
-        where = [str(dest)] + (to_desktop_copy(dest, u["name"], desktop) if u["desktop"] else [])
+        eff_dirs = dict(dirs or {})
+        if desktop is not None and "desktop" not in eff_dirs:
+            eff_dirs["desktop"] = desktop
+        where = [str(dest)] + copy_to_approved_folders(dest, u["name"], u["folders"], dirs=eff_dirs or None)
         _log(f"file {u['name']} ({u['size']} bytes, sha256 {got[:12]}) from {u['from']}: {'; '.join(where)}")
         store("file", {"from_host": u["from"], "text": f"file {u['name']} ({u['size']} bytes) saved: {'; '.join(where)}"})
         return {"ok": True, "saved": where, "sha256": got}
     return {"ok": False, "error": f"unknown verb {verb!r}"}
 
 
-def put(path, to_desktop=False, call_fn=None, device=None, retries=3, progress=None):
+def put(path, to_desktop=False, call_fn=None, device=None, retries=3, progress=None, to_folders=None):
     """Send a file or a whole folder, any size, streamed on one connection and resumable (link_transfer.py).
     -> the receiver's answer. A receiver with an older link (no put-stream) still takes a file of up to 50 MB the
     old way."""
+    folders = _combine_folders(to_desktop, to_folders)
     if call_fn is None:
         from . import link_transfer
         try:
             r = link_transfer.put_stream(path, device=device, retries=retries, progress=progress,
-                                         to_desktop=to_desktop)
+                                         to_desktop=("desktop" in folders), to_folders=folders or None)
         except ValueError as e:
             return {"ok": False, "error": str(e)}
         if r.get("ok") or "unknown verb" not in str(r.get("error", "")):
@@ -890,19 +1092,25 @@ def put(path, to_desktop=False, call_fn=None, device=None, retries=3, progress=N
                                           "files of up to 50 MB only; update it (fieldkit sync) and restart its "
                                           "listener to send folders"}
         call_fn = lambda req: call(req, device=device)        # noqa: E731
+    if any(f != "desktop" for f in folders):
+        return put_chunked(path, to_desktop, call_fn, to_folders=folders)
     return put_chunked(path, to_desktop, call_fn)
 
 
-def put_chunked(path, to_desktop=False, call_fn=None):
+def put_chunked(path, to_desktop=False, call_fn=None, to_folders=None):
     """The 2026-10-22 way: one file, read whole, 40 KB base64 chunks, one connection each, at most 50 MB."""
     import base64
     import hashlib
     call_fn = call_fn or call
+    folders = _combine_folders(to_desktop, to_folders)
     data = Path(path).read_bytes()
     if len(data) > MAX_FILE:
         return {"ok": False, "error": f"{len(data)} bytes: at most {MAX_FILE}"}
-    r = call_fn({"verb": "put-begin", "name": Path(path).name, "size": len(data),
-                 "sha256": hashlib.sha256(data).hexdigest(), "to_desktop": bool(to_desktop)})
+    begin = {"verb": "put-begin", "name": Path(path).name, "size": len(data),
+             "sha256": hashlib.sha256(data).hexdigest(), "to_desktop": ("desktop" in folders)}
+    if folders:
+        begin["to_folders"] = folders
+    r = call_fn(begin)
     if not r.get("ok"):
         return r
     step = int(r.get("chunk", CHUNK))
@@ -1499,6 +1707,9 @@ def main(argv=None):
     ap.add_argument("--port", type=int, help="devices add: its port, when not the household's")
     ap.add_argument("--this", action="store_true", help="devices add: this row is THIS device")
     ap.add_argument("--to-desktop", action="store_true", help="put: also onto the other computer's Desktop (if its owner allowed it)")
+    ap.add_argument("--to-downloads", action="store_true", help="put: also into the other computer's Downloads (if its owner allowed it)")
+    ap.add_argument("--to-documents", action="store_true", help="put: also into the other computer's Documents (if its owner allowed it)")
+    ap.add_argument("--to-folder", action="append", help="put: target folder(s) (repeatable or comma list: desktop, downloads, documents)")
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--me")
     ap.add_argument("--peer")
@@ -1509,6 +1720,8 @@ def main(argv=None):
     ap.add_argument("--allow", action="append", help="approve: an agent the peer may start (repeatable or a comma list): writes link.yaml, shows it, one yes")
     ap.add_argument("--cwd", help="approve: the folder a started session works in")
     ap.add_argument("--wall-minutes", type=int, help="approve: the budget of a started session")
+    ap.add_argument("--accept-folders", "--accept-to", action="append", dest="accept_folders",
+                    help="approve: folder(s) put may also copy files into (repeatable or comma list: desktop, downloads, documents, or none)")
     ap.add_argument("--agent", default=None, help="ask: coding agent (antigravity, agy, gemini, codex, gorilla-opencode, claude)")
     ap.add_argument("--model", default=None, help="ask: specific model (e.g. hydrogen, argon, carbon, o4-mini, sonnet)")
     ap.add_argument("--thinking", default=None, help="ask: reasoning/thinking level (lowest, low, medium, high, max)")
@@ -1544,9 +1757,10 @@ def main(argv=None):
         return 2
     if a.action == "approve":
         # owner, 2026-10-22: six steps and an editor is too much; one command and one yes
-        if a.allow or a.cwd or a.wall_minutes:
-            allow = [x.strip() for v in (a.allow or []) for x in v.split(",") if x.strip()]
-            return approve(allow=allow, cwd=a.cwd, wall_minutes=a.wall_minutes)
+        if a.allow or a.cwd or a.wall_minutes is not None or a.accept_folders:
+            allow = [x.strip() for v in a.allow for x in v.split(",") if x.strip()] if a.allow else None
+            accept = [x.strip() for v in a.accept_folders for x in v.split(",") if x.strip()] if a.accept_folders else None
+            return approve(allow=allow, cwd=a.cwd, wall_minutes=a.wall_minutes, accept_folders=accept)
         return approve()
     if a.action == "serve":
         serve(a.seconds, allow_loopback=lb)
@@ -1627,7 +1841,20 @@ def _progress(sent, total):
     print(f"  ... {sent / 1e6:,.0f} of {total / 1e6:,.0f} MB", file=sys.stderr, flush=True)
 
 
+def _cli_put_folders(a):
+    raw = list(getattr(a, "to_folder", None) or [])
+    for name in PUT_FOLDERS:
+        if getattr(a, f"to_{name}", False):
+            raw.append(name)
+    return normalize_targets(raw)
+
+
 def put_main(a):
+    try:
+        folders = _cli_put_folders(a)
+    except ValueError as e:
+        print(f"NOT SENT: {e}")
+        return 2
     items, tmp = list(a.rest), None
     if a.bundle:
         from . import link_transfer
@@ -1638,12 +1865,14 @@ def put_main(a):
             return 3
         items.append(str(tmp))
     if not items:
-        print("put FILE|FOLDER [...] [--bundle REPO] [--device NAME] [--to-desktop] [--retries N]")
+        print("put FILE|FOLDER [...] [--bundle REPO] [--device NAME] [--to-desktop] [--to-downloads] "
+              "[--to-documents] [--to-folder LIST] [--retries N]")
         return 2
     code = 0
     try:
         for f in items:
-            r = put(f, a.to_desktop, device=a.device, retries=a.retries, progress=None if a.json else _progress)
+            r = put(f, "desktop" in folders, device=a.device, retries=a.retries,
+                    progress=None if a.json else _progress, to_folders=folders or None)
             if a.json:
                 print(json.dumps(r, ensure_ascii=False))
             elif r.get("ok"):

@@ -98,8 +98,16 @@ def put(home_fn=None):
     except OSError as e:
         return row("put", False, f"{d} is not writable: {e}", "fix the folder's permissions; nothing is received")
     reg, why = link.approvals()
-    desk = "also the Desktop" if reg.get("accept_to_desktop") is True else f"not the Desktop ({why})"
-    return row("put", True, f"received files land in {d}; {desk}")
+    approved = [info["label"] for info in link.PUT_FOLDERS.values() if reg.get(info["key"]) is True]
+    unapproved = [info["label"] for info in link.PUT_FOLDERS.values() if reg.get(info["key"]) is not True]
+    parts = []
+    if approved:
+        parts.append("also " + ", ".join(approved))
+    if unapproved:
+        names = ", ".join("the Desktop" if x == "Desktop" else x for x in unapproved)
+        reason = why if not reg else "not approved in link.yaml"
+        parts.append(f"not {names} ({reason})")
+    return row("put", True, f"received files land in {d}; {'; '.join(parts)}")
 
 
 # ---- shell --------------------------------------------------------------------------------------------------------

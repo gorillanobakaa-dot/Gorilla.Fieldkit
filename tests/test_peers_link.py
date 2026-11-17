@@ -277,6 +277,63 @@ def test_put_reaches_the_desktop_only_when_that_owner_allowed_it_and_never_overw
     assert (tmp_path / "received" / "APPROVE.txt").read_bytes() == b"one"   # received/ never overwritten either
 
 
+def test_put_chunked_delivers_to_approved_folders_and_refuses_unapproved(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "h"))
+    dirs = {k: tmp_path / k for k in ("desktop", "downloads", "documents")}
+    src = tmp_path / "note.txt"
+    src.write_bytes(b"hello folders")
+
+    def call_fn(req):
+        return link.receive(req, dirs=dirs)
+
+    # none approved -> received/ succeeds, all three refused clearly
+    r = link.put_chunked(src, to_desktop=True, call_fn=call_fn, to_folders=["downloads", "documents"])
+    assert r["ok"] and (tmp_path / "h" / "received" / "note.txt").read_bytes() == b"hello folders"
+    assert any("not on the Desktop" in s for s in r["saved"])
+    assert any("not in Downloads" in s for s in r["saved"])
+    assert any("not in Documents" in s for s in r["saved"])
+    assert not any(p.exists() for p in dirs.values())
+
+    # approve only downloads and documents (leave desktop unapproved)
+    assert link.approve(confirm=True, say=lambda m: None, accept_folders=["downloads", "documents"]) == 0
+    r = link.put_chunked(src, to_desktop=True, call_fn=call_fn, to_folders=["downloads", "documents"])
+    assert r["ok"]
+    assert (dirs["downloads"] / "note.txt").read_bytes() == b"hello folders"
+    assert (dirs["documents"] / "note.txt").read_bytes() == b"hello folders"
+    assert not dirs["desktop"].exists()
+    assert any("not on the Desktop" in s for s in r["saved"])
+    # second send never overwrites existing files
+    src.write_bytes(b"second copy")
+    r2 = link.put_chunked(src, call_fn=call_fn, to_folders=["downloads", "documents"])
+    assert r2["ok"]
+    assert (dirs["downloads"] / "note.txt").read_bytes() == b"hello folders"
+    assert (dirs["downloads"] / "note-1.txt").read_bytes() == b"second copy"
+    assert (dirs["documents"] / "note-1.txt").read_bytes() == b"second copy"
+
+
+def test_resolve_put_folder_xdg_and_fallbacks(tmp_path):
+    cfg = tmp_path / ".config"
+    cfg.mkdir()
+    (cfg / "user-dirs.dirs").write_text(
+        '# comment\nXDG_DESKTOP_DIR="$HOME/MyDesk"\nXDG_DOWNLOAD_DIR="$HOME/DL"\n',
+        encoding="utf-8",
+    )
+    assert link.resolve_put_folder("desktop", home_dir=tmp_path, platform="linux") == tmp_path / "MyDesk"
+    assert link.resolve_put_folder("downloads", home_dir=tmp_path, platform="linux") == tmp_path / "DL"
+    assert link.resolve_put_folder("documents", home_dir=tmp_path, platform="linux") == tmp_path / "Documents"
+    # missing user-dirs.dirs falls back to ~/Name
+    empty_home = tmp_path / "plain"
+    empty_home.mkdir()
+    assert link.resolve_put_folder("downloads", home_dir=empty_home, platform="linux") == empty_home / "Downloads"
+    # Windows OneDrive fallback when home_dir + env provided
+    od = tmp_path / "OneDrive"
+    (od / "Documents").mkdir(parents=True)
+    assert link.resolve_put_folder("documents", home_dir=empty_home, platform="win32",
+                                   env={"OneDrive": str(od)}) == od / "Documents"
+    assert link.resolve_put_folder("downloads", home_dir=empty_home, platform="win32",
+                                   env={"OneDrive": str(od)}) == empty_home / "Downloads"
+
+
 # ---- the note convention, enforced by the tool (owner, 2026-10-22: "deterministic checks and deterministic tools") --
 def test_the_sender_stamps_its_own_tags_and_refuses_done_without_evidence():
     assert link.stamp("hi", 7, "WINDOWS") == "[FROM WINDOWS #7] hi"
@@ -334,3 +391,15 @@ def test_numbered_notes_end_to_end_the_counter_moves_only_on_ok_and_the_inbox_sh
     # a note with no counter behind it (a peer on older code), and an old note claiming [DONE] with nothing
     old = {"n": 9, "kind": "message", "at": "t", "from_host": "vaio", "text": "[FROM LINUX] [DONE] Pushed"}
     assert "!! LINK CHECK: [DONE] without evidence" in "\n".join(link.fenced([old]))
+
+
+def test_put_cli_folder_flags(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(link, "put", lambda f, to_desktop=False, **kw: calls.append((f, to_desktop, kw)) or {"ok": True, "saved": ["x"]})
+    src = tmp_path / "f.txt"
+    src.write_text("hi")
+    assert link.main(["put", str(src), "--to-downloads", "--to-folder", "documents,desktop"]) == 0
+    assert len(calls) == 1
+    assert calls[0][1] is True
+    assert calls[0][2]["to_folders"] == ["documents", "desktop", "downloads"]
+    assert link.main(["put", str(src), "--to-folder", "bogus"]) == 2

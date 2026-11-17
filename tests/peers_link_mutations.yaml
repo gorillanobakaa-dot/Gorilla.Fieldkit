@@ -110,8 +110,8 @@
   swap: ['        if u["path"].stat().st_size != u["size"] or got != u["sha256"]:', '        if False:']
   why: a file whose checksum does not match is discarded
 - file: fieldkit/peers/link.py
-  swap: ['    if reg.get("accept_to_desktop") is True:', '    if True:']
-  why: the Desktop only when that computer's owner approved it
+  swap: ['        if reg.get(key) is True:', '        if True:']
+  why: the Desktop/Downloads/Documents only when that computer's owner approved it
 - file: fieldkit/peers/link.py
   swap: ['    while p.exists():', '    while False:']
   why: nothing is ever overwritten
