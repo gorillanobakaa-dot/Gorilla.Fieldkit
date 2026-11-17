@@ -32,7 +32,7 @@ def _world(tmp):
     src = tmp / "src"
     (src / "browser").mkdir(parents=True)
     f = src / "browser" / "Logo.mjs"
-    f.write_text("export const logo = 1;\n", encoding="utf-8")
+    f.write_text("export const logo = 1;\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "init", "-q", str(src)], check=True)
     subprocess.run(["git", "-C", str(src), "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(src), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"],
@@ -45,7 +45,7 @@ def _world(tmp):
     with zipfile.ZipFile(inst / "omni.ja", "w") as z:
         z.writestr("modules/Same.css", b"x")
         z.writestr("res/Same.css", b"y")
-    f.write_text("export const logo = 2;\n", encoding="utf-8")
+    f.write_text("export const logo = 2;\n", encoding="utf-8", newline="\n")
     return src, inst
 
 
