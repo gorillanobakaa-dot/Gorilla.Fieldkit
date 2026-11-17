@@ -185,16 +185,32 @@
      "open": false,
      "v": {}
     },
+    "listen": {
+     "c": [],
+     "f": {
+      "--as": 1,
+      "--follow": 0,
+      "--help": 0,
+      "--json": 0,
+      "--seconds": 1,
+      "--since": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "send": {
      "c": [],
      "f": {
       "--continue": 0,
       "--conversation": 1,
+      "--device": 1,
       "--help": 0,
       "--json": 0,
       "--mode": 1,
       "--project": 1,
       "--prompt": 1,
+      "--station": 1,
       "-h": 0
      },
      "open": false,

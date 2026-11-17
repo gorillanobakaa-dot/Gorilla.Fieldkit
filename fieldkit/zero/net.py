@@ -159,8 +159,9 @@ def station_id(as_name=None, env=None, host=None):
     return f"shell:{env.get('USERNAME') or env.get('USER') or '?'}@{host}"
 
 
-def hook_station(session_id, host=None):
-    return f"claude:{(session_id or '?')[:8]}@{host or machine()}"
+def hook_station(session_id, host=None, kind=None):
+    prefix = kind or "claude"
+    return f"{prefix}:{(session_id or '?')[:8]}@{host or machine()}"
 
 
 def tag_of(station):
@@ -692,7 +693,14 @@ def report_rotation(session_id, title, started, done, next_, not_verified="", br
 
 
 def _addressed(e, me):
-    return e.get("kind") in TRAFFIC and e.get("from") != me and e.get("to") in ("*", me)
+    if e.get("kind") not in TRAFFIC or e.get("from") == me:
+        return False
+    to = e.get("to")
+    if to in ("*", me):
+        return True
+    if "@" in me and to == me.rsplit("@", 1)[0]:
+        return e.get("from") != to
+    return False
 
 
 def pending_for(me, rec, net, now):
@@ -815,8 +823,9 @@ def discover(now, hours=None, adapters=None, sessions=None, devices=None):
                     continue
                 if age <= (hours or 1) * 3600:
                     k = "claude" if a.name == "claude-code" else a.name
+                    via = "room" if k == "claude" else (ch.antigravity_via() if k == "antigravity" else "pull")
                     out.append({"station": f"{k}:{p.stem[:8]}@{machine()}", "kind": k,
-                                "via": "room" if k == "claude" else "pull",
+                                "via": via,
                                 "detail": f"transcript active {int(age // 60)} min ago"})
     except Exception:  # noqa: BLE001 - discovery is a hint; it never fails a roll call
         pass
@@ -1012,9 +1021,9 @@ def _ear_of(station):
 
 
 def ear_label(rec, state):
-    """'running' / 'NOT RUNNING (N unheard)' for a Claude station that reported its ear; '' otherwise."""
+    """'running' / 'NOT RUNNING (N unheard)' for a Claude or Antigravity station that reported its ear; '' otherwise."""
     ear = rec.get("ear") if isinstance(rec.get("ear"), dict) else None
-    if not ear or rec.get("kind", kind_of(rec.get("station", ""))) not in (None, "claude"):
+    if not ear or rec.get("kind", kind_of(rec.get("station", ""))) not in (None, "claude", "antigravity"):
         return ""
     if ear.get("state") == "running":
         return "running"
@@ -1293,7 +1302,7 @@ def _net_line(call, event, now=None):
             ingest = False
         else:
             ingest = None
-        me = hook_station(sid)
+        me = hook_station(sid, kind=call.get("_agent_kind"))
         out = []
         far = machine_of(me) != (net.get("zero") or {}).get("machine")
         with _Lock():

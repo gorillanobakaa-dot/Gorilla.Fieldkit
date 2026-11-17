@@ -22,7 +22,7 @@ AGENTS = {
     "opencode": (["opencode"], ["--version"], ""),
     "gorilla-opencode": (["gorilla-opencode", "gorilla"], ["--version"], ""),
     "antigravity": (["antigravity", "Antigravity", "agy"], None, ""),
-    "agy": (["agy", "antigravity"], ["--version"], ""),
+    "agy": (["agy"], ["--version"], ""),
     "kiro": (["kiro-cli", "kiro"], ["--version"], ""),             # P39: Kiro CLI (kiro-cli), else the Kiro IDE
 }
 VERSION_TIMEOUT = 5
@@ -43,8 +43,9 @@ def known_dirs(stem, osname=None, home=None, env=None):
         la, ra = env.get("LOCALAPPDATA", ""), env.get("APPDATA", "")
         for e in _exts(osname):
             n = stem + e
-            pats += [j(home, ".local", "bin", n), j(home, ".claude", "local", n), j(ra, "npm", n),
-                     j(la, "Programs", "*", n), j(la, "Programs", "*", "bin", n), j(la, "Programs", stem, n)]
+            pats += [j(home, ".local", "bin", n), j(home, ".claude", "local", n), j(home, ".antigravity", "bin", n),
+                     j(ra, "npm", n), j(la, "Programs", "*", n), j(la, "Programs", "*", "bin", n),
+                     j(la, "Programs", stem, n)]
         if stem == "claude":      # the desktop app's bundled Claude Code (MSIX package folder is real for everyone)
             pats += [j(la, "Packages", "Claude_*", "LocalCache", "Roaming", "Claude", "claude-code", "*", "*", "claude.exe"),
                      j(ra, "Claude", "claude-code", "*", "*", "claude.exe"),
@@ -65,6 +66,16 @@ def known_dirs(stem, osname=None, home=None, env=None):
             if mac:
                 pats += ["/Applications/Claude.app/Contents/Resources/" + stem,
                          j(home, "Applications", "Claude.app", "Contents", "Resources", stem)]
+        if stem == "agy":
+            pats += [j(home, ".antigravity", "bin", "agy")]
+            if mac:
+                pats += ["/Applications/Antigravity.app/Contents/Resources/app/bin/agy",
+                         j(home, "Applications", "Antigravity.app", "Contents", "Resources", "app", "bin", "agy")]
+        if mac and stem in ("antigravity", "Antigravity"):
+            pats += ["/Applications/Antigravity.app/Contents/MacOS/Electron",
+                     j(home, "Applications", "Antigravity.app", "Contents", "MacOS", "Electron"),
+                     "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
+                     j(home, "Applications", "Antigravity.app", "Contents", "MacOS", "Antigravity")]
     return pats
 
 
@@ -131,6 +142,8 @@ def find_one(name, which=shutil.which, procs=None, glob=_glob.glob, isfile=os.pa
         if path in seen:
             continue
         seen.add(path)
+        if name == "agy" and Path(path).stem.lower() in ("antigravity", "electron"):
+            continue
         ver = version_of(path, vargs, run)
         if must and must not in ver:                             # e.g. the desktop app's own claude.exe: not Claude Code
             continue
