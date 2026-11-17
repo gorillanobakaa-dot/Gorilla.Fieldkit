@@ -3414,6 +3414,21 @@
    "open": false,
    "v": {}
   },
+  "pycache": {
+   "c": [
+    "audit",
+    "compare",
+    "profile",
+    "warm"
+   ],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "-h": 0
+   },
+   "open": true,
+   "v": {}
+  },
   "pyliterals": {
    "c": [],
    "f": {

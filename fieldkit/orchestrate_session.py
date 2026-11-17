@@ -252,6 +252,8 @@ def prepare(repo, tree, branch, base, run=subprocess.run):
     rc, out = git(repo, "worktree", "add", "-B", branch, str(tree), sha, run=run)
     if rc:
         return None, f"git worktree add failed: {out[-300:]}"
+    from .pycache.core import warm_background
+    warm_background(tree)                      # P9: bytecode for the worker's hooks, in the background
     return sha, None
 
 

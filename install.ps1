@@ -298,6 +298,7 @@ for name in sys.argv[1:]:
             Add-Record "Downloaded and installed: $n $v from PyPI, $(Format-Bytes ([long]$b)) installed"
         }
         Add-Record "Installed: Fieldkit itself, editable from $Target (setuptools downloaded into pip's throwaway build environment, not kept)"
+        & $vpy -m fieldkit pycache warm --install-pth | Out-Null   # P9: compile once, keep .pyc writing on
     }
 
     # 5. the check

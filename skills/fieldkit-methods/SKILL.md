@@ -189,3 +189,10 @@ then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never
 kernel, Fieldkit): purpose, where its cookbook and recipes are, current state, the next command. The SessionStart hook
 runs it by cwd, so do not search the disk to learn where things are: read the brief. `cookbook list|show ID|check`;
 the registry is `projects/<id>/project.yaml` (projects/README.md).
+
+## Python compiled once (hooks, workers)
+Every process a hook starts must run from bytecode: `fieldkit pycache audit --timing` (exit 3: stale or missing .pyc,
+no bytecode .pth, or an import cost over the budget in `fieldkit/pycache/hotpath.yaml`), `fieldkit pycache warm
+--install-pth` fixes it, `fieldkit pycache profile MODULE[:FUNC]` finds where a hook's time goes. A new hook module goes
+into `hotpath.yaml`; `fieldkit integration check` row `1-hotpath` ("hot path compiled") refuses one that does not compile.
+A probe you write twice becomes a verb (docs/METHODS.md method 54).
