@@ -7740,6 +7740,27 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Wired into fieldkit sync --apply and fieldkit peers link restart so every machine pre-compiles .pyc once per update."
 
+- id: once
+  title: "Already succeeded? A command whose success the journal records on the same inputs is skipped, and a watcher whose output says the same news again is told to stop, on Windows and Linux: exit code plus one JSON line done:true|false with an idempotency key and a state signature"
+  harness: core
+  entry: [python, -m, fieldkit, once]
+  path: ${FIELDKIT}/fieldkit/once.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [run, check, watch, forget, list], help: "run: run CMD unless it already succeeded; check: ask only; watch: compare a watcher's output with its last; forget: a later run runs again; list: latest record per key"}
+    - {name: key, flag: --key, type: str, required: false, help: "the idempotency key (default sha256 of the command and the folder)"}
+    - {name: state, flag: --state, type: str, required: false, help: "an input path (file or folder) whose change voids a recorded success; repeatable"}
+    - {name: file, flag: --file, type: str, required: false, help: "watch: the watcher's output file (default stdin)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "only the JSON line"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {0: "done: succeeded before (skipped) or now, or nothing changed", 2: "bad usage", 3: "not done: it must run, or the watcher saw news"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-once-linux, windows: e2e-once-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_once.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "P28 E, owner order 2026-11-16: a cron watchdog repeated the same nothing-changed line 10 times and the owner was asked to run a command the harness could run. The journal state/once/journal.jsonl (main checkout, append-only) holds every run and watch; forget appends, never erases. Clock stamps are blanked before a watcher's output is compared."
+
 - id: pool-plan
   title: "Zero's session pool in one command: from the list_sessions JSON it decides keep, recycle (clear and rename to a reserve), archive surplus reserves or start new ones, and prints the exact app-tool calls in order (Windows and Linux)"
   harness: lifecycle

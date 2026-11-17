@@ -2594,6 +2594,17 @@
    "office-scrub"
   ]
  },
+ "once": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "once"
+  ]
+ },
  "onestart": {
   "platforms": [
    "darwin",
