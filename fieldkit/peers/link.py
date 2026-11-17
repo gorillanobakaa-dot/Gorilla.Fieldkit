@@ -1757,10 +1757,12 @@ def main(argv=None):
         return 2
     if a.action == "approve":
         # owner, 2026-10-22: six steps and an editor is too much; one command and one yes
-        if a.allow or a.cwd or a.wall_minutes is not None or a.accept_folders:
+        if a.allow or a.cwd or a.wall_minutes is not None or a.accept_folders is not None:
             allow = [x.strip() for v in a.allow for x in v.split(",") if x.strip()] if a.allow else None
-            accept = [x.strip() for v in a.accept_folders for x in v.split(",") if x.strip()] if a.accept_folders else None
-            return approve(allow=allow, cwd=a.cwd, wall_minutes=a.wall_minutes, accept_folders=accept)
+            kw = {"allow": allow, "cwd": a.cwd, "wall_minutes": a.wall_minutes}
+            if a.accept_folders is not None:
+                kw["accept_folders"] = [x.strip() for v in a.accept_folders for x in v.split(",") if x.strip()]
+            return approve(**kw)
         return approve()
     if a.action == "serve":
         serve(a.seconds, allow_loopback=lb)

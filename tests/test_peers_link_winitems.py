@@ -48,10 +48,11 @@ def test_approve_accept_folders_subset_preserves_comments_and_other_keys(tmp_pat
     assert why == "approved" and reg["accept_to_downloads"] is True and reg["accept_to_documents"] is True
     assert reg["accept_to_desktop"] is False and reg["wall_minutes"] == 20
     # CLI --accept-folders / --accept-to parses and updates cleanly
-    monkeypatch.setattr(link, "approve", lambda **kw: kw)
-    assert link.main(["approve", "--accept-to", "desktop", "--accept-folders", "downloads"]) == {
-        "allow": None, "cwd": None, "wall_minutes": None, "accept_folders": ["desktop", "downloads"],
-    }
+    with monkeypatch.context() as m:
+        m.setattr(link, "approve", lambda **kw: kw)
+        assert link.main(["approve", "--accept-to", "desktop", "--accept-folders", "downloads"]) == {
+            "allow": None, "cwd": None, "wall_minutes": None, "accept_folders": ["desktop", "downloads"],
+        }
     # unknown folder refused without touching link.yaml
     assert link.approve(confirm=True, say=said.append, accept_folders=["music"]) == 2
     assert "unknown folder" in said[-1]
