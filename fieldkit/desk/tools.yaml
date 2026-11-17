@@ -6916,6 +6916,7 @@ tools:
   output: own
   exits: {3: "an unknown command was found (check) or the tree is stale (stale)"}
   platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-cmd-check-linux, windows: e2e-cmd-check-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_cmdtree.py"]
   skill: skills/fieldkit-tools/SKILL.md
   notes: "Owner 2026-11-12 (plan P9): a sudoers line for `python -m fieldkit leakgate *` (no such verb; the real one is `fieldkit build-harness leakgate TASK`) reached the owner and stopped a job. Top-level verbs are exact; below them a word is a finding only when a real command is close to it (several verbs route sub-verbs by hand before argparse). Flags are judged on leaf parsers only. A line that says a command does not exist is skipped. Mutations: tests/cmdtree_mutations.yaml. Regenerate: python -m fieldkit.core.cmdtree write."
