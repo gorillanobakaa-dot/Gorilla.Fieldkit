@@ -19,6 +19,7 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_CIWAIT_DIR", str(tmp_path / "ciw"))
     monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
     monkeypatch.delenv("FIELDKIT_JOB_DIR", raising=False)
+    monkeypatch.setenv("DISABLE_AUTO_COMPACT", "1")   # the context rule; compaction: test_rotate_compaction.py
     monkeypatch.delenv("FIELDKIT_ROTATE", raising=False)
 
 

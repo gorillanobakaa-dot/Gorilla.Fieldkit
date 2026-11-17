@@ -13,7 +13,7 @@ and --repo) and prints one line per finding:
     UNPUSHED     commits not on the branch's upstream, or on no remote at all
     UNMERGED     a pushed branch not in main whose PR is open with no live ci-wait, closed without merge, or never opened
     WAITING      listed, no failure: an open PR with a live (or handed) ci-wait
-    PARKED       listed, no failure: TWO STRIKES parked the branch (fieldkit/method/strikes.py)
+    PARKED       listed, no failure: three OWN red rounds on the strongest allowed model parked the branch (fieldkit/method/strikes.py)
 
 Every failure line ends with NEXT: the command that makes the work permanent. Exit 3 when there is a failure.
 With --session only the worktrees that session touched count (the transcript's Edit / Write / NotebookEdit paths, its
@@ -224,7 +224,7 @@ def scan_worktree(root, edited=None, only_edited=False, now=None, gh=None, alive
         age = _age_h(root, now)
         op = [p for p in prs if p.get("state") == "OPEN"]
         if parked and parked(branch):
-            add("PARKED", f"{label}: TWO STRIKES, left for a stronger model", "fieldkit ship ci-wait --help", age)
+            add("PARKED", f"{label}: parked: its own CI failures beat every model allowed now, left for the owner or a stronger model", "fieldkit ship ci-wait --help", age)
         elif op:
             num = op[0]["number"]
             if _alive(num, alive):

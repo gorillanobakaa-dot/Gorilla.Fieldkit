@@ -1208,6 +1208,43 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_models_gguf.py"]
   notes: "Rules: MoE = expert_count > 0, an expert tensor (_exps), or moe in the architecture name; active parameters = non-expert tensors + experts_used/experts of the expert tensors; bytes per token = active tensor bytes (ggml block sizes) minus the embedding table when a separate output matrix exists; tokens/s = bandwidth / bytes per token; FAST >= 15, USABLE >= 5, else SLOW. Network only for a URL the caller types (https, Range requests of 1 MiB blocks, a server that ignores Range is refused; the host sees the request). Bandwidth: python copy benchmark counting read+write bytes, cached in state/models/bandwidth.json (`models bandwidth --measure` to redo; run heavy re-measures under `fieldkit guard --` on the Windows laptop). Split GGUF shards say their totals are partial. Estimate, never a promise: 2026-11-09 dense 27B IQ4_XS 1.3 t/s estimated against about 1 t/s measured. Mutation plan tests/models_gguf_mutations.yaml (8/8); a network test runs only with FIELDKIT_NET_TESTS=1."
 
+- id: models-menu
+  title: "P39: the choice for the person - coding agent > provider > model > reasoning, from what works NOW on this computer or the other one over the cable (installed agents found live, providers logged in and with quota, local LLM servers LM Studio / Ollama asked on 127.0.0.1), blocked options shown with their reason and the time they come back; never a refusal, never a hidden default agent"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, models, menu]
+  path: ${FIELDKIT}/fieldkit/lifecycle/choice.py
+  inputs:
+    - {name: device, flag: --device, type: str, required: false, help: "the other computer's name: the menu is measured there (peers link probe 'choice')"}
+    - {name: refresh, flag: --refresh, type: flag, required: false, help: "measure again instead of the cached live lists"}
+    - {name: check, flag: --check, type: flag, required: false, help: "check choice.yaml: stale model names, agents without providers, providers without models (exit 3 on findings)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes, network]
+  safety: safe
+  headline: "one block per agent: provider (who can act through it / who learns what), its models, reasoning levels; BLOCKED rows with reason and until; NEXT."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py", "${FIELDKIT}/tests/test_multi_agent_models.py"]
+  notes: "Data: fieldkit/lifecycle/choice.yaml (one source; no agent, provider or model typed in code; stale: names fail check). Measured live: agentfind on this computer, peers link probe 'choice' on the other; model lists from the agent where it can be asked with no side effect (codex models cache, `agy models`), from LM Studio / Ollama on 127.0.0.1 only, else the data file. Kiro's model list is NOT asked (`kiro-cli chat --list-models` opens a browser login). Quota: models.unavailable_agents, fed by choice.note_failure from the model guard's error patterns and by a died task's log (tasks.settle), each block ending at its reset or cooldown. The spend guard (models.check_model) and the mandate's models_allowed apply to every pick. A local LLM is shown as the private option (nothing leaves the computer). Network: 127.0.0.1 only, plus the cable for --device."
+
+- id: models-remember
+  title: "P39: record the owner's choice (agent, provider, model, reasoning) for headless jobs of one type, so a job with no person present uses it instead of stopping; without a record such a job stops with an inbox item, never a hidden fallback"
+  harness: lifecycle
+  entry: [python, -m, fieldkit, models, remember]
+  path: ${FIELDKIT}/fieldkit/lifecycle/choice.py
+  inputs:
+    - {name: job_type, flag: null, type: str, required: true, help: "the job type (for example build, port, review)"}
+    - {name: agent, flag: null, type: str, required: true, help: "a coding agent from `fieldkit models menu`"}
+    - {name: provider, flag: null, type: str, required: true, help: "a provider that agent drives"}
+    - {name: model, flag: null, type: str, required: true, help: "a model of that provider (stale names refused)"}
+    - {name: reasoning, flag: null, type: str, required: true, help: "a reasoning level the model offers"}
+  effects: [writes-files]
+  safety: caution
+  headline: "REMEMBERED JOB_TYPE: agent / provider / model / reasoning, or REFUSED with the reason."
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-models-choice-linux, windows: e2e-models-choice-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_choice.py"]
+  notes: "Checked against choice.yaml (the agent drives the provider, the model belongs to it, the reasoning level exists, the name is not stale) and the spend guard before it is written. A remembered choice is offered first at a terminal, never applied silently there; headless runs use it."
+
 - id: models-tune
   title: "Make a local model start fast: analyse this host (performance and efficiency cores, GPU and its VRAM, free RAM, measured memory bandwidth) and the model's GGUF, pick the load settings (context sized to the job, threads, GPU offload, KV-cache type, flash attention, MTP/draft) with a reason each, and with --apply load it through LM Studio's lms and verify with lms ps; --record / --report keep first-word time and tokens/s per run"
   harness: build
@@ -1310,6 +1347,40 @@ tools:
   platforms_why: 'the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)'
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macair.py"]
   notes: "Born 2026-10-22 when the owner made the MacBook Air a maintained target. Drives gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe, never copied here). preflight reads 17 Mac decisions from the source before a two-hour build (Sandy Bridge not native, fonts bundled, Segoe UI + Consolas, Segoe UI interface, thin greyscale text, About window and add-ons logo inside the 11-inch budget 669/459 px). verify on the Air: fonts held open, stroke of a known sentence on a neutral grey page (2.11 px, Linux 2.12), LCD colour 0 %."
+
+- id: fieldkit-firefox
+  title: 'The one Firefox cookbook for Linux (.deb), Windows and macOS 10.13: where each system stands, the one next step, the whole release chain, the handover package to Windows or the Mac (checked, SHA-256, sent over the cable or SSH), every port lesson and its rule'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, firefox]
+  path: ${FIELDKIT}/fieldkit/firefox/cli.py
+  inputs:
+    - {name: command, type: choice, choices: [status, next, release, handover, lessons, knowledge, names], required: true, help: "status first; handover VERSION --to windows|mac after S8"}
+    - {name: json, flag: --json, type: flag, required: false, help: "as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {3: "handover: a check failed, nothing sent; lessons: a lesson is not yet a rule", 1: "no version and no task on this machine"}
+  platforms: [windows, linux]
+  e2e: {linux: e2e-firefox-cookbook-linux, windows: e2e-firefox-cookbook-windows}
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_firefox_cookbook_e2e.py"]
+  notes: "P38, owner order 2026-11-16 (Firefox 160 failed at the seams between tools, never inside one). Data: fieldkit/firefox/cookbook.yaml (systems, steps S0-S9 + handover/build per OS, knowledge map) and lesson_rules.yaml; one definition per concept: fieldkit/core/concepts.py. The procedure in words: docs/FIREFOX-COOKBOOK.md. The e2e test runs a toy Firefox through every seam; tests/firefox_cookbook_mutations.yaml breaks each seam 1-7."
+
+- id: fieldkit-cookbook
+  title: 'The project registry and the deterministic project load: load a bounded brief (what the project is, where its cookbook and recipes are, the state, the next command) by project id or by cwd with no file search; list, show, and check every projects/*/project.yaml'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, cookbook]
+  path: ${FIELDKIT}/fieldkit/cookbook/cli.py
+  inputs:
+    - {name: command, type: choice, choices: [load, list, show, check], required: true, help: "load ID or load --cwd PATH at session start; check in CI"}
+    - {name: json, flag: --json, type: flag, required: false, help: "as JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "check: a project.yaml is invalid", 1: "load: no such project id"}
+  platforms: [windows, linux]
+  e2e: {linux: e2e-cookbook-load-linux, windows: e2e-cookbook-load-windows}
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_cookbook_registry.py"]
+  notes: "P41a, owner 2026-11-16 (docs/COOKBOOK-VISION.md). Data: projects/<id>/project.yaml (firefox, gorilla-opencode, debian-kernel, fieldkit); projects/README.md says the fields. The SessionStart hook (`cookbook hook`, Python only so it is the same on Linux and Windows) runs `cookbook load --cwd` and injects the brief; in a Firefox folder it adds the migration brief. Unknown cwd: prints no project, exit 0. Words: project registry, cookbook load, brief, session start, cwd."
 
 - id: core-doctor
   title: "What this computer still needs before Fieldkit works, and the line that installs it; --probe: the machine itself (OS, memory, disk, every Python, git real or Apple's stub, Homebrew, compiler, curl) and the way in (git or zip, lean or full); --lean: only the two packages the core needs"
@@ -4800,14 +4871,14 @@ tools:
   notes: "Runs read-only git commands (hook check). --json ignored."
 
 - id: bh-migrate
-  title: Migration control - stages S0-S9, gates, SITREP, intents, intake, consistency, park/unpark tickets
+  title: Migration control - stages S0-S9, gates, SITREP, intents, intake, consistency, park/unpark tickets, preflight before compile
   harness: build
   entry: [python, -m, fieldkit, build-harness, migrate]
   path: ${FIELDKIT}/fieldkit/migrate/cli.py
   inputs:
-    - {name: sub, flag: null, type: str, required: true, choices: [brief, plan, sitrep, seed, check, gate, init, advance, work, park, unpark, intents, intake, consistency], help: "what to do"}
+    - {name: sub, flag: null, type: str, required: true, choices: [brief, preflight, plan, sitrep, seed, check, gate, init, advance, work, park, unpark, intents, intake, consistency], help: "what to do (preflight: one PASS/FAIL/INCOMPLETE verdict on the patched tree before compile)"}
     - {name: task, flag: null, type: str, required: false, help: "the task (default --task or the current one)"}
-    - {name: rest, flag: null, type: list, required: false, help: "gate: STAGE; work: ITEM; park: why; unpark: P-001 resolution; init: from=PREV at=S6"}
+    - {name: rest, flag: null, type: list, required: false, help: "gate: STAGE; work: ITEM; park: why; unpark: P-001 resolution; init: from=PREV at=S6; preflight: harness=DIR rev=REV root=REV skip=a,b"}
     - {name: only, flag: --only, type: str, required: false, help: "check: comma list of stages (S0,S4)"}
     - {name: task_opt, flag: --task, type: str, required: false, help: "the task"}
   effects: [reads-files, writes-files]
@@ -7004,6 +7075,27 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
 
+- id: prepare
+  title: "Prepare first, execute second: before a task, emerge run, runbook or goal starts, find every missing tool and dependency from the requirements table (prepare.yaml: binaries, packages, services, privileges, disk, RAM, network hosts, install recipe per OS with a fallback source), look for each in the PATH it will run under (root's secure_path plus the sbin folders), set up what needs no root, batch the rest into one script and one ask, and refuse to start the job until READY"
+  harness: core
+  entry: [python, -m, fieldkit, prepare]
+  path: ${FIELDKIT}/fieldkit/core/prepare.py
+  inputs:
+    - {name: target, flag: target, type: str, required: true, help: "a job id (leakgate), an emerge recipe, a brief file, or defect TOOL | list"}
+    - {name: use_fallback, flag: --use-fallback, type: flag, required: false, help: "the owner chose the fallback of each missing item"}
+    - {name: check, flag: --check, type: flag, required: false, help: "look only: set nothing up"}
+    - {name: job, flag: --job, type: str, required: false, help: "defect: the job a tool was missing in"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {0: "READY (or READY-FALLBACK)", 3: "NOT READY: the one ask is printed, the job does not start"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_prepare.py"]
+  e2e: {linux: e2e-prepare-linux, windows: e2e-prepare-windows}
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-12 (P9). Not verified on Windows: the table has winget ids but no Windows run yet. Downloads only with a sha256; no network probe. Wired into task start, emerge run, runbook run, goal run (tests/test_prepare.py::test_every_job_start_calls_the_gate)."
+
 - id: parity-os
   title: "Windows-Linux parity audit: every single-system tool card, pipeline, skill, workflow step, hook and module guard as one fixed record (id, kind, present_on, missing_on, status, evidence, action, target, mechanism, effort, proof, order), four lists (Windows-only, Linux-only, different, native-only), docs/PLATFORMS.md regenerated, briefs per batch; reads and reports only"
   harness: core
@@ -7739,8 +7831,8 @@ tools:
   inputs:
     - {name: kind, flag: null, type: str, required: true, help: "hooks, mcp, plugin or json-config"}
     - {name: path, flag: null, type: path, required: true, help: "the file or plugin folder"}
-  effects: [reads-files]
-  safety: read-only
+  effects: [reads-files, processes]
+  safety: safe
   output: own
   exits: {1: agy-tools-not-built-run-emerge, 2: bad-usage, 3: findings}
   platforms: [windows, linux]
@@ -7757,8 +7849,8 @@ tools:
   inputs:
     - {name: files, flag: null, type: list, required: false, help: "config files (default: the known config locations of each agent)"}
     - {name: check-bins, flag: --check-bins, type: bool, required: false, help: "also report a stdio command that is not on PATH"}
-  effects: [reads-files]
-  safety: read-only
+  effects: [reads-files, processes]
+  safety: safe
   output: own
   exits: {1: agy-tools-not-built-run-emerge, 3: findings}
   platforms: [windows, linux]
@@ -7799,3 +7891,4 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."
+

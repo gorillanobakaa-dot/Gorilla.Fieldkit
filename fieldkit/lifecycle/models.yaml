@@ -15,7 +15,7 @@ ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycl
 escalation:
   enabled: true                   # owner order 2026-11-11: climb before parking
   ladder: [haiku, sonnet, opus, fable]
-  own_limit: 2
+  own_limit: 3
   attempts: escalation.jsonl      # in the lifecycle state folder
   risky: [guard, hook, fan, security, release, mandate]   # job-type words that get a top-model plan review first
   review_model: opus
@@ -29,8 +29,14 @@ availability:
   file: availability.json         # in the lifecycle state folder
   cooldown_minutes: 120           # a budget / limit / quota / rate error with no reset time in the message
   no_verdict_cooldown_minutes: 30 # an answer with no verdict, or "max turns": likely out of budget, look again soon
-  patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage', 'quota', 'rate.?limit',
-             'budget', 'credit balance', 'overloaded', 'too many requests', 'insufficient', '\b429\b', 'max turns']
+  # Error phrases only, never a bare word: 2026-11-17 a bare 'budget' matched a FINISHED job's own status lines
+  # ("session dollars ... budget", ending "exit 0") and blocked Claude for two hours with credit left (owner: "Where
+  # does this block come from?"). Each pattern needs the error's verb or noun next to it.
+  patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage',
+             'quota.{0,20}(exceeded|exhausted|reached)', '(exceeded|exhausted|over).{0,30}quota', 'resource.?exhausted',
+             'rate.?limit', 'budget.{0,20}(exceeded|exhausted|reached)', '(exceeded|exhausted|over|out of).{0,20}budget',
+             'credit balance', 'overloaded', 'too many requests',
+             'insufficient.{0,20}(credit|balance|quota|funds)', '\b429\b', 'max turns']
 # P9 (owner, 2026-11-11: "Unify them, don't leave them scattered"): every "ask a stronger model" path lives in ONE module,
 # fieldkit/lifecycle/counsel.py, tried cheapest first: advise (Claude Code's own advisor in the worker's session, no
 # restart) -> review (independent, higher rung) -> tiebreak (highest allowed rung) -> climb (the job retries a rung up)
@@ -71,55 +77,13 @@ zero_reads:
   max_run: 4
   every: 5
 
-# Reasoning / thinking levels supported across coding agents, from lowest to maximum (2026-11-14).
-thinking_levels: [lowest, low, medium, high, max]
-
-# Coding agents, their specific selectable models (never generic "gemini"), Ultra frontier models, and thinking levels.
-agents:
-  antigravity:
-    title: "Google Antigravity Desktop IDE"
-    kind: ide
-    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
-    ultra_models: [carbon, claude-opus-4-6]
-    default_model: argon
-    thinking_levels: [lowest, low, medium, high, max]
-    default_thinking: high
-  agy:
-    title: "Antigravity Terminal CLI (agy)"
-    kind: cli
-    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, claude-sonnet-4-5, claude-opus-4-6]
-    ultra_models: [carbon, claude-opus-4-6]
-    default_model: argon
-    thinking_levels: [lowest, low, medium, high, max]
-    default_thinking: high
-  codex:
-    title: "OpenAI Codex CLI"
-    kind: cli
-    models: [codex-mini, o4-mini, o3, gpt-5-codex]
-    ultra_models: [o3, gpt-5-codex]
-    default_model: o4-mini
-    thinking_levels: [lowest, low, medium, high, max]
-    default_thinking: medium
-  gorilla-opencode:
-    title: "Gorilla OpenCode Agent"
-    kind: cli
-    models: [hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash, qwen3-coder, local/qwen3, sonnet, opus]
-    ultra_models: [carbon, opus]
-    default_model: argon
-    thinking_levels: [lowest, low, medium, high, max]
-    default_thinking: medium
-  claude:
-    title: "Claude Code CLI"
-    kind: cli
-    models: [haiku, sonnet, opus, fable]
-    ultra_models: [opus, fable]
-    default_model: sonnet
-    thinking_levels: [lowest, low, medium, high, max]
-    default_thinking: medium
+# Coding agents, providers, models and reasoning levels: choice.yaml (P39, one source; `fieldkit models menu`).
 
 # Multi-agent quota & block guard (owner 2026-11-14: Claude weekly quota is maxed out at 100%; block claude and
 # support quota/block guards for antigravity, agy, codex, gorilla-opencode, and claude alike).
 agent_availability:
   cooldown_minutes: 120
-  unavailable:
-    claude: "always"
+  # owner 2026-11-16: "That's not what it was supposed to implement ... not to block the fucking Claude ... A choice. A
+  # choice for the user." An agent is blocked only while its quota is out (until the reset, else cooldown_minutes);
+  # then the user is offered the agents that ARE available. Never "always" here for quota.
+  unavailable: {}

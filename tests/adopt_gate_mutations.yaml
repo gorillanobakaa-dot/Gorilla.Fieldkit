@@ -1,0 +1,17 @@
+# The adopt gate (2026-11-16): each rule must be CAUGHT. bh-recipe-documents is the fixture.
+#   fieldkit mutate --plan tests/adopt_gate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/capture/test_autoadopt.py
+- file: fieldkit/capture/autoadopt.py
+  swap: ['    if replays < int(rules["min_replayed"]):', '    if False:']
+  why: a candidate with no journal replay is refused
+- file: fieldkit/capture/autoadopt.py
+  swap: ['    for rule in rules.get("refuse_steps", []):', '    for rule in []:']
+  why: destructive and broken steps are refused
+- file: fieldkit/capture/autoadopt.py
+  swap: ['    flags = [m for m in (_git_flag_error(ln) for ln in steps) if m]', '    flags = []']
+  why: a git flag git rejects is refused
+- file: fieldkit/capture/autoadopt.py
+  swap: ['    if intent and intent in R.ANCHORS:', '    if False:']
+  why: steps stitched from several intents are refused
+- file: fieldkit/capture/autoadopt.py
+  swap: ['a[0] == f and not a[2]', 'a[0] == f']
+  why: a failed step is not a replay

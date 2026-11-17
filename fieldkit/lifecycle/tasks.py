@@ -146,14 +146,14 @@ class DefectOpen(ValueError):
 
 
 class Parked(ValueError):
-    """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
+    """The brief names a branch or PR that was parked by strikes (its own CI failures beat every allowed model); the message says which."""
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
           worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None, pin=False,
           park=None, agent=None, thinking=None, require_choice=False):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
-    one, Parked when it names a parked branch or PR (TWO STRIKES), BriefRefused when it names no plan id
+    one, Parked when it names a parked branch or PR (strikes), BriefRefused when it names no plan id
     (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief is still started somewhere
     (unless again). `worktree`: (repo, tid) -> (path or None, why); default
     worktrees.make. `model`: the worker's model (default: roles.yaml worker.default); `accept`: the acceptance
@@ -203,6 +203,9 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             role="worker",
             origin="task start" + (f" --on {on}" if on else ""),
         )
+        if not vchk["ok"] and vchk.get("needs_choice"):     # P39: the person picks from what works now; headless:
+            from . import choice, counsel                    # the owner's recorded choice per job type, else inbox
+            vchk = choice.resolve((counsel.work_kind(text) or {}).get("kind") or "task", origin="task start" + (f" --on {on}" if on else ""))
         if not vchk["ok"]:
             raise ValueError(vchk["why"])
         agent = vchk["agent"]
@@ -566,9 +569,26 @@ def settle(tasks, alive=None):
                                  "auth_marked": True})
                     continue
                 t["status"] = "died"
+                _agent_quota(t)                              # P39: a quota error in its log blocks its agent until reset
                 t.setdefault("answer", f"process {t['pid']} ended with no report; its log: {t.get('log') or '-'}")
                 out.append(t["id"])
     return out
+
+
+def _agent_quota(t, read=None):
+    """A died task's log tail ends in a quota / limit error: block its coding agent until the reset (choice.note_failure).
+    -> the block record or None."""
+    if not t.get("log"):
+        return None
+    try:
+        tail = (read or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")))(t["log"])[-4000:]
+    except OSError:
+        return None
+    last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
+    if last == ["exit 0"]:                       # the run itself finished fine: its status lines are not a quota error
+        return None                              # (2026-11-17: a finished runbook blocked Claude for two hours)
+    from . import choice
+    return choice.note_failure(t.get("agent") or "claude", tail)
 
 
 def resume_waiting(tasks, check=None, launch=None):

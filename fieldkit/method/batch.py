@@ -2,7 +2,7 @@
 """fieldkit ship batch: many PRs -> one branch -> one CI -> one merge; on red, the culprit is found, not guessed.
 
     fieldkit ship batch collect [--max N]      the PRs a batch may take: open, not draft, auto-merge on, green on every
-                                               required check at their CURRENT head, not parked (TWO STRIKES); oldest
+                                               required check at their CURRENT head, not parked (strikes); oldest
                                                first. A red PR is sent back to its own fix, never batched.
     fieldkit ship batch build [--only N ...]   a fresh branch night/batch-YYYYMMDD-HHMM from origin/main, each member's
                                                head merged in order. A conflict only in generated files (batch.yaml) is
@@ -114,7 +114,7 @@ def collect(gh, pol=None, max_n=None, parked=strikes.parked_for):
         elif not pr.get("autoMergeRequest"):
             why = "auto-merge is not on (its session did not declare it final)"
         elif parked(br):
-            why = "parked (TWO STRIKES): left for a stronger model"
+            why = "parked: its own CI failures beat every model allowed now"
         else:
             state, detail = gh.required_ok(pr["headRefOid"], pol.get("need_checks") or train.NEED_OS)
             if state != "green":

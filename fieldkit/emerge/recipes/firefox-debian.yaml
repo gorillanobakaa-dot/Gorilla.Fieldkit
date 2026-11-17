@@ -1,11 +1,11 @@
-# Gorilla Firefox for Debian (firefox-linux pipeline). From Windows every stage is a run job on the VAIO over the
+# Gorilla Unleashed for Debian (firefox-linux pipeline). From Windows every stage is a run job on the VAIO over the
 # cable, so the Windows build and the Debian build run at the same time on two machines; on the VAIO it runs
 # directly. Tiers as on Windows: install adds the .deb install, release adds nothing here (the leak gate of a
 # release runs on the Windows build, once).
 name: firefox-debian
 pipeline: firefox-linux
 description: >-
-  Gorilla Firefox .deb from the vaulted release source plus the public patch set; on Windows each stage is offloaded
+  Gorilla Unleashed .deb from the vaulted release source plus the public patch set; on Windows each stage is offloaded
   to the Linux machine over the cable.
 baseline_minutes: 90
 latest:                             # never pinned (owner 2026-11-11): the ported release, else the newest port tree
@@ -26,6 +26,16 @@ x-offload: &vaio
   project: gorilla-firefox
   tree: "${FIELDKIT}/fieldkit/emerge/recipes"
   wall: 240
+# the emergency repair (owner 2026-11-17: "small fix = one step, never full emerge"): fieldkit emerge repair
+repair:
+  source: "{src}"
+  patches: "{harness}/patches"
+  series: 21.PORT.FIXES
+  program: firefox
+  packages: [omni.ja, browser/omni.ja]
+  extensions: [.mjs, .js, .jsm, .sys.mjs, .css, .ftl, .html, .xhtml, .json, .svg, .png, .properties, .dtd]
+  max_files: 10
+  check: {pages: ["about:newtab", "about:home"], dprs: [1]}
 stages:
   deps: {uses: [toolchain], needs: [], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, deps, --local, --no-fix]}}
   source: {uses: [config], needs: [deps], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, source, --local, --no-fix]}}

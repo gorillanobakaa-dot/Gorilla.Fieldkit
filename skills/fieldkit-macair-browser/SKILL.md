@@ -11,6 +11,9 @@ The MacBook Air 4,1 (2011, i5-2467M Sandy Bridge, Intel HD 3000, 4 GB, macOS 10.
 target on 2026-10-22. Mozilla dropped 10.13; the base is Momiji v157.0-mj (a Firefox kept alive for old macOS), so
 the Mac has its own small patch series on top of Momiji: the one recorded exception to "one patch set".
 
+
+The Firefox procedure for all three systems (Linux .deb, Windows, macOS 10.13) is ONE document: docs/FIREFOX-COOKBOOK.md; one entry point: `fieldkit firefox status|next|release|handover VERSION --to windows|mac|lessons`.
+
 ## Testing a released program on the Air: as a new user, from the release page
 
 Never test a build copied onto the Mac by hand when the question is "does the release work". Owner, 2026-10-23:

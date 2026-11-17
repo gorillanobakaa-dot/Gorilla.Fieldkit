@@ -64,6 +64,24 @@ A long horizon task is a goal handed over and worked toward for days without the
   The transport is SSH over a private cable with a restricted key and a fixed list of verbs; nothing on the cable
   reaches the internet, and a dropped link fails closed.
 
+## One cookbook per project (owner, 2026-11-16)
+
+Every project, past, present and future, has ONE authoritative cookbook: everything learned about setting it up,
+building, patching, migrating, troubleshooting, releasing and maintaining it, for every OS it runs on. A fresh agent
+with no history works from it alone. The full text, the owner's words and the design: `docs/COOKBOOK-VISION.md`
+(plan rows P41a-f).
+- **Two layers.** The archive keeps everything and is searched, never loaded. The cookbook keeps what is verified now
+  and is loaded.
+- **Runnable means automated.** A procedure that can run is a script or an emerge stage, and a lesson becomes a rule
+  (a triage signature, a preflight check, a test or a guard). Prose is only for what cannot run.
+- **Proof and status on every entry:** verified, experimental, deprecated or open, plus where it was last proven. An
+  unproven old entry is STALE, and STALE is never used silently.
+- **One registry, one write door.** `projects/<id>/project.yaml` maps a project to its repos, recipes, cookbook and
+  tests; `fieldkit cookbook load ID` loads it, never a file search. `fieldkit cookbook add` is the only writer, and a
+  change becomes authoritative only through a PR merged on green CI.
+- **One engine per job, one plugin per project.** Code two projects need is a shared engine; project-only code lives
+  in the project plugin. Duplicate tool families are merged.
+
 ## One system, later
 
 When the items above are measured green, Fieldkit is baked into Gorilla OpenCode as one system.

@@ -25,9 +25,10 @@ def test_add_rows_puts_the_row_after_the_last_row_of_the_table():
     assert ship.add_rows(out, [("c.pkg.tar.zst", 1, "e" * 64)]).count("c.pkg.tar.zst") == 1
 
 
-def test_add_rows_refuses_a_page_without_the_table():
-    with pytest.raises(ValueError):
-        ship.add_rows("no table here", [("x", 1, "c" * 64)])
+def test_add_rows_appends_a_files_table_to_a_page_without_one():
+    """v0.1.164 was composed without its files table: --add now appends the section, rows from SHA256SUMS."""
+    out = ship.add_rows("no table here", [("x", 1, "c" * 64), ("y", 2, "d" * 64)])
+    assert "## Files" in out and "| `x` | 1 |" in out and "| `y` | 2 |" in out and out.startswith("no table here")
 
 
 PLACEHOLDER = ("intro\n\n## Files\n\n| File | Bytes | SHA-256 |\n|---|---|---|\n"

@@ -9,6 +9,8 @@ on:
       - "fieldkit/pycache/**"
       - "fieldkit/integration/**"
       - "fieldkit/lifecycle/pool*"
+      - "fieldkit/lifecycle/choice*"
+      - "fieldkit/core/prepare*"
       - ".github/e2e/**"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
@@ -96,6 +98,28 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/antigravity_bridge.py
+  e2e-models-choice-linux:
+    name: e2e-models-choice-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/models_choice.py
+  e2e-models-choice-windows:
+    name: e2e-models-choice-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/models_choice.py
   e2e-agy-tools-linux:
     # fieldkit antigravity (the Rust agy-tools): cargo test, the release build from source, the real entry points.
     name: e2e-agy-tools-linux
@@ -130,3 +154,81 @@ jobs:
         working-directory: rust/agy-tools
       - run: python .github/e2e/agy_tools.py
       - run: python -m pytest -q -p no:cacheprovider tests/test_antigravity.py
+  e2e-prepare-linux:
+    # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
+    name: e2e-prepare-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/prepare_gate.py
+  e2e-prepare-windows:
+    # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
+    name: e2e-prepare-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/prepare_gate.py
+  e2e-firefox-cookbook-linux:
+    # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
+    # entry point prints the release chain.
+    name: e2e-firefox-cookbook-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
+      - run: python -m fieldkit firefox release 1.0
+  e2e-firefox-cookbook-windows:
+    # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
+    # entry point prints the release chain.
+    name: e2e-firefox-cookbook-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
+      - run: python -m fieldkit firefox release 1.0
+  e2e-cookbook-load-linux:
+    # P41a: the registry is valid and the real entry point loads a brief by cwd and by id.
+    name: e2e-cookbook-load-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit cookbook check
+      - run: python -m fieldkit cookbook load fieldkit --no-state
+  e2e-cookbook-load-windows:
+    # P41a: the registry is valid and the real entry point loads a brief by cwd and by id.
+    name: e2e-cookbook-load-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit cookbook check
+      - run: python -m fieldkit cookbook load fieldkit --no-state

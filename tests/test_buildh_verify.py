@@ -238,3 +238,41 @@ def test_a_port_step_is_superseded_only_by_a_later_hand_step_that_removes_exactl
     assert vf.superseded_by_hand([port, other], port, ["keep"]) is None          # a missing line nobody removed
     assert vf.superseded_by_hand([hand, port], port, ["keep"]) is None           # an EARLIER hand step does not count
     assert vf.superseded_by_hand([port, hand], port, ["keep", "dead"]) is None   # nothing missing
+
+
+def test_the_old_tree_row_does_not_compare_a_tree_with_itself(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert verify.same_tree(tmp_path / "src", tmp_path / "x" / ".." / "src")
+    assert not verify.same_tree(tmp_path / "src", tmp_path)
+
+
+def test_a_tree_patched_in_place_is_compared_with_the_kept_old_tree_not_with_itself(world, tmp_path, monkeypatch):
+    w = world["w"]
+    old = tmp_path / "vault" / "158.0"
+    _w(old / "app.js", "ANOTHER older upstream text\n")                    # upstream changed app.js since: a copy is lossy
+    monkeypatch.setattr(verify, "older_pristine", lambda version: old)
+    monkeypatch.setattr(verify, "same_tree", lambda a, b: True)             # the task's workdir is the owner's src
+    _w(world["h"] / "src-158.0" / "app.js", "the owner's OLD tree version of app.js\n")
+    _w(w / "app.js", "the owner's OLD tree version of app.js\n")
+    git(w, "add", "-A")
+    git(w, "commit", "-q", "-m", "checkpoint: copied")
+    assert verify.verify("v1")["old_tree_copies"] == ["app.js"]
+    _w(w / "app.js", "patched 160 text, not the old one\n")
+    git(w, "add", "-A")
+    git(w, "commit", "-q", "-m", "checkpoint: patched")
+    assert verify.verify("v1")["old_tree_copies"] == []
+
+
+def test_a_file_in_neither_upstream_version_is_the_forks_own_and_not_lossy(world, tmp_path, monkeypatch):
+    w = world["w"]
+    old = tmp_path / "vault" / "158.0"
+    _w(old / "app.js", "older upstream text\n")
+    monkeypatch.setattr(verify, "older_pristine", lambda version: old)
+    monkeypatch.setattr(verify, "same_tree", lambda a, b: True)
+    _w(world["h"] / "src-158.0" / "own.js", "the fork's own file\n")
+    _w(w / "own.js", "the fork's own file\n")
+    git(w, "add", "-A")
+    git(w, "commit", "-q", "-m", "checkpoint: own file")
+    rep = verify.verify("v1")
+    assert rep["old_tree_copies"] == [] and rep["old_tree_copies_undetermined"] == []
+    assert "own.js" in rep["old_tree_copies_harmless"]

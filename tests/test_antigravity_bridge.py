@@ -75,3 +75,19 @@ def test_station_name():
 def test_cli_bind_check(capsys):
     assert bridge.main(["bind-check", "0.0.0.0"]) == 2
     assert bridge.main(["bind-check", "127.0.0.1"]) == 0
+
+
+def test_wrapper_routes_bridge_verbs_to_the_binary(monkeypatch, capsys):
+    import fieldkit.antigravity as ag
+    calls = []
+    monkeypatch.setattr(ag, "binary", lambda: "/x/agy-tools")
+    monkeypatch.setattr(ag.subprocess, "run", lambda argv, **k: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "ok\n", ""))
+    assert ag.main(["bind-check", "127.0.0.1"]) == 0
+    assert calls == [["/x/agy-tools", "bridge", "bind-check", "127.0.0.1"]]
+
+
+def test_wrapper_falls_back_to_python_without_binary(monkeypatch, capsys):
+    import fieldkit.antigravity as ag
+    monkeypatch.setattr(ag, "binary", lambda: None)
+    assert ag.main(["bind-check", "0.0.0.0"]) == 2
+    assert "agy-tools is not built" in capsys.readouterr().err

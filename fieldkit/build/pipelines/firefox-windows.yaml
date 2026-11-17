@@ -1,6 +1,6 @@
 name: firefox-windows
 description: >-
-  Build Gorilla Firefox on Windows by driving the existing Gorilla.firefox
+  Build Gorilla Unleashed on Windows by driving the existing Gorilla.firefox
   harness (thermal-capped, staged). Fieldkit adds the resumable state, the
   JSON report and failure triage; the harness keeps the Firefox knowledge
   (3,000-line preflight, 2,700-line diagnoses) and stays the single source.
@@ -9,6 +9,14 @@ vars:
   py: "${LOCAL:firefox.python}"                  # python used by the harness
   entry: "{harness}/harness/gorilla_build.py"
 stages:
+  # Preflight judges the PATCHED tree. A fresh clone of the release tag (160, 2026-11-16) has no branding, stubs or
+  # owner prefs, so 13 blockers failed. The public patch set is replayed onto it once and committed as a checkpoint;
+  # a tree that already carries checkpoints is left alone.
+  - id: patchset
+    platforms: [windows]
+    run: {cmd: ["{py}", -m, fieldkit.buildh.replay, "{harness}/gorilla-patchset", "{harness}/src"], cwd: "${FIELDKIT}"}
+    triage: firefox-windows
+
   - id: preflight
     platforms: [windows]
     run: {cmd: ["{py}", "{entry}", preflight], cwd: "{harness}"}
@@ -26,6 +34,16 @@ stages:
     run: {cmd: ["{py}", "{entry}", source], cwd: "{harness}"}
     verify:
       - {files_exist: ["{harness}/src/mach"]}
+    triage: firefox-windows
+
+  # P29: the static checks, the patch policy, the set proof, the stage key and the stall guard on the patched tree,
+  # before a 90-minute compile finds a missing module, Setting or l10n id at run time (Firefox 160, b2dae4c461).
+  # The set proof replays this system's selection only (each system ~10 min); the policy check covers both.
+  - id: migrate-preflight
+    platforms: [windows]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, migrate, preflight, "harness={harness}", platform=windows], cwd: "${FIELDKIT}"}
+    verify:
+      - {output_contains: '^PREFLIGHT VERDICT: PASS'}
     triage: firefox-windows
 
   - id: bootstrap

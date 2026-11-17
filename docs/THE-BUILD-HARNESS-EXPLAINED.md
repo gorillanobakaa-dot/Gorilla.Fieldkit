@@ -1,5 +1,7 @@
 # The build harness, explained
 
+> The whole Firefox procedure, step by step for Linux, Windows and the Mac, is docs/FIREFOX-COOKBOOK.md. This page explains the machine inside.
+
 Fieldkit's build harness (`fieldkit build-harness`) builds Gorilla Unleashed, a Firefox with every call home cut out
 of its source code, on one Windows laptop, and refuses to call anything finished until it has measured it on the
 browser people actually download. This page explains, for anyone curious, what this large machine does, why it

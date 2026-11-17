@@ -201,6 +201,37 @@ def judge(before, after):
     return True, "committed: " + ", ".join(moved)
 
 
+def refresh_bytecode(before, repos):
+    """Make Python recompile every .py file a fix changed. A .pyc is trusted while the source's mtime (whole seconds)
+    and size match its header: a fix committed in the same second as the failing run, and of the same size (`a - b` ->
+    `a + b`), was imported from the stale .pyc and the stage failed again (CI 2026-11-15, PR 490: the autonomy loop's
+    fix "committed nothing" on its second try). The source is moved one second on; nothing is deleted. -> [paths]"""
+    import importlib.util
+    touched = []
+    for r in repos:
+        old, new = (before.get(r) or {}).get("head"), _git(r, "rev-parse", "HEAD")
+        if not old or not new or old == new:
+            continue
+        for rel in (_git(r, "diff", "--name-only", old, new, "--", "*.py") or "").splitlines():
+            src = Path(r) / rel
+            if not src.is_file():
+                continue
+            st = src.stat()
+            for pyc in src.parent.glob(f"__pycache__/{src.stem}.*.pyc"):
+                try:
+                    head = pyc.read_bytes()[:16]
+                except OSError:
+                    continue
+                if len(head) < 16 or head[:4] != importlib.util.MAGIC_NUMBER or int.from_bytes(head[4:8], "little"):
+                    continue                            # another Python's cache, or hash-based (checked by content)
+                if (int.from_bytes(head[8:12], "little") == int(st.st_mtime) & 0xFFFFFFFF
+                        and int.from_bytes(head[12:16], "little") == st.st_size & 0xFFFFFFFF):
+                    os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+                    touched.append(str(src))
+                    break
+    return touched
+
+
 def log_repos(tail):
     """Git repositories named by an absolute path in a failing log (a dev copy a test compares against)."""
     import re
@@ -384,10 +415,25 @@ class LinkOffloader:
 
 
 # -- preflight: the recipe's own checks, once, before stage 1 ---------------------------------------------------------
-def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None):
-    """-> [(name, status, line)]. Plain reads; nothing changes."""
+def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, thermal=None, rows_planned=None,
+               vctip=None):
+    """-> [(name, status, line)]. Plain reads; nothing changes. When every stage to build is offloaded
+    (core/concepts.measured_on), this machine's pins, disk, RAM, long paths and thermal cap are not the build's: one
+    row names the device whose own `emerge run --local` preflight measures them (2026-11-16, seam 5)."""
     import shutil
+    from ..core import concepts
     rows = []
+    if rows_planned is not None:
+        local, devices = concepts.measured_on(rows_planned)
+        if not local:
+            rows.append(("machine", OK, f"every stage to build runs on {', '.join(devices)}: its own preflight "
+                                        "(emerge run --local there) measures its source pins, disk, RAM and toolchain"))
+            if offloads:
+                m = recipe.config_digest().get("mandate") if recipe.config_spec.get("mandate") else None
+                rows.append(("mandate", OK if isinstance(m, dict) else WARN,
+                             "in force for the offload jobs" if isinstance(m, dict)
+                             else f"no mandate entry ({m}): offloaded stages fall back to this machine where they can"))
+            return rows
     for s in recipe.sources:
         st, _v, why = recipe.pin(s)
         if st == "ok" or (st == "absent" and s.get("fetched_by")):
@@ -422,6 +468,16 @@ def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, 
         thermal = (settings.local_settings().get("thermal") or {}).get("build_target")
     rows.append(("thermal cap", OK if thermal else WARN,
                  f"governor target {thermal} C" if thermal else "no thermal.build_target in fieldkit.local.json"))
+    # MSVC telemetry (P28 D): a vctip.exe a new toolset unpacked since the SYSTEM task last ran. `vctip`: an injected
+    # (status, line, task) or False to skip; None reads this machine (Windows with a vctip.exe only).
+    if vctip is None:
+        try:
+            from ..core import telemetry
+            vctip = telemetry.vctip_preflight()
+        except Exception as e:  # noqa: BLE001
+            vctip = (WARN, f"not readable ({type(e).__name__})", False)
+    if vctip:
+        rows.append(("telemetry", vctip[0], vctip[1]))
     if offloads:
         m = recipe.config_digest().get("mandate") if recipe.config_spec.get("mandate") else None
         rows.append(("mandate", OK if isinstance(m, dict) else WARN,
@@ -498,7 +554,8 @@ class Emerge:
             elif cached:
                 row.update(action="skip", why=f"key {key[:12]} built on {cached}, outputs verified")
             elif o and not self.local_only and (not here or o.get("prefer")):
-                row.update(action="offload", why=f"to {target_text(o.get('device'), self.household)}"
+                row.update(action="offload", device=str(o.get("device") or ""),
+                           why=f"to {target_text(o.get('device'), self.household)}"
                            + ("" if here else f" (needs {s.get('platforms')})"))
             elif not here:
                 row.update(action="not-here", why=f"needs {s.get('platforms')}, this is {host()['system']}"
@@ -525,7 +582,7 @@ class Emerge:
         docs, docs_why = self._docs_mode()
         rows = self.classify(keys, docs)
         checks = self.checks if self.checks is not None else own_checks(
-            self.recipe, self.mode, [r for r in rows if r["action"] == "offload"])
+            self.recipe, self.mode, [r for r in rows if r["action"] == "offload"], rows_planned=rows)
         todo = [r for r in rows if r["action"] in ("run", "offload")]
         known = [r["eta_s"] for r in todo if r["eta_s"] is not None]
         return {"recipe": self.recipe.name, "mode": self.mode, "host": self.who, "docs_only": docs,
@@ -533,6 +590,18 @@ class Emerge:
                 "preflight_status": max((c[1] for c in checks), key=[OK, WARN, STOP].index, default=OK),
                 "eta_s": sum(known), "eta_unknown": len(todo) - len(known),
                 "hash_s": round(self.clock() - t0, 2), "baseline_minutes": self.recipe.baseline_minutes}
+
+    def _vctip(self, preflight, task=None):
+        """A telemetry WARN whose task exists: start the SYSTEM task now (no UAC, P28 D) so the build and its leak gate
+        never wait an hour for the next scheduled run. `task`: an injected starter -> (ok, line)."""
+        if not any(n == "telemetry" and st == WARN and "runs before stage 1" in line for n, st, line in preflight):
+            return None
+        if task is None:
+            from ..core import telemetry
+            task = telemetry.run_firewall_task
+        ok, line = task()
+        self.say(f"  preflight telemetry: {'OK' if ok else 'WARN'} {line}")
+        return ok
 
     # -- the run -----------------------------------------------------------------------------------------------------
     def _line(self, i, n, sid, word, detail=""):
@@ -601,13 +670,16 @@ class Emerge:
 
     def run(self, only=None):
         # under a liveness beacon: heartbeat + every stage's container members (fieldkit liveness check sees it)
-        from ..core import liveness
+        from ..core import checkout_hold, liveness
+        # P29: hold the checkouts this run reads, so no sync / listener / train fast-forwards them mid-build
+        held = checkout_hold.hold(f"emerge {self.recipe.name}", watched_repos(self.recipe))
         cap = self._capture_begin()
         try:
             with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
                 return self._run_all(only)
         finally:
             self._capture_end(cap)
+            checkout_hold.release(held)
 
     def _capture_begin(self):
         """Capture is on for the whole build (owner 2026-11-10); a switch someone else turned on is never ours to turn off."""
@@ -654,6 +726,7 @@ class Emerge:
         for name, st, line in pl["preflight"]:
             if st != OK:
                 self.say(f"  preflight {name}: {st.upper()} {line}")
+        self._vctip(pl["preflight"])
         if pl["preflight_status"] == STOP:
             report.update(ok=False, refused="; ".join(l for _n, s, l in pl["preflight"] if s == STOP))
             self.say(f"REFUSED before stage 1: {report['refused']}")
@@ -808,6 +881,7 @@ class Emerge:
                 report["inbox"] = self._inbox(f"emerge {self.recipe.name}: the fix for {sid} was refused",
                                               f"{why}\nLog tail:\n{tail[-1500:]}")
                 return
+            refresh_bytecode(before, repos)              # the re-run imports the fixed source, not a stale .pyc
             self.recipe = self.recipe.reload()
 
     def _found_elsewhere(self, repos, tail, tips, detached=None):

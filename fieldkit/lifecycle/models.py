@@ -423,63 +423,48 @@ def best_model(job_type, min_tries=3, rows=None, data=None):
     return None
 
 
-# ---- Coding agent catalogue, thinking levels, and multi-agent quota guard (2026-11-14) ------------------------------
-CHOICE_PROMPT = "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
-CODING_AGENTS = ("antigravity", "agy", "codex", "gorilla-opencode", "claude")
-THINKING_LEVELS = ("lowest", "low", "medium", "high", "max")
+# ---- Coding agents: the catalogue comes from choice.yaml (P39, owner 2026-11-16), the quota guard lives here --------
+CHOICE_PROMPT = "WHICH CODING AGENT, PROVIDER, MODEL AND REASONING LEVEL WOULD YOU LIKE TO START?"
 
-DEFAULT_AGENTS_CATALOG = {
-    "antigravity": {
-        "title": "Google Antigravity Desktop IDE",
-        "kind": "ide",
-        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5", "claude-opus-4-6"],
-        "ultra_models": ["carbon", "claude-opus-4-6"],
-        "default_model": "argon",
-        "thinking_levels": list(THINKING_LEVELS),
-        "default_thinking": "high",
-    },
-    "agy": {
-        "title": "Antigravity Terminal CLI (agy)",
-        "kind": "cli",
-        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5", "claude-opus-4-6"],
-        "ultra_models": ["carbon", "claude-opus-4-6"],
-        "default_model": "argon",
-        "thinking_levels": list(THINKING_LEVELS),
-        "default_thinking": "high",
-    },
-    "codex": {
-        "title": "OpenAI Codex CLI",
-        "kind": "cli",
-        "models": ["codex-mini", "o4-mini", "o3", "gpt-5-codex"],
-        "ultra_models": ["o3", "gpt-5-codex"],
-        "default_model": "o4-mini",
-        "thinking_levels": list(THINKING_LEVELS),
-        "default_thinking": "medium",
-    },
-    "gorilla-opencode": {
-        "title": "Gorilla OpenCode Agent",
-        "kind": "cli",
-        "models": ["hydrogen", "argon", "carbon", "gemini-2.5-pro", "gemini-2.5-flash", "qwen3-coder", "local/qwen3", "sonnet", "opus"],
-        "ultra_models": ["carbon", "opus"],
-        "default_model": "argon",
-        "thinking_levels": list(THINKING_LEVELS),
-        "default_thinking": "medium",
-    },
-    "claude": {
-        "title": "Claude Code CLI",
-        "kind": "cli",
-        "models": ["haiku", "sonnet", "opus", "fable"],
-        "ultra_models": ["opus", "fable"],
-        "default_model": "sonnet",
-        "thinking_levels": list(THINKING_LEVELS),
-        "default_thinking": "medium",
-    },
-}
+
+def _choice_data():
+    from . import choice
+    return choice.load()
+
+
+def coding_agents() -> tuple:
+    return tuple((_choice_data().get("agents") or {}))
+
+
+CODING_AGENTS = coding_agents()
+THINKING_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 
 def agents_catalog(data=None) -> dict:
-    d = data or load()
-    return dict(d.get("agents") or DEFAULT_AGENTS_CATALOG)
+    """{agent: {title, providers, models, thinking_levels, local}} from choice.yaml; models = the data file's lists plus
+    the live lists choice.menu() cached. No defaults: the person chooses (choice.pick)."""
+    c = _choice_data()
+    provs = c.get("providers") or {}
+    cached = {}
+    try:
+        from . import choice
+        cached = json.loads(choice._state("choice-cache.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        pass
+    out = {}
+    for name, a in (c.get("agents") or {}).items():
+        ms = list(a.get("models") or [])
+        for p in a.get("providers") or []:
+            ms += [m for m in (provs.get(p) or {}).get("models") or [] if m not in ms]
+        src = a.get("live_from") or name
+        ms += [m for m in ((cached.get(f"cmd:{src}") or {}).get("v") or []) if m not in ms]
+        if a.get("live") == "codex-cache":
+            from . import choice
+            ms += [m for m in choice.codex_cache_models() if m not in ms]
+        out[name] = {"title": a.get("title", name), "providers": list(a.get("providers") or []), "models": ms,
+                     "thinking_levels": list(a.get("reasoning") or THINKING_LEVELS),
+                     "local": any((provs.get(p) or {}).get("private") for p in a.get("providers") or [])}
+    return out
 
 
 def agent_availability_path(data=None):
@@ -529,12 +514,6 @@ def agent_availability(agent: str, now=None, data=None) -> tuple[bool, str]:
     a = (agent or "").strip().lower()
     if not a:
         return False, CHOICE_PROMPT
-    if a == "gemini":
-        return (
-            False,
-            "REFUSED: 'gemini' is a generic model family name, not a specific coding agent or model. "
-            "Choose agent 'antigravity' or 'agy' with a specific model (hydrogen, argon, carbon, gemini-2.5-pro, gemini-2.5-flash).",
-        )
     unavail = unavailable_agents(now, data)
     if a in unavail:
         rec = unavail[a]
@@ -586,131 +565,60 @@ def validate_agent_choice(
     origin: str = "cli",
     data=None,
 ) -> dict:
-    """Validate (agent, model, thinking) deterministically.
+    """Validate (agent, model, thinking) deterministically against choice.yaml and the quota guard.
 
-    - Never silently defaults to `claude`.
-    - When `require_explicit=True` and any of `agent`, `model`, or `thinking` is omitted, returns
-      `{"ok": False, "needs_choice": True, "prompt": CHOICE_PROMPT, ...}` so the user is asked:
-      "WHICH CODING AGENT, WHICH MODEL WITH WHICH REASONING LEVEL WOULD YOU LIKE TO START?"
-    - Rejects generic `"gemini"` for either agent or model.
-    - Blocks any agent that is marked unavailable/quota-maxed (including `claude` at 100% weekly quota).
+    - Never a default agent or model: a missing level returns needs_choice with the live menu (choice.menu) so the
+      person picks (choice.pick); headless callers use the owner's recorded choice per job type.
+    - A generic family name ("gemini" as a MODEL) and a stale name (choice.yaml stale:) are refused.
+    - An agent whose quota is out is refused until its reset; the spend guard still applies (claude: check_model).
     """
     d = data or load()
     cat = agents_catalog(d)
+    stale = set(_choice_data().get("stale") or [])
     a = (agent or "").strip().lower()
-    m = (model or "").strip().lower()
+    m = (model or "").strip()
     t = (thinking or "").strip().lower()
 
-    if a == "gemini" or m == "gemini":
-        return {
-            "ok": False,
-            "verdict": "generic-refused",
-            "why": (
-                "REFUSED: 'gemini' is a generic family name. Specify the exact coding agent "
-                f"({', '.join(CODING_AGENTS)}) and the exact model (e.g. hydrogen, argon, carbon, "
-                "gemini-2.5-pro, gemini-2.5-flash) with a thinking level (lowest, low, medium, high, max)."
-            ),
-            "prompt": CHOICE_PROMPT,
-        }
-
-    if require_explicit and (not a or not m or not t):
+    if m.lower() == "gemini":
+        return {"ok": False, "verdict": "generic-refused", "prompt": CHOICE_PROMPT,
+                "why": "REFUSED: 'gemini' is a family name, not a model; pick one from `fieldkit models menu`"}
+    if m in stale:
+        return {"ok": False, "verdict": "stale-model", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: {m!r} is a stale model name (choice.yaml stale:); pick one from `fieldkit models menu`"}
+    if not a or not m or not t:
         missing = [k for k, v in (("agent", a), ("model", m), ("thinking", t)) if not v]
         return {
-            "ok": False,
-            "needs_choice": True,
-            "verdict": "choice-required",
-            "missing": missing,
-            "prompt": CHOICE_PROMPT,
-            "why": f"{CHOICE_PROMPT} (missing: {', '.join(missing)}; pass --agent <agent> --model <model> --thinking <{'|'.join(THINKING_LEVELS)}>)",
-            "agents": {
-                k: {
-                    "available": is_agent_available(k, data=d),
-                    "models": v.get("models", []),
-                    "ultra_models": v.get("ultra_models", []),
-                    "thinking_levels": v.get("thinking_levels", list(THINKING_LEVELS)),
-                }
-                for k, v in cat.items()
-            },
+            "ok": False, "needs_choice": True, "verdict": "choice-required", "missing": missing, "prompt": CHOICE_PROMPT,
+            "why": f"{CHOICE_PROMPT} (missing: {', '.join(missing)}; `fieldkit models menu` shows what works now; "
+                   "pass --agent A --model M --thinking R, or at a terminal pick from the menu)",
+            "agents": {k: {"available": is_agent_available(k, data=d), "providers": v["providers"],
+                           "models": v["models"], "thinking_levels": v["thinking_levels"]} for k, v in cat.items()},
         }
-
     if a not in cat:
-        return {
-            "ok": False,
-            "verdict": "unknown-agent",
-            "why": f"REFUSED: unknown coding agent {a!r}; choose one of {', '.join(cat)}",
-            "prompt": CHOICE_PROMPT,
-        }
-
+        return {"ok": False, "verdict": "unknown-agent", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: unknown coding agent {a!r}; choose one of {', '.join(cat)}"}
     avail_ok, avail_why = agent_availability(a, data=d)
     if not avail_ok:
-        return {
-            "ok": False,
-            "verdict": "agent-blocked",
-            "agent": a,
-            "why": f"REFUSED: {avail_why}. {CHOICE_PROMPT}",
-            "prompt": CHOICE_PROMPT,
-        }
-
+        return {"ok": False, "verdict": "agent-blocked", "agent": a, "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: {avail_why}. {CHOICE_PROMPT}"}
     acfg = cat[a]
-    if not m:
-        m = acfg.get("default_model") or "argon"
-    if not t:
-        t = acfg.get("default_thinking") or "medium"
-
-    allowed_thinking = tuple(acfg.get("thinking_levels") or THINKING_LEVELS)
-    if t not in allowed_thinking:
-        return {
-            "ok": False,
-            "verdict": "invalid-thinking",
-            "why": f"REFUSED: thinking level {t!r} is not in {', '.join(allowed_thinking)}",
-            "prompt": CHOICE_PROMPT,
-        }
-
-    allowed_models = [x.lower() for x in (acfg.get("models") or [])]
-    if allowed_models and m not in allowed_models and not any(m.startswith(x) for x in allowed_models):
-        return {
-            "ok": False,
-            "verdict": "invalid-model-for-agent",
-            "why": f"REFUSED: model {m!r} is not in {a}'s model catalogue ({', '.join(acfg.get('models') or [])})",
-            "prompt": CHOICE_PROMPT,
-        }
-
-    if a == "claude":
-        mchk = check_model(m, role=role, origin=origin, data=d)
-        if not mchk["ok"]:
-            return {
-                "ok": False,
-                "verdict": "model-refused",
-                "agent": a,
-                "model": m,
-                "thinking": t,
-                "why": mchk["why"],
-            }
-        tier_val = mchk["tier"]
-        why_val = mchk["why"]
-    else:
-        avail_m, avail_m_why = availability(m, data=d)
-        if not avail_m:
-            return {
-                "ok": False,
-                "verdict": "model-unavailable",
-                "agent": a,
-                "model": m,
-                "thinking": t,
-                "why": f"REFUSED: model {m} is unavailable ({avail_m_why})",
-            }
-        tier_val = "ultra" if m in [x.lower() for x in (acfg.get("ultra_models") or [])] else "standard"
-        why_val = f"{a} catalogue ({tier_val})"
-
-    return {
-        "ok": True,
-        "verdict": "allowed",
-        "agent": a,
-        "model": m,
-        "thinking": t,
-        "tier": tier_val,
-        "why": f"agent={a} model={m} thinking={t} ({why_val})",
-    }
+    if t not in acfg["thinking_levels"]:
+        return {"ok": False, "verdict": "invalid-thinking", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: reasoning {t!r} is not one of {a}'s: {', '.join(acfg['thinking_levels'])}"}
+    known = [x.lower() for x in acfg["models"]]
+    if m.lower() not in known and not acfg["local"]:      # a local server names its own models; it refuses unknown ones
+        return {"ok": False, "verdict": "invalid-model-for-agent", "prompt": CHOICE_PROMPT,
+                "why": f"REFUSED: model {m!r} is not offered by {a} ({', '.join(acfg['models'])})"}
+    mchk = check_model(m, role=role, origin=f"{origin} ({a})", data=d)       # the spend guard, for EVERY agent
+    if not mchk["ok"]:
+        return {"ok": False, "verdict": "model-refused", "agent": a, "model": m, "thinking": t, "why": mchk["why"]}
+    avail_m, avail_m_why = availability(m, data=d)
+    if not avail_m:
+        return {"ok": False, "verdict": "model-unavailable", "agent": a, "model": m, "thinking": t,
+                "why": f"REFUSED: model {m} is unavailable ({avail_m_why})"}
+    tier_val, why_val = mchk["tier"], mchk["why"]
+    return {"ok": True, "verdict": "allowed", "agent": a, "model": m, "thinking": t, "tier": tier_val,
+            "why": f"agent={a} model={m} thinking={t} ({why_val})"}
 
 
 def status_report(data=None) -> dict:
@@ -722,14 +630,11 @@ def status_report(data=None) -> dict:
         rows.append({
             "agent": name,
             "title": info.get("title", name),
-            "kind": info.get("kind", "cli"),
+            "providers": info["providers"],
             "available": ok,
             "status_why": why,
-            "models": info.get("models", []),
-            "ultra_models": info.get("ultra_models", []),
-            "default_model": info.get("default_model", ""),
-            "thinking_levels": info.get("thinking_levels", list(THINKING_LEVELS)),
-            "default_thinking": info.get("default_thinking", "medium"),
+            "models": info["models"],
+            "thinking_levels": info["thinking_levels"],
         })
     return {
         "prompt": CHOICE_PROMPT,
@@ -751,23 +656,12 @@ def main(argv=None):
     if argv[:1] == ["tune"]:                         # P22: host analysis, right load settings, lms load
         from . import tune
         return tune.main(argv)
-    if argv[:1] in (["status"], ["ask-choice"]):
-        st = status_report()
-        if "--json" in argv:
-            print(json.dumps(st, indent=2))
-            return 0
-        print(st["prompt"])
-        for r in st["agents"]:
-            state_str = "AVAILABLE" if r["available"] else f"BLOCKED ({r['status_why']})"
-            print(
-                f"  {r['agent']:<18} [{state_str}]\n"
-                f"    models:   {', '.join(r['models'])} (Ultra: {', '.join(r['ultra_models'])})\n"
-                f"    thinking: {', '.join(r['thinking_levels'])} (default: {r['default_thinking']})"
-            )
-        return 0
+    if argv[:1] in (["menu"], ["status"], ["ask-choice"], ["remember"]):   # P39: the live four-level menu
+        from . import choice
+        return choice.main(argv[1:] if argv[0] != "remember" else argv)
     if argv[:1] == ["block"] and len(argv) >= 2:
         ag = argv[1]
-        until = "always"
+        until = None            # a quota block ends by itself (cooldown_minutes); --until DATE|always only when the owner says
         why = "quota maxed out / blocked by owner"
         if "--until" in argv:
             i = argv.index("--until")
@@ -797,7 +691,8 @@ def main(argv=None):
         print("NEXT: the table decides delegation (best_model); main's reds and flakes are not counted")
         return 0
     if argv[:1] != ["report"]:
-        print("models status [--json]: coding agents, specific models (hydrogen/argon/carbon/...), thinking levels, and quota blocks\n"
+        print("models menu [--json] [--refresh] [--check] [--device NAME]: what works now, agent > provider > model > reasoning\n"
+              "models remember JOB_TYPE AGENT PROVIDER MODEL REASONING: the owner's choice for headless jobs of a type\n"
               "models block AGENT [--until YYYY-MM-DD|always] [--why REASON] | models unblock AGENT\n"
               "models report [--json]: counts per device and day from the spend ledger\n"
               "models table [--json]: success rate per model and job type (plan P9)\n"

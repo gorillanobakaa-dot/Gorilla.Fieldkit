@@ -407,6 +407,16 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_cookbook(a):
+    from .cookbook import cli as cbcli
+    return cbcli.main(a.args, prog="fieldkit cookbook")
+
+
+def cmd_firefox(a):
+    from .firefox import cli as ffcli
+    return ffcli.main(a.args, prog="fieldkit firefox")
+
+
 def cmd_macair(a):
     from .macair import macair
     return macair.main(a.args, prog="fieldkit macair")
@@ -1173,9 +1183,10 @@ def cmd_autopilot(a):
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
         from .lifecycle import models as _models
-        ag_avail = _models.agent_availability("claude")
-        if not ag_avail["available"]:
-            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_avail['reason']})"}, indent=1))
+        ag_ok, ag_why = _models.agent_availability("claude")        # (available, why): a tuple, not a dict
+        if not ag_ok:
+            print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_why})",
+                              "choose": _models.CHOICE_PROMPT}, indent=1))
             return 3
         job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
         if job_dir:
@@ -1363,6 +1374,9 @@ def runbook_main(action, file, fix=True):
         r = window.launch(["runbook", "run", str(Path(file).resolve())])
         print(f"started in its own window (PID {r.get('pid')}); log {r.get('log')}")
         return 0
+    from .core import prepare                          # prepare first, execute second (P9): the runbook's own words
+    if not prepare.gate(file):
+        return 3
     claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=200, timeout=3600)) if fix else None
     r = runbook.run(file, claude=claude)
     print(json.dumps(r, indent=1))
@@ -1443,6 +1457,11 @@ def cmd_goal(a):
     if a.action == "run":
         from .lifecycle import onestart
         onestart.at_start("goal", job=x[0] if x else "")
+    if x and not a.once:                                # prepare first, execute second (P9): the goal's own words
+        from .core import prepare
+        g = Path(goal.GOALS) / x[0] / "goal.json"
+        if not prepare.gate(g.read_text(encoding="utf-8", errors="replace") if g and g.is_file() else x[0]):
+            return 3
     return goal.supervise(x or None, once=a.once)
 
 
@@ -1643,7 +1662,7 @@ METHODS = {
                      "merge into main only under a project mandate; never forces"),
     "ci-steps": ("cisteps", "the CI workflow's job for this OS, run in this tree: the step runner `fieldkit ship "
                             "ci-local` sends over the cable when GitHub's runner is down (--os --base --report)"),
-    "strikes": ("strikes", "TWO STRIKES: a branch or PR that failed CI twice is parked, never tried a third time "
+    "strikes": ("strikes", "TWO STRIKES: only a PR's OWN red counts; 3 on one model climbs to the next stronger model, parked past the strongest allowed "
                            "(list | park ID | unpark ID | check BRANCH)"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
@@ -1759,6 +1778,15 @@ def build_parser():
                              "decisions, 11-inch budget, export the patch series, recreate, install, verify on the Mac")
     ma.add_argument("args", nargs=argparse.REMAINDER)
     ma.set_defaults(fn=cmd_macair)
+    ff = sub.add_parser("firefox", add_help=False,
+                        help="the one Firefox cookbook (Linux .deb, Windows, macOS 10.13): status, next, release, "
+                             "handover VERSION --to windows|mac, lessons, knowledge")
+    ff.add_argument("args", nargs=argparse.REMAINDER)
+    ff.set_defaults(fn=cmd_firefox)
+    cb = sub.add_parser("cookbook", add_help=False,
+                        help="the deterministic project load (P41a): load ID|--cwd PATH, list, show ID, check")
+    cb.add_argument("args", nargs=argparse.REMAINDER)
+    cb.set_defaults(fn=cmd_cookbook)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -1879,6 +1907,10 @@ def build_parser():
                        ("board", "every finished session has its Board row in PLAN.md: check (with / all today), "
                                  "add from the transcript, no model (fieldkit/lifecycle/board.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
+    pr = sub.add_parser("prepare", add_help=False,
+                        help="before a job starts: find every missing tool and dependency from the requirements table, "
+                             "set up what needs no root, ONE ask for the rest (fieldkit/core/prepare.py)")
+    pr.add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
@@ -2551,6 +2583,7 @@ def build_parser():
     bh.add_argument("--adapted", default="", help="submit: the MODEL declares an adapted port (a symbol renamed upstream, code moved) with its reason; judged by meaning, saved as a proposal for the owner's one-go acceptance, no attempt spent")
     bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")
     bh.add_argument("--harness", help="start: the Gorilla.firefox folder to read patches from (default firefox.root)")
+    bh.add_argument("--emerge", action="store_true", help="start: record the tree `fieldkit emerge` already patched (--pin, --workdir, --harness); idempotent")
     bh.add_argument("--agent", help="drive: the agent command (default gorilla-opencode)")
     bh.add_argument("--max-jobs", type=int, help="drive: stop after this many jobs")
     bh.add_argument("--job-timeout", help="drive: time limit per job, e.g. 45m")
@@ -3157,6 +3190,12 @@ def main(argv=None):
                                                            "text-compare"):
         from .shot import look                        # look has its own parser; read/speedtest/verdict stay below
         return look.main(args[1:], prog="fieldkit shot")
+    if args[:1] == ["cookbook"]:                      # the project load has its own parser (P41a)
+        from .cookbook import cli as cbcli
+        return cbcli.main(args[1:], prog="fieldkit cookbook")
+    if args[:1] == ["firefox"]:                       # the Firefox cookbook has its own parser (P38)
+        from .firefox import cli as ffcli
+        return ffcli.main(args[1:], prog="fieldkit firefox")
     if args[:1] == ["macair"]:                        # macair has its own parser: every argument goes to it
         from .macair import macair
         return macair.main(args[1:], prog="fieldkit macair")
@@ -3272,6 +3311,9 @@ def main(argv=None):
     if args[:1] == ["onestart"]:                      # one ask at the start (P9)
         from .lifecycle import onestart
         return onestart.main(args[1:])
+    if args[:1] == ["prepare"]:                       # prepare first, execute second (fieldkit/core/prepare.py)
+        from .core import prepare
+        return prepare.main(args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])

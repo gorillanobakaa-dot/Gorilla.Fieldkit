@@ -341,10 +341,11 @@ def step_apply_group(t, harness_root, group, **kw):
                                   "title": f"{rel}: its picture does not apply ({(g.stdout + g.stderr).decode('utf-8', 'replace').strip()[:160]}); "
                                            "re-export it from the tree it was made in, or drop it with a reason"})
             continue
-        cmd = [_patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0", "--binary", "-d", str(w)]
+        cmd = [_patch_exe(), "-p1", "--forward", "--batch", "--no-backup-if-mismatch", "--fuzz=0", "--binary", "-d", str(w)]
         # a dry run first: a patch that only repairs code a group excluded on THIS platform brings in has nothing to
         # repair here and is never applied (2026-10-16: 21.PORT.FIXES.158/008 fixes 01.MEDIA's code, Linux-only)
-        dry = subprocess.run(cmd + ["--dry-run"], input=body.encode("utf-8"), capture_output=True, timeout=600)
+        from ..core import childrun          # P29: deadline + stall stop, stdin never a terminal
+        dry = childrun.run(cmd + ["--dry-run"], f"patch --dry-run {rel}", input=body.encode("utf-8"))
         dry_out = dry.stdout.decode("utf-8", "replace") + dry.stderr.decode("utf-8", "replace")
         if failures_from_output(dry_out)["failed"]:
             plus = setproof._plus_lines(pset, raw_groups, platform) if plus is None else plus
@@ -355,7 +356,7 @@ def step_apply_group(t, harness_root, group, **kw):
                 _taskmod.journal(t, "excluded-dependency", patch=rel, depends_on=dep, platform=platform,
                                  propose=f"exclude_on.{platform} += {pf.name} in group {group}")
                 continue
-        r = subprocess.run(cmd, input=body.encode("utf-8"), capture_output=True, timeout=600)
+        r = childrun.run(cmd, f"patch {rel}", input=body.encode("utf-8"))
         out = r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
         res = failures_from_output(out)
         if "previously applied" in out:              # GNU patch: this Firefox already has the change

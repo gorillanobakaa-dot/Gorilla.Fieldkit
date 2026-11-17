@@ -1596,6 +1596,16 @@
    "compileonce"
   ]
  },
+ "cookbook": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-cookbook"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1759,6 +1769,16 @@
   "why": "",
   "ids": [
    "explain"
+  ]
+ },
+ "firefox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-firefox"
   ]
  },
  "firmware check": {
@@ -2373,6 +2393,28 @@
    "models-gguf"
   ]
  },
+ "models menu": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-menu"
+  ]
+ },
+ "models remember": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-remember"
+  ]
+ },
  "models tune": {
   "platforms": [
    "darwin",
@@ -2980,6 +3022,17 @@
   "why": "",
   "ids": [
    "prefix-diff"
+  ]
+ },
+ "prepare": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "prepare"
   ]
  },
  "privacy scan": {

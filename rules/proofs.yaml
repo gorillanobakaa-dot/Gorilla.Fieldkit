@@ -178,11 +178,11 @@ TWO STRIKES:
     - 'if n >= LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):'
     - 'if n > LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):'
   - demand: a red that main's head shares is not a strike (own failures only)
-    test: tests/test_strikes.py::test_b2_a_failure_main_does_not_share_still_counts_and_parks
+    test: tests/test_strikes.py::test_b2_a_red_that_main_shares_is_not_a_strike
     mutate:
     - fieldkit/method/strikes.py
-    - if own <= mains
-    - if True
+    - '    if all(got.get(i) == "fail" for i in ids):'
+    - '    if False:'
   - demand: a red made only of listed timing-sensitive tests is a flake, not a strike (owner 2026-10-31, "all approved")
     test: tests/test_strikes.py::test_a_red_made_only_of_timing_tests_is_a_flake_until_the_third
     mutate:
@@ -199,14 +199,14 @@ TWO STRIKES:
     test: tests/test_strikes.py::test_push_to_a_parked_branch_is_refused_and_nothing_is_run
     mutate:
     - fieldkit/method/ship.py
-    - 'if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round'
-    - 'if False:               # TWO STRIKES: no third round'
+    - 'if strikes.parked_for(st["branch"]):               # parked: no more rounds'
+    - 'if False:               # parked: no more rounds'
   - demand: task start refuses a brief naming a parked branch or PR (no third try)
     test: tests/test_strikes.py::test_task_start_refuses_a_brief_naming_the_parked_branch
     mutate:
     - fieldkit/method/strikes.py
-    - "def refusal(branches, p=None):\n    d = load(p)"
-    - "def refusal(branches, p=None):\n    return ''\n    d = load(p)"
+    - '        r = d["parked"][br]'
+    - '        continue'
   gaps:
   - demand: leave the PR open for a stronger model's repair and go on with the plan
     why: going on with the plan is not deterministic
@@ -523,3 +523,14 @@ ZERO COMMANDS:
   gaps:
   - demand: Zero checks every side session's work against its diff and PR and finishes it
     why: 'buildable: rollcall shows each station''s branch and PR state and flags a session that handed over with an open, unmerged PR'
+ASK FIRST:
+  proofs:
+  - demand: the ROOM text a session reads about another session's activity ends with the ask-first line
+    test: tests/test_autopilot_room.py::test_the_room_text_tells_the_reader_to_ask_the_actor_first
+    mutate:
+    - fieldkit/autopilot/room.py
+    - '+ more + "\n" + ASK_FIRST)'
+    - '+ more)'
+  gaps:
+  - demand: cooperate when the other session confirms
+    why: not deterministic; the ROOM line states it, nothing measures behaviour

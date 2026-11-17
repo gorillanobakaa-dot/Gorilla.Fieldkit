@@ -34,6 +34,7 @@ Doors, and who can act through them (owner's threat model: every channel is a do
   - the key file is named *.key, so the hard lines keep every model from reading or writing it.
 """
 import argparse
+import errno
 import hashlib
 import hmac
 import ipaddress
@@ -1113,6 +1114,47 @@ RELOAD_S = 60
 UPDATE_S = 300
 
 
+def bind_options(platform=None):
+    """-> [(level, option, value)] for a listening socket. One listener per port (P28, 2026-11-16): on Windows
+    SO_REUSEADDR lets a SECOND socket bind a port a live listener holds, so every keep-alive start and every reload
+    added a listener (21 `peers link serve` on L15-WIN, all bound to the cable port); SO_EXCLUSIVEADDRUSE refuses it.
+    Elsewhere SO_REUSEADDR only skips TIME_WAIT leftovers and a held port still fails with EADDRINUSE."""
+    if (platform or sys.platform) == "win32":
+        return [(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)]
+    return [(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)]
+
+
+def port_taken(e):
+    """True when a bind failed because another socket holds the address."""
+    return getattr(e, "errno", None) in (errno.EADDRINUSE, 10048) or getattr(e, "winerror", None) in (10048, 10013)
+
+
+def reexec_argv():
+    return list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv)
+
+
+def reexec(platform=None, execv=os.execv, popen=subprocess.Popen, exit=sys.exit):
+    """Re-execute this listener on new code. POSIX: in place (same PID, systemd sees no restart). Windows has no
+    in-place exec: os.execv starts a NEW process and ends this one (P28: each reload gave a listener whose parent was
+    dead, the scheduled task lost its instance and started another every 5 minutes). There: start the replacement,
+    record its PID in serve.pid, and end this one; with bind_options a stray second start exits instead of piling up."""
+    argv = reexec_argv()
+    if (platform or sys.platform) != "win32":
+        execv(sys.executable, argv)
+        return None
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+    p = popen([sys.executable] + argv[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              creationflags=flags, close_fds=True)
+    try:
+        (home() / "serve.pid").write_text(str(p.pid))
+        from ..core import procs
+        procs.record(p.pid, "link-listener", "the cable listener, re-executed on new code")
+    except Exception:  # noqa: BLE001 - the replacement runs either way
+        pass
+    exit(0)
+    return p.pid
+
+
 def self_update(root=None, run=subprocess.run):
     """Bring the listener's own checkout to origin/main: only a clean checkout on main, only a fast-forward (main
     moves only by PRs merged on green CI). -> "moved", "same" or why it was left alone. 2026-10-28: #181 (a worktree
@@ -1133,6 +1175,10 @@ def self_update(root=None, run=subprocess.run):
     rc, dirty = git("status", "--porcelain", "--untracked-files=no")
     if rc != 0 or dirty:
         return "left alone: tracked changes in the checkout"
+    from ..core import checkout_hold     # P29: an emerge run reads this checkout; never move it under the build
+    why = checkout_hold.busy(root)
+    if why:
+        return f"left alone: {why}"
     rc, out = git("fetch", "--quiet", "origin", "main", timeout=120)
     if rc != 0:
         return f"left alone: fetch failed ({out[:120]})"
@@ -1173,8 +1219,18 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
     for me in mine.get("address", []):
         check_address(me, allow_loopback)
         s = socket.socket(socket.AF_INET6 if ":" in me else socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((me, port))
+        for opt in bind_options():
+            s.setsockopt(*opt)
+        try:
+            s.bind((me, port))
+        except OSError as e:
+            s.close()
+            for x in socks:
+                x.close()
+            if port_taken(e):
+                _log(f"{me}:{port} is held by another listener: this one (PID {os.getpid()}) exits (one per port)")
+                return
+            raise
         s.listen(8)
         s.setblocking(False)
         sel.register(s, selectors.EVENT_READ)
@@ -1198,10 +1254,11 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
                 checked = time.time()
                 now_head = code_head()
                 if now_head and now_head != started_head:
-                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing in place (same PID)")
+                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing "
+                         f"({'replacement process' if sys.platform == 'win32' else 'in place, same PID'})")
                     for s in socks:
                         s.close()
-                    os.execv(sys.executable, list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv))
+                    reexec()
             if not ev:
                 continue
             try:
@@ -1539,6 +1596,9 @@ def main(argv=None):
         from ..lifecycle import models
         chk = models.validate_agent_choice(agent=a.agent, model=a.model, thinking=a.thinking, require_explicit=True,
                                            role="worker", origin="peers link ask")
+        if not chk["ok"] and chk.get("needs_choice"):        # P39: the same menu on both computers, measured THERE
+            from ..lifecycle import choice
+            chk = choice.resolve("task", origin="peers link ask", device=a.device)
         if not chk["ok"]:
             print(chk["why"])
             return 2

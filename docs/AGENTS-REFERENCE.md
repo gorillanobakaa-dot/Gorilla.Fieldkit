@@ -313,6 +313,8 @@ DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking 
 ## Session rotation (fieldkit rotate)
 
 Every call re-sends the whole conversation, so a long session costs more with every call. At the start of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).
+
+Auto-compact (owner, 2026-11-16): a headless job run (`fieldkit/autopilot/run.py`, `claude()`) sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=72`, so it compacts itself at about 72% of the auto-compact window; the caller can override it through `env_extra`. Zero is an interactive session, never goes through that code, and compacts by hand after writing its state to a file. Claude Code only lowers its threshold with this variable; a desktop session cannot get a per-session value (the Code tab sets variables for every session), so those rotate as before.
 - exit 0 OK: carry on.
 - exit 1 WARN: finish the current job here; the next job starts in a fresh session.
 - exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.

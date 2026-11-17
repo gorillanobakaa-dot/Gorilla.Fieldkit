@@ -63,3 +63,44 @@ def test_gh_release_stops_at_the_gate_and_never_creates(tmp_path, monkeypatch):
 
 def test_a_non_github_remote_has_no_releases_to_count():
     assert rg.guard("/tmp/some/remote/Repo", "v1")["state"] == "gate-not-github"
+
+
+def test_each_operating_system_has_its_own_window(monkeypatch, tmp_path):
+    """Owner 2026-11-17: Linux, Windows, macOS, FreeBSD, Android and ChromeOS may each publish the same day; only a
+    second release for the SAME system inside the window is refused."""
+    _state(monkeypatch, tmp_path)
+    recent = [("v160.0.0-linux", NOW - 1 * H)]
+    assert rg.guard("o/r", "v160.0.0-windows", last=recent, now=NOW, hours=24)["ok"]
+    assert rg.guard("o/r", "v157.0.0-mac", last=recent, now=NOW, hours=24)["ok"]
+    for other in ("freebsd", "android", "chromeos"):
+        assert rg.guard("o/r", f"v160.0.0-{other}", last=recent, now=NOW, hours=24)["ok"], other
+    six = recent + [("v160.0.0-windows", NOW - 0.5 * H), ("v157.0.0-mac", NOW - 0.2 * H)]
+    r = rg.guard("o/r", "v160.0.1-linux", last=six, now=NOW, hours=24)
+    assert not r["ok"] and r["state"] == "batch-window" and "v160.0.0-linux" in r["error"] and "linux" in r["error"]
+    assert not rg.guard("o/r", "v158.0-win64-build3", last=six, now=NOW, hours=24)["ok"]   # win64 is windows
+    assert not rg.guard("o/r", "v2.0.0", last=[("v1.9.0", NOW - H)], now=NOW, hours=24)["ok"]  # a plain project: as before
+
+
+def test_system_of_reads_the_tag_suffix():
+    assert rg.system_of("v160.0.0-linux") == "linux"
+    assert rg.system_of("v158.0-win64-build2") == "windows"
+    assert rg.system_of("macbook-air") == "mac"
+    assert rg.system_of("v1.2.3") == "" and rg.system_of("v158.0-2") == ""
+
+
+def test_every_place_that_publishes_a_release_goes_through_the_gate():
+    """Drift guard (2026-11-15): a new `gh release create` or tag push that skips releasegate would bring back one
+    release per fix. Every module that runs one must call releasegate.guard."""
+    import re
+    from pathlib import Path
+    root = Path(rg.__file__).resolve().parents[1]
+    publishers = []
+    for f in root.rglob("*.py"):
+        if f.name in ("mandate.py", "hardlines.py", "releasegate.py"):      # they describe or block, never publish
+            continue
+        t = f.read_text(encoding="utf-8", errors="replace")
+        if re.search(r'\[\s*"gh",\s*"release",\s*"create"|\("release", "create"|\["release", "create"|"release", "create", tag', t):
+            publishers.append(f)
+    assert publishers, "the scan found no publisher: fix the pattern"
+    missing = [str(f.relative_to(root)) for f in publishers if "releasegate" not in f.read_text(encoding="utf-8", errors="replace")]
+    assert not missing, f"publishes a release without the one-release-per-batch gate: {missing}"

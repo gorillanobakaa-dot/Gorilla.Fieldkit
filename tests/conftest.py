@@ -75,6 +75,9 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
+# 2026-11-16: refusals.record() with no root wrote fixture rows into the real state/refusals.jsonl, which
+# refusals.push sends over the cable as LEDGER1 notes: Windows test runs flooded the VAIO Zero. Tests write elsewhere.
+_os.environ["FIELDKIT_REFUSALS_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-refusals-")
 # Tests never reach the real cable (2026-10-28, item 22: the C6 hook test's child process checked fixture stations
 # in to a "far" Zero over the REAL cable; the VAIO got claude:zzzzzzzz@... -> claude:aaaaaaaa@HOSTA). Every address
 # of the real household (and the cable's own 10.77.0.0/30) is refused at socket.connect, here and in every child
@@ -450,6 +453,7 @@ def _isolated_lifecycle(tmp_path_factory, monkeypatch):
 # A test that runs an emerge Runner must not switch the real capture on (hooks in ~/.claude); tests of the loop itself
 # call fieldkit.capture.loop with a sandbox store and home (tests/capture/test_loop.py).
 _os.environ["FIELDKIT_EMERGE_NO_CAPTURE"] = "1"
+_os.environ["FIELDKIT_CAPTURE_NO_CLEANSLATE"] = "1"      # P40: a test never runs the real wipe gate
 
 # I-04: auto-accept is ON by default (fieldkit/lifecycle/autoaccept.yaml), and its reviewer is a real model command.
 # Tests never start a model and never write the real lifecycle ledger: every test sees auto-accept OFF (the owner
@@ -470,3 +474,21 @@ def _release_gate_sees_no_release(monkeypatch):
     tests/test_releasegate.py passes `last=` to guard() itself."""
     from fieldkit.method import releasegate
     monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gh_proof(monkeypatch):
+    """strikes.default_proof asks GitHub for main's CI runs; a test never reaches gh (it gets no extra evidence)."""
+    from fieldkit.method import strikes
+    monkeypatch.setattr(strikes, "default_proof", lambda *a, **k: None)
+    yield
+
+
+# No test runs a real ACTING leaks sweep (P28, fieldkit/hog/leaks.py): the SessionStart hook, the preflight and the
+# prompt hook's schedule-stale pass call hog._leaks_act, which would stop real processes on the test machine. A test
+# of that wiring replaces it with its own fake (monkeypatch.setattr(hog, "_leaks_act", ...)).
+@pytest.fixture(autouse=True)
+def _no_real_leaks_sweep(monkeypatch):
+    import fieldkit.hog as _hog
+    monkeypatch.setattr(_hog, "_leaks_act", lambda cfg=None: None)
+    yield

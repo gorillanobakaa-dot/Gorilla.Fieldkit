@@ -156,6 +156,7 @@ INBOX_CALLERS = {
     "fieldkit/zero/command.py": "kind=net: the agent ledger, never the owner",
     "fieldkit/autopilot/runbook.py": "a runbook step's own `run:`; lint-only: no registry command in it",
     "fieldkit/autopilot/inbox_selftest.py": "the self-test of the inbox routing",
+    "fieldkit/buildh/cli.py": "start firefox --emerge: the one-time approval of the emerge tree's check plan (kind=decision); the refusal also names the command",
     "fieldkit/buildh/task.py": "task.owner_wait: a decision the build-harness cannot make; lint-only",
     "fieldkit/lifecycle/routing.py": "kind=approval: the agent ledger",
     "fieldkit/method/ship.py": "ship's hard-line notes; lint-only",

@@ -452,11 +452,14 @@ def main(argv=None, prog="python -m fieldkit.method.mergeproof"):
     c = sub.add_parser("ci-record")
     c.add_argument("sha")
     u = sub.add_parser("update")
-    u.add_argument("--base", default="main")
+    u.add_argument("--base", default=None, help="default: the repository's own base branch (origin/HEAD)")
     for s in (h, p, c, u):
         s.add_argument("--repo", default=".")
         s.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if getattr(a, "base", "") is None:                  # P38 seam 4: gorilla-firefox's base is master
+        from ..core import concepts
+        a.base = concepts.default_branch(a.repo, fallback="main")
     if a.cmd == "hook":
         try:
             skip, why, tests = hook_decide(a.repo, a.key, a.base)
