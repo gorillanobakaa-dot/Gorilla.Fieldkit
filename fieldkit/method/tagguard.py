@@ -81,7 +81,8 @@ def version_rows(repo, commit, tag):
                     m = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"', text)
                     if m and m.group(1) != want:
                         problems.append(f"{name} says {m.group(1)}")
-                    continue
+                    if name != "fieldkit/__init__.py":
+                        continue
                 dest = Path(td) / name
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(text, encoding="utf-8", newline="\n")

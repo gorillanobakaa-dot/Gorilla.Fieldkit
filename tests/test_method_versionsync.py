@@ -1,8 +1,10 @@
 """fieldkit version-sync: every place a project states its version agrees; a template is not a version; the built
 program is held to the same answer (2026-10-19: TPFanControl's installer said gorilla.3, its program gorilla.4)."""
 import sys
+from types import SimpleNamespace
 
 from fieldkit import cli
+from fieldkit.method import tagguard
 from fieldkit.method import versionsync as vs
 
 
@@ -31,6 +33,16 @@ def test_fieldkit_runtime_version_agrees_with_package_metadata(tmp_path):
     init.write_text('__version__ = "1.2.3"\n', encoding="utf-8")
     result = vs.check(tmp_path, expect="1.2.3")
     assert result["ok"] and len(result["places"]) == 2
+
+
+def test_tagguard_passes_fieldkits_runtime_version_to_versionsync(tmp_path, monkeypatch):
+    files = {"pyproject.toml": '[project]\nname = "fieldkit"\nversion = "1.2.3"\n',
+             "fieldkit/__init__.py": '__version__ = "1.2.3"\n'}
+    monkeypatch.setattr(tagguard, "_git", lambda *_: SimpleNamespace(stdout="\n".join(files)))
+    monkeypatch.setattr(tagguard, "_show", lambda _repo, _commit, name: files[name])
+    assert not tagguard.version_rows(tmp_path, "commit", "v1.2.3")
+    files["fieldkit/__init__.py"] = '__version__ = "1.2.2"\n'
+    assert any("fieldkit/__init__.py" in problem for problem in tagguard.version_rows(tmp_path, "commit", "v1.2.3"))
 
 
 def test_a_template_is_not_a_version_and_only_templates_is_not_a_pass(tmp_path):
