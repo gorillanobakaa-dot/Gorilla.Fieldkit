@@ -275,8 +275,13 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
         return 0
     if release:                                                   # one release per batch (owner order 2026-11-15)
         from ..core import sync
-        from ..method import releasegate
-        g = releasegate.guard(sync._slug(repo), release)
+        from ..method import releasecandidate, releasegate
+        slug = sync._slug(repo)
+        blocker = releasecandidate.legacy_blocker(repo, slug, release)
+        if blocker:
+            say(f"REFUSED: {blocker}")
+            return 3
+        g = releasegate.guard(slug, release)
         if not g["ok"]:
             say(f"REFUSED: {g['error']}: {g['next']}")
             return 3

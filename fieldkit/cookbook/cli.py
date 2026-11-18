@@ -53,6 +53,8 @@ def build(proj, with_state=True):
          "recipes": proj.get("recipes"),
          "entry": [f"{e['cmd']} - {e.get('what', '')}" for e in proj.get("entry") or []],
          "tests": [f"{t['cmd']}  [{', '.join(t['paths'])}]" for t in proj.get("tests") or []]}
+    if proj.get("release"):
+        p["release"] = proj["release"]
     dec = proj.get("decisions")
     if dec:
         base = registry.repo_path(proj, dec["repo"])
@@ -68,6 +70,9 @@ def render(p, budget):
          "Platforms: " + ", ".join(p["platforms"] or []),
          "Cookbook (read these, search nothing):"] + [f"  {x}" for x in p["cookbook"]]
     L += ["Recipes: " + ", ".join(p["recipes"] or []), "Entry commands:"] + [f"  {x}" for x in p["entry"]]
+    if release := p.get("release"):
+        L.append("Release targets: " + ", ".join(release.get("targets", {})))
+        L.append("Publish: fieldkit ship gh-release TAG -- --candidate FILE")
     if p.get("decisions"):
         L.append("Owner decisions (settled, do not re-argue): " + p["decisions"])
     L += ["Tests: " + "; ".join(p["tests"])]

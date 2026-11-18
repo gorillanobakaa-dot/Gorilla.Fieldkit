@@ -16,6 +16,19 @@ from fieldkit.core import concepts
 TAG = "FIREFOX_1_0_RELEASE"
 
 
+@pytest.mark.parametrize("version", ["160.0", "161.0.2", "162.1esr"])
+def test_release_prints_a_valid_batch_name(version, capsys):
+    from fieldkit.firefox import cli
+
+    assert cli.main(["release", version, "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    release = next(row for row in rows if row["id"] == "REL")
+    from shlex import split
+
+    assert cli.main(split(release["run"])[2:]) == 0
+    assert f"--tag v{version} " in release["run"]
+
+
 def git(repo, *a):
     r = subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=master",
                         "-c", "commit.gpgsign=false", *a], capture_output=True, text=True)

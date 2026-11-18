@@ -51,9 +51,12 @@ commands filled in. `TASK` is `firefox-MAJOR-linux`.
 | H-win | Windows | handover package to the L15 | `fieldkit firefox handover VERSION --to windows --send` | package checks |
 | B-win | Windows | build from the published set; the source base is the upstream release tag of the version (`base: upstream`) | `fieldkit emerge run firefox-windows` | emerge |
 | H-mac | Mac | handover package to the Mac side (scp over SSH) | `fieldkit firefox handover VERSION --to mac --send` | package checks |
-| B-mac | Mac | Mac decisions preflight, recreate, app-check, install, verify on the Air | `fieldkit macair preflight` | macair |
+| P-mac | Mac | Check the patched Mac source against product decisions | `fieldkit macair preflight` | macair preflight |
+| B-mac | Mac | Cross-build the macOS application | `fieldkit macair recreate` | macair recreate |
+| C-mac | Mac | Check the staged ZIP against the Mac product decisions | `fieldkit macair app-check ZIP` | macair app-check |
+| I-mac | Mac | Install the checked ZIP over SSH | `fieldkit macair install ZIP` | `fieldkit macair verify` |
 | S9 | Linux | publish: export-hand, replay equals the built tree, every lesson ruled, privacy, the owner's yes | `fieldkit build-harness export-hand TASK` | S9 (S9.lessons) |
-| REL | all | one release for the batch, with the plain-language page first | `fieldkit release-page compose` | release |
+| REL | all | one release for the batch, with the plain-language page first | `fieldkit ship gh-release TAG -- --candidate FILE` | complete installer matrix and verified draft |
 
 ## The handover
 

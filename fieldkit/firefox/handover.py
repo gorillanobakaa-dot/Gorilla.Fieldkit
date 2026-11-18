@@ -46,6 +46,11 @@ def task_id(version):
     return f"firefox-{str(version).split('.')[0]}-linux"
 
 
+def step_values(version, task):
+    return {"v": version, "task": task, "batch_tag": concepts.batch_tag(version),
+            "batch_title": concepts.batch_title(version)}
+
+
 def platform_patches(patchset, platform):
     """-> [(group, Path)] in policy order: the groups that apply on `platform`, minus their excluded patches."""
     pol = json.loads((Path(patchset) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
@@ -137,10 +142,12 @@ def build(version, to, patchset=None, tid=None, upstream=None, out=None, replay_
         names.append(n)
     cb = cookbook()
     steps = [s for s in cb["steps"] if s["system"] in (to, "all")]
+    values = step_values(version, tid)
     man = {"product": concepts.product_name(version), "version": version, "to": to, "system": cb["systems"][to],
            "patchset": {"repo": str(ps), "commit": commit, "on_remote": (remote or "").split(), "base_branch": base},
            "upstream": {"tag": tag, "commit": up_sha, "how": up_how}, "replay_proof": rp, "lessons": ls,
-           "patches": names, "steps": [dict(s, run=s["run"].format(v=version, task=tid)) for s in steps],
+           "patches": names, "steps": [dict(s, run=s["run"].format_map(values), does=s["does"].format_map(values))
+                                       for s in steps],
            "problems": problems}
     (pkg / "manifest.json").write_text(json.dumps(man, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
     (pkg / "APPLY.txt").write_text(

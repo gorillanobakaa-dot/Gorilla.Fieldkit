@@ -298,9 +298,15 @@ def _mandate_log(r, what, detail):
 
 
 def publish(ctx, gh=None):
+    from . import releasecandidate
+
     gh = gh or _gh
     r = _r(ctx)
-    slug, have = _slug(r["repo"]), _published(r, gh)
+    slug = _slug(r["repo"])
+    blocker = releasecandidate.legacy_blocker(r["repo"], slug, r["version"], r["base"])
+    if blocker:
+        return {"ok": False, "detail": blocker}
+    have = _published(r, gh)
     if have is None:
         from . import releasegate                                  # one release per batch (owner order 2026-11-15)
         g = releasegate.guard(slug, r["version"])
