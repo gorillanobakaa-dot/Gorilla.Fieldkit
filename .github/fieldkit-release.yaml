@@ -1,3 +1,4 @@
 schema: 1
 distribution: source
+publication: single-publisher
 source_workflow: .github/workflows/release.yml
