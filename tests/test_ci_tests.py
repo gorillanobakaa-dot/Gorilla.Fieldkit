@@ -11,6 +11,29 @@ ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
 
 
+def test_source_release_reuses_only_full_ci_at_its_commit():
+    path = Path(__file__).resolve().parents[1] / ".github" / "release_test_proof.py"
+    loader = importlib.util.spec_from_file_location("release_test_proof", path)
+    proof = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(proof)
+
+    full = {"head_sha": "candidate", "event": "workflow_dispatch", "status": "completed",
+            "conclusion": "success", "path": ".github/workflows/tests.yml",
+            "head_repository": {"full_name": "owner/fieldkit"}}
+    candidates = [dict(full, head_sha="different"), dict(full, event="push"),
+                  dict(full, conclusion="cancelled"), dict(full, head_repository={"full_name": "fork/fieldkit"}),
+                  dict(full, path=".github/workflows/release.yml"), full]
+    assert list(proof.full_suite_runs(candidates, "owner/fieldkit", "candidate")) == [full]
+
+    jobs = [{"name": name, "status": "completed", "conclusion": "success"}
+            for name in ["test (windows-latest)", "test (ubuntu-latest)",
+                         *(f"shard (windows-latest, {index})" for index in range(1, 5)),
+                         *(f"shard (ubuntu-latest, {index})" for index in range(1, 5))]]
+    assert proof.tested_systems(jobs) == {"windows", "linux"}
+    jobs[-1]["conclusion"] = "skipped"
+    assert proof.tested_systems(jobs) == {"windows"}
+
+
 def fake(monkeypatch, plan=None, out=None):
     def run(cmd, **kw):
         return types.SimpleNamespace(returncode=0, stdout=out if out is not None else json.dumps(plan))
