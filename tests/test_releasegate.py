@@ -57,6 +57,27 @@ def test_hotfix_fails_closed_when_the_ledger_is_unreadable(monkeypatch, tmp_path
     assert log.read_text(encoding="utf-8") == "partial record\n"
 
 
+def test_candidate_reserves_only_blocked_platforms_and_only_when_all_have_room(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg, "hotfix_limit", lambda: 1)
+    windows = ("v1-win64", NOW - H)
+    mac = ("v1-macos", NOW - H)
+    platforms = ["debian", "windows", "darwin"]
+    refused = rg.guard("o/r", "v2", last=[windows, mac], now=NOW, platforms=platforms)
+    assert "mac, windows" in refused["error"]
+    assert rg.guard("o/r", "v2-windows", "broken", last=[windows], now=NOW)["ok"]
+    assert rg.guard("O/R", "v3", "broken", last=[windows, mac], now=NOW, platforms=platforms)["state"] == "hotfix-used"
+    assert rg.guard("o/r", "v3", "broken", last=[mac], now=NOW, platforms=platforms)["ok"]
+    assert rg.guard("o/r", "v3", "retry", last=[mac], now=NOW, platforms=platforms)["ok"]
+    log = tmp_path / "releasegate" / "hotfixes.jsonl"
+    assert [json.loads(line).get("systems") for line in log.read_text().splitlines()] == [None, ["mac"]]
+
+
+def test_platform_candidates_treat_older_unscoped_releases_as_covering_the_matrix():
+    assert not rg.guard("o/r", "v2", last=[("v1-rc1", NOW - H)], now=NOW, platforms=["debian"])["ok"]
+    assert rg.guard("o/r", "v2", last=[("v1-windows", NOW - H)], now=NOW, platforms=["debian"])["ok"]
+
+
 def test_gh_failure_fails_closed(monkeypatch, tmp_path):
     _state(monkeypatch, tmp_path)
 

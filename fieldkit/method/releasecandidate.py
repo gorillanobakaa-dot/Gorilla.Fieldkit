@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import tempfile
+from functools import partial
 from pathlib import Path
 from urllib.parse import quote
 
@@ -310,10 +311,15 @@ def verify(repo, gh, tag, path):
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)
     check_page(candidate, path.parent, assets)
-    return candidate, path.parent, assets
+    platforms = {policy["targets"][target]["platform"] for target in installers}
+    return candidate, path.parent, assets, platforms
 
 
 def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
+    from . import releasegate
+
     gh = GitHub(slug)
-    candidate, directory, assets = verify(repo, gh, tag, path)
+    candidate, directory, assets, platforms = verify(repo, gh, tag, path)
+    if gate is None:
+        gate = partial(releasegate.guard, platforms=platforms)
     return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate)
