@@ -78,6 +78,27 @@ def test_platform_candidates_treat_older_unscoped_releases_as_covering_the_matri
     assert rg.guard("o/r", "v2", last=[("v1-windows", NOW - H)], now=NOW, platforms=["debian"])["ok"]
 
 
+def test_public_quota_ignores_attempts_and_uses_shared_history(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path / "publisher-a")
+    published = [("v1-windows", NOW - 25 * H), ("v2-windows", NOW - 3 * H)]
+    monkeypatch.setattr(rg, "_gh_published", lambda slug: list(published))
+    for version in range(3, 15):
+        tag = f"v{version}"
+        verdict = rg.guard("o/r", tag, "broken", now=NOW, platforms=["windows"], published_only=True)
+        assert verdict["ok"]
+        rg.record_hotfix_attempt("o/r", tag, "broken", verdict["systems"])
+    assert len(rg._hotfixes()) == 12
+
+    published.extend((f"v{version}-windows", NOW - H + version) for version in range(3, 11))
+    _state(monkeypatch, tmp_path / "publisher-b")
+    assert rg.guard("o/r", "v15", "last slot", now=NOW, platforms=["windows"], published_only=True)["ok"]
+    published.append(("v15-windows", NOW - 15))
+    denied = rg.guard("o/r", "v16", "broken", now=NOW, platforms=["windows"], published_only=True)
+    assert denied["state"] == "hotfix-used" and "10 of 10" in denied["error"]
+    assert rg.guard("o/r", "v15-windows", "retry", now=NOW, platforms=["windows"], published_only=True)["ok"]
+    assert rg.guard("o/r", "v16", "broken", now=NOW, platforms=["debian"], published_only=True)["ok"]
+
+
 def test_gh_failure_fails_closed(monkeypatch, tmp_path):
     _state(monkeypatch, tmp_path)
 

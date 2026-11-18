@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import tempfile
+from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
 from urllib.parse import quote
@@ -280,7 +281,7 @@ def check_page(candidate, directory, assets):
     return title, notes_path, notes
 
 
-def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None):
+def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None, platforms=()):
     from . import releasegate
 
     title, notes_path, notes = check_page(candidate, directory, assets)
@@ -306,11 +307,15 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
         if (online_assets(row, assets) != assets or not row["draft"] or row["name"] != title
                 or (row.get("body") or "").strip() != notes or row["tag_name"] != tag or row["prerelease"]):
             raise Refused("the draft is incomplete or changed during upload")
-        authorize()
-        verdict = (gate or releasegate.guard)(gh.slug, tag, hotfix)
-        if not verdict["ok"]:
-            raise Refused(verdict["error"])
-        gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
+        with releasegate.publication_slot() if gate is None else nullcontext():
+            authorize()
+            check = gate or partial(releasegate.guard, platforms=platforms, published_only=True)
+            verdict = check(gh.slug, tag, hotfix)
+            if not verdict["ok"]:
+                raise Refused(verdict["error"])
+            if verdict.get("systems"):
+                releasegate.record_hotfix_attempt(gh.slug, tag, verdict["hotfix"], verdict["systems"])
+            gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
     elif present != assets:
         raise Refused(f"published release {tag} is incomplete")
     latest = gh.api("releases/latest")
@@ -356,10 +361,6 @@ def verify(repo, gh, tag, path):
 
 
 def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
-    from . import releasegate
-
     gh = GitHub(slug)
     candidate, directory, assets, platforms = verify(repo, gh, tag, path)
-    if gate is None:
-        gate = partial(releasegate.guard, platforms=platforms)
-    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate)
+    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate, platforms=platforms)
