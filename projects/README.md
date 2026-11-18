@@ -28,8 +28,9 @@ targets:
 
 List every supported installer target. Each installer pattern matches the full filename and includes `{version}`.
 `minimum_os` is a quoted OS series that the install run must cover. For an archive containing an installer,
-`installer_member` names the expected member. Use `distribution: source` and omit targets for a source-only
-release. The repository policy is read from the commit named by the tag. The Firefox and Gorilla OpenCode
+`installer_member` names the exact relative path of the installer in a ZIP. The install command receives only
+that extracted file, and the proof binds the published ZIP's hash and the member path. Use `distribution: source`
+and omit targets for a source-only release. The repository policy is read from the commit named by the tag. The Firefox and Gorilla OpenCode
 registry policies remain available as a migration fallback for tags without a repository policy.
 
 Use `fieldkit ship gh-release TAG -- --candidate FILE`. Keep the YAML candidate next to the release page and
@@ -72,6 +73,8 @@ administrators control which other workflows and credentials have GitHub release
 
 On interrupted upload, rerun with the same candidate. The engine reuses matching draft assets, refuses
 unexpected or incompatible assets, and promotes only a complete verified draft. It then checks GitHub Latest.
+For a rate-limited GitHub API call, Fieldkit honors the reported retry delay or reset time. Longer waits or
+exhausted retries return a resume time and leave the candidate available for the same retry.
 The candidate publisher counts hotfixes using GitHub publication history. Tag pushes, drafts and failed
 publication attempts leave the quota unchanged. Fieldkit's source policy uses `publication: single-publisher`.
 That mode takes the publisher from the signed mandate's repository `publisher` field or its existing

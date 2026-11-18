@@ -1,9 +1,30 @@
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from fieldkit.method import releasecandidate as rc, ship
+
+
+def test_github_retries_explicit_short_cooldown_and_keeps_long_cooldown_for_resume():
+    waits = []
+    responses = iter([
+        SimpleNamespace(returncode=1, stderr="rate limited", stdout="HTTP/2 429\r\nRetry-After: 3\r\n\r\n{}"),
+        SimpleNamespace(returncode=0, stderr="", stdout='HTTP/2 200\n\n{"id": 42}'),
+        SimpleNamespace(returncode=1, stderr="rate limited", stdout=("HTTP/2 403\nX-RateLimit-Remaining: 0\n"
+                                                                    "X-RateLimit-Reset: 1199\n\n{}")),
+    ])
+
+    def run(args, **kwargs):
+        assert args[:3] == ["gh", "api", "--include"]
+        return next(responses)
+
+    gh = rc.GitHub("owner/repo", run=run, now=lambda: 1000, pause=waits.append)
+    assert gh.api("releases/42") == {"id": 42}
+    with pytest.raises(rc.Refused, match="resume the same candidate after 200 seconds"):
+        gh.api("releases/42")
+    assert waits == [3]
 
 
 @pytest.mark.parametrize("missing, substitute", [
