@@ -111,8 +111,7 @@ def scan(store=None, home=None, limit=None, say=None, scope=None):
     """-> counts. Journals every not yet captured work call of every Claude Code transcript under home."""
     store = store or st.Store()
     codex_home = Path(home) if home is not None else None
-    home = Path(home or os.path.expanduser("~"))
-    root = home / ".claude" / "projects"
+    root = claude_root(home)
     if scope:
         return _scoped_scan(store, root, scope, limit, codex_home)
     state = store.state()
@@ -187,13 +186,18 @@ def scan(store=None, home=None, limit=None, say=None, scope=None):
     return out
 
 
-def _claude_paths(root, sid=None):
+def claude_root(home=None):
+    if home is not None:
+        return Path(home) / ".claude" / "projects"
+    return Path(os.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+
+
+def _claude_paths(root, sid):
     try:
         lesson.retention.check_root(root.absolute())
     except OSError:
         return
-    glob = f"*/{sid}.jsonl" if sid else "*/**/*.jsonl"
-    for path in sorted(root.glob(glob)):
+    for path in sorted(root.glob(f"*/{sid}.jsonl")):
         try:
             if lesson.transcript_file(path):
                 yield path
@@ -207,44 +211,55 @@ def verify_sessions(scope):
         if agent == "codex":
             try:
                 path = codex_scan.session_path(sid)
+                if path and not scope.get("retrospective_since"):
+                    scope["codex_cursor"] = codex_scan.cursor(path)
                 cwd = codex_scan.metadata(path, sid).get("cwd") if path else None
                 matches = isinstance(cwd, str) and Path(cwd).is_absolute() and lesson.retention.within(
                     Path(cwd).resolve(), scope["workspace"])
+                if matches and "codex_cursor" in scope:
+                    scope["codex_cursor"]["cwd"] = cwd
             except (OSError, ValueError, RuntimeError):
                 matches = False
             if not matches:
                 errors[agent] = "selected Codex rollout is missing, ambiguous, or outside the lesson workspace"
         elif agent == "claude" and scope.get("retrospective_since"):
-            if len(list(_claude_paths(Path.home() / ".claude" / "projects", sid))) != 1:
+            if len(list(_claude_paths(claude_root(), sid))) != 1:
                 errors[agent] = "selected Claude Code transcript was not found or is ambiguous"
     return errors
 
 
 def _sources(root, home, scope, observed):
     selected = scope.get("sessions", {})
-    if "claude" in scope["agents"]:
-        sid = selected.get("claude")
+    if scope.get("retrospective_since") and "claude" in scope["agents"] and (sid := selected.get("claude")):
         paths = list(_claude_paths(root, sid))
-        if sid and (len(paths) > 1 or (not paths and scope.get("retrospective_since"))):
+        if len(paths) != 1:
             raise ValueError("selected Claude Code transcript was not found or is ambiguous")
         for path in paths:
             yield "claude", calls(path, scope, observed)
     if "codex" in scope["agents"] and (sid := selected.get("codex")):
-        path = codex_scan.session_path(sid, home)
+        cursor = scope.get("codex_cursor")
+        path = Path(cursor["path"]) if cursor else codex_scan.session_path(sid, home)
         if not path:
             raise ValueError("selected Codex rollout is missing or ambiguous")
-        yield "codex", codex_scan.calls(path, sid, scope, observed)
+        if cursor or scope.get("retrospective_since"):
+            yield "codex", codex_scan.calls(path, sid, scope, observed, cursor)
 
 
 def _scoped_scan(store, root, scope, limit, home=None):
     out = {"files": 0, "sessions": 0, "skipped_hooked": 0, "calls": 0, "new_items": 0,
            "repeats": 0, "already": 0, "out_of_scope": 0}
+    if not scope.get("retrospective_since") and not scope.get("codex_cursor"):
+        return out
     sessions = set()
     observed = datetime.now(timezone.utc)
     seen = {eid for history in lesson.archived_history(store.root) for eid in history.get("events", ())}
     with store.batch() as state:
         for agent, payloads in _sources(root, home, scope, observed):
             out["files"] += 1
+            if agent == "codex":
+                from . import session_history
+
+                seen.update(session_history.events_for(store.root, agent, scope["sessions"][agent]))
             for payload in payloads:
                 timestamp = lesson.admit(scope, agent, payload, observed, scanned=True)
                 if not timestamp:

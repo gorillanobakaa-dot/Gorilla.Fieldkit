@@ -129,13 +129,19 @@ def archived_history(root=None):
 
 def claude_call_time(payload):
     """Find the tool-use time for a Claude hook whose payload has no timestamp."""
+    from .scan import claude_root
+
     transcript = payload.get("transcript_path") or payload.get("transcriptPath")
     if not transcript or not payload.get("tool_use_id"):
         return None
     try:
         path = Path(transcript)
-        if (path.suffix != ".jsonl" or not retention.within(path.absolute(), Path.home() / ".claude" / "projects")
-                or not transcript_file(path)):
+        if (not path.is_absolute() or ".." in path.parts or path.suffix != ".jsonl"
+                or not retention.within(path, claude_root()) or not transcript_file(path)):
+            return None
+        relative = path.relative_to(claude_root())
+        if not ((len(relative.parts) == 2 and path.stem == session(payload))
+                or (len(relative.parts) == 4 and relative.parts[1:3] == (session(payload), "subagents"))):
             return None
         with path.open("rb") as f:
             f.seek(0, 2)
@@ -184,7 +190,10 @@ def record(s, scope, agent, payload, observed=None, scanned=False):
                "fk_prompt": scope.get("lesson", "")}
     with s.batch() as state:
         ids = prior_identities(payload, agent)
+        from . import session_history
+
         if ids and (any(prior in state["events"] for prior in ids)
+                    or session_history.events_for(s.root, agent, session(payload)).intersection(ids)
                     or any(prior in history.get("events", ()) for history in archived_history(s.root) for prior in ids)):
             return None, False
         return record_admitted(s, state, agent, payload, eid, scanned)

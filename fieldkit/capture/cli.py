@@ -8,7 +8,8 @@
     fieldkit capture start --project NAME --lesson WHY      scoped lessons accept --workspace DIR --agents LIST
                                                             and --session AGENT=ID --lookback AGE for transcript catch-up
     fieldkit capture hook --agent claude|gemini|opencode|agy one hook event on stdin -> the journal (only while on); exit 0
-    fieldkit capture scan [--json] [--limit N]               journal the work calls the transcripts hold that no hook captured (idempotent)
+    fieldkit capture scan [--json] [--limit N]               catch up only from the active lesson's selected sources
+    fieldkit capture scan --legacy                          explicitly backfill Claude Code projects while capture is off
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
@@ -87,10 +88,18 @@ def cmd_scan(a):
     from . import scan, switch
     with lesson.lock():
         state = switch.read()
-        if a.scheduled and not switch.is_on(state):
+        active = switch.is_on(state)
+        scope = state.get("scope") if active else None
+        if a.scheduled and (not scope or a.legacy):
             return 0
+        if a.legacy and active:
+            print("capture scan: stop the lesson before explicitly backfilling Claude history", file=sys.stderr)
+            return 3
+        if not scope and not a.legacy:
+            print("capture scan: no active scoped lesson; use --legacy for explicit Claude history backfill", file=sys.stderr)
+            return 3
         try:
-            r = scan.scan(st.Store(), limit=a.limit, scope=state.get("scope"))
+            r = scan.scan(st.Store(), limit=a.limit, scope=scope)
         except (OSError, ValueError) as exc:
             print(f"capture scan: {exc}", file=sys.stderr)
             return 3
@@ -201,7 +210,7 @@ def cmd_coverage(a):
     from . import episodes
     cov = episodes.coverage(st.Store().state())
     gaps = sum(1 for g in cov["agents"].values() for u in g["uncaptured"] if u["reason"].startswith("GAP"))
-    cov["next"] = "run the capture scan for the GAP sessions" if gaps else "every transcript is read or listed with a reason"
+    cov["next"] = "run capture scan --legacy to backfill GAP sessions while capture is off" if gaps else "every transcript is read or listed with a reason"
     lines = [f"machine {cov['machine']} ({cov['platform']})"]
     for name, g in cov["agents"].items():
         why = collections.Counter(u["reason"] for u in g["uncaptured"])
@@ -392,23 +401,26 @@ def main(argv=None):
     stt.add_argument("--lookback", metavar="AGE", help="read recent calls (for example 30m) from selected Claude or Codex transcripts")
     stt.add_argument("--session", metavar="AGENT=ID", action="append", default=[],
                      help="restrict capture to this session for the selected agent; repeat for other agents")
-    clean = sub.add_parser("clean", help="preview scratch retention, or recycle eligible items with --apply")
+    clean = sub.add_parser("clean", help="inventory temp and session stores and preview scratch retention")
     clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
+    clean.add_argument("--retire-sessions", action="store_true",
+                       help="with --apply, also archive and recycle eligible closed native transcripts")
     clean.add_argument("--json", action="store_true")
     for parser in (stt, clean):
         selection = parser.add_mutually_exclusive_group(required=parser is clean)
-        selection.add_argument("--all", action="store_true", help="select scratch of any age")
+        selection.add_argument("--all", action="store_true", help="select scratch and eligible session history of any age")
         selection.add_argument("--keep-last", "--older-than", metavar="AGE",
-                               help="recycle older scratch, for example 30m, 2w, or '1 month'")
+                               help="retain newer scratch and eligible session history, for example 30m, 2w, or '1 month'")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
     off.add_argument("--json", action="store_true")
     off.add_argument("--distill", action="store_true", help="then turn what was captured into candidate tools or ledger lines")
     sw = sub.add_parser("state", help="is capture on, for which lesson, until when")
     sw.add_argument("--json", action="store_true")
     sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
-    sc = sub.add_parser("scan", help="journal what the transcripts hold that no hook captured")
+    sc = sub.add_parser("scan", help="catch up from the active lesson's selected sources")
     sc.add_argument("--json", action="store_true")
     sc.add_argument("--limit", type=int, default=None, help="stop after N calls (a trial)")
+    sc.add_argument("--legacy", action="store_true", help="explicitly backfill all Claude Code projects while capture is off")
     sc.add_argument("--scheduled", action="store_true", help="the timer's run: does nothing while capture is off, prints nothing")
     ab = sub.add_parser("absorb", help="bring a stray store (a worktree's state/capture) into the shared one")
     ab.add_argument("dirs", nargs="+")
