@@ -12,10 +12,10 @@ SID = "01234567-89ab-cdef-0123-456789abcdef"
 
 
 def rollout(old, recent=None, *, closed=True):
-    def row(kind, timestamp=old, **payload):
-        return {"timestamp": timestamp.isoformat(), "type": kind, "payload": payload}
+    def row(kind, when=old, **payload):
+        return {"timestamp": when.isoformat(), "type": kind, "payload": payload}
 
-    rows = [row("session_meta", id=SID, **{"timestamp": old.isoformat()}),
+    rows = [row("session_meta", id=SID, timestamp=old.isoformat()),
             row("event_msg", type="task_started", turn_id="turn"),
             row("response_item", type="function_call", call_id="work"),
             row("response_item", recent or old, type="function_call_output", call_id="work")]
@@ -156,6 +156,10 @@ def test_age_cleanup_retires_only_closed_old_transcripts_before_switch(agent, tm
     if agent == "kiro-cli":
         locked, _ = fixture(4, complete=True, final=old)
         locked.with_suffix(".lock").touch()
+    if agent == "gemini":
+        revised, _ = fixture(4, complete=True, final=old)
+        revision = revised.with_suffix(".jsonl")
+        revision.write_bytes(b"retained revision fixture")
     moved = []
 
     def recycle(path):
@@ -180,3 +184,5 @@ def test_age_cleanup_retires_only_closed_old_transcripts_before_switch(agent, tm
     assert unfinished in retained and "cutoff" in retained[mixed]
     if agent == "kiro-cli":
         assert "lock" in retained[locked] and locked.exists()
+    if agent == "gemini":
+        assert "companion JSONL" in retained[revised] and revised.exists() and revision.exists()

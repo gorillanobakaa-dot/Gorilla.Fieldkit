@@ -87,6 +87,7 @@ session_sources:
   - {agent: codex, home: ~/.codex, env: CODEX_HOME, sub: '', match: 'state_*.sqlite*', policy: 'shared live database and sidecars'}
   - {agent: gemini, home: ~/.gemini, home_parent_env: GEMINI_CLI_HOME, sub: tmp, match: '*/chats/session-*.json', policy: 'standalone JSON sessions; require a completed final response and quiescence', adapter: gemini}
   - {agent: gemini, home: ~/.gemini, home_parent_env: GEMINI_CLI_HOME, sub: tmp, match: '*/chats/session-*.jsonl', policy: 'append-only revisions require a separate closure adapter'}
+  - {agent: gemini, home: ~/.gemini, home_parent_env: GEMINI_CLI_HOME, sub: tmp, match: '*/chats/*/*.jsonl', policy: 'linked subagent history; group closure unverified'}
   - {agent: gemini, home: ~/.gemini, home_parent_env: GEMINI_CLI_HOME, sub: tmp, match: '*/checkpoints/*.json', policy: 'workspace checkpoints, closure unverified'}
   - {agent: antigravity, home: ~/.gemini/antigravity, sub: conversations, match: '*', policy: 'opaque conversation store'}
   - {agent: antigravity, home: ~/.gemini/antigravity, sub: brain, match: '*/.system_generated/logs/transcript.jsonl', policy: 'native transcript, closure unverified'}
@@ -97,6 +98,8 @@ session_sources:
   - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: sessions, match: '*/sess_*/messages.jsonl', policy: 'V3 original messages; require completed turns, quiescence and no session lock', adapter: kiro-cli}
   - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: sessions, match: 'cli/*', policy: 'legacy session store, closure unverified'}
   - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: sessions, match: '*/sess_*/session.json', policy: 'V3 session descriptors stay with the native store'}
+  - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: sessions, match: '*/sess_*/*.lock', policy: 'V3 session lock marker'}
+  - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: sessions, match: '*/sess_*/lock', policy: 'V3 session lock marker'}
   - {agent: kiro-cli, home: ~/.kiro, env: KIRO_HOME, sub: session-index, match: '**/*', policy: 'native session index, closure unverified'}
   - {agent: kiro-crew, home: ~/.kiro, env: KIRO_HOME, sub: crew/sessions, match: '**/*', policy: 'native session store, closure unverified'}
   - {agent: gorilla-opencode, home: ~/.local/share/gorilla-opencode, env: FIELDKIT_OPENCODE_DATA_DIR, xdg: gorilla-opencode, sub: '', match: 'gorilla-opencode.db*', policy: 'shared live database; set FIELDKIT_OPENCODE_DATA_DIR if data.directory overrides the default'}

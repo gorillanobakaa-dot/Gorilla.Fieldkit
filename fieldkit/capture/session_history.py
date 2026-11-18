@@ -81,6 +81,8 @@ def source_info(path, root, expected, agent="codex"):
         raise ValueError("native source is unsafe or changed since inventory")
     if agent == "claude" and os.path.lexists(path.with_suffix("")):
         raise ValueError("Claude has a companion session directory; group closure is unverified")
+    if agent == "gemini" and os.path.lexists(path.with_suffix(".jsonl")):
+        raise ValueError("Gemini has a companion JSONL revision; closure is unverified")
     return info
 
 
@@ -358,6 +360,8 @@ def archive(candidate, before, capture):
         window = claude_window(raw, sid, threshold)
     elif agent == "gemini":
         sid, window = gemini_window(raw, sid, threshold)
+        if os.path.lexists(path.parent / sid):
+            raise ValueError("Gemini has a companion session directory; group closure is unverified")
     else:
         window = kiro_window(raw, sid, threshold)
     target = archive_dir(capture)

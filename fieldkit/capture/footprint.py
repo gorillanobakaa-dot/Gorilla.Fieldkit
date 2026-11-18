@@ -86,7 +86,8 @@ def _walk(root, device, mounts, pattern, row):
                         continue
                     path = Path(entry.path)
                     try:
-                        info = entry.stat(follow_symlinks=False)
+                        # Windows DirEntry.stat reports zero for the device, inode and link count.
+                        info = path.lstat()
                     except OSError:
                         row["unreadable"] += 1
                         continue

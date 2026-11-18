@@ -92,11 +92,11 @@ sys.addaudithook(audit)
     preview = capture("clean", "--keep-last", "3d", "--json")
     assert preview["recycled"] == [] and not (root / "capture").exists()
     temp_rows = {Path(row["root"]): row for row in preview["footprint"]["temp"]}
-    assert temp_rows[alternate]["older"] == 1 and temp_rows[alternate]["recent"] == 1
-    assert temp_rows[system_temp]["older"] == 1
+    assert temp_rows[alternate]["older"] == 1 and temp_rows[alternate]["recent"] == 1, temp_rows[alternate]
+    assert temp_rows[system_temp]["older"] == 1, temp_rows[system_temp]
     assert any("system temp" in row["sources"] for row in temp_rows.values())
     if os.name == "nt":
-        assert temp_rows[user_temp]["older"] == 1
+        assert temp_rows[user_temp]["older"] == 1, temp_rows[user_temp]
     found = {row["agent"] for row in preview["footprint"]["sessions"] if row["older"] and row["status"] == "found"}
     assert found == set(sources), (found, preview["footprint"]["sessions"])
     assert next(row for row in preview["footprint"]["sessions"] if row["agent"] == "gorilla-opencode")["retained"] == 1
