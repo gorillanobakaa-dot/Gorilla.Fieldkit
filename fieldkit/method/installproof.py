@@ -86,8 +86,11 @@ def main():
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--target", required=True)
     parser.add_argument("--version", required=True)
-    parser.add_argument("--installer", required=True, type=Path)
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--installer", type=Path)
+    inputs.add_argument("--directory", type=Path, help="choose the installer by its policy filename in this directory")
     parser.add_argument("--asset", action="append", default=[], type=Path)
+    parser.add_argument("--cover-directory", action="store_true", help="also record other files in --directory")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -95,6 +98,19 @@ def main():
     if not command:
         parser.error("provide the install and verification command after --")
     try:
+        if args.directory:
+            tagged = candidate.policy_at(args.repo, "HEAD") or {}
+            spec = tagged.get("targets", {}).get(args.target)
+            if spec is None:
+                raise candidate.Refused(f"no installer policy for {args.target}")
+            pattern = spec["installer"].replace("{version}", re.escape(args.version))
+            files = list(args.directory.iterdir())
+            matches = [path for path in files if re.fullmatch(pattern, path.name)]
+            if len(matches) != 1:
+                raise candidate.Refused(f"{args.target}: expected one matching installer, found {len(matches)}")
+            args.installer = matches[0]
+            if args.cover_directory:
+                args.asset.extend(path for path in files if path != args.installer)
         record(args.repo, args.target, args.version, args.installer, args.asset, args.output, command)
     except (ValueError, OSError, subprocess.SubprocessError, yaml.YAMLError) as exc:
         parser.exit(3, f"Install proof refused: {exc}\n")
