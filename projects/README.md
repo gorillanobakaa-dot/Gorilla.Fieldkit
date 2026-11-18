@@ -72,3 +72,7 @@ administrators control which other workflows and credentials have GitHub release
 
 On interrupted upload, rerun with the same candidate. The engine reuses matching draft assets, refuses
 unexpected or incompatible assets, and promotes only a complete verified draft. It then checks GitHub Latest.
+The candidate publisher counts hotfixes using GitHub publication history. Tag pushes, drafts and failed
+publication attempts leave the quota unchanged. Publishers sharing one Fieldkit state directory serialize the
+final check and promotion locally. Separate machines can read the same history, and a concurrent promotion
+on separate machines has no shared lock.
