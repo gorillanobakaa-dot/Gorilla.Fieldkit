@@ -13,6 +13,7 @@ import yaml
 
 POLICY_PATH = ".github/fieldkit-release.yaml"
 SLUG = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+")
+WORKFLOW = re.compile(r"\.github/workflows/[a-zA-Z0-9_.-]+\.ya?ml")
 
 
 class Refused(ValueError):
@@ -57,6 +58,9 @@ def validate_policy(data):
         raise Refused("release policy requires schema: 1")
     targets = mapping(policy.get("targets", {}))
     if policy.get("distribution") == "source" and not targets:
+        workflow = policy.get("source_workflow")
+        if workflow is not None and (not isinstance(workflow, str) or not WORKFLOW.fullmatch(workflow)):
+            raise Refused("source_workflow must name a GitHub Actions workflow")
         return policy
     if policy.get("distribution") != "installers" or not targets:
         raise Refused("declare installer targets or explicit source distribution")
@@ -67,7 +71,7 @@ def validate_policy(data):
         for field in ("platform", "arch", "installer", "workflow"):
             if not isinstance(spec.get(field), str) or not spec[field].strip():
                 raise Refused(f"{target}: expected {field}")
-        if not re.fullmatch(r"\.github/workflows/[a-zA-Z0-9_.-]+\.ya?ml", spec["workflow"]):
+        if not WORKFLOW.fullmatch(spec["workflow"]):
             raise Refused(f"{target}: workflow must name a GitHub Actions workflow")
         if "{version}" not in spec["installer"]:
             raise Refused(f"{target}: installer pattern must include {{version}}")
@@ -177,7 +181,7 @@ class GitHub:
             raise Refused(f"multiple releases use {tag}")
         return matches[0] if matches else None
 
-    def proof(self, target, run_id, workflow, commit):
+    def check_run(self, target, run_id, workflow, commit):
         if type(run_id) is not int or run_id <= 0:
             raise Refused(f"{target}: expected a numeric GitHub Actions run ID")
         row = self.api(f"actions/runs/{run_id}")
@@ -186,9 +190,23 @@ class GitHub:
                 or row.get("path", "").split("@", 1)[0] != workflow
                 or (row.get("head_repository") or {}).get("full_name", "").lower() != self.slug.lower()):
             raise Refused(f"{target}: run {run_id} is not a successful release check for {commit}")
+
+    def proof(self, target, run_id, workflow, commit):
+        self.check_run(target, run_id, workflow, commit)
         with tempfile.TemporaryDirectory(prefix="fieldkit-release-proof-") as folder:
             self.gh("run", "download", str(run_id), "-R", self.slug, "-n", f"install-proof-{target}", "-D", folder)
             return mapping(json.loads((Path(folder) / "proof.json").read_text(encoding="utf-8")))
+
+    def source_proof(self, candidate, directory, workflow, commit):
+        run_id = candidate.get("source_run")
+        self.check_run("source", run_id, workflow, commit)
+        with tempfile.TemporaryDirectory(prefix="fieldkit-release-source-") as folder:
+            self.gh("run", "download", str(run_id), "-R", self.slug, "-n", "release-candidate", "-D", folder)
+            published = Path(folder)
+            notes = filename(candidate["notes"])
+            if (read_mapping(published / "candidate.json") != candidate
+                    or file_digest(published / notes) != file_digest(directory / notes)):
+                raise Refused("source candidate differs from the successful release workflow artifact")
 
 
 def check_proofs(gh, policy, candidate, commit, assets, installers):
@@ -311,6 +329,8 @@ def verify(repo, gh, tag, path):
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)
     check_page(candidate, path.parent, assets)
+    if policy.get("distribution") == "source" and policy.get("source_workflow"):
+        gh.source_proof(candidate, path.parent, policy["source_workflow"], commit)
     platforms = {policy["targets"][target]["platform"] for target in installers}
     return candidate, path.parent, assets, platforms
 
