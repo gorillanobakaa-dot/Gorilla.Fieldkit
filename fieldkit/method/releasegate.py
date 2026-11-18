@@ -117,10 +117,12 @@ def _hotfixes():
         return []
 
 
-def _record(slug, tag, why, now):
+def _record(slug, tag, why, now, systems=None):
     p = _log_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     row = {"t": now, "repo": slug, "tag": tag, "why": why}
+    if systems is not None:
+        row["systems"] = sorted(systems)
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(row) + "\n")
     text = f"HOTFIX release of {slug} {tag} inside the one-release-per-batch window: {why}"
@@ -136,7 +138,7 @@ def _record(slug, tag, why, now):
         pass
 
 
-def _reserve_hotfix(slug, tag, why, system, now, hours):
+def _reserve_hotfix(slug, tag, why, systems, now, hours, *, candidate_platforms=()):
     from .. import admission
 
     try:
@@ -146,16 +148,30 @@ def _reserve_hotfix(slug, tag, why, system, now, hours):
                     "next": "retry after that ship command finishes"}
         try:
             window = now - hours * 3600
-            used = {h["tag"] for h in _hotfixes() if h["repo"] == slug and h["t"] > window
-                    and system_of(h["tag"]) == system}
+            history = [h for h in _hotfixes() if h["repo"].casefold() == slug.casefold() and h["t"] > window]
             limit = hotfix_limit()
-            if tag not in used:
+            aliases = _cfg().get("systems") or {}
+            known_systems = set(aliases.values()) | set(candidate_platforms)
+            reserve = set()
+            for system in sorted(systems):
+                used = set()
+                for entry in history:
+                    recorded = entry.get("systems")
+                    if recorded is None:
+                        historical = system_of(entry["tag"], aliases)
+                        recorded = systems if candidate_platforms and historical not in known_systems else {historical}
+                    if system in recorded:
+                        used.add(entry["tag"])
+                if tag in used:
+                    continue
                 if len(used) >= limit:
                     return {"ok": False, "state": "hotfix-used", "tag": tag,
                             "error": f"{slug} used {len(used)} of {limit} hotfixes in the last {hours:g} h for "
                                      f"{system or 'tags without an operating-system suffix'}",
                             "next": "wait for a hotfix to age out or for the regular release window"}
-                _record(slug, tag, why, now)
+                reserve.add(system)
+            if reserve:
+                _record(slug, tag, why, now, reserve if candidate_platforms else None)
         finally:
             slot.release()
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -164,7 +180,7 @@ def _reserve_hotfix(slug, tag, why, system, now, hours):
     return {"ok": True, "state": "hotfix", "tag": tag, "hotfix": why}
 
 
-def guard(slug, tag="", hotfix="", last=None, now=None, hours=None):
+def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms=()):
     """-> {"ok": True, ...} to go on, or {"ok": False, "state": "batch-window", ...}. `last` is (tag, epoch), a list of
     them, or None for tests; otherwise gh is asked. Only a release for the SAME system counts. A gh failure fails
     closed."""
@@ -182,17 +198,29 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None):
     rows = [last] if isinstance(last, tuple) else list(last or [])
     if any(r[0] == tag for r in rows):                       # the release itself: more files for it
         return {"ok": True, "state": "gate-open", "tag": tag}
-    system = system_of(tag)
-    same = [r for r in rows if system_of(r[0]) == system and (now - r[1]) / 3600.0 < hours]
+    aliases = _cfg().get("systems") or {}
+    requested = {aliases.get(platform.casefold(), platform.casefold()) for platform in platforms}
+    systems = requested or {system_of(tag, aliases)}
+    known_systems = set(aliases.values()) | requested
+    same = []
+    blocked = set()
+    for old_tag, published in rows:
+        if (now - published) / 3600.0 >= hours:
+            continue
+        old_system = system_of(old_tag, aliases)
+        overlap = systems if requested and old_system not in known_systems else systems.intersection({old_system})
+        if overlap:
+            same.append((old_tag, published))
+            blocked.update(overlap)
     if not same:
-        return {"ok": True, "state": "gate-open", "tag": tag, "system": system}
+        return {"ok": True, "state": "gate-open", "tag": tag, "system": system_of(tag, aliases)}
     last = max(same, key=lambda r: r[1])
     age = (now - last[1]) / 3600.0
     wait = f"{hours - age:.1f}"
     if hotfix:
-        return _reserve_hotfix(slug, tag, hotfix, system, now, hours)
+        return _reserve_hotfix(slug, tag, hotfix, blocked, now, hours, candidate_platforms=requested)
+    affected = ", ".join(sorted(blocked)) or "releases without a system in the tag"
     return {"ok": False, "state": "batch-window", "tag": tag,
-            "error": f"{slug} published {last[0]} {age:.1f} h ago (window {hours:g} h for "
-                     f"{system or 'releases without a system in the tag'})",
+            "error": f"{slug} published {last[0]} {age:.1f} h ago (window {hours:g} h for {affected})",
             "next": f"batch the fixes, then release once from main after the last one ({wait} h left); "
                     "a security fix or a broken release: --hotfix \"WHY\" (logged)"}
