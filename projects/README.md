@@ -44,6 +44,12 @@ For each target, the trusted workflow runs the installer, checks the installed v
 hashes. The proofs together must cover every asset. A candidate's run IDs refer to successful runs of the trusted
 workflow for the tagged commit, from the release repository itself.
 
+When an install check uses other assets, put their filename patterns in that target's `install_inputs` list.
+Each pattern must match exactly one asset, and `{version}` expands to the candidate version. The install run
+must record those assets alongside the installer. If another target's installer changes during a retry, retain
+the runs whose installer and declared inputs still match. Every final asset still needs a matching digest from
+at least one trusted run. A new commit requires fresh install evidence.
+
 After those runs finish, use the same candidate as a gate in CI. Check out the tag with its Git refs, install a
 trusted pinned Fieldkit build, and make the release page, candidate file and assets available together.
 

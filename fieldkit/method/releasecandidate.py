@@ -79,6 +79,14 @@ def validate_policy(data):
             re.compile(spec["installer"].replace("{version}", "0"))
         except re.error as exc:
             raise Refused(f"{target}: invalid installer pattern: {exc}") from exc
+        inputs = spec.get("install_inputs", [])
+        if not isinstance(inputs, list) or any(not isinstance(pattern, str) or not pattern for pattern in inputs):
+            raise Refused(f"{target}: install_inputs must be a list of asset filename patterns")
+        for pattern in inputs:
+            try:
+                re.compile(pattern.replace("{version}", "0"))
+            except re.error as exc:
+                raise Refused(f"{target}: invalid install input pattern: {exc}") from exc
         if "minimum_os" in spec and (not isinstance(spec["minimum_os"], str)
                                      or not re.fullmatch(r"\d+(?:\.\d+)*", spec["minimum_os"])):
             raise Refused(f"{target}: minimum_os must be a quoted OS version")
@@ -209,6 +217,17 @@ class GitHub:
                 raise Refused("source candidate differs from the successful release workflow artifact")
 
 
+def install_inputs(target, spec, assets, version):
+    inputs = set()
+    for pattern in spec.get("install_inputs", []):
+        matching_assets = [name for name in assets
+                           if re.fullmatch(pattern.replace("{version}", re.escape(version)), name)]
+        if len(matching_assets) != 1:
+            raise Refused(f"{target}: install input {pattern!r} matched {len(matching_assets)} candidate assets")
+        inputs.add(matching_assets[0])
+    return inputs
+
+
 def check_proofs(gh, policy, candidate, commit, assets, installers):
     runs = mapping(candidate.get("runs", {}))
     if set(runs) != set(installers):
@@ -227,9 +246,10 @@ def check_proofs(gh, policy, candidate, commit, assets, installers):
         if minimum and not re.fullmatch(re.escape(minimum) + r"(?:\.\d+)*", str(proof.get("os_version", ""))):
             raise Refused(f"{target}: install proof must cover OS {minimum}")
         observed = mapping(proof.get("assets"))
-        if installer not in observed or any(assets.get(name) != digest for name, digest in observed.items()):
+        required_files = {installer} | install_inputs(target, spec, assets, candidate["version"])
+        if any(observed.get(name) != assets[name] for name in required_files):
             raise Refused(f"{target}: package hashes differ from the install run")
-        covered.update(observed)
+        covered.update(name for name, digest in assets.items() if observed.get(name) == digest)
     if covered != set(assets):
         raise Refused("assets missing from build evidence: " + ", ".join(sorted(set(assets) - covered)))
 
