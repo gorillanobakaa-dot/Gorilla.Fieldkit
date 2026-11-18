@@ -298,9 +298,14 @@ def _mandate_log(r, what, detail):
 
 
 def publish(ctx, gh=None):
+    from . import releasecandidate
+
     gh = gh or _gh
     r = _r(ctx)
-    slug, have = _slug(r["repo"]), _published(r, gh)
+    slug = _slug(r["repo"])
+    if slug and releasecandidate.registered_policy(slug):
+        return {"ok": False, "detail": "publish with fieldkit ship gh-release TAG -- --candidate FILE"}
+    have = _published(r, gh)
     if have is None:
         from . import releasegate                                  # one release per batch (owner order 2026-11-15)
         g = releasegate.guard(slug, r["version"])

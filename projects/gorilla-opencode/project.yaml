@@ -5,6 +5,36 @@ repos:
   - {name: source, github: gorillanobakaa-dot/Gorilla.Opencode, local: "${DOCUMENTS}/Gorilla.Opencode"}
   - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [gorilla-opencode]
+release:
+  repo: gorillanobakaa-dot/Gorilla.Opencode
+  distribution: installers
+  targets:
+    windows-x86_64:
+      platform: windows
+      arch: x86_64
+      installer: '(?i:gorilla-opencode-{version}-(?:windows-x86_64|win64)(?:-setup\.exe|\.msi))'
+      workflow: .github/workflows/release-candidate.yml
+    debian-x86_64:
+      platform: debian
+      arch: x86_64
+      installer: 'gorilla-opencode_{version}_amd64\.deb'
+      workflow: .github/workflows/release-candidate.yml
+    rpm-x86_64:
+      platform: linux
+      arch: x86_64
+      installer: 'gorilla-opencode-{version}-[0-9]+\.x86_64\.rpm'
+      workflow: .github/workflows/release-candidate.yml
+    arch-x86_64:
+      platform: linux
+      arch: x86_64
+      installer: 'gorilla-opencode-{version}-[0-9]+-x86_64\.pkg\.tar\.zst'
+      workflow: .github/workflows/release-candidate.yml
+    macos-x86_64:
+      platform: macos
+      arch: x86_64
+      minimum_os: '10.13'
+      installer: 'gorilla-opencode-{version}-mac-10\.13-x86_64\.pkg'
+      workflow: .github/workflows/release-candidate.yml
 cookbook:
   - {repo: source, path: CLAUDE.md, what: "the repo's own rules and layout (P41d will make a real cookbook index)"}
   - {repo: fieldkit, path: fieldkit/emerge/recipes/gorilla-opencode.yaml, what: "the release build as stages"}

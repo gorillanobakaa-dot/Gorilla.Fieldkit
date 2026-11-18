@@ -34,9 +34,10 @@ jobs:
         shell: bash
         run: bash .github/desktop-file-utils.sh
       - name: every tracked file has covering tests (else CI would run the whole suite for it)
+        if: matrix.shard == 1
         run: python -m fieldkit testcost unmapped --all
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
       - name: OS parity inventory and generated documentation
         if: matrix.shard == 1
@@ -79,9 +80,10 @@ jobs:
         shell: bash
         run: bash .github/desktop-file-utils.sh
       - name: every tracked file has covering tests (else CI would run the whole suite for it)
+        if: matrix.shard == 1
         run: python -m fieldkit testcost unmapped --all
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
       - name: OS parity inventory and generated documentation
         if: matrix.shard == 1

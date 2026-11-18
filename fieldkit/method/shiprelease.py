@@ -345,6 +345,8 @@ def scaffold(repo, tag, base="main"):
 
 def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable, hotfix="", gate=None):
     """-> {"ok", "rows": [...], "next"}"""
+    from . import releasecandidate
+
     rows = []
 
     def row(c, ok, say):
@@ -370,6 +372,9 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                f"{base} through a pull request first)"):
         return {"ok": False, "rows": rows}
     slug = repo_slug(repo)
+    if slug and releasecandidate.registered_policy(slug):
+        row("candidate", False, "publish with fieldkit ship gh-release TAG -- --candidate FILE")
+        return {"ok": False, "rows": rows}
     # CI starts again on the merge commit: wait while checks run and none has failed (2026-10-16: v0.4.0 was refused
     # twice for 'in_progress' right after the release PR merged)
     deadline = time.time() + wait

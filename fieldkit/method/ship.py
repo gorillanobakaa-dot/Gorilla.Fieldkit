@@ -13,6 +13,7 @@
     fieldkit ship gh-release vX.Y.Z -- ARGS   gh release create --verify-tag of a tag on origin, under a mandate's
                                            release: from_tag, once CI is green on the tag's commit; does nothing when
                                            the repository's release.yml publishes on tags
+    fieldkit ship gh-release TAG -- --candidate FILE   verify required installers and promote the complete draft to Latest
     fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
                                            SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
     (gh-release, push --tag and release refuse inside releasegate.yaml's min_hours of the repository's last release:
@@ -465,6 +466,37 @@ def release_is_empty(repo, extra, tag=""):
 def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
+    from ..core import sync
+    from . import releasecandidate, releasegate
+
+    slug = sync._slug(repo)
+    if extra and extra[0] == "--candidate":
+        if len(extra) != 2 or not slug or not re.fullmatch(r"v[0-9][a-zA-Z0-9.+-]*", tag):
+            return {"ok": False, "state": "bad-input", "error": "expected a GitHub repo, version tag and one candidate file"}
+
+        def authorize():
+            verdict, why, path = mandate("release_tag", repo_path=repo, tag=tag)
+            if verdict != "allow":
+                raise releasecandidate.Refused(why)
+            return why, path
+
+        def before_publication():
+            authorize()
+            result = (gate or releasegate.guard)(slug, tag, hotfix)
+            if not result["ok"]:
+                raise releasecandidate.Refused(result["error"])
+
+        try:
+            why, path = authorize()
+            url = releasecandidate.publish(repo, slug, tag, extra[1], before_publication)
+            _mandate_log(path, "release", why, tag=tag, url=url)
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, releasecandidate.yaml.YAMLError) as exc:
+            return {"ok": False, "state": "candidate-refused", "tag": tag, "error": str(exc),
+                    "next": "resolve the candidate failure and resume with the same tag"}
+        return {"ok": True, "state": "released", "tag": tag, "mandate": why, "next": url}
+    if slug and releasecandidate.registered_policy(slug):
+        return {"ok": False, "state": "candidate-required", "tag": tag,
+                "error": "use fieldkit ship gh-release TAG -- --candidate FILE for this repository"}
     wf = Path(repo) / ".github" / "workflows" / "release.yml"
     if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
         return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
@@ -477,8 +509,6 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "publishing a release is the owner's unless a mandate allows it"}
-    from ..core import sync
-    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
     g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
     if not g["ok"]:
         return g
@@ -545,6 +575,12 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
     import tempfile
     from ..build import relfiles
     from ..core import sync
+    from . import releasecandidate
+
+    slug = sync._slug(repo)
+    if slug and releasecandidate.registered_policy(slug):
+        return {"ok": False, "tag": tag, "state": "candidate-required",
+                "error": "managed release assets must be verified together in a release candidate"}
     paths = [Path(f) for f in files]
     missing = [str(p) for p in paths if not p.is_file()]
     sums_name = f"SHA256SUMS-{tag}.txt"
@@ -556,8 +592,6 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "changing a release is the owner's unless a mandate allows it"}
-    slug = sync._slug(repo)
-
     def gh(*args):
         r = run(["gh", *args, "-R", slug], cwd=str(repo), capture_output=True, text=True, env=ship_env())
         if r.returncode != 0:
