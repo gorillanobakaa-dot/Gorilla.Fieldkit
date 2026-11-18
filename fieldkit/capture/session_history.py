@@ -46,8 +46,11 @@ def candidate_id(agent, path, root):
 
 
 def fingerprint(info):
+    # On Windows, CPython 3.12 reports creation time for lstat().st_ctime
+    # and change time for fstat().st_ctime. Both report the same birth time.
+    timestamp = getattr(info, "st_birthtime_ns", info.st_ctime_ns) if os.name == "nt" else info.st_ctime_ns
     return [info.st_dev, info.st_ino, info.st_mode, info.st_nlink, info.st_size, info.st_mtime_ns,
-            info.st_ctime_ns, getattr(info, "st_file_attributes", 0)]
+            timestamp, getattr(info, "st_file_attributes", 0)]
 
 
 def source_info(path, root, expected, agent="codex"):
@@ -311,10 +314,12 @@ def _read(path, expected, limit):
         raise ValueError("unsafe, oversized or changed archive input")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     with os.fdopen(os.open(path, flags), "rb") as stream:
-        if fingerprint(os.fstat(stream.fileno())) != fingerprint(info):
+        opened = os.fstat(stream.fileno())
+        if fingerprint(opened) != fingerprint(info):
             raise ValueError("archive input changed before reading")
         raw = stream.read(limit + 1)
-        if len(raw) != info.st_size or fingerprint(os.fstat(stream.fileno())) != fingerprint(info):
+        after = os.fstat(stream.fileno())
+        if len(raw) != info.st_size or fingerprint(after) != fingerprint(opened) or after.st_ctime_ns != opened.st_ctime_ns:
             raise ValueError("archive input changed while reading")
     if fingerprint(path.lstat()) != fingerprint(info):
         raise ValueError("archive input changed while reading")
