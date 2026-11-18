@@ -44,8 +44,7 @@ def _stage(tid):
 def where(version):
     """-> {system: {...}} and the ordered step rows with done True/False/None (None = not measurable here)."""
     cb, tid = ho.cookbook(), ho.task_id(version)
-    values = {"v": version, "task": tid, "batch_tag": concepts.batch_tag(version),
-              "batch_title": concepts.batch_title(version)}
+    values = ho.step_values(version, tid)
     stage = _stage(tid)
     order = [s["id"] for s in cb["steps"] if s["id"].startswith("S")]
     root = ho.out_root()

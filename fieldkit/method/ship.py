@@ -501,8 +501,8 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
         return {"ok": True, "state": "released", "tag": tag, "mandate": why, "next": url}
     try:
         slug = sync._slug(repo)
-    except RuntimeError as exc:
-        return {"ok": False, "state": "bad-input", "tag": tag, "error": str(exc)}
+    except RuntimeError:
+        slug = ""
     blocker = releasecandidate.legacy_blocker(repo, slug, tag)
     if blocker:
         return {"ok": False, "state": "candidate-required", "tag": tag,
@@ -515,6 +515,8 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "publishing a release is the owner's unless a mandate allows it"}
+    if not releasecandidate.SLUG.fullmatch(slug):
+        return {"ok": False, "state": "bad-input", "tag": tag, "error": "expected a GitHub origin"}
     g = (gate or releasegate.guard)(slug, tag, hotfix)
     if not g["ok"]:
         return g
