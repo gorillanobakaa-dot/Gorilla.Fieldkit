@@ -28,7 +28,7 @@ def context():
 def passed_files(report):
     passing, incomplete = set(), set()
     for case in report.iter("testcase"):
-        filename = case.get("file")
+        filename = case.get("file", "").replace("\\", "/")
         if not filename:
             continue
         if any(case.find(result) is not None for result in ("error", "failure", "skipped")):
@@ -43,6 +43,7 @@ def write_receipt(output, report, selected, identity):
     if matched:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps({"schema": 1, "context": identity, "passed": matched}), encoding="utf-8")
+    print(f"ci-tests: recorded passes for {len(matched)} of {len(selected)} test files", flush=True)
 
 
 def trusted_run(run, repo, head):

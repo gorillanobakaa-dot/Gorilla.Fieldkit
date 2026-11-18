@@ -40,7 +40,7 @@ def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp
     proof = importlib.util.module_from_spec(loader)
     loader.loader.exec_module(proof)
     report = tmp_path / "report.xml"
-    report.write_text('<testsuite><testcase file="tests/test_a.py"/><testcase file="tests/test_b.py"/>'
+    report.write_text('<testsuite><testcase file="tests\\test_a.py"/><testcase file="tests/test_b.py"/>'
                       '<testcase file="tests/test_b.py"><skipped/></testcase>'
                       '<testcase file="tests/test_c.py"><failure/></testcase></testsuite>', encoding="utf-8")
     selected = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py", "tests/test_d.py"]
