@@ -14,6 +14,7 @@
                                            release: from_tag, once CI is green on the tag's commit; does nothing when
                                            the repository's release.yml publishes on tags
     fieldkit ship gh-release TAG -- --candidate FILE   verify required installers and promote the complete draft to Latest
+    fieldkit ship gh-release TAG -- --check-candidate FILE   verify a candidate with read-only GitHub access
     fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
                                            SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
     (gh-release, push --tag and release refuse inside releasegate.yaml's min_hours of the repository's last release:
@@ -473,7 +474,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
     if bad:
         return {"ok": False, "state": "bad-input", "tag": tag, "error": f"not allowed here: {' '.join(bad)}",
                 "next": "the tag's commit and the repository come from git, never from the caller"}
-    if extra and extra[0] == "--candidate":
+    if extra and extra[0] in ("--candidate", "--check-candidate"):
         try:
             slug = sync._slug(repo)
         except RuntimeError as exc:
@@ -488,6 +489,9 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
             return why, path
 
         try:
+            if extra[0] == "--check-candidate":
+                releasecandidate.verify(repo, releasecandidate.GitHub(slug), tag, extra[1])
+                return {"ok": True, "state": "candidate-verified", "tag": tag}
             why, path = authorize()
             url = releasecandidate.publish(repo, slug, tag, extra[1], authorize, hotfix=hotfix, gate=gate)
             _mandate_log(path, "release", why, tag=tag, url=url)
@@ -499,9 +503,10 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
         slug = sync._slug(repo)
     except RuntimeError as exc:
         return {"ok": False, "state": "bad-input", "tag": tag, "error": str(exc)}
-    if slug and releasecandidate.registered_policy(slug):
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag)
+    if blocker:
         return {"ok": False, "state": "candidate-required", "tag": tag,
-                "error": "use fieldkit ship gh-release TAG -- --candidate FILE for this repository"}
+                "error": blocker}
     wf = Path(repo) / ".github" / "workflows" / "release.yml"
     if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
         return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
@@ -589,9 +594,10 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
         slug = sync._slug(repo)
     except RuntimeError as exc:
         return {"ok": False, "tag": tag, "state": "bad-input", "error": str(exc)}
-    if slug and releasecandidate.registered_policy(slug):
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag)
+    if blocker:
         return {"ok": False, "tag": tag, "state": "candidate-required",
-                "error": "managed release assets must be verified together in a release candidate"}
+                "error": blocker}
     verdict, why, mpath = mandate("release_tag", repo_path=repo, tag=tag)
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,

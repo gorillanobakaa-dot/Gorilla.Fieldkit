@@ -372,8 +372,9 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                f"{base} through a pull request first)"):
         return {"ok": False, "rows": rows}
     slug = repo_slug(repo)
-    if slug and releasecandidate.registered_policy(slug):
-        row("candidate", False, "publish with fieldkit ship gh-release TAG -- --candidate FILE")
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag, base)
+    if blocker:
+        row("candidate", False, blocker)
         return {"ok": False, "rows": rows}
     # CI starts again on the merge commit: wait while checks run and none has failed (2026-10-16: v0.4.0 was refused
     # twice for 'in_progress' right after the release PR merged)

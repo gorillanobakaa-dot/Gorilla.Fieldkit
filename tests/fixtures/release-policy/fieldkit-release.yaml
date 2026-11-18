@@ -1,0 +1,8 @@
+schema: 1
+distribution: installers
+targets:
+  linux-amd64:
+    platform: linux
+    arch: amd64
+    installer: 'pocketclock-{version}-amd64\.deb'
+    workflow: .github/workflows/install.yml

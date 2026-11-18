@@ -168,8 +168,9 @@ def send(tag, runner=subprocess.run, popen=subprocess.Popen, say=print, confirm=
     plan = json.loads(pp.read_text(encoding="utf-8"))
     from ..method import releasecandidate
 
-    if releasecandidate.registered_policy(plan["gh_repo"]):
-        say("REFUSED: publish the complete platform set with fieldkit ship gh-release TAG -- --candidate FILE")
+    blocker = releasecandidate.legacy_blocker(plan["repo"], plan["gh_repo"], plan["tag"])
+    if blocker:
+        say(f"REFUSED: {blocker}")
         return 3
     changed = [n for n, a in plan["assets"].items() if not Path(a["path"]).is_file() or _sha(a["path"]) != a["sha256"]]
     if changed:

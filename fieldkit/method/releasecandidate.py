@@ -10,6 +10,9 @@ from urllib.parse import quote
 
 import yaml
 
+POLICY_PATH = ".github/fieldkit-release.yaml"
+SLUG = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+")
+
 
 class Refused(ValueError):
     """A release cannot advance with the available evidence."""
@@ -23,6 +26,76 @@ def registered_policy(slug):
         if policy and policy["repo"].lower() == slug.lower():
             return policy
     return None
+
+
+def policy_at(repo, ref):
+    """Read the policy blob from Git, independent of the working tree."""
+    from .ship import git
+
+    commit = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    if commit.returncode:
+        return None
+    tree = git(repo, "ls-tree", commit.stdout.strip(), "--", POLICY_PATH)
+    if tree.returncode:
+        raise Refused(f"cannot inspect {POLICY_PATH} in {ref}")
+    if not tree.stdout:
+        return None
+    entry, _, name = tree.stdout.strip().partition("\t")
+    mode, kind, blob = entry.split()
+    if mode not in ("100644", "100755") or kind != "blob" or name != POLICY_PATH:
+        raise Refused(f"{POLICY_PATH} must be a regular file in {ref}")
+    result = git(repo, "cat-file", "blob", blob)
+    if result.returncode:
+        raise Refused(f"cannot read {POLICY_PATH} in {ref}")
+    return validate_policy(yaml.safe_load(result.stdout))
+
+
+def validate_policy(data):
+    policy = mapping(data)
+    if type(policy.get("schema")) is not int or policy["schema"] != 1:
+        raise Refused("release policy requires schema: 1")
+    targets = mapping(policy.get("targets", {}))
+    if policy.get("distribution") == "source" and not targets:
+        return policy
+    if policy.get("distribution") != "installers" or not targets:
+        raise Refused("declare installer targets or explicit source distribution")
+    for target, spec in targets.items():
+        if not isinstance(target, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", target):
+            raise Refused(f"invalid target: {target!r}")
+        spec = mapping(spec)
+        for field in ("platform", "arch", "installer", "workflow"):
+            if not isinstance(spec.get(field), str) or not spec[field].strip():
+                raise Refused(f"{target}: expected {field}")
+        if not re.fullmatch(r"\.github/workflows/[a-zA-Z0-9_.-]+\.ya?ml", spec["workflow"]):
+            raise Refused(f"{target}: workflow must name a GitHub Actions workflow")
+        if "{version}" not in spec["installer"]:
+            raise Refused(f"{target}: installer pattern must include {{version}}")
+        try:
+            re.compile(spec["installer"].replace("{version}", "0"))
+        except re.error as exc:
+            raise Refused(f"{target}: invalid installer pattern: {exc}") from exc
+        if "minimum_os" in spec and (not isinstance(spec["minimum_os"], str)
+                                     or not re.fullmatch(r"\d+(?:\.\d+)*", spec["minimum_os"])):
+            raise Refused(f"{target}: minimum_os must be a quoted OS version")
+        if "installer_member" in spec and (not isinstance(spec["installer_member"], str)
+                                            or not spec["installer_member"].strip()):
+            raise Refused(f"{target}: installer_member must name an archive member")
+    return policy
+
+
+def legacy_blocker(repo, slug, tag, base=None):
+    """Refuse the legacy paths for an enrolled checkout, even if its policy is broken."""
+    refs = [f"refs/tags/{tag}", "refs/remotes/origin/HEAD", "HEAD"]
+    if base:
+        refs.insert(1, f"refs/remotes/origin/{base}")
+    else:
+        refs.extend(("refs/remotes/origin/main", "refs/remotes/origin/master"))
+    try:
+        if any(policy_at(repo, ref) is not None for ref in refs) or (slug and registered_policy(slug)):
+            return "publish with fieldkit ship gh-release TAG -- --candidate FILE"
+    except (ValueError, OSError, subprocess.SubprocessError, yaml.YAMLError) as exc:
+        return f"cannot verify release policy: {exc}"
+    return ""
 
 
 def read_mapping(path):
@@ -153,9 +226,8 @@ def online_assets(row, assets):
     return observed
 
 
-def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None):
+def check_page(candidate, directory, assets):
     from ..build import relfiles
-    from . import releasegate
 
     title = candidate["title"]
     notes_path = directory / filename(candidate["notes"])
@@ -166,6 +238,13 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
         problems = relfiles.check_table(notes, assets, {name: (directory / name).stat().st_size for name in assets})
         if problems:
             raise Refused("; ".join(problems))
+    return title, notes_path, notes
+
+
+def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None):
+    from . import releasegate
+
+    title, notes_path, notes = check_page(candidate, directory, assets)
     row = gh.release(tag)
     if row is None:
         gh.gh("release", "create", tag, "-R", gh.slug, "--draft", "--verify-tag", "--latest=false",
@@ -201,16 +280,17 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
     return latest["html_url"]
 
 
-def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
+def verify(repo, gh, tag, path):
     from .ship import git
 
+    if not SLUG.fullmatch(gh.slug) or not re.fullmatch(r"v[0-9][a-zA-Z0-9.+-]*", tag):
+        raise Refused("expected a GitHub repository and a version tag")
     path = Path(path)
     if not path.is_absolute():
         path = Path(repo) / path
     commit = git(repo, "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}").stdout.strip()
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise Refused("the candidate tag must exist locally and on GitHub")
-    gh = GitHub(slug)
     remote = gh.api(f"commits/{tag}")
     if remote.get("sha") != commit:
         raise Refused("the local tag and GitHub tag point to different commits")
@@ -220,13 +300,20 @@ def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
         raise Refused("the GitHub default branch commit could not be confirmed")
     if base != commit and gh.api(f"compare/{commit}...{base}")["status"] != "ahead":
         raise Refused("the candidate tag must be on the GitHub default branch history")
-    policy = registered_policy(slug)
+    policy = policy_at(repo, commit)
     if policy is None:
-        result = git(repo, "show", f"{commit}:.github/fieldkit-release.yaml")
-        if result.returncode:
+        # Keep the pilot contract until its repositories carry their own policy.
+        policy = registered_policy(gh.slug)
+        if policy is None:
             raise Refused("no release policy declared in the tagged tree")
-        policy = mapping(yaml.safe_load(result.stdout))
     candidate = read_mapping(path)
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)
-    return promote(gh, tag, candidate, path.parent, assets, authorize, hotfix=hotfix, gate=gate)
+    check_page(candidate, path.parent, assets)
+    return candidate, path.parent, assets
+
+
+def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
+    gh = GitHub(slug)
+    candidate, directory, assets = verify(repo, gh, tag, path)
+    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate)

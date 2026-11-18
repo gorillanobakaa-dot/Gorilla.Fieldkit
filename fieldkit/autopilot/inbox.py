@@ -277,8 +277,9 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
         from ..core import sync
         from ..method import releasecandidate, releasegate
         slug = sync._slug(repo)
-        if slug and releasecandidate.registered_policy(slug):
-            say("REFUSED: publish with fieldkit ship gh-release TAG -- --candidate FILE")
+        blocker = releasecandidate.legacy_blocker(repo, slug, release)
+        if blocker:
+            say(f"REFUSED: {blocker}")
             return 3
         g = releasegate.guard(slug, release)
         if not g["ok"]:

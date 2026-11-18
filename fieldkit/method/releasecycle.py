@@ -303,8 +303,9 @@ def publish(ctx, gh=None):
     gh = gh or _gh
     r = _r(ctx)
     slug = _slug(r["repo"])
-    if slug and releasecandidate.registered_policy(slug):
-        return {"ok": False, "detail": "publish with fieldkit ship gh-release TAG -- --candidate FILE"}
+    blocker = releasecandidate.legacy_blocker(r["repo"], slug, r["version"], r["base"])
+    if blocker:
+        return {"ok": False, "detail": blocker}
     have = _published(r, gh)
     if have is None:
         from . import releasegate                                  # one release per batch (owner order 2026-11-15)

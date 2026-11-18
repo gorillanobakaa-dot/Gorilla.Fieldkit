@@ -2439,7 +2439,7 @@ tools:
   inputs:
     - {name: tag, flag: null, type: str, required: true, help: "vX.Y.Z, already pushed (fieldkit ship push --tag)"}
     - {name: repo, flag: --repo, type: str, required: false, help: "the clone (.)"}
-    - {name: args, flag: --, type: str, required: false, help: "--candidate FILE for managed release targets; legacy release arguments for other repos"}
+    - {name: args, flag: --, type: str, required: false, help: "--candidate FILE to publish; --check-candidate FILE for read-only CI; legacy arguments for unenrolled repos"}
   effects: [network]
   safety: irreversible
   output: own
