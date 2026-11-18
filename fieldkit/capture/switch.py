@@ -15,6 +15,7 @@ Exit: 0 fine, 1 a settings file could not be changed, 2 bad usage, 3 `state --ch
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -68,7 +69,7 @@ def is_on(d=None, now=None):
         return bool(d.get("legacy"))
     try:
         return (now or _now()) < datetime.fromisoformat(until)
-    except ValueError:
+    except (TypeError, ValueError):
         return False
 
 
@@ -161,10 +162,10 @@ def add_hooks(d, agent, py=None):
     return len(EVENTS[agent])
 
 
-def edit_settings(home, fn):
+def edit_settings(home, fn, agents=None):
     """Apply fn(dict, agent) -> n to every agent's settings that exists; {agent: n or error}."""
     out = {}
-    for agent in EVENTS:
+    for agent in EVENTS if agents is None else agents:
         p = settings_file(agent, home)
         try:
             d = _load(p)
@@ -180,6 +181,79 @@ def edit_settings(home, fn):
         except (OSError, ValueError) as exc:
             out[agent] = f"ERROR {exc}"
     return out
+
+
+def check_routes(agents, home=None):
+    """Preflight the selected agent's installed hook route without changing settings."""
+    from ..peers import agentfind
+    from . import retention
+
+    home = home or Path.home()
+    errors = {}
+    for agent in agents:
+        if agent not in EVENTS:
+            errors[agent] = "no verified capture adapter"
+            continue
+        stem = "gorilla-opencode" if agent == "opencode" else agent
+        if not (shutil.which(stem) or agentfind.find_path(stem)):
+            errors[agent] = "agent executable was not found"
+            continue
+        path = settings_file(agent, home)
+        try:
+            retention.check_root(path.parent.absolute())
+            if not path.is_file() or retention.link(path.lstat()) or _load(path) is None:
+                errors[agent] = "agent settings are missing or linked"
+        except (OSError, ValueError):
+            errors[agent] = "agent settings are unreadable"
+    return errors
+
+
+def _scoped_specs(agent):
+    specs = dict(EVENTS[agent])
+    if agent == "claude":
+        specs["PostToolUseFailure"] = CLAUDE_TOOLS
+    command = hook_command(agent)
+    if agent == "opencode":
+        return [{"event": ev, "tools": tools, "command": command, "timeout_seconds": 20}
+                for ev, tools in specs.items()]
+    return {ev: {"hooks": [{"type": "command", "command": command, "timeout": 20}],
+                 **({"matcher": tools} if tools else {})} for ev, tools in specs.items()}
+
+
+def _add_scoped(settings, agent):
+    strip_hooks(settings)
+    expected = _scoped_specs(agent)
+    if agent == "opencode":
+        settings.setdefault("hooks", []).extend(expected)
+    else:
+        hooks = settings.setdefault("hooks", {})
+        for event, group in expected.items():
+            hooks.setdefault(event, []).append(group)
+    return len(expected)
+
+
+def remove_routes(agents, home=None):
+    return edit_settings(home or Path.home(), lambda settings, _agent: strip_hooks(settings), agents)
+
+
+def prepare_routes(agents, home=None):
+    home = home or Path.home()
+    results = edit_settings(home, _add_scoped, agents)
+    errors = {}
+    for agent in agents:
+        try:
+            cfg = _load(settings_file(agent, home))
+            expected = _scoped_specs(agent)
+            hooks = cfg.get("hooks", {}) if cfg else {}
+            ok = (all(row in hooks for row in expected) if agent == "opencode"
+                  else all(row in hooks.get(event, []) for event, row in expected.items()))
+            if not isinstance(results.get(agent), int) or not ok:
+                errors[agent] = "required hook settings could not be installed and read back"
+        except (OSError, ValueError, TypeError, AttributeError):
+            errors[agent] = "required hook settings are unreadable"
+    if errors:
+        remove_routes(agents, home)
+    return errors
 
 
 # ---- the periodic scan (installed by `capture install`, if ever) ------------------------------------------------
@@ -276,7 +350,7 @@ def ensure_schedule(now=None, run=_run, system=None, install=None):
     return (install or schedule_on)()
 
 
-def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None, project=None):
+def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None, project=None, scope=None):
     """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
     a manual lesson keeps the one-week cap (owner 2026-11-10; was 24 h)."""
     if not (lesson or "").strip():
@@ -284,14 +358,18 @@ def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner
     if not 1 <= minutes <= cap:
         raise ValueError(f"--for must be 1..{cap} minutes")
     t = now or _now()
-    d = {"on": True, "lesson": lesson.strip(), "since": t.isoformat(timespec="seconds"),
-         "until": (t + timedelta(minutes=minutes)).isoformat(timespec="seconds")}
+    precision = "microseconds" if scope else "seconds"
+    d = {"on": True, "lesson": lesson.strip(), "since": t.isoformat(timespec=precision),
+         "until": (t + timedelta(minutes=minutes)).isoformat(timespec=precision)}
     if owner:
         d["owner"] = owner
     if project:                                               # P40: the project tag is the source of truth for distil
         d["project"] = project
+    if scope:
+        d["scope"] = {**scope, "since": d["since"], "until": d["until"], "lesson": d["lesson"]}
     _write(d)
-    d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
+    d["hooks_added"] = ({agent: "verified" for agent in scope["agents"]} if scope else
+                        edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py)))
     if schedule:                                              # the CLI passes schedule_on; tests and the build loop pass none
         d["schedule"] = schedule()
     return d
@@ -309,8 +387,14 @@ def extend(minutes=MAX_MINUTES, now=None, home=None, py=None, schedule=None):
     d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}
     d["until"] = (t + timedelta(minutes=minutes)).isoformat(timespec="seconds")
     d["extended"] = t.isoformat(timespec="seconds")
+    if d.get("scope"):
+        errors = prepare_routes(d["scope"]["agents"], home)
+        if errors:
+            raise ValueError("selected lesson hooks could not be verified")
+        d["scope"] = {**d["scope"], "until": d["until"]}
     _write(d)
-    d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
+    d["hooks_added"] = ({agent: "verified" for agent in d["scope"]["agents"]} if d.get("scope") else
+                        edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py)))
     if schedule:
         d["schedule"] = schedule()
     return d
@@ -365,6 +449,11 @@ def turn_off(home=None, run=_run, system=None, now=None):
     d = {"on": False, "since": (now or _now()).isoformat(timespec="seconds"),
          "last_lesson": prev.get("lesson") or prev.get("last_lesson"),
          "last_project": prev.get("project") or prev.get("last_project")}
+    if prev.get("scope"):
+        d["scope"] = prev["scope"]
+        if prev.get("on"):
+            ended = (now or _now()).isoformat(timespec="microseconds")
+            d["scope"] = {**d["scope"], "until": min(d["scope"]["until"], ended)}
     _write(d)
     d["hooks_removed"] = edit_settings(home or Path.home(), lambda s, a: strip_hooks(s))
     d["schedule"] = schedule_off(run, system)
@@ -400,7 +489,10 @@ def _errors(res):
 
 def cmd_on(a):
     try:
-        if not a.lesson and read().get("on") and not read().get("legacy"):
+        current = read()
+        if current.get("scope") and a.lesson:
+            raise ValueError("use fieldkit capture start for a new lesson after a scoped capture")
+        if not a.lesson and current.get("on") and not current.get("legacy"):
             d = extend(a.minutes, schedule=schedule_on)    # the owner's yes to an extension: same lesson, new end
             d["lesson"] = d.get("lesson")
         else:
@@ -420,15 +512,23 @@ def cmd_on(a):
 
 
 def cmd_off(a):
-    since = read().get("since")
+    from . import scan
+
+    prev = read()
+    scope = prev.get("scope")
+    since = scope["since"] if scope else prev.get("since")
     d = turn_off()
     errs = _errors(d["hooks_removed"]) + _errors(d["schedule"])
     lines = ["capture OFF", "hooks removed: " + ", ".join(f"{k} {v}" for k, v in d["hooks_removed"].items()),
              "schedule: " + ", ".join(f"{k} {v}" for k, v in d["schedule"].items())] + errs
     nxt = "nothing to do" if not errs else "fix the ERROR lines above"
+    if scope and prev.get("on"):
+        catchup = scan.scan(scope=d["scope"])
+        d["catchup"] = catchup
+        lines.append(f"lesson catch-up: {catchup['calls']} additional call(s)")
     if getattr(a, "distill", False):
         from . import loop
-        r = loop.distil(since, "manual")
+        r = loop.distil(since, "manual", project=d.get("last_project"), scope=scope)
         d["distil"] = r
         lines.append(f"distil: {r['episodes']} episode(s), {len(r['candidates'])} candidate tool(s), {len(r['ledger'])} ledger line(s)")
         nxt = "candidates in state/capture/candidates/ (fieldkit mutate, then fieldkit adopt); ledger lines in state/capture/agent-ledger.jsonl"

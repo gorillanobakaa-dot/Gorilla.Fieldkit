@@ -15,8 +15,10 @@ protobuf and OpenCode's store is not on every computer: they are listed by `capt
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 
 from . import hook
+from . import lesson
 from . import store as st
 
 WORK = {"bash", "powershell", "write", "edit", "multiedit", "notebookedit"}
@@ -72,6 +74,7 @@ def calls(path):
                     order.append(b["id"])
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in pending:
                     p = pending[b["tool_use_id"]]
+                    p["_fk_complete"] = True
                     out = _text(b.get("content"))
                     if b.get("is_error"):
                         p["error"] = out or "tool error"
@@ -80,15 +83,20 @@ def calls(path):
         yield pending[i]
 
 
-def scan(store=None, home=None, limit=None, say=None):
+def scan(store=None, home=None, limit=None, say=None, scope=None):
     """-> counts. Journals every not yet captured work call of every Claude Code transcript under home."""
     store = store or st.Store()
     home = Path(home or os.path.expanduser("~"))
     root = home / ".claude" / "projects"
+    if scope:
+        return _scoped_scan(store, root, scope, limit)
     state = store.state()
     hooked = {d.get("session") for d in state["items"].values()          # a scan's own items never mark a session done
               if d.get("session") and not str(d.get("origin", "")).startswith("scan")}
     seen = set(state["events"])
+    for history in lesson.archived_history(store.root):
+        seen.update(history.get("events", ()))
+        hooked.update(history.get("hooked_claude", ()))
     out = {"files": 0, "sessions": 0, "skipped_hooked": 0, "calls": 0, "new_items": 0, "repeats": 0, "already": 0}
     sessions = set()
     pending = []                                           # (session, first payload, new calls) of transcripts with news
@@ -128,10 +136,11 @@ def scan(store=None, home=None, limit=None, say=None):
         out["files"] += 1
         first, new_calls, limited = None, [], False
         for pl in calls(p):                                # parsed outside the lock: nothing new, no lock, no write
+            pl.pop("_fk_complete", None)
             first = first or pl
             pl["session_id"] = sid
             eid = "ev-scan-" + st.sha(f"claude:{sid}:{pl['tool_use_id']}")[:16]
-            if eid in seen:
+            if eid in seen or lesson.identity("claude", pl) in seen:
                 out["already"] += 1
                 continue
             if limit is not None and taken >= limit:
@@ -151,3 +160,37 @@ def scan(store=None, home=None, limit=None, say=None):
     flush()
     out["sessions"] = len(sessions)
     return out
+
+
+def _scoped_scan(store, root, scope, limit):
+    out = {"files": 0, "sessions": 0, "skipped_hooked": 0, "calls": 0, "new_items": 0,
+           "repeats": 0, "already": 0, "out_of_scope": 0}
+    if "claude" not in scope["agents"]:
+        return out
+    sessions = set()
+    observed = datetime.now(timezone.utc)
+    with store.batch() as state:
+        for path in sorted(root.glob("*/**/*.jsonl")):
+            if path.is_symlink() or not lesson.retention.within(path.resolve(), root):
+                continue
+            out["files"] += 1
+            for payload in calls(path):
+                if not payload.pop("_fk_complete", False):
+                    continue
+                timestamp = lesson.admit(scope, "claude", payload, observed, scanned=True)
+                if not timestamp:
+                    out["out_of_scope"] += 1
+                    continue
+                eid = lesson.identity("claude", payload)
+                if eid in state["events"]:
+                    out["already"] += 1
+                    continue
+                payload.update(_fk_lesson=scope["lesson_id"], _fk_admitted_at=timestamp,
+                               fk_prompt=scope.get("lesson", ""))
+                lesson.record_admitted(store, state, "claude", payload, eid, True)
+                out["calls"] += 1
+                out["new_items"] += 1
+                sessions.add(lesson.session(payload))
+                if limit is not None and out["calls"] >= limit:
+                    return {**out, "sessions": len(sessions), "limited": True}
+    return {**out, "sessions": len(sessions)}

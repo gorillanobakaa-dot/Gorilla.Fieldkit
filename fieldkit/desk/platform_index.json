@@ -1544,6 +1544,16 @@
    "capture"
   ]
  },
+ "capture clean": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture-clean"
+  ]
+ },
  "capture project firefox": {
   "platforms": [
    "linux",

@@ -91,6 +91,8 @@ def begin(lesson, who, home=None, py=None, now=None):
             note = "; clean slate skipped: " + str(g.get("refused"))
         except Exception as exc:  # noqa: BLE001 - the gate never fails a build
             note = f"; clean slate error {type(exc).__name__}"
+    if switch.read().get("scope"):
+        return {"owner": False, "who": who, "since": None, "note": "completed scoped store is reserved for its lesson" + note}
     d = switch.turn_on(lesson, BUILD_MAX_MINUTES, home=_home(home), py=py, now=now, owner=who, cap=BUILD_MAX_MINUTES, project=proj)
     return {"owner": True, "who": who, "since": d["since"], "note": f"on until {d['until']}{note}"}
 
@@ -98,6 +100,8 @@ def begin(lesson, who, home=None, py=None, now=None):
 def end(token, home=None, run=None, system=None, now=None):
     """Switch off what we switched on, then distil. -> dict with 'off' and 'distil'."""
     out = {"off": "left alone: " + token.get("note", "") if not token.get("owner") else None, "distil": None}
+    if switch.read().get("scope"):
+        return out
     if token.get("owner"):
         cur = switch.read()
         if cur.get("owner") == token["who"]:
@@ -217,7 +221,7 @@ def _project_of_group(who, eps):
     return c.most_common(1)[0][0] if c else None
 
 
-def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None, project=None):
+def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None, project=None, scope=None):
     """The whole chain on the store; -> {candidates:[path], adopted:[id], ledger:[reason], ...}. Never raises: a failure is a
     ledger line. Candidates are tried and adopted by themselves (autoadopt) unless adopt is False or FIELDKIT_CAPTURE_NO_ADOPT=1."""
     from . import classify as C
@@ -228,6 +232,8 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
     s = store or st.Store()
     try:
         s.recover()
+        if scope and any(item.get("lesson_id") != scope["lesson_id"] for item in s.state()["items"].values()):
+            raise ValueError("the scoped store contains records from another lesson")
         res["episodes"] = E.store_episodes(s)["episodes_found"]
         state = s.state()
         sm, assigned = D.stage4(s)
@@ -235,7 +241,7 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
         state = s.state()
         proj_tag = project or project_of(who) or switch.read().get("last_project")
         fresh = {eid: e for eid, e in state.get("episodes", {}).items()
-                 if (not since or str(e.get("end", "")) >= since) and episode_in_project(e, proj_tag)}
+                 if (not since or str(e.get("end", "")) >= since) and (scope or episode_in_project(e, proj_tag))}
         intents = sorted({e.get("intent") for e in fresh.values() if e.get("intent")})
         sigs = {}
         for intent in intents:
@@ -246,7 +252,7 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
                                               "reason": f"{n} episode(s) of this run match no intent group: nothing to align"}, _project_of_group(who, [e for e in fresh.values() if e.get("intent") == "other"])))
                 continue
             rec = R.build(s, intent, None, sigs)
-            proj = _project_of_group(who, [e for e in fresh.values() if e.get("intent") == intent])
+            proj = proj_tag if scope else _project_of_group(who, [e for e in fresh.values() if e.get("intent") == intent])
             if rec["accepted"]:
                 path = write_candidate(rec, project=proj)
                 res["candidates"].append(path)

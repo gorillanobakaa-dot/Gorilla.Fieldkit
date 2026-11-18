@@ -7,6 +7,7 @@ on:
     paths:
       - "fieldkit/leakgate/**"
       - "fieldkit/integration/**"
+      - "fieldkit/capture/**"
       - "fieldkit/lifecycle/pool*"
       - "fieldkit/lifecycle/choice*"
       - "fieldkit/core/prepare*"
@@ -15,6 +16,30 @@ on:
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
 jobs:
+  e2e-capture-clean-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit compileonce build
+      - run: python -m fieldkit compileonce check
+      - run: python -m fieldkit capture clean --older-than 2w --json
+  e2e-capture-clean-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit compileonce build
+      - run: python -m fieldkit compileonce check
+      - run: python -m fieldkit capture clean --older-than 2w --json
   e2e-leakgate-linux:
     # the gate's Linux enforcement layer: selftest, then a network namespace whose nftables policy DROP lets the allowed
     # port through and blocks every other one. ubuntu-latest has passwordless sudo.

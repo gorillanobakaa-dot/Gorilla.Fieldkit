@@ -683,6 +683,20 @@
      "open": false,
      "v": {}
     },
+    "clean": {
+     "c": [],
+     "f": {
+      "--all": 0,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--keep-last": 1,
+      "--older-than": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "coverage": {
      "c": [],
      "f": {
@@ -837,6 +851,8 @@
     "start": {
      "c": [],
      "f": {
+      "--agents": 1,
+      "--all": 0,
       "--because": 1,
       "--dispose": 1,
       "--dry-run": 0,
@@ -844,8 +860,11 @@
       "--force-undigested": 0,
       "--help": 0,
       "--json": 0,
+      "--keep-last": 1,
       "--lesson": 1,
+      "--older-than": 1,
       "--project": 1,
+      "--workspace": 1,
       "-h": 0
      },
      "open": false,
