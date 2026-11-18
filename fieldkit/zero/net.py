@@ -1331,7 +1331,10 @@ def _net_line(call, event, now=None):
             items = pending_for(me, rec, net, now)
             more = max(0, len(items) - HOOK_MAX_LINES)
             items = items[:HOOK_MAX_LINES]
-            rec["seen_off"] = items[-1][0] if items else end
+            if items:
+                rec["seen_off"] = items[-1][0]
+            elif rec.get("seen_off") is None:
+                rec["seen_off"] = end
             ear_now = (rec.get("ear") or {}).get("state")
             tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60
                                 or (ear_now and ear_now != rec.get("ear_told")))   # I-27: Zero hears a deaf ear soon
