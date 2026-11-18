@@ -89,10 +89,21 @@ def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
 
     gh = DraftGitHub()
     approvals = []
+    def authorize():
+        approvals.append(True)
+
+    def gate(slug, tag, hotfix):
+        assert (slug, tag, hotfix) == ("example/repo", "v1.0", "")
+        return {"ok": True}
+
     with pytest.raises(rc.Refused, match="connection interrupted"):
-        rc.promote(gh, "v1.0", candidate, tmp_path, assets, lambda: approvals.append(True))
+        rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate)
     assert gh.row["draft"] and gh.latest == "old" and not approvals
     gh.fail = False
-    assert rc.promote(gh, "v1.0", candidate, tmp_path, assets, lambda: approvals.append(True)) == "new"
+    with pytest.raises(rc.Refused, match="release window"):
+        rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize,
+                   gate=lambda *_: {"ok": False, "error": "release window"})
+    assert gh.row["draft"] and gh.latest == "old"
+    assert rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate) == "new"
     assert gh.uploads == ["a.deb", "b.exe"]
-    assert approvals == [True]
+    assert approvals == [True, True]

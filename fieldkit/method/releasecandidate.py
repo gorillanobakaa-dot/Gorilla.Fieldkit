@@ -153,8 +153,9 @@ def online_assets(row, assets):
     return observed
 
 
-def promote(gh, tag, candidate, directory, assets, gate):
+def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None):
     from ..build import relfiles
+    from . import releasegate
 
     title = candidate["title"]
     notes_path = directory / filename(candidate["notes"])
@@ -187,7 +188,10 @@ def promote(gh, tag, candidate, directory, assets, gate):
         if (online_assets(row, assets) != assets or not row["draft"] or row["name"] != title
                 or (row.get("body") or "").strip() != notes or row["tag_name"] != tag or row["prerelease"]):
             raise Refused("the draft is incomplete or changed during upload")
-        gate()
+        authorize()
+        verdict = (gate or releasegate.guard)(gh.slug, tag, hotfix)
+        if not verdict["ok"]:
+            raise Refused(verdict["error"])
         gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
     elif present != assets:
         raise Refused(f"published release {tag} is incomplete")
@@ -197,7 +201,7 @@ def promote(gh, tag, candidate, directory, assets, gate):
     return latest["html_url"]
 
 
-def publish(repo, slug, tag, path, gate):
+def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
     from .ship import git
 
     path = Path(path)
@@ -225,4 +229,4 @@ def publish(repo, slug, tag, path, gate):
     candidate = read_mapping(path)
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)
-    return promote(gh, tag, candidate, path.parent, assets, gate)
+    return promote(gh, tag, candidate, path.parent, assets, authorize, hotfix=hotfix, gate=gate)
