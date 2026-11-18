@@ -173,6 +173,8 @@ def inspect(path, root, before, kept, protected, device, mounts=(), *, crew=Fals
             row["files"] = sum(child["files"] for child in children)
     elif stat.S_ISREG(info.st_mode):
         row["files"] = 1
+        if info.st_nlink != 1:
+            reason = "hard-linked file"
     else:
         reason = "special file"
     if reason is None and before is not None and info.st_mtime_ns >= before:

@@ -83,6 +83,10 @@ def _write(d):
 
 # ---- agent settings (JSON) --------------------------------------------------------------------------------------
 def settings_file(agent, home):
+    if agent == "claude" and Path(home) == Path.home():
+        from .scan import claude_root
+
+        return claude_root().parent / "settings.json"
     if agent == "opencode":
         import os
         xdg = os.environ.get("XDG_CONFIG_HOME")

@@ -400,7 +400,41 @@ def _apply(out, keep, protected, recycle_fn):
     return out
 
 
-def clean(seconds=None, apply=False, *, recycle_fn=None):
+def _retire_sessions(out, live, recycle_fn):
+    from . import session_history
+
+    before = out["footprint"]["cutoff_ns"]
+    active = set()
+    for candidate in out["footprint"]["session_candidates"]:
+        path, root = Path(candidate["path"]), Path(candidate["root"])
+        agent = candidate["agent"]
+        try:
+            if agent in active or not session_history.quiescent(agent):
+                active.add(agent)
+                raise ValueError(f"a {agent} process is still running or cannot be ruled out")
+            evidence = session_history.archive(candidate, before, live)
+            session_history.source_info(path, root, candidate["fingerprint"], agent)
+            if not session_history.quiescent(agent):
+                active.add(agent)
+                raise ValueError(f"a {agent} process started during archive verification")
+        except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+            out["sessions_retained"].append({"path": str(path), "agent": agent, "reason": str(exc)})
+            continue
+        except OSError as exc:
+            out.update(refused="native transcript archive could not be verified", failure={"path": str(path), "error": str(exc)},
+                       next="inspect the local session archive and preview again")
+            out["recovery_report"] = str(_report_path(out))
+            return
+        receipt = _recycle_one(path, recycle_fn)
+        if not receipt["ok"]:
+            out.update(refused=f"could not recycle {path}", failure={"path": str(path), **receipt},
+                       next="inspect with fieldkit size trash, then preview again")
+            out["recovery_report"] = str(_report_path(out))
+            return
+        out["sessions_recycled"].append({"path": str(path), **evidence})
+
+
+def clean(seconds=None, apply=False, *, recycle_fn=None, inventory=False, retire_sessions=False):
     from . import switch
 
     with lessons.lock() if apply else nullcontext():
@@ -410,12 +444,21 @@ def clean(seconds=None, apply=False, *, recycle_fn=None):
         if apply and switch.is_on() and live.exists():
             return {"refused": "capture is active", "next": "finish the current capture first"}
         keep, protected = keep_list(), _protected()
-        chk = check(keep=keep, before=retention.cutoff(seconds), protected=protected, check_store=False)
+        before = retention.cutoff(seconds)
+        disp = dispositions()
+        chk = check(keep=keep, before=before, protected=protected, disp=disp, check_store=False)
         out = {"check": chk, "recycled": [], "preview": not apply, "next": chk["next"]}
+        if inventory:
+            from . import footprint
+
+            out["footprint"] = footprint.inventory(_policy(), before)
+            out.update(sessions_recycled=[], sessions_retained=[])
         if chk["errors"]:
             out["refused"] = "scratch could not be inspected safely"
         elif apply:
             _apply(out, keep, protected, recycle_fn or recycle)
+            if retire_sessions and not out.get("refused"):
+                _retire_sessions(out, live, recycle_fn or recycle)
         elif chk["wipeable"]:
             out["next"] = "repeat this cleanup with --apply to recycle eligible items"
         return out
@@ -423,7 +466,7 @@ def clean(seconds=None, apply=False, *, recycle_fn=None):
 
 def start(project, lesson, minutes=None, force=False, dry_run=False, store=None, rows=None, disp=None, keep=None,
           recycle_fn=None, turn_on=None, archive_fn=None, terminal=None, seconds=None, workspace=None, agents=None,
-          sessions=(), lookback=None):
+          sessions=(), lookback=None, retire_sessions=False):
     """Gate manual lessons and existing build callers through the same cleanup checks."""
     from . import switch
 
@@ -449,11 +492,11 @@ def start(project, lesson, minutes=None, force=False, dry_run=False, store=None,
             scope["retrospective_since"] = lessons.since_for(lookback)
     with lessons.lock() if not dry_run else nullcontext():
         return _start(project, lesson, minutes, force, dry_run, store, rows, disp, keep,
-                      recycle_fn or recycle, turn_on, archive_fn, seconds, scope)
+                      recycle_fn or recycle, turn_on, archive_fn, seconds, scope, retire_sessions)
 
 
 def _start(project, lesson, minutes, force, dry_run, store, rows, disp, keep,
-           recycle_fn, turn_on, archive_fn, seconds, scope):
+           recycle_fn, turn_on, archive_fn, seconds, scope, retire_sessions):
     from . import switch
 
     live = st.capture_dir().absolute()
@@ -474,10 +517,25 @@ def _start(project, lesson, minutes, force, dry_run, store, rows, disp, keep,
                     "next": "select verified agents or configure their capture routes"}
     keep = keep_list() if keep is None else keep
     protected = _protected(scope["workspace"] if scope else None)
-    chk = check(store, rows, disp, keep, retention.cutoff(seconds), protected)
+    before = retention.cutoff(seconds)
+    chk = check(store, rows, disp, keep, before, protected)
     if chk["errors"] or (not chk["digested"] and not force):
         return {"started": False, "wiped": False, "refused": "undigested material", "check": chk, "next": chk["next"]}
     out = {"started": False, "wiped": False, "check": chk, "forced": bool(force and not chk["digested"]), "recycled": []}
+    if retire_sessions:
+        from . import footprint
+
+        out["footprint"] = footprint.inventory(_policy(), before, temp=False)
+        out.update(sessions_recycled=[], sessions_retained=[])
+        # Exact lookback and fresh cursor sources belong to the next lesson.
+        selected = set(scope.get("sessions", {}).values()) if scope else set()
+        if selected:
+            from . import session_history
+
+            out["footprint"]["session_candidates"] = [
+                row for row in out["footprint"]["session_candidates"]
+                if session_history.candidate_id(row["agent"], Path(row["path"]), Path(row["root"])) not in selected
+            ]
     if dry_run:
         out["preview"] = True
         out["next"] = "repeat without --dry-run to recycle eligible items and start"
@@ -521,6 +579,10 @@ def _finish_start(out, project, lesson, minutes, live, keep, protected, recycle_
     _apply(out, keep, protected, recycle_fn)
     if out.get("refused"):
         return out
+    if out.get("footprint"):
+        _retire_sessions(out, live, recycle_fn)
+        if out.get("refused"):
+            return out
     if archived or live.exists():
         unchanged = archived and (snapshot is None or snapshot == _archive_snapshot(_archive_files(live)))
         receipt = (_recycle_one(live, recycle_fn) if unchanged else
@@ -552,6 +614,21 @@ def _print(a, d):
         print(json.dumps(d, indent=1, ensure_ascii=False, default=str))
         return
     c = d.get("check") or {}
+    f = d.get("footprint")
+    if f:
+        for row in (*f["temp"], *f["sessions"]):
+            label = row.get("agent") or ", ".join(row["sources"])
+            age = f", {row['older']} older, {row['recent']} recent" if f["cutoff_ns"] is not None else ""
+            print(f"  {label} {row['root']} ({row['pattern']}): {row['status']}, "
+                  f"{row['files']} file(s){age}, {row['boundaries']} boundary skips, {row['unreadable']} unreadable; {row['policy']}")
+            if row.get("detail"):
+                print(f"    {row['detail']}")
+        for error in f["errors"]:
+            print(f"  {error}")
+        print(f"  sessions: {len(f['session_candidates'])} conditional candidate(s), "
+              f"{len(d['sessions_recycled'])} archived and recycled, {len(d['sessions_retained'])} retained after inspection")
+        for row in (d["sessions_retained"] or f["session_candidates"])[:SHOW]:
+            print(f"    {row['path']} ({row['reason']})")
     for root, n in (c.get("counts") or {}).items():
         print(f"  count {root}: {n['items']} item(s), {n['files']} file(s)")
     if c:
@@ -585,15 +662,20 @@ def cmd(a):
             return 0
         seconds = retention.duration(a.keep_last) if a.keep_last is not None else None
         if a.action == "clean":
-            d = clean(seconds, a.apply)
+            if a.retire_sessions and not a.apply:
+                raise ValueError("--retire-sessions requires --apply; the preview already reports conditional candidates")
+            d = clean(seconds, a.apply, inventory=True, retire_sessions=a.retire_sessions)
         else:
             d = start(a.project, a.lesson, a.minutes, force=a.force_undigested, dry_run=a.dry_run, seconds=seconds,
                       workspace=a.workspace, agents=[name.strip().lower() for name in a.agents.split(",")] if a.agents else None,
-                      sessions=a.session, lookback=retention.duration(a.lookback) if a.lookback is not None else None)
+                      sessions=a.session, lookback=retention.duration(a.lookback) if a.lookback is not None else None,
+                      retire_sessions=a.all or seconds is not None)
     except ValueError as exc:
         print(f"capture {a.action}: {exc}", file=sys.stderr)
         return 2
     except (OSError, tarfile.TarError) as exc:
         d = {"refused": str(exc), "next": "resolve the reported filesystem error and preview again"}
     _print(a, d)
-    return 3 if d.get("refused") or (not d.get("started") and not d.get("check", {}).get("digested")) else 0
+    return 3 if d.get("refused") or (
+        not d.get("started") and not d.get("check", {}).get("digested")
+    ) else 0

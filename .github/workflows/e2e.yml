@@ -48,7 +48,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m fieldkit compileonce build
       - run: python -m fieldkit compileonce check
-      - run: python -m fieldkit capture clean --older-than 2w --json
+      - run: python .github/e2e/capture_footprint.py
   e2e-capture-clean-windows:
     runs-on: windows-latest
     timeout-minutes: 10
@@ -60,7 +60,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m fieldkit compileonce build
       - run: python -m fieldkit compileonce check
-      - run: python -m fieldkit capture clean --older-than 2w --json
+      - run: python .github/e2e/capture_footprint.py
   e2e-capture-lesson-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 10

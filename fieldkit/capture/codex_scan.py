@@ -23,10 +23,28 @@ def _json_object(value):
     return value if isinstance(value, dict) else {}
 
 
-def _read_rows(path):
+def cursor(path):
+    if not lesson.transcript_file(path):
+        raise ValueError("selected Codex rollout is linked or is not a regular file")
+    info = path.lstat()
+    with path.open("rb") as stream:
+        if not info.st_size:
+            raise ValueError("selected Codex rollout is empty")
+        stream.seek(info.st_size - 1)
+        if stream.read(1) != b"\n":
+            raise ValueError("selected Codex rollout has an incomplete tail")
+    return {"path": str(path), "device": info.st_dev, "inode": info.st_ino, "offset": info.st_size}
+
+
+def _read_rows(path, start=None):
     if not lesson.transcript_file(path):
         raise ValueError("selected Codex rollout is linked or is not a regular file")
     with path.open("rb") as stream:
+        if start:
+            info = os.fstat(stream.fileno())
+            if (info.st_dev, info.st_ino) != (start["device"], start["inode"]) or info.st_size < start["offset"]:
+                raise ValueError("registered Codex rollout was replaced or truncated")
+            stream.seek(start["offset"])
         for row in lesson.transcript_rows(stream):
             if isinstance(row.get("payload"), dict):
                 yield row
@@ -78,14 +96,14 @@ def _work_call(item, cwd, workspace):
     return None
 
 
-def calls(path, session, scope, observed):
+def calls(path, session, scope, observed, start=None):
     """Pair canonical response items by call ID and ignore event-message mirrors."""
-    if not metadata(path, session):
+    if not start and not metadata(path, session):
         return
-    cwd = ""
+    cwd = start["cwd"] if start else ""
     pending_size = 0
     pending = {}
-    for row in _read_rows(path):
+    for row in _read_rows(path, start):
         item = row["payload"]
         row_type = row.get("type")
         if row_type in ("session_meta", "turn_context"):

@@ -692,6 +692,7 @@
       "--json": 0,
       "--keep-last": 1,
       "--older-than": 1,
+      "--retire-sessions": 0,
       "-h": 0
      },
      "open": false,
@@ -818,6 +819,7 @@
      "f": {
       "--help": 0,
       "--json": 0,
+      "--legacy": 0,
       "--limit": 1,
       "--scheduled": 0,
       "-h": 0
