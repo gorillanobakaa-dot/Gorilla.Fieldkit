@@ -2,7 +2,7 @@
 change 2026-11-17: six systems may each publish the same day): refuse a new release of a repository that published one
 FOR THE SAME SYSTEM less than `min_hours` ago (releasegate.yaml, default 24). The system is the tag's suffix
 (`system_of`); a tag without one is its own kind.  Escape: a logged `--hotfix WHY` (security fix or a broken
-release); it is written to the room and the refusals ledger, and counts against the same window: one hotfix per window.
+release); it is written to the room and the refusals ledger. The configured limit is per repository and system.
 
     guard(slug, tag, hotfix="")  -> {"ok", "state", "error", "next"}
 Every place that tags or publishes calls it: ship gh-release / push --tag / release, the emerge release publisher,
@@ -67,6 +67,11 @@ def min_hours():
         return DEFAULT_HOURS
 
 
+def hotfix_limit():
+    limit = _cfg().get("hotfix_limit")
+    return limit if type(limit) is int and limit > 0 else 1
+
+
 def system_of(tag, systems=None):
     """The operating system a release tag is for: the first word after the version (v160.0.0-linux -> linux,
     v158.0-win64-build2 -> windows, macbook-air -> mac), mapped by releasegate.yaml systems; '' for a plain v1.2.3."""
@@ -108,7 +113,7 @@ def _log_path():
 def _hotfixes():
     try:
         return [json.loads(l) for l in _log_path().read_text(encoding="utf-8").splitlines() if l.strip()]
-    except OSError:
+    except FileNotFoundError:
         return []
 
 
@@ -129,6 +134,34 @@ def _record(slug, tag, why, now):
         refusals.record("releasegate-hotfix", text)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _reserve_hotfix(slug, tag, why, system, now, hours):
+    from .. import admission
+
+    try:
+        slot = admission.try_take(1, kind="releasegate", label="hotfix ledger", root=_log_path().parent)
+        if slot is None:
+            return {"ok": False, "state": "hotfix-busy", "tag": tag, "error": "another ship command holds the hotfix ledger",
+                    "next": "retry after that ship command finishes"}
+        try:
+            window = now - hours * 3600
+            used = {h["tag"] for h in _hotfixes() if h["repo"] == slug and h["t"] > window
+                    and system_of(h["tag"]) == system}
+            limit = hotfix_limit()
+            if tag not in used:
+                if len(used) >= limit:
+                    return {"ok": False, "state": "hotfix-used", "tag": tag,
+                            "error": f"{slug} used {len(used)} of {limit} hotfixes in the last {hours:g} h for "
+                                     f"{system or 'tags without an operating-system suffix'}",
+                            "next": "wait for a hotfix to age out or for the regular release window"}
+                _record(slug, tag, why, now)
+        finally:
+            slot.release()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return {"ok": False, "state": "hotfix-ledger-error", "tag": tag, "error": f"cannot use the hotfix ledger: {exc}",
+                "next": "check the hotfix ledger before retrying"}
+    return {"ok": True, "state": "hotfix", "tag": tag, "hotfix": why}
 
 
 def guard(slug, tag="", hotfix="", last=None, now=None, hours=None):
@@ -157,16 +190,7 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None):
     age = (now - last[1]) / 3600.0
     wait = f"{hours - age:.1f}"
     if hotfix:
-        window = now - hours * 3600
-        prior = [h for h in _hotfixes() if h.get("repo") == slug and h.get("t", 0) >= window and h.get("tag") != tag
-                 and system_of(h.get("tag", "")) == system]
-        if prior:
-            return {"ok": False, "state": "hotfix-used", "tag": tag,
-                    "error": f"{slug} already had a hotfix ({prior[-1].get('tag')}) in the last {hours:g} h",
-                    "next": "one hotfix per window: batch this fix into the next release"}
-        if not any(h.get("repo") == slug and h.get("tag") == tag and h.get("t", 0) >= window for h in _hotfixes()):
-            _record(slug, tag, hotfix, now)
-        return {"ok": True, "state": "hotfix", "tag": tag, "hotfix": hotfix}
+        return _reserve_hotfix(slug, tag, hotfix, system, now, hours)
     return {"ok": False, "state": "batch-window", "tag": tag,
             "error": f"{slug} published {last[0]} {age:.1f} h ago (window {hours:g} h for "
                      f"{system or 'releases without a system in the tag'})",

@@ -719,7 +719,8 @@ def main(argv=None, prog="fieldkit ship"):
                     help="gh-release: add these files to the published release (sums and page table updated)")
     ap.add_argument("--hotfix", default="", metavar="WHY",
                     help="gh-release, push --tag, release: publish inside the one-release-per-batch window "
-                         "(security fix or broken release); logged in the room and the ledger, one per window")
+                         "(security fix or broken release); logged in the room and the ledger, "
+                         "up to 10 per repository and operating system in 24 hours")
     ap.add_argument("--base", default=None,
                     help="the base branch; default: the repository's own (origin/HEAD, core/concepts.default_branch): "
                          "gorilla-firefox is master, Fieldkit main (P38 seam 4)")
