@@ -11,7 +11,8 @@
               hand-carried pairing key, 120 s window, nonce, cable address only). The message is a link note whose
               text carries `NET1 {json}`; the far side's `fieldkit net checkin` ingests it, and its check-ins come
               back the same way. A station there is store-and-forward: the note waits in its link inbox.
-    pull      Gemini CLI, Antigravity, Codex and any agent with no hook and no listener: nothing can be pushed to
+    agent-hook  Codex and Gemini CLI stations that have checked in from their native inbox hooks.
+    pull      An agent with no hook and no listener: nothing can be pushed to
               them. The rule in AGENTS.md / GEMINI.md makes them run `fieldkit net checkin` at start; they see their
               traffic then. Listed in every roll call as "pull only", never as delivered.
 
@@ -190,6 +191,8 @@ class Pull:
 
     def push(self, entry, net):
         to = entry.get("to") or "*"
+        if to != "*" and _hook_stations(to):
+            return []
         active, _ = antigravity_channels(to if str(to).startswith("antigravity:") else None,
                                          self._ear_state, self._hook_doctor)
         if str(to).startswith("antigravity:") and active:
@@ -199,6 +202,28 @@ class Pull:
                      "detail": "pull only (Antigravity reached via active ear/hook); startup rule makes others check in"}]
         return [{"channel": self.name, "target": "Gemini / Antigravity / Codex", "ok": True,
                  "detail": "pull only: the AGENTS.md / GEMINI.md rule makes them run `fieldkit net checkin` at start"}]
+
+
+def _hook_stations(target):
+    from . import net as zero_net
+
+    return [sid for sid, rec in zero_net.load_stations()["stations"].items()
+            if zero_net.kind_of(sid) in ("codex", "gemini")
+            and zero_net.machine_of(sid) == zero_net.machine()
+            and (target == "*" or target == sid)
+            and rec.get("via") == "hook" and not rec.get("off")]
+
+
+class AgentHooks:
+    name, mode = "agent-hook", "pull"
+
+    def push(self, entry, net):
+        to = entry.get("to") or "*"
+        if to != "*" and not to.startswith(("codex:", "gemini:")):
+            return []
+        return [{"channel": self.name, "target": sid, "ok": True,
+                 "detail": "queued for the next native inbox hook; receipt pending"}
+                for sid in _hook_stations(to)]
 
 
 class OpenCode:
@@ -355,7 +380,7 @@ class Cable:
 
 
 def default():
-    return [Room(), OpenCode(), Cable(), Antigravity(), Pull()]
+    return [Room(), OpenCode(), Cable(), Antigravity(), AgentHooks(), Pull()]
 
 
 def inbox_items(since, inbox=None):
