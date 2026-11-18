@@ -388,6 +388,10 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
     v = package_version(repo)
     if not row("version", v == tag[1:], f"package version {v}, tag {tag}"):
         return {"ok": False, "rows": rows}
+    from . import tagguard
+    parity = tagguard.parity_row(repo, head)
+    if parity is not None and not row("parity", *parity):
+        return {"ok": False, "rows": rows, "next": tagguard.PARITY_FIX}
     files = {n: notes / f"{n}.md" for n in ("opening", "layman", "developer")}
     missing = [str(f) for f in files.values() if not f.is_file()]
     if not row("notes", not missing, "every note file present" if not missing else f"missing {missing}: --scaffold writes them"):

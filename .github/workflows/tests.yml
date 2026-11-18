@@ -38,6 +38,9 @@ jobs:
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request'
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
+      - name: OS parity inventory and generated documentation
+        if: matrix.shard == 1
+        run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
         run: |
@@ -80,6 +83,9 @@ jobs:
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request'
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
+      - name: OS parity inventory and generated documentation
+        if: matrix.shard == 1
+        run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
         run: |

@@ -9,6 +9,7 @@
   3. notes      releases/notes/X/{opening,layman,developer,page}.md exist at the commit
   4. page       `fieldkit release-page check` passes on that page with its layman and developer files
   5. ci         GitHub's CI for the commit is green, with a job for every system in the repository's mandate ci_os
+  6. parity     Fieldkit's OS parity records and generated docs agree at the candidate commit
 
 Git, gh and the page check are injected, so the tests touch no network. Exit 0 ready, 3 not ready.
 """
@@ -16,6 +17,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 NOTES = ("opening", "layman", "developer", "page")
@@ -94,6 +96,36 @@ def version_rows(repo, commit, tag):
     return problems
 
 
+def parity_row(repo, commit):
+    """Return a Fieldkit-only gate result from tracked files at the candidate commit."""
+    marker = _git(repo, "ls-tree", "--name-only", commit, "--", "fieldkit/__init__.py")
+    if marker.returncode:
+        return False, f"cannot inspect release candidate {commit[:10]}: {marker.stderr.strip()}"
+    if not marker.stdout.strip():
+        return None
+
+    from ..desk import osparity
+    from yaml import YAMLError
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            snapshot = Path(td) / "candidate.zip"
+            archived = _git(repo, "archive", "--format=zip", f"--output={snapshot}", commit, "--",
+                            "fieldkit", "skills", "hooks", ".github", "docs")
+            if archived.returncode:
+                return False, f"cannot read parity inputs at {commit[:10]}: {archived.stderr.strip()}"
+            with zipfile.ZipFile(snapshot) as tree:
+                tree.extractall(Path(td) / "tree")
+            findings = osparity.check(Path(td) / "tree")
+    except (OSError, ValueError, YAMLError, zipfile.BadZipFile, subprocess.TimeoutExpired) as exc:
+        return False, f"cannot check OS parity at {commit[:10]}: {exc}"
+    return (False, "\n         ".join(findings)) if findings else (
+        True, "OS PARITY CHECK OK: inventory valid and docs/PLATFORMS.md current")
+
+
+PARITY_FIX = "fieldkit parity os --check; fix the records and run fieldkit parity os --write, then commit through a PR"
+
+
 def check(repo, tag, dry_run=False, ci_os=None, ci=None, page=None, run=subprocess.run):
     """-> {"ok", "rows": [{"check", "ok", "say", "run"}]}. The tagged commit is the tag's (HEAD for a dry run with no tag)."""
     repo = str(repo)
@@ -135,6 +167,9 @@ def check(repo, tag, dry_run=False, ci_os=None, ci=None, page=None, run=subproce
             f"--developer releases/notes/{tag}/developer.md")
     else:
         row("page", False, "not checked: the note files are missing", "fix notes first")
+    parity = parity_row(repo, commit)
+    if parity is not None:
+        row("parity", *parity, PARITY_FIX)
     from ..mandate import proofs
     ok, say = (ci or proofs.ci_green)(repo, commit, {"ci_os": ci_os_of(repo) if ci_os is None else ci_os}, run=run)
     row("ci", ok, say, "wait for CI on that commit (fieldkit ship ci-wait PR) or fix what is red; the tag goes on a green commit")

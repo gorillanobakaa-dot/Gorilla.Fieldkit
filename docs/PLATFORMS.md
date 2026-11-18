@@ -93,7 +93,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 ## Beyond cards: pipelines, skills, workflows, hooks, modules
 
-32 records: 0 Windows-only, 0 Linux-only, 15 on both but different, 17 native-only.
+34 records: 0 Windows-only, 0 Linux-only, 17 on both but different, 17 native-only.
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
@@ -109,6 +109,8 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `skill:fieldkit-tools` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-tools/SKILL.md description names Linux too (the commands already run on b… | S | 7 | skills/fieldkit-tools/SKILL.md:3 |
 | `module:fieldkit/leakgate/sensors.py` | windows | linux | PARTIAL | ADAPT | the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgat… | L | 8 | fieldkit/leakgate/sensors.py:623 |
 | `hook:wait-for-hook.sh` | linux | windows | PARTIAL | DOCUMENT | git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin | M |  | hooks/wait-for-hook.sh:1 |
+| `module:fieldkit/capture/session_history.py` | windows | linux | PARTIAL | DOCUMENT | Session archival runs on both systems. POSIX additionally verifies the archive directory… | M |  | fieldkit/capture/session_history.py:379 |
+| `module:fieldkit/zero/hooks.py` | linux | windows | PARTIAL | DOCUMENT | Hook commands quote executable paths on both systems. Windows additionally rejects unsafe… | M |  | fieldkit/zero/hooks.py:57 |
 | `stage:firefox-linux` | linux | windows | INCOMPATIBLE | DOCUMENT | the firefox-windows pipeline is the Windows counterpart (same stages, Windows tools) | M |  | fieldkit/build/pipelines/firefox-linux.yaml:25 |
 | `stage:firefox-windows` | windows | linux | INCOMPATIBLE | DOCUMENT | the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools) | M |  | fieldkit/build/pipelines/firefox-windows.yaml:16 |
 | `stage:sensors-gorilla` | linux | windows | INCOMPATIBLE | DOCUMENT | gorilla-tpfancontrol and fieldkit hog read the sensors on Windows | M |  | fieldkit/emerge/recipes/sensors-gorilla.yaml:43 |
@@ -126,9 +128,9 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:kernel-7.0.5-release` | linux | windows | NATIVE-ONLY | CREATE | the Linux kernel is built only on Linux; Windows has no kernel to build | M |  | fieldkit/emerge/recipes/kernel-7.0.5-release.yaml:35 |
 | `stage:kernel-7.0.9-unleashed` | linux | windows | NATIVE-ONLY | CREATE | the Linux kernel is built only on Linux; Windows has no kernel to build | M |  | fieldkit/emerge/recipes/kernel-7.0.9-unleashed.yaml:37 |
 | `stage:windows-11-tweaks` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX) | M |  | fieldkit/emerge/recipes/windows-11-tweaks.yaml:40 |
-| `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:32 |
+| `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:34 |
 | `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:30 |
-| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:72 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:75 |
 
 ## How each single-system command is routed (core/crossos.py)
 
