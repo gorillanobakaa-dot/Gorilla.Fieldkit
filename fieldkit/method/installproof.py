@@ -65,6 +65,7 @@ def record(repo, target, version, installer, assets, output, command, *, env=Non
         candidate.filename(name)
         if not path.is_file() or path.stat().st_size == 0:
             raise candidate.Refused(f"missing or empty proof asset: {name}")
+    candidate.install_inputs(target, spec, paths, version)
     digests = {name: candidate.file_digest(path) for name, path in paths.items()}
     env.update(FIELDKIT_INSTALLER=str(installer), FIELDKIT_VERSION=version)
     run(command, cwd=repo, env=env, check=True, timeout=1800)

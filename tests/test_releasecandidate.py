@@ -51,6 +51,31 @@ def test_online_digest_must_match():
         rc.online_assets(draft, {"test.deb": "expected"})
 
 
+def test_replacing_one_installer_reuses_only_independent_proof():
+    installers = {"windows": "windows.exe", "debian": "debian.deb", "mac": "mac.pkg"}
+    specs = {target: {"workflow": ".github/workflows/release-candidate.yml", "platform": platform, "arch": "x86_64"}
+             for target, platform in (("windows", "windows"), ("debian", "debian"), ("mac", "macos"))}
+    candidate = {"version": "1.0", "runs": {"windows": 4, "debian": 2, "mac": 3}}
+    assets = {"windows.exe": "win-new", "debian.deb": "deb", "mac.pkg": "mac", "shared.zip": "shared"}
+
+    class Proofs:
+        def proof(self, target, run, workflow, commit):
+            assert run == candidate["runs"][target]
+            observed = {installers[target]: assets[installers[target]], "shared.zip": "shared"}
+            if target != "windows":
+                observed["windows.exe"] = "win-old"
+            return {"target": target, "version": "1.0", "commit": commit, "installed": True,
+                    "installer": installers[target], "platform": specs[target]["platform"], "arch": "x86_64",
+                    "assets": observed}
+
+    rc.check_proofs(Proofs(), {"targets": specs}, candidate, "commit", assets, installers)
+    for spec in specs.values():
+        spec["install_inputs"] = [r"shared\.zip"]
+    with pytest.raises(rc.Refused, match="windows: package hashes differ"):
+        rc.check_proofs(Proofs(), {"targets": specs}, candidate, "commit",
+                        dict(assets, **{"shared.zip": "replacement"}), installers)
+
+
 def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
     for name in ("a.deb", "b.exe"):
         (tmp_path / name).write_bytes(name.encode())
