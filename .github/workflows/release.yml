@@ -36,6 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.proof.outputs[matrix.proof] != 'true'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
       - uses: actions/setup-python@v5
         if: needs.proof.outputs[matrix.proof] != 'true'
         with:
@@ -53,8 +56,11 @@ jobs:
         timeout-minutes: 8
         shell: bash
         run: bash .github/desktop-file-utils.sh
-      - run: python -m pytest -q -rs
+      - run: python .github/ci_tests.py full
         if: needs.proof.outputs[matrix.proof] != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIELDKIT_REUSE_CI: '1'
   candidate:
     needs: test
     if: github.ref_type == 'tag'

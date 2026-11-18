@@ -34,6 +34,31 @@ def test_source_release_reuses_only_full_ci_at_its_commit():
     assert proof.tested_systems(jobs) == {"windows"}
 
 
+def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp_path):
+    path = Path(__file__).resolve().parents[1] / ".github" / "ci_file_proof.py"
+    loader = importlib.util.spec_from_file_location("ci_file_proof", path)
+    proof = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(proof)
+    report = tmp_path / "report.xml"
+    report.write_text('<testsuite><testcase file="tests/test_a.py"/><testcase file="tests/test_b.py"/>'
+                      '<testcase file="tests/test_b.py"><skipped/></testcase>'
+                      '<testcase file="tests/test_c.py"><failure/></testcase></testsuite>', encoding="utf-8")
+    selected = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py", "tests/test_d.py"]
+    identity = {"tree": "tree-1", "image": "image-1", "packages": "versions-1"}
+    receipt = tmp_path / "proof.json"
+    proof.write_receipt(receipt, report, selected, identity)
+    prior = json.loads(receipt.read_text(encoding="utf-8"))
+    assert proof.missing_files(selected, identity, [prior]) == selected[1:]
+    for change in (dict(identity, tree="tree-2"), dict(identity, image="image-2"), dict(identity, packages="versions-2")):
+        assert proof.missing_files(selected, change, [prior]) == selected
+
+    run = {"head_sha": "sha", "head_repository": {"full_name": "owner/fieldkit"}, "status": "completed",
+           "conclusion": "success", "event": "pull_request", "path": ".github/workflows/tests.yml"}
+    assert proof.trusted_run(run, "owner/fieldkit", "sha")
+    assert not proof.trusted_run(dict(run, head_repository={"full_name": "fork/fieldkit"}), "owner/fieldkit", "sha")
+    assert not proof.trusted_run(dict(run, conclusion="failure"), "owner/fieldkit", "sha")
+
+
 def fake(monkeypatch, plan=None, out=None):
     def run(cmd, **kw):
         return types.SimpleNamespace(returncode=0, stdout=out if out is not None else json.dumps(plan))

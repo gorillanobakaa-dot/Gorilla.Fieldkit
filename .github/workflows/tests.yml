@@ -44,6 +44,8 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
+        env:
+          FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="origin/${{ github.base_ref }}"
@@ -54,6 +56,13 @@ jobs:
             base="full"
           fi
           python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          name: test-pass-${{ runner.os }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: .ci-proof/proof.json
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   shard-ubuntu-latest:
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
@@ -90,6 +99,8 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
+        env:
+          FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="origin/${{ github.base_ref }}"
@@ -100,6 +111,13 @@ jobs:
             base="full"
           fi
           python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          name: test-pass-${{ runner.os }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: .ci-proof/proof.json
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   test:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
