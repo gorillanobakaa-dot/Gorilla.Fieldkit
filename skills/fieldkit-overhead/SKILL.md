@@ -19,7 +19,11 @@ estimate this by hand: run the meter.** Source `fieldkit/overhead.py`, card `ove
 | a goal | `fieldkit overhead goal:<id>` (sessions come from its jobs' CHECKPOINT.json) |
 | no stage log for this job | `fieldkit overhead JOB --bare 90` or `"overhead": {"baselines": {"JOB": 90}}` |
 | the bare times the logs give | `fieldkit overhead baselines` |
+| release and Emergency Repair fixture timings | `fieldkit overhead --fixture RECEIPT` (repeat for each CI `proof.json`) |
 | machine-readable | add `--json` |
+
+Fixture receipts report the real elapsed test time and observed reuse counts for the simulated release and repair.
+Use the build journal and session data for production build time, CI waits, owner actions, and model cost.
 
 ## Reading the line
 

@@ -151,6 +151,7 @@ fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push 
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
 fieldkit ship gh-release vX -- --check-candidate FILE   validate the tagged policy and installer proofs with read-only access
 fieldkit ship gh-release vX -- --candidate FILE   publish the verified candidate through the mandate
+fieldkit overhead --fixture RECEIPT [--json]      measured release and repair fixtures from CI test receipts
 fieldkit ship prune [--archive-unproven]   delete remote branches proven merged; a delete a hook refuses is a DO row with git's words
 fieldkit ship tags [--repo R | --all] [--fix-local]   every tag classed (release / version-no-release / archive / other), only real
                             candidates flagged (unreachable, duplicate, local-only); GitHub tags are never deleted by an agent: the
