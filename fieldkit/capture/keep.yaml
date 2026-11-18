@@ -35,7 +35,9 @@ keep:
   - token
 
 protected_roots:
-  - ~/.codex/tmp/arg0      # Codex launcher runtime
+  - ~/.codex/tmp           # Codex launcher runtime, including arg0 and arg0-windows
+  - ~/.codex/.tmp          # Codex plugin staging and marketplace state
+  - ~/.codex/plugins       # Codex installed plugin state
   - ~/.codex/worktrees     # Codex managed project checkouts
   - ~/.codex/sessions     # original Codex transcripts
   - ~/Documents/Scripts
@@ -52,7 +54,6 @@ scratch_roots:
   - ~/AppData/Local/Temp/claude-*
   - ~/.gemini/tmp
   - ~/.gemini/antigravity/scratch
-  - ~/.codex/tmp
   - ~/.local/share/gorilla-opencode/tmp          # OpenCode work dirs, Linux
   - ~/AppData/Local/gorilla-opencode/tmp          # OpenCode work dirs, Windows
 

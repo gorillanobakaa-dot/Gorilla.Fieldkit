@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import store as st
+from . import agy, store as st
 
 MARK = "capture hook"
 MAX_MINUTES = 7 * 24 * 60   # owner 2026-11-10: one week; an extension only when the owner grants it
@@ -99,6 +99,8 @@ def python_exe():
 
 
 def hook_command(agent, py=None):
+    if agent == "agy" and py is None:
+        py = sys.executable  # Antigravity requires a JSON response on stdout, including on Windows.
     return f'"{py or python_exe()}" -m fieldkit {MARK} --agent {agent}'
 
 
@@ -191,15 +193,22 @@ def check_routes(agents, home=None):
     home = home or Path.home()
     errors = {}
     for agent in agents:
-        if agent not in EVENTS:
+        if agent == "codex":  # The selected rollout is checked by scan.verify_sessions before the cleanup gate.
+            continue
+        if agent not in EVENTS and agent != "agy":
             errors[agent] = "no verified capture adapter"
             continue
         stem = "gorilla-opencode" if agent == "opencode" else agent
         if not (shutil.which(stem) or agentfind.find_path(stem)):
             errors[agent] = "agent executable was not found"
             continue
-        path = settings_file(agent, home)
         try:
+            if agent == "agy":
+                config = agy.load(home)
+                if agy.NAME in config and not agy.owned(config[agy.NAME]):
+                    errors[agent] = "Antigravity hook name is already in use"
+                continue
+            path = settings_file(agent, home)
             retention.check_root(path.parent.absolute())
             if not path.is_file() or retention.link(path.lstat()) or _load(path) is None:
                 errors[agent] = "agent settings are missing or linked"
@@ -233,14 +242,23 @@ def _add_scoped(settings, agent):
 
 
 def remove_routes(agents, home=None):
-    return edit_settings(home or Path.home(), lambda settings, _agent: strip_hooks(settings), agents)
+    home = home or Path.home()
+    results = edit_settings(home, lambda settings, _agent: strip_hooks(settings),
+                            [agent for agent in agents if agent in EVENTS])
+    if "agy" in agents:
+        try:
+            results["agy"] = agy.edit(home)
+        except (OSError, ValueError) as exc:
+            results["agy"] = f"ERROR {exc}"
+    return results
 
 
 def prepare_routes(agents, home=None):
     home = home or Path.home()
-    results = edit_settings(home, _add_scoped, agents)
+    installed = [agent for agent in agents if agent in EVENTS]
+    results = edit_settings(home, _add_scoped, installed)
     errors = {}
-    for agent in agents:
+    for agent in installed:
         try:
             cfg = _load(settings_file(agent, home))
             expected = _scoped_specs(agent)
@@ -251,6 +269,14 @@ def prepare_routes(agents, home=None):
                 errors[agent] = "required hook settings could not be installed and read back"
         except (OSError, ValueError, TypeError, AttributeError):
             errors[agent] = "required hook settings are unreadable"
+    if not errors and "agy" in agents:
+        try:
+            command = hook_command("agy")
+            agy.edit(home, command)
+            if agy.load(home).get(agy.NAME) != agy.spec(command):
+                errors["agy"] = "required hook settings could not be read back"
+        except (OSError, ValueError) as exc:
+            errors["agy"] = str(exc)
     if errors:
         remove_routes(agents, home)
     return errors
@@ -291,6 +317,8 @@ def schedule_on(system=None, python=None, root=None, home=None, apply_fn=None):
 
 def schedule_off(run=_run, system=None):
     """Disable the periodic scan and the log-on catch-up where they exist. Returns {what: result}."""
+    if os.environ.get("FIELDKIT_CAPTURE_NO_SCHEDULE"):
+        return {"schedule": "skipped (FIELDKIT_CAPTURE_NO_SCHEDULE)"}
     system = system or sys.platform
     out = {}
     if system.startswith("win"):
@@ -310,6 +338,8 @@ def schedule_off(run=_run, system=None):
 
 
 def schedule_state(run=_run, system=None):
+    if os.environ.get("FIELDKIT_CAPTURE_NO_SCHEDULE"):
+        return {"schedule": "skipped (FIELDKIT_CAPTURE_NO_SCHEDULE)"}
     system = system or sys.platform
     if system.startswith("win"):
         rc, txt = run(["schtasks", "/query", "/tn", WIN_TASK, "/fo", "csv", "/nh"])
@@ -455,7 +485,7 @@ def turn_off(home=None, run=_run, system=None, now=None):
             ended = (now or _now()).isoformat(timespec="microseconds")
             d["scope"] = {**d["scope"], "until": min(d["scope"]["until"], ended)}
     _write(d)
-    d["hooks_removed"] = edit_settings(home or Path.home(), lambda s, a: strip_hooks(s))
+    d["hooks_removed"] = remove_routes([*EVENTS, *(d.get("scope") or {}).get("agents", ())], home)
     d["schedule"] = schedule_off(run, system)
     return d
 
@@ -469,6 +499,10 @@ def state(home=None, run=_run, system=None, now=None):
             hooks[agent] = count_hooks(s) if s is not None else "no settings file"
         except (OSError, ValueError) as exc:
             hooks[agent] = f"ERROR {exc}"
+    try:
+        hooks["agy"] = int(agy.owned(agy.load(home or Path.home()).get(agy.NAME)))
+    except (OSError, ValueError) as exc:
+        hooks["agy"] = f"ERROR {exc}"
     on = is_on(d, now)
     word = "on" if on else ("expired" if d.get("on") else "off")
     return {"capture": word, "extension_due_h": extension_due(d, now), "switch": d, "hooks": hooks, "schedule": schedule_state(run, system)}
@@ -516,14 +550,19 @@ def cmd_off(a):
 
     prev = read()
     scope = prev.get("scope")
-    since = scope["since"] if scope else prev.get("since")
+    since = (scope.get("retrospective_since") or scope["since"]) if scope else prev.get("since")
     d = turn_off()
     errs = _errors(d["hooks_removed"]) + _errors(d["schedule"])
     lines = ["capture OFF", "hooks removed: " + ", ".join(f"{k} {v}" for k, v in d["hooks_removed"].items()),
              "schedule: " + ", ".join(f"{k} {v}" for k, v in d["schedule"].items())] + errs
     nxt = "nothing to do" if not errs else "fix the ERROR lines above"
-    if scope and prev.get("on"):
-        catchup = scan.scan(scope=d["scope"])
+    if scope:
+        try:
+            catchup = scan.scan(scope=d["scope"])
+        except (OSError, ValueError) as exc:
+            d["catchup_error"] = f"{exc}"
+            _print(a, d, [*lines, f"lesson catch-up ERROR: {exc}"], "restore the selected transcripts and repeat capture off")
+            return 1
         d["catchup"] = catchup
         lines.append(f"lesson catch-up: {catchup['calls']} additional call(s)")
     if getattr(a, "distill", False):

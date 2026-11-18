@@ -5,8 +5,9 @@
                                                              (fieldkit emerge run does on/off/distill by itself, see capture/loop.py)
     fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
     fieldkit capture clean (--all | --keep-last AGE) [--apply] preview scratch retention, or recycle eligible items
-    fieldkit capture start --project NAME --lesson WHY      clean scratch and start capture, with optional --workspace and --agents
-    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
+    fieldkit capture start --project NAME --lesson WHY      scoped lessons accept --workspace DIR --agents LIST
+                                                            and --session AGENT=ID --lookback AGE for transcript catch-up
+    fieldkit capture hook --agent claude|gemini|opencode|agy one hook event on stdin -> the journal (only while on); exit 0
     fieldkit capture scan [--json] [--limit N]               journal the work calls the transcripts hold that no hook captured (idempotent)
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
@@ -57,7 +58,14 @@ def _emit(a, data, lines):
 def cmd_hook(a):
     try:
         observed = datetime.now(timezone.utc)
-        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+        if a.agent == "agy":
+            raw = sys.stdin.buffer.read(lesson.MAX_TRANSCRIPT_ROW + 1)
+            if len(raw) > lesson.MAX_TRANSCRIPT_ROW:
+                print("capture hook: Antigravity payload exceeds 16 MiB", file=sys.stderr)
+                return 0
+        else:
+            raw = sys.stdin.buffer.read()
+        text = raw.decode("utf-8", "replace")
         from . import switch
         if not switch.is_on():                             # off or expired: record nothing (owner, 2026-11-08)
             return 0
@@ -69,6 +77,9 @@ def cmd_hook(a):
                 switch.ensure_schedule()                   # heal the timer while this switch still owns it
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
+    finally:
+        if a.agent == "agy":
+            print("{}")
     return 0
 
 
@@ -78,7 +89,11 @@ def cmd_scan(a):
         state = switch.read()
         if a.scheduled and not switch.is_on(state):
             return 0
-        r = scan.scan(st.Store(), limit=a.limit, scope=state.get("scope"))
+        try:
+            r = scan.scan(st.Store(), limit=a.limit, scope=state.get("scope"))
+        except (OSError, ValueError) as exc:
+            print(f"capture scan: {exc}", file=sys.stderr)
+            return 3
     if a.scheduled:
         return 0
     r["next"] = "fieldkit capture coverage --strict, then fieldkit capture ledger --strict"
@@ -358,7 +373,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="action", required=True)
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
-    h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
+    h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode", "agy"])
     on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
     on.add_argument("--lesson", default=None, help="what the harness is being taught (omit it, with capture on, to extend it)")
     on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 10080, one week)")
@@ -373,7 +388,10 @@ def main(argv=None):
     stt.add_argument("--because")
     stt.add_argument("--json", action="store_true")
     stt.add_argument("--workspace", help="existing project directory for the lesson boundary")
-    stt.add_argument("--agents", help="comma-separated verified agents, for example claude,gemini")
+    stt.add_argument("--agents", help="comma-separated agents: claude,codex,agy,gemini,opencode")
+    stt.add_argument("--lookback", metavar="AGE", help="read recent calls (for example 30m) from selected Claude or Codex transcripts")
+    stt.add_argument("--session", metavar="AGENT=ID", action="append", default=[],
+                     help="restrict capture to this session for the selected agent; repeat for other agents")
     clean = sub.add_parser("clean", help="preview scratch retention, or recycle eligible items with --apply")
     clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
     clean.add_argument("--json", action="store_true")

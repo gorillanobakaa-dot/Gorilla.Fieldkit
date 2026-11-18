@@ -207,9 +207,13 @@ def handle(agent, text, store=None, scope=None, observed=None):
         except ValueError:
             payload = {"raw": text}
         if scope:
-            from . import lesson
+            from . import agy, lesson
+            if agent == "agy":
+                payload = agy.payload(payload, scope["workspace"])
             iid, _ = lesson.record(store, scope, agent, payload, observed)
             return iid
+        if agent == "agy":
+            return None
         try:
             rec = parse(agent, payload, store)
         except Exception as exc:                           # noqa: BLE001

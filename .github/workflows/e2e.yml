@@ -40,6 +40,28 @@ jobs:
       - run: python -m fieldkit compileonce build
       - run: python -m fieldkit compileonce check
       - run: python -m fieldkit capture clean --older-than 2w --json
+  e2e-capture-lesson-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit compileonce build
+      - run: python .github/e2e/capture_lesson.py
+  e2e-capture-lesson-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m fieldkit compileonce build
+      - run: python .github/e2e/capture_lesson.py
   e2e-leakgate-linux:
     # the gate's Linux enforcement layer: selftest, then a network namespace whose nftables policy DROP lets the allowed
     # port through and blocks every other one. ubuntu-latest has passwordless sudo.
