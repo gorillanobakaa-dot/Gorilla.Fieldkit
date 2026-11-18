@@ -1,0 +1,7 @@
+{
+  "tests/test_ci_tests.py": [
+    ".github",
+    "fieldkit",
+    "tests/testmap.yaml"
+  ]
+}

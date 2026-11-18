@@ -76,3 +76,10 @@ The candidate publisher counts hotfixes using GitHub publication history. Tag pu
 publication attempts leave the quota unchanged. Publishers sharing one Fieldkit state directory serialize the
 final check and promotion locally. Separate machines can read the same history, and a concurrent promotion
 on separate machines has no shared lock.
+
+Fieldkit CI records passing test files with the tested tree, runner image, Git, Python, and dependency versions.
+For files listed in `.github/test-proof-inputs.json`, CI also records the identities of their declared Git inputs.
+The test file, workflow and runner scripts, declaration file, project configuration, and shared test setup are
+always inputs. Only use a scoped declaration when it covers the test's transitive imports, fixtures, and other
+files it reads. Tests without a declaration need matching whole-tree evidence. A missing path or changed input
+leaves that file scheduled. The release workflow reports how many files it reused and the lookup time.

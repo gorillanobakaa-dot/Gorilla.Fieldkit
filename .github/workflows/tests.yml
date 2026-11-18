@@ -1,7 +1,7 @@
 # Tests once (R7 in docs/HARNESS-PLAN.md; owner, 2026-10-28): a pull request and a push to main run only the tests
 # covering the change, on Windows and on Linux, so "runs on both" is still proven by a machine that is not the
 # author's. The whole suite runs once, when a project is finished: run this workflow by hand (Run workflow; and
-# release.yml reuses it for the same commit when available). Other branch pushes run nothing here: their pull request does.
+# release.yml reuses individual passes when their recorded inputs match). Other branch pushes run only through their PR.
 name: tests
 on:
   pull_request:
