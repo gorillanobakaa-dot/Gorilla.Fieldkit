@@ -20,7 +20,8 @@ stop the product's processes (by PID, only programs inside the install folder); 
 and every compression method kept; touch .purgecaches (the profile stays); run the runtime visual check on a
 throwaway copy of the install for the pages named; on any FAIL or UNVERIFIABLE in RT-CONTENT, RT-LOAD or RT-RUN, or
 a page not measured, put the archives back and exit 3; else write the patch and print the push. The product is
-reopened when it was running.
+reopened when it was running. A passing runtime check can be reused when the installed files read by the probe,
+the probe itself, the allowlist, runner and requested pages and DPRs match.
 """
 import datetime as _dt
 import os
@@ -189,9 +190,17 @@ def repair(recipe, files, install_dir=None, maps=None, name="repair", why=None, 
             say(f"  {jar}: {len(new)} entr{'y' if len(new) == 1 else 'ies'} replaced (backup {backup.name})")
         (install_dir / ".purgecaches").touch()
         pages = list(sp["check"].get("pages") or [])
+        dprs = tuple(sp["check"].get("dprs") or (1,))
+        proof_key = reused = None
         if check is None:
             from ..visual import runtime
-            res = runtime.run(install_dir, only=pages, dprs=tuple(sp["check"].get("dprs") or (1,)), say=say)
+            from . import repairproof
+
+            proof_key = repairproof.key(install_dir, pages, dprs) if pages else None
+            reused = repairproof.read(proof_key, pages, dprs) if proof_key else None
+            res = reused or runtime.run(install_dir, only=pages, dprs=dprs, say=say)
+            if reused:
+                say("  reused runtime proof for the same installed inputs, pages and DPRs")
         else:
             res = check(install_dir, pages)
         problems = verdict(res, pages)
@@ -202,7 +211,11 @@ def repair(recipe, files, install_dir=None, maps=None, name="repair", why=None, 
                                   else str(p) for p, _, _ in steps],
                              recipe.name, recipe.vars.get("version", "0"), name, why or name, base=base)
         committed = True
-        return dict(out, ok=True, why="installed and checked", patch=str(patch) if patch else None)
+        if proof_key and not reused and repairproof.complete(res, pages, dprs):
+            if repairproof.key(install_dir, pages, dprs) == proof_key:
+                repairproof.write(proof_key, res["items"])
+        return dict(out, ok=True, why="installed and checked", patch=str(patch) if patch else None,
+                    proof_reused=bool(reused))
     finally:
         if not committed and backups:
             for jar, backup in backups.items():

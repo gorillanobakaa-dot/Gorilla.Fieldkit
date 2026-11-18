@@ -126,6 +126,11 @@ def _inside(path, base):
         return False
 
 
+def copy_ignored(directory, names):
+    return shutil.ignore_patterns("gvisual*", "mozilla.cfg", "*.ja.before-repair-????????-??????-??????")(
+        directory, names)
+
+
 def copy_build(install_dir, root):
     """The installed build copied into the throwaway root. The install itself is only read."""
     src, dest = Path(install_dir).resolve(), Path(root) / "browser"
@@ -136,7 +141,7 @@ def copy_build(install_dir, root):
         raise Refused(f"no {layout.exe(src).name} in {src}")
     if _inside(src, root) or _inside(root, src):
         raise Refused("the install and the throwaway copy overlap")
-    shutil.copytree(src, dest, ignore=shutil.ignore_patterns("gvisual*", "mozilla.cfg"))
+    shutil.copytree(src, dest, ignore=copy_ignored)
     for left in ("defaults/pref/autoconfig.js", "gvisual.cfg"):
         if (dest / left).exists():
             raise Refused(f"the install already carries {left}: refusing to run someone else's autoconfig")
