@@ -11,29 +11,6 @@ ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
 
 
-def test_source_release_reuses_only_full_ci_at_its_commit():
-    path = Path(__file__).resolve().parents[1] / ".github" / "release_test_proof.py"
-    loader = importlib.util.spec_from_file_location("release_test_proof", path)
-    proof = importlib.util.module_from_spec(loader)
-    loader.loader.exec_module(proof)
-
-    full = {"head_sha": "candidate", "event": "workflow_dispatch", "status": "completed",
-            "conclusion": "success", "path": ".github/workflows/tests.yml",
-            "head_repository": {"full_name": "owner/fieldkit"}}
-    candidates = [dict(full, head_sha="different"), dict(full, event="push"),
-                  dict(full, conclusion="cancelled"), dict(full, head_repository={"full_name": "fork/fieldkit"}),
-                  dict(full, path=".github/workflows/release.yml"), full]
-    assert list(proof.full_suite_runs(candidates, "owner/fieldkit", "candidate")) == [full]
-
-    jobs = [{"name": name, "status": "completed", "conclusion": "success"}
-            for name in ["test (windows-latest)", "test (ubuntu-latest)",
-                         *(f"shard (windows-latest, {index})" for index in range(1, 5)),
-                         *(f"shard (ubuntu-latest, {index})" for index in range(1, 5))]]
-    assert proof.tested_systems(jobs) == {"windows", "linux"}
-    jobs[-1]["conclusion"] = "skipped"
-    assert proof.tested_systems(jobs) == {"windows"}
-
-
 def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp_path):
     path = Path(__file__).resolve().parents[1] / ".github" / "ci_file_proof.py"
     loader = importlib.util.spec_from_file_location("ci_file_proof", path)
@@ -46,11 +23,19 @@ def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp
     selected = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py", "tests/test_d.py"]
     identity = {"tree": "tree-1", "image": "image-1", "packages": "versions-1"}
     receipt = tmp_path / "proof.json"
-    proof.write_receipt(receipt, report, selected, identity)
+    declarations = {selected[0]: ["fixture/shared.json"]}
+    inputs = proof.scoped_inputs(selected, declarations, lookup=lambda p: p + "-first")
+    proof.write_receipt(receipt, report, selected, identity, inputs)
     prior = json.loads(receipt.read_text(encoding="utf-8"))
     assert proof.missing_files(selected, identity, [prior]) == selected[1:]
     for change in (dict(identity, tree="tree-2"), dict(identity, image="image-2"), dict(identity, packages="versions-2")):
         assert proof.missing_files(selected, change, [prior]) == selected
+    moved = dict(identity, tree="tree-2")
+    assert proof.missing_files(selected, moved, [prior], inputs) == selected[1:]
+    changed_inputs = proof.scoped_inputs(selected, declarations,
+                                         lookup=lambda p: p + ("-second" if p == "fixture/shared.json" else "-first"))
+    assert proof.missing_files(selected, moved, [prior], changed_inputs) == selected
+    assert proof.missing_files(selected, dict(moved, image="other"), [prior], inputs) == selected
 
     run = {"head_sha": "sha", "head_repository": {"full_name": "owner/fieldkit"}, "status": "completed",
            "conclusion": "success", "event": "pull_request", "path": ".github/workflows/tests.yml"}

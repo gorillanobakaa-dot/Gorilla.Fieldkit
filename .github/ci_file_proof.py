@@ -8,8 +8,14 @@ import platform
 import re
 import subprocess
 import tempfile
+import time
 import xml.etree.ElementTree as xml
 from pathlib import Path
+
+INPUTS = Path(".github/test-proof-inputs.json")
+COMMON_INPUTS = (".gitattributes", ".github/test-proof-inputs.json", ".github/ci_file_proof.py",
+                 ".github/ci_tests.py", ".github/workflows/tests.yml", ".github/workflows/release.yml",
+                 "pyproject.toml", "tests/conftest.py")
 
 
 def command(*args):
@@ -20,9 +26,36 @@ def context():
     image = {name: os.getenv(name) for name in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")}
     if not all(image.values()) or os.getenv("GITHUB_ACTIONS") != "true":
         return None
-    packages = sorted((d.metadata["Name"].lower(), d.version) for d in importlib.metadata.distributions())
+    packages = sorted((d.metadata["Name"].lower(), d.version) for d in importlib.metadata.distributions()
+                      if d.metadata["Name"].lower() != "fieldkit")
     return {"tree": command("git", "rev-parse", "HEAD^{tree}"), "image": image,
-            "python": platform.python_version(), "packages": hashlib.sha256(json.dumps(packages).encode()).hexdigest()}
+            "python": platform.python_version(), "git": command("git", "--version"),
+            "packages": hashlib.sha256(json.dumps(packages).encode()).hexdigest()}
+
+
+def scoped_inputs(files, declarations=None, lookup=None):
+    """Opt into cross-tree reuse only for an explicitly scoped test with all declared paths present in Git."""
+    if declarations is None:
+        declarations = json.loads(INPUTS.read_text(encoding="utf-8"))
+    lookup = lookup or (lambda path: command("git", "ls-tree", "HEAD", "--", path))
+    fingerprints = {}
+    seen = {}
+    for name in files:
+        extra = declarations.get(name)
+        if not isinstance(extra, list):
+            continue
+        paths = [name, *COMMON_INPUTS, *extra]
+        if any(not isinstance(p, str) or not re.fullmatch(r"[\w.-]+(?:/[\w.-]+)*", p)
+               or set(p.split("/")) & {".", ".."} for p in paths):
+            continue
+        paths = sorted(set(paths))
+        for path in paths:
+            if path not in seen:
+                seen[path] = lookup(path)
+        if all(seen[path] for path in paths):
+            content = json.dumps([(path, seen[path]) for path in paths])
+            fingerprints[name] = hashlib.sha256(content.encode()).hexdigest()
+    return fingerprints
 
 
 def passed_files(report):
@@ -38,11 +71,12 @@ def passed_files(report):
     return passing - incomplete
 
 
-def write_receipt(output, report, selected, identity):
+def write_receipt(output, report, selected, identity, inputs=None):
     matched = sorted(set(selected) & passed_files(xml.parse(report)))
     if matched:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps({"schema": 1, "context": identity, "passed": matched}), encoding="utf-8")
+        output.write_text(json.dumps({"schema": 2, "context": identity, "passed": matched,
+                                     "inputs": scoped_inputs(matched) if inputs is None else inputs}), encoding="utf-8")
     print(f"ci-tests: recorded passes for {len(matched)} of {len(selected)} test files", flush=True)
 
 
@@ -53,12 +87,24 @@ def trusted_run(run, repo, head):
             and run.get("path", "").split("@", 1)[0] == ".github/workflows/tests.yml")
 
 
-def missing_files(files, identity, receipts):
+def missing_files(files, identity, receipts, inputs=None):
     remaining = set(files)
+    inputs = inputs or {}
+    environment = {key: value for key, value in identity.items() if key != "tree"}
     for proof in receipts:
-        if (isinstance(proof, dict) and proof.get("schema") == 1 and proof.get("context") == identity
-                and isinstance(proof.get("passed"), list) and all(isinstance(p, str) for p in proof["passed"])):
+        if (not isinstance(proof, dict) or proof.get("schema") not in (1, 2)
+                or not isinstance(proof.get("passed"), list) or not all(isinstance(p, str) for p in proof["passed"])):
+            continue
+        prior = proof.get("context")
+        if prior == identity:
             remaining.difference_update(proof["passed"])
+        elif (proof["schema"] == 2 and isinstance(prior, dict) and "tree" in prior
+              and {key: value for key, value in prior.items() if key != "tree"} == environment
+              and isinstance(proof.get("inputs"), dict)):
+            remaining.difference_update(name for name in proof["passed"]
+                                        if name in inputs and proof["inputs"].get(name) == inputs[name])
+        if not remaining:
+            break
     return [name for name in files if name in remaining]
 
 
@@ -82,16 +128,18 @@ def receipts(repo, heads, system):
 
 
 def reuse(files):
+    started = time.monotonic()
     try:
         identity = context()
         repo = os.getenv("GITHUB_REPOSITORY", "")
         if not identity or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
             return files
-        heads = command("git", "log", "-1", "--format=%H %P").split()
+        heads = list(dict.fromkeys(command("git", "log", "-3", "--format=%H %P").split()))
         if not heads or any(not re.fullmatch(r"[a-f0-9]{40}", head) for head in heads):
             return files
-        pending = missing_files(files, identity, receipts(repo, heads, identity["image"]["RUNNER_OS"]))
-        print(f"ci-tests: reused recorded passes for {len(files) - len(pending)} of {len(files)} test files", flush=True)
+        pending = missing_files(files, identity, receipts(repo, heads, identity["image"]["RUNNER_OS"]), scoped_inputs(files))
+        print(f"ci-tests: reused recorded passes for {len(files) - len(pending)} of {len(files)} test files "
+              f"in {time.monotonic() - started:.2f} s", flush=True)
         return pending
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         print("ci-tests: previous file evidence unavailable; running all selected checks", flush=True)

@@ -78,3 +78,10 @@ That mode takes the publisher from the signed mandate's repository `publisher` f
 `orchestrator.device`. Other machines can verify the candidate and supply evidence. The designated publisher
 serializes the quota check and promotion across its checkouts. Keep the same signed publisher on every machine.
 Changing publishers requires the owner to retire the old authority before approving the replacement.
+
+Fieldkit CI records passing test files with the tested tree, runner image, Git, Python, and dependency versions.
+For files listed in `.github/test-proof-inputs.json`, CI also records the identities of their declared Git inputs.
+The test file, workflow and runner scripts, declaration file, project configuration, and shared test setup are
+always inputs. Only use a scoped declaration when it covers the test's transitive imports, fixtures, and other
+files it reads. Tests without a declaration need matching whole-tree evidence. A missing path or changed input
+leaves that file scheduled. The release workflow reports how many files it reused and the lookup time.
