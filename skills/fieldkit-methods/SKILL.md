@@ -13,16 +13,21 @@ tool with a test. Every command below takes `--json`; text output ends with `NEX
 
 ## A clean capture lesson
 
-`fieldkit capture clean --keep-last 2w` previews eligible scratch older than 14 days. Add `--apply` at the CLI
-to recycle it while capture is off. A month is 30 elapsed days. `--all` selects eligible scratch at any age.
-Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --all`
-before starting work. Add `--dry-run` for a preview. Start selected agent sessions after the gate reports success.
-P40 retains protected and unresolved items and checks the prior store before resetting it.
+`fieldkit capture clean --keep-last 2w` reports per-user and system temp, native session-store file ages,
+and scratch eligible for Trash. Add `--apply` for scratch and `--retire-sessions` for native transcripts.
+Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --keep-last 3d`
+to run the same eligibility checks before starting a lesson. With `--dry-run`, only metadata is inspected.
+A month is 30 elapsed days and `--all` admits every age to the same closure checks.
+Trash requires a completed native session, an inactive engine, an event window wholly before the cutoff,
+and a local read-back of the original bytes and identity manifest. Scratch still needs its own disposition.
+Standalone Claude Code, Codex rollouts, Gemini CLI JSON and Kiro V3 messages have adapters. Protected and
+unsupported stores, including shared databases, Kiro Crew transcripts and Antigravity, stay in place.
 Use `--lookback 30m --session claude=ID` with `--agents claude` to include recent completed work from one
 existing Claude Code session. For Codex, use `--agents codex --session codex=ID`. Fieldkit reads only the named
 rollout under `CODEX_HOME/sessions` (default `~/.codex/sessions`). Use `--session` once per selected session.
-`--keep-last` controls scratch retention independently. `fieldkit capture scan` collects matched calls while
-the lesson runs. `fieldkit capture off` closes the window and catches up through that point.
+Fresh Claude lessons use live hooks. Fresh Codex lessons read only the bytes appended to their selected rollout.
+`fieldkit capture scan` collects from selected lesson sources and `fieldkit capture off` closes that window.
+`fieldkit capture scan --legacy` is a separate, explicit Claude history backfill while capture is off.
 Use `--agents agy` before starting an Antigravity CLI session. It records new tool events from the CLI's
 [PostToolUse hook](https://antigravity.google/docs/hooks?tab=cli) in the selected workspace. `capture off`
 removes Fieldkit's named hook from the shared Antigravity hook settings.

@@ -256,10 +256,11 @@ def test_scoped_hooks_and_catchup_share_identity(scratch_area, tmp_path):
     outside = tmp_path / "kernel-other"
     outside.mkdir()
     ts = datetime.now(timezone.utc) - timedelta(minutes=10)
-    scope = {"lesson_id": "lesson", "workspace": str(workspace), "agents": ["claude"],
-             "since": ts.isoformat(), "until": (ts + timedelta(hours=1)).isoformat()}
-    s = store.Store(cap)
     session = "test-session"
+    scope = {"lesson_id": "lesson", "workspace": str(workspace), "agents": ["claude"],
+             "since": ts.isoformat(), "until": (ts + timedelta(hours=1)).isoformat(),
+             "retrospective_since": ts.isoformat(), "sessions": {"claude": session}}
+    s = store.Store(cap)
     payload = {"hook_event_name": "PostToolUse", "cwd": str(workspace), "session_id": session,
                "tool_name": "Bash", "tool_use_id": "first", "tool_input": {"command": "make kernel"},
                "tool_response": {"exit_code": 2}, "timestamp": (ts + timedelta(minutes=1)).isoformat()}
