@@ -123,6 +123,9 @@ items:
     proof: test with a tmp XDG_CONFIG_HOME holding fake session JSON
     status: PARTIAL
     target: nested.records_glob finds the Claude desktop session records on Linux
+  module:fieldkit/peers/link.py:
+    reason: _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windows; resolve_put_folder handles Linux (~/.config/user-dirs.dirs) and macOS (~/Desktop) directly
+    status: NATIVE-ONLY
   module:fieldkit/power/drift.py:
     action: PORT
     effort: M
