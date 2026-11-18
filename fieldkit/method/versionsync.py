@@ -4,8 +4,9 @@
     fieldkit version-sync PATH [--expect 0.3.0] [--binary EXE] [--json]
 
 Reads the version wherever a project of the owner's states it: Cargo.toml (package or workspace.package) and the
-package's entry in Cargo.lock, pyproject.toml, package.json, PKGBUILD pkgver, packaging/changelog.in (its first
-entry), a VERSION file, an Inno Setup script (AppVersion / #define ...Version), the top entry of CHANGELOG.md, and,
+package's entry in Cargo.lock, pyproject.toml, Fieldkit's runtime version, package.json, PKGBUILD pkgver,
+packaging/changelog.in (its first entry), a VERSION file, an Inno Setup script (AppVersion / #define ...Version),
+the top entry of CHANGELOG.md, and,
 with --binary, what the built program itself answers to --version. Disagreement is a finding (exit 3); --expect makes
 every place answer that one version. A place that does not exist is not a finding; a place that exists and cannot be
 read is reported, never guessed.
@@ -64,8 +65,15 @@ def sources(root):
             add("Cargo.lock", m.group(1) if m else None, "" if m else f"no entry for package {name}")
     py = root / "pyproject.toml"
     if py.is_file():
-        v = _toml_value(_read(py), "project", "version")
+        text = _read(py)
+        v = _toml_value(text, "project", "version") if isinstance(text, str) else None
         add("pyproject.toml", v, "" if v else "no [project] version (dynamic?)")
+        if isinstance(text, str) and _toml_value(text, "project", "name") == "fieldkit":
+            package = _read(root / "fieldkit" / "__init__.py")
+            stamp = re.search(r"""(?m)^__version__\s*=\s*["']([^"'\r\n]+)["']""",
+                              package if isinstance(package, str) else "")
+            add("fieldkit/__init__.py", stamp.group(1) if stamp else None,
+                "" if stamp else "no readable __version__ constant")
     pkg = root / "package.json"
     if pkg.is_file():
         try:
