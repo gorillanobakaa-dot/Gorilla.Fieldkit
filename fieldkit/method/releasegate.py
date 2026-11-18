@@ -7,6 +7,7 @@ release); it is written to the room and the refusals ledger, and counts against 
     guard(slug, tag, hotfix="")  -> {"ok", "state", "error", "next"}
 Every place that tags or publishes calls it: ship gh-release / push --tag / release, the emerge release publisher,
 the release cycle and the inbox send."""
+import calendar
 import json
 import os
 import re
@@ -80,15 +81,17 @@ def system_of(tag, systems=None):
 
 def _gh_recent(slug, limit=30):
     """-> [(tag, epoch seconds)] of the newest published releases, newest first; raises when gh fails."""
-    r = subprocess.run(["gh", "release", "list", "-R", slug, "--limit", str(limit), "--json", "publishedAt,tagName"],
+    r = subprocess.run(["gh", "release", "list", "-R", slug, "--limit", str(limit),
+                        "--json", "publishedAt,tagName,isDraft"],
                        capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip()[-200:])
     out = []
     for row in json.loads(r.stdout or "[]"):
-        if not row.get("publishedAt"):
-            continue                                           # a draft is not published
-        t = time.mktime(time.strptime(row["publishedAt"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+        published = row.get("publishedAt") or ""
+        if row.get("isDraft") or not published or published.startswith("0001-"):
+            continue                                           # a draft is not published (gh returns 0001-01-01T00:00:00Z)
+        t = calendar.timegm(time.strptime(published[:19], "%Y-%m-%dT%H:%M:%S"))
         out.append((row["tagName"], t))
     return out
 
