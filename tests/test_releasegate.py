@@ -1,4 +1,4 @@
-"""One release per batch: the gate refuses inside the window, allows outside it, logs --hotfix, one hotfix per window."""
+"""Release windows and the logged hotfix quota."""
 import json
 
 from fieldkit.method import releasegate as rg, ship
@@ -26,16 +26,35 @@ def test_allows_outside_the_window_or_first_release(monkeypatch, tmp_path):
     assert rg.guard("o/r", "v2", now=NOW, hours=24)["ok"]                              # conftest: no release yet
 
 
-def test_hotfix_is_logged_and_only_one_per_window(monkeypatch, tmp_path):
+def test_hotfix_limit_and_retry_are_deterministic(monkeypatch, tmp_path):
     _state(monkeypatch, tmp_path)
-    r = rg.guard("o/r", "v2", "security fix", last=("v1", NOW - 3 * H), now=NOW, hours=24)
-    assert r["ok"] and r["state"] == "hotfix"
+    for version in range(2, 12):
+        stamp = NOW + version
+        r = rg.guard("o/r", f"v{version}-linux", "security fix", last=("v1-linux", NOW - H), now=stamp)
+        assert r["ok"] and r["state"] == "hotfix"
+    recent = [("v11-linux", NOW), ("v1-windows", NOW)]
+    refused = rg.guard("o/r", "v12-linux", "another", last=recent, now=NOW + H)
+    assert not refused["ok"] and refused["state"] == "hotfix-used"
+    assert "10 of 10" in refused["error"]
+    assert rg.guard("o/r", "v2-linux", "retry", last=recent, now=NOW + H)["ok"]
     rows = [json.loads(l) for l in (tmp_path / "releasegate" / "hotfixes.jsonl").read_text().splitlines()]
-    assert rows[0]["why"] == "security fix" and rows[0]["tag"] == "v2" and rows[0]["repo"] == "o/r"
-    again = rg.guard("o/r", "v3", "another", last=("v2", NOW - 1 * H), now=NOW + H, hours=24)
-    assert not again["ok"] and again["state"] == "hotfix-used"
-    assert rg.guard("o/r", "v2", "security fix", last=("v1", NOW - 3 * H), now=NOW + H, hours=24)["ok"]  # same tag again
-    assert len((tmp_path / "releasegate" / "hotfixes.jsonl").read_text().splitlines()) == 1
+    assert len(rows) == 10 and rows[0] == {
+        "why": "security fix", "tag": "v2-linux", "repo": "o/r", "t": NOW + 2}
+
+    assert rg.guard("o/r", "v12-windows", "another OS", last=recent, now=NOW + H)["ok"]
+    assert rg.guard("o/s", "v12-linux", "another repo", last=recent, now=NOW + H)["ok"]
+    stamp = NOW + 24 * H + 2
+    assert rg.guard("o/r", "v12-linux", "oldest expired", last=("v11-linux", stamp - H), now=stamp)["ok"]
+
+
+def test_hotfix_fails_closed_when_the_ledger_is_unreadable(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    log = tmp_path / "releasegate" / "hotfixes.jsonl"
+    log.parent.mkdir()
+    log.write_text("partial record\n", encoding="utf-8")
+    result = rg.guard("o/r", "v2", "retry", last=("v1", NOW - H), now=NOW)
+    assert not result["ok"] and result["state"] == "hotfix-ledger-error"
+    assert log.read_text(encoding="utf-8") == "partial record\n"
 
 
 def test_gh_failure_fails_closed(monkeypatch, tmp_path):
