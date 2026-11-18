@@ -69,6 +69,8 @@ def _temp_item_roots():
 
 def _protected(workspace=None):
     paths = [_expand(p) for p in _policy().get("protected_roots", [])]
+    if codex_home := os.getenv("CODEX_HOME"):
+        paths.append(Path(codex_home).absolute())
     live = st.capture_dir().absolute()
     paths.extend((live, live.parent / "capture-archive", HERE.parents[1]))
     if workspace:
@@ -420,7 +422,8 @@ def clean(seconds=None, apply=False, *, recycle_fn=None):
 
 
 def start(project, lesson, minutes=None, force=False, dry_run=False, store=None, rows=None, disp=None, keep=None,
-          recycle_fn=None, turn_on=None, archive_fn=None, terminal=None, seconds=None, workspace=None, agents=None):
+          recycle_fn=None, turn_on=None, archive_fn=None, terminal=None, seconds=None, workspace=None, agents=None,
+          sessions=(), lookback=None):
     """Gate manual lessons and existing build callers through the same cleanup checks."""
     from . import switch
 
@@ -432,12 +435,18 @@ def start(project, lesson, minutes=None, force=False, dry_run=False, store=None,
         return {"started": False, "refused": "--force-undigested is the owner's: type it at a real terminal", "next": "digest it: fieldkit capture start --project " + project + " (shows what)"}
     if bool(workspace) != bool(agents):
         raise ValueError("--workspace and --agents are required together for a scoped lesson")
+    if (sessions or lookback) and not workspace:
+        raise ValueError("--session and --lookback require --workspace and --agents")
     scope = None
     if workspace:
         workspace = Path(workspace).resolve(strict=True)
         if not workspace.is_dir():
             raise ValueError("--workspace must be an existing directory")
         scope = {"lesson_id": uuid4().hex, "workspace": str(workspace), "agents": sorted(set(agents))}
+        if sessions or lookback or "codex" in agents:
+            scope["sessions"] = lessons.session_selection(agents, sessions, lookback)
+        if lookback:
+            scope["retrospective_since"] = lessons.since_for(lookback)
     with lessons.lock() if not dry_run else nullcontext():
         return _start(project, lesson, minutes, force, dry_run, store, rows, disp, keep,
                       recycle_fn or recycle, turn_on, archive_fn, seconds, scope)
@@ -456,7 +465,10 @@ def _start(project, lesson, minutes, force, dry_run, store, rows, disp, keep,
     if current.get("error"):
         return {"started": False, "refused": current["error"], "next": "restore the capture switch"}
     if scope:
+        from . import scan
+
         errors = switch.check_routes(scope["agents"])
+        errors.update(scan.verify_sessions(scope))
         if errors:
             return {"started": False, "refused": "selected capture routes are unavailable", "agents": errors,
                     "next": "select verified agents or configure their capture routes"}
@@ -565,7 +577,7 @@ def _print(a, d):
 def cmd(a):
     try:
         if getattr(a, "dispose", None):
-            if a.dry_run or a.keep_last is not None or a.all:
+            if a.dry_run or a.keep_last is not None or a.all or a.lookback or a.session:
                 raise ValueError("--dispose is a separate action from preview and cleanup")
             with lessons.lock():
                 record_disposition(a.dispose, a.because or "")
@@ -576,7 +588,8 @@ def cmd(a):
             d = clean(seconds, a.apply)
         else:
             d = start(a.project, a.lesson, a.minutes, force=a.force_undigested, dry_run=a.dry_run, seconds=seconds,
-                      workspace=a.workspace, agents=[name.strip().lower() for name in a.agents.split(",")] if a.agents else None)
+                      workspace=a.workspace, agents=[name.strip().lower() for name in a.agents.split(",")] if a.agents else None,
+                      sessions=a.session, lookback=retention.duration(a.lookback) if a.lookback is not None else None)
     except ValueError as exc:
         print(f"capture {a.action}: {exc}", file=sys.stderr)
         return 2

@@ -862,8 +862,10 @@
       "--json": 0,
       "--keep-last": 1,
       "--lesson": 1,
+      "--lookback": 1,
       "--older-than": 1,
       "--project": 1,
+      "--session": 1,
       "--workspace": 1,
       "-h": 0
      },

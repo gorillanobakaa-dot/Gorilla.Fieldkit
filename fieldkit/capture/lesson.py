@@ -1,10 +1,32 @@
 """Admission and event identity for a workspace-scoped capture lesson."""
 
 import json
-from datetime import datetime, timezone
+import re
+import stat
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import retention, store
+
+MAX_TRANSCRIPT_ROW = 16 * 1024 * 1024
+
+
+def transcript_file(path):
+    retention.check_root(path.parent.absolute())
+    info = path.lstat()
+    return stat.S_ISREG(info.st_mode) and not retention.link(info) and info.st_nlink == 1
+
+
+def transcript_rows(stream):
+    while line := stream.readline(MAX_TRANSCRIPT_ROW + 1):
+        if len(line) > MAX_TRANSCRIPT_ROW:
+            raise ValueError("capture transcript has a row over 16 MiB")
+        try:
+            row = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(row, dict):
+            yield row
 
 
 def lock():
@@ -27,22 +49,51 @@ def session(payload):
                  if isinstance(payload.get(k), str) and payload[k].strip()), None)
 
 
-def admit(scope, agent, payload, observed=None, scanned=False):
-    """Require source time for catch-up. Hooks without a source time use receipt time."""
-    if not isinstance(payload, dict) or agent not in scope["agents"] or not session(payload):
-        return None
+def session_selection(agents, requested, lookback):
+    selected = {}
+    for value in requested:
+        agent, _, sid = value.partition("=")
+        if agent not in agents or agent in selected or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", sid):
+            raise ValueError("--session requires one AGENT=ID per selected agent")
+        selected[agent] = sid
+    if lookback and not selected.keys() & {"claude", "codex"}:
+        raise ValueError("--lookback requires an explicit Claude Code or Codex transcript session")
+    if "codex" in agents and "codex" not in selected:
+        raise ValueError("Codex capture requires --session codex=ID")
+    return selected
+
+
+def since_for(lookback, now=None):
+    try:
+        return ((now or datetime.now(timezone.utc)) - timedelta(seconds=lookback)).isoformat(timespec="microseconds")
+    except OverflowError as exc:
+        raise ValueError("--lookback exceeds the supported calendar range") from exc
+
+
+def scoped_source(scope, agent, payload):
+    sid = session(payload) if isinstance(payload, dict) else None
+    selected = scope.get("sessions", {}).get(agent)
+    if agent not in scope["agents"] or not sid or (selected and sid != selected):
+        return False
     cwd = payload.get("cwd") or payload.get("workdir") or payload.get("directory")
     if not isinstance(cwd, str) or not Path(cwd).is_absolute():
-        return None
+        return False
     try:
-        if not retention.within(Path(cwd).resolve(), scope["workspace"]):
-            return None
+        return retention.within(Path(cwd).resolve(), scope["workspace"])
     except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def admit(scope, agent, payload, observed=None, scanned=False):
+    """Require source time for catch-up. Hooks without a source time use receipt time."""
+    if not scoped_source(scope, agent, payload):
         return None
     received = observed or datetime.now(timezone.utc)
     source = payload.get("fk_timestamp") if scanned else payload.get("timestamp")
     timestamp = _time(source) if scanned or source is not None else received
-    start, end = _time(scope.get("since")), _time(scope.get("until"))
+    start = _time(scope.get("retrospective_since") if scanned and agent in scope.get("sessions", {}) and scope.get("retrospective_since")
+                  else scope.get("since"))
+    end = _time(scope.get("until"))
     if not timestamp or not start or not end or not start <= timestamp < end or timestamp > received:
         return None
     return timestamp.isoformat(timespec="microseconds")
@@ -53,6 +104,17 @@ def identity(agent, payload):
     if call and session(payload):
         return "ev-call-" + store.sha(store.canon([agent, session(payload), str(call)]))
     return None
+
+
+def prior_identities(payload, agent):
+    eid = identity(agent, payload)
+    if not eid:
+        return ()
+    if agent == "claude":
+        call = payload.get("tool_use_id") or payload.get("toolUseId") or payload.get("tool_call_id")
+        legacy = "ev-scan-" + store.sha(f"claude:{session(payload)}:{call}")[:16]
+        return eid, legacy
+    return (eid,)
 
 
 def archived_history(root=None):
@@ -72,7 +134,8 @@ def claude_call_time(payload):
         return None
     try:
         path = Path(transcript)
-        if path.suffix != ".jsonl" or not retention.within(path.resolve(), Path.home() / ".claude" / "projects"):
+        if (path.suffix != ".jsonl" or not retention.within(path.absolute(), Path.home() / ".claude" / "projects")
+                or not transcript_file(path)):
             return None
         with path.open("rb") as f:
             f.seek(0, 2)
@@ -87,8 +150,9 @@ def claude_call_time(payload):
             continue
         message = row.get("message") if isinstance(row, dict) else None
         content = message.get("content") if isinstance(message, dict) else None
-        if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_use"
-                                            and b.get("id") == payload["tool_use_id"] for b in content):
+        if (isinstance(content, list) and row.get("sessionId") == session(payload)
+                and any(isinstance(b, dict) and b.get("type") == "tool_use"
+                        and b.get("id") == payload["tool_use_id"] for b in content)):
             return row.get("timestamp")
     return None
 
@@ -96,7 +160,7 @@ def claude_call_time(payload):
 def record(s, scope, agent, payload, observed=None, scanned=False):
     from . import hook
 
-    if not isinstance(payload, dict):
+    if not scoped_source(scope, agent, payload):
         return None, False
     eid = identity(agent, payload)
     event = str(hook._first(payload, "hook_event_name", "event", "type") or "").lower()
@@ -119,6 +183,10 @@ def record(s, scope, agent, payload, observed=None, scanned=False):
     payload = {**payload, "_fk_lesson": scope["lesson_id"], "_fk_admitted_at": timestamp,
                "fk_prompt": scope.get("lesson", "")}
     with s.batch() as state:
+        ids = prior_identities(payload, agent)
+        if ids and (any(prior in state["events"] for prior in ids)
+                    or any(prior in history.get("events", ()) for history in archived_history(s.root) for prior in ids)):
+            return None, False
         return record_admitted(s, state, agent, payload, eid, scanned)
 
 

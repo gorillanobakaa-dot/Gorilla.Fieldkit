@@ -18,6 +18,14 @@ to recycle it while capture is off. A month is 30 elapsed days. `--all` selects 
 Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --all`
 before starting work. Add `--dry-run` for a preview. Start selected agent sessions after the gate reports success.
 P40 retains protected and unresolved items and checks the prior store before resetting it.
+Use `--lookback 30m --session claude=ID` with `--agents claude` to include recent completed work from one
+existing Claude Code session. For Codex, use `--agents codex --session codex=ID`. Fieldkit reads only the named
+rollout under `CODEX_HOME/sessions` (default `~/.codex/sessions`). Use `--session` once per selected session.
+`--keep-last` controls scratch retention independently. `fieldkit capture scan` collects matched calls while
+the lesson runs. `fieldkit capture off` closes the window and catches up through that point.
+Use `--agents agy` before starting an Antigravity CLI session. It records new tool events from the CLI's
+[PostToolUse hook](https://antigravity.google/docs/hooks?tab=cli) in the selected workspace. `capture off`
+removes Fieldkit's named hook from the shared Antigravity hook settings.
 Kiro Crew coverage is limited to default `~/.kiro/crew/scratch` allocations with verified, inactive owners.
 Gorilla OpenCode coverage includes `opencode-tools-test<digits>` directories under default OS temp.
 Both require P40 disposition evidence. Kiro lesson capture still requires a verified adapter.

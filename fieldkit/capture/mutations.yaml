@@ -1,5 +1,8 @@
 # Proof that each check can fail (fieldkit mutate): break one rule, tests/capture must fail.
 #   python -m fieldkit mutate --plan fieldkit/capture/mutations.yaml -- python -m pytest -q -x tests/capture
+- {file: fieldkit/capture/scan.py, swap: ['if sid and (len(paths) > 1 or (not paths and scope.get("retrospective_since"))):', 'if False:'], why: "catch-up requires an available, unambiguous selected Claude transcript"}
+- {file: fieldkit/capture/scan.py, swap: ['if not call or result.get("sessionId") != call["session_id"]:', 'if not call:'], why: "a Claude tool result must belong to the selected session"}
+- {file: fieldkit/capture/codex_scan.py, swap: ['if not end or not start <= end < lesson._time(scope["until"]) or end > observed:', 'if False:'], why: "a Codex result must finish inside the capture window"}
 - {file: fieldkit/capture/store.py, swap: ['    return _SECRET_ARG.sub(lambda m: m.group(1) + REDACTED, s)', '    return s'], why: "arguments like --password X are redacted"}
 - {file: fieldkit/capture/store.py, swap: ['iid = st["by_hash"].get(chash)', 'iid = None'], why: "same content is counted, not stored twice"}
 - {file: fieldkit/capture/store.py, swap: ['if not data or data.endswith(b"\n"):', 'if True:'], why: "a torn tail is healed and kept"}
