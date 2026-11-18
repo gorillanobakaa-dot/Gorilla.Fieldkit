@@ -2,11 +2,14 @@
 
 import hashlib
 import json
+import math
 import re
 import subprocess
 import tempfile
+import time
 from contextlib import nullcontext
 from functools import partial
+from itertools import count
 from pathlib import Path
 from urllib.parse import quote
 
@@ -93,9 +96,8 @@ def validate_policy(data):
         if "minimum_os" in spec and (not isinstance(spec["minimum_os"], str)
                                      or not re.fullmatch(r"\d+(?:\.\d+)*", spec["minimum_os"])):
             raise Refused(f"{target}: minimum_os must be a quoted OS version")
-        if "installer_member" in spec and (not isinstance(spec["installer_member"], str)
-                                            or not spec["installer_member"].strip()):
-            raise Refused(f"{target}: installer_member must name an archive member")
+        if "installer_member" in spec:
+            installer_member(spec["installer_member"])
     return policy
 
 
@@ -135,6 +137,13 @@ def filename(name):
     return name
 
 
+def installer_member(name):
+    if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.+ -]+(?:/[A-Za-z0-9_.+ -]+)*", name)
+            or any(part.strip(". ") == "" for part in name.split("/"))):
+        raise Refused("installer_member must be a relative path to a file in the ZIP")
+    return name
+
+
 def check_assets(policy, candidate, directory, tag):
     version = candidate["version"]
     if not isinstance(version, str) or not re.fullmatch(r"[0-9][a-zA-Z0-9.+-]*", version) or tag != f"v{version}":
@@ -169,10 +178,29 @@ def check_assets(policy, candidate, directory, tag):
     return assets, installers
 
 
+def retry_delay(status, headers, body, now, attempt):
+    if status not in (403, 429):
+        return None
+    delays = []
+    after = headers.get("retry-after", "")
+    if after.isdecimal():
+        delays.append(int(after))
+    reset = headers.get("x-ratelimit-reset", "")
+    if headers.get("x-ratelimit-remaining") == "0" and reset.isdecimal():
+        delays.append(max(0, math.ceil(int(reset) - now) + 1))
+    if delays:
+        return max(1, max(delays))
+    if status == 429 or "rate limit" in body.lower():
+        return 60 * 2 ** attempt
+    return None
+
+
 class GitHub:
-    def __init__(self, slug, run=subprocess.run):
+    def __init__(self, slug, run=subprocess.run, now=time.time, pause=time.sleep):
         self.slug = slug
         self.run = run
+        self.now = now
+        self.pause = pause
 
     def gh(self, *args):
         result = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", timeout=900)
@@ -182,12 +210,34 @@ class GitHub:
 
     def api(self, path, *args):
         endpoint = f"repos/{self.slug}"
-        return json.loads(self.gh("api", f"{endpoint}/{path}" if path else endpoint, *args))
+        cmd = ["gh", "api", "--include", f"{endpoint}/{path}" if path else endpoint, *args]
+        for attempt in range(3):
+            result = self.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=900)
+            head, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
+            status = re.match(r"HTTP/\S+\s+(\d{3})\b", head)
+            if not result.returncode and status:
+                return json.loads(body)
+            headers = {name.lower(): value.strip() for line in head.splitlines()[1:]
+                       for name, sep, value in [line.partition(":")] if sep}
+            delay = retry_delay(int(status[1]), headers, body, self.now(), attempt) if status else None
+            if delay is None:
+                raise Refused((result.stderr or body or "GitHub did not return an HTTP response").strip()[-500:])
+            if delay > 60 or attempt == 2:
+                raise Refused(f"GitHub rate limited {path or self.slug}; resume the same candidate after {delay} seconds")
+            self.pause(delay)
+
+    def releases(self):
+        for page in count(1):
+            rows = self.api(f"releases?per_page=100&page={page}")
+            if not isinstance(rows, list):
+                raise Refused("GitHub did not return a list of releases")
+            yield from rows
+            if len(rows) < 100:
+                return
 
     def release(self, tag):
         # Authenticated listing also finds drafts. A failed request cannot be taken as absence.
-        pages = self.api("releases?per_page=100", "--paginate", "--slurp")
-        matches = [row for page in pages for row in page if row["tag_name"] == tag]
+        matches = [row for row in self.releases() if row["tag_name"] == tag]
         if len(matches) > 1:
             raise Refused(f"multiple releases use {tag}")
         return matches[0] if matches else None

@@ -109,10 +109,10 @@ def _gh_last(slug):
 
 def _gh_published(slug):
     """All published releases, including history needed to classify the earliest hotfix in the window."""
-    result = subprocess.run(["gh", "api", f"repos/{slug}/releases?per_page=100", "--paginate", "--slurp"],
-                            check=True, capture_output=True, text=True, timeout=90)
+    from .releasecandidate import GitHub
+
     return [(row["tag_name"], calendar.timegm(time.strptime(row["published_at"], "%Y-%m-%dT%H:%M:%SZ")))
-            for page in json.loads(result.stdout) for row in page if not row["draft"] and row["published_at"]]
+            for row in GitHub(slug).releases() if not row["draft"] and row["published_at"]]
 
 
 def _published_hotfix_quota(rows, systems, aliases, matrix, now, hours):

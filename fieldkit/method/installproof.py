@@ -5,8 +5,13 @@ import json
 import os
 import platform
 import re
+import shutil
+import stat
 import subprocess
-from pathlib import Path
+import tempfile
+import zipfile
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -25,6 +30,33 @@ def observe_host():
         version = host._os_release().get("VERSION_ID", version)
     arch = machine["machine"].lower()
     return system, machine["distro"], {"amd64": "x86_64", "aarch64": "arm64"}.get(arch, arch), version
+
+
+@contextmanager
+def runnable_installer(package, member):
+    if member is None:
+        yield package
+        return
+    name = candidate.installer_member(member)
+    if package.suffix.casefold() != ".zip":
+        raise candidate.Refused("installer_member requires a ZIP candidate")
+    with tempfile.TemporaryDirectory(prefix="fieldkit-installer-") as folder:
+        extracted = Path(folder) / ("installer" + PurePosixPath(name).suffix)
+        try:
+            with zipfile.ZipFile(package) as archive:
+                entries = [entry for entry in archive.infolist() if entry.filename == name]
+                if len(entries) != 1:
+                    raise candidate.Refused(f"expected one ZIP member {name!r}, found {len(entries)}")
+                entry = entries[0]
+                mode = stat.S_IFMT(entry.external_attr >> 16)
+                if entry.is_dir() or not entry.file_size or mode not in (0, stat.S_IFREG):
+                    raise candidate.Refused(f"ZIP member {name!r} must be a nonempty regular installer")
+                with archive.open(entry) as source, extracted.open("xb") as destination:
+                    shutil.copyfileobj(source, destination)
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+            raise candidate.Refused(f"cannot read ZIP installer: {exc}") from exc
+        extracted.chmod(0o700)
+        yield extracted
 
 
 def record(repo, target, version, installer, assets, output, command, *, env=None,
@@ -48,8 +80,7 @@ def record(repo, target, version, installer, assets, output, command, *, env=Non
     installer = Path(installer).resolve(strict=True)
     if not re.fullmatch(spec["installer"].replace("{version}", re.escape(version)), installer.name):
         raise candidate.Refused(f"{target}: unexpected installer name {installer.name}")
-    if spec.get("installer_member"):
-        raise candidate.Refused("install proof currently requires a standalone installer")
+    member = spec.get("installer_member")
     system, distro, arch, os_version = observe()
     minimum = spec.get("minimum_os")
     if (spec["platform"] not in (system, distro) or arch != spec["arch"]
@@ -67,13 +98,16 @@ def record(repo, target, version, installer, assets, output, command, *, env=Non
             raise candidate.Refused(f"missing or empty proof asset: {name}")
     candidate.install_inputs(target, spec, paths, version)
     digests = {name: candidate.file_digest(path) for name, path in paths.items()}
-    env.update(FIELDKIT_INSTALLER=str(installer), FIELDKIT_VERSION=version)
-    run(command, cwd=repo, env=env, check=True, timeout=1800)
+    with runnable_installer(installer, member) as runnable:
+        env.update(FIELDKIT_INSTALLER=str(runnable), FIELDKIT_VERSION=version)
+        run(command, cwd=repo, env=env, check=True, timeout=1800)
     if any(candidate.file_digest(path) != digests[name] for name, path in paths.items()):
         raise candidate.Refused("candidate bytes changed during the install check")
     proof = {"target": target, "version": version, "commit": commit, "platform": spec["platform"],
              "arch": arch, "os_version": os_version, "installed": True, "installer": installer.name,
              "assets": digests}
+    if member is not None:
+        proof["installer_member"] = member
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8", newline="\n") as stream:

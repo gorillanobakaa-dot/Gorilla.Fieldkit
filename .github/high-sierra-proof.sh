@@ -17,9 +17,9 @@ host=fieldkit-high-sierra
 stage=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" 'mktemp -d /tmp/fieldkit-install.XXXXXXXX')
 [[ $stage =~ ^/tmp/fieldkit-install\.[A-Za-z0-9]+$ ]]
 shopt -s nullglob
-packages=("$assets"/*.pkg)
+packages=("$assets"/*.pkg "$assets"/*.zip)
 if ((${#packages[@]} == 0)); then
-  echo 'No .pkg in build artifact' >&2
+  echo 'No .pkg or .zip in build artifact' >&2
   exit 1
 fi
 scp -o BatchMode=yes -o StrictHostKeyChecking=yes "${packages[@]}" "$host:$stage/"
