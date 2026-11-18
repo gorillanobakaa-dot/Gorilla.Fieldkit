@@ -132,8 +132,11 @@ def next_patch(patches, series, version, name):
 def export_patch(sp, files, recipe_name, version, name, why, base="HEAD", run=subprocess.run):
     """Write the source diff of `files` against `base` as the next patch of the series -> path (None: no diff)."""
     rels = [str(Path(f)) for f in files]
-    diff = run(["git", "-C", str(sp["source"]), "diff", base, "--", *rels], capture_output=True, text=True,
-               encoding="utf-8").stdout
+    result = run(["git", "-C", str(sp["source"]), "diff", base, "--", *rels], capture_output=True, text=True,
+                 encoding="utf-8")
+    if result.returncode:
+        raise Refused(f"could not export the source patch: {result.stderr.strip()}")
+    diff = result.stdout
     if not diff.strip():
         return None
     path, major = next_patch(sp["patches"], sp["series"], version, name)
@@ -163,44 +166,51 @@ def repair(recipe, files, install_dir=None, maps=None, name="repair", why=None, 
     procs = procs or probe.processes_in
     stop = stop or probe.stop_tree
     running = procs(install_dir)
-    for pid in running:
-        stop(pid)
-    say(f"  stopped {len(running)} process(es) of {install_dir}" if running else "  the product was not running")
-    stamp = stamp or _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = stamp or _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     by_jar = {}
     for p, jar, mem in steps:
         by_jar.setdefault(jar, {})[mem] = p.read_bytes()
     backups = {}
-    for jar, new in by_jar.items():
-        a = install_dir / jar
-        b = a.with_name(f"{a.name}.before-repair-{stamp}")
-        shutil.copy2(a, b)
-        backups[jar] = b
-        rewrite(a, new)
-        say(f"  {jar}: {len(new)} entr{'y' if len(new) == 1 else 'ies'} replaced (backup {b.name})")
-    (install_dir / ".purgecaches").touch()
-    pages = list(sp["check"].get("pages") or [])
-    if check is None:
-        from ..visual import runtime
-        res = runtime.run(install_dir, only=pages, dprs=tuple(sp["check"].get("dprs") or (1,)), say=say)
-    else:
-        res = check(install_dir, pages)
-    problems = verdict(res, pages)
-    out = {"backups": {k: str(v) for k, v in backups.items()}, "problems": problems, "patch": None}
-    if problems:
-        for jar, b in backups.items():
-            shutil.copy2(b, install_dir / jar)
+    stopped = []
+    committed = False
+    try:
+        for pid in running:
+            stop(pid)
+            stopped.append(pid)
+        say(f"  stopped {len(stopped)} process(es) of {install_dir}" if stopped else "  the product was not running")
+        for jar, new in by_jar.items():
+            archive = install_dir / jar
+            backup = archive.with_name(f"{archive.name}.before-repair-{stamp}")
+            if backup.exists():
+                raise Refused(f"repair backup already exists: {backup.name}")
+            shutil.copy2(archive, backup)
+            backups[jar] = backup
+            rewrite(archive, new)
+            say(f"  {jar}: {len(new)} entr{'y' if len(new) == 1 else 'ies'} replaced (backup {backup.name})")
         (install_dir / ".purgecaches").touch()
-        out.update(ok=False, why=f"the check failed on {len(problems)} item(s): archives put back as they were")
-    else:
+        pages = list(sp["check"].get("pages") or [])
+        if check is None:
+            from ..visual import runtime
+            res = runtime.run(install_dir, only=pages, dprs=tuple(sp["check"].get("dprs") or (1,)), say=say)
+        else:
+            res = check(install_dir, pages)
+        problems = verdict(res, pages)
+        out = {"backups": {k: str(v) for k, v in backups.items()}, "problems": problems, "patch": None}
+        if problems:
+            return dict(out, ok=False, why=f"the check failed on {len(problems)} item(s): archives put back as they were")
         patch = export_patch(sp, [str(p.relative_to(Path(sp["source"]))) if p.is_relative_to(Path(sp["source"]))
                                   else str(p) for p, _, _ in steps],
                              recipe.name, recipe.vars.get("version", "0"), name, why or name, base=base)
-        out.update(ok=True, why="installed and checked", patch=str(patch) if patch else None)
-    if running:
-        (reopen or _reopen)(install_dir / sp["program"])
-        say("  reopened the product (it was running)")
-    return out
+        committed = True
+        return dict(out, ok=True, why="installed and checked", patch=str(patch) if patch else None)
+    finally:
+        if not committed and backups:
+            for jar, backup in backups.items():
+                shutil.copy2(backup, install_dir / jar)
+            (install_dir / ".purgecaches").touch()
+        if stopped:
+            (reopen or _reopen)(install_dir / sp["program"])
+            say("  reopened the product (it was running)")
 
 
 def _reopen(program):
@@ -224,7 +234,7 @@ def main(recipe, files, install_dir=None, maps=(), name="repair", why=None, base
             mp[k] = v
         res = repair(recipe, files, install_dir=install_dir, maps=mp, name=name, why=why, base=base,
                      dry_run=dry_run)
-    except Refused as e:
+    except (Refused, OSError, subprocess.SubprocessError) as e:
         print(f"REFUSED: {e}")
         print("NEXT: fieldkit emerge run " + recipe.name)
         return 2
