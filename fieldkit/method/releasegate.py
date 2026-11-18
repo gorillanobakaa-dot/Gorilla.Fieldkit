@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -106,6 +107,31 @@ def _gh_last(slug):
     return _gh_recent(slug) or None
 
 
+def _gh_published(slug):
+    """All published releases, including history needed to classify the earliest hotfix in the window."""
+    result = subprocess.run(["gh", "api", f"repos/{slug}/releases?per_page=100", "--paginate", "--slurp"],
+                            check=True, capture_output=True, text=True, timeout=90)
+    return [(row["tag_name"], calendar.timegm(time.strptime(row["published_at"], "%Y-%m-%dT%H:%M:%SZ")))
+            for page in json.loads(result.stdout) for row in page if not row["draft"] and row["published_at"]]
+
+
+def _published_hotfix_quota(rows, systems, aliases, matrix, now, hours):
+    """A public release inside the preceding same-platform window is a hotfix, whoever published it."""
+    last = {}
+    counts = dict.fromkeys(systems, 0)
+    known = set(aliases.values()) | systems
+    window = hours * 3600
+    # GitHub tags are unique in normal operation. Count a tag at most once even if pages overlap.
+    for tag, published in sorted(dict(rows).items(), key=lambda release: release[::-1]):
+        platform = system_of(tag, aliases)
+        targets = systems if matrix and platform not in known else systems.intersection({platform})
+        for target in targets:
+            if published > now - window and target in last and published - last[target] < window:
+                counts[target] += 1
+            last[target] = published
+    return counts
+
+
 def _log_path():
     return Path(os.environ.get("FIELDKIT_STATE_DIR") or "state") / "releasegate" / "hotfixes.jsonl"
 
@@ -136,6 +162,25 @@ def _record(slug, tag, why, now, systems=None):
         refusals.record("releasegate-hotfix", text)
     except Exception:  # noqa: BLE001
         pass
+
+
+@contextmanager
+def publication_slot():
+    """Keep the remote accounting check and promotion together for local publishers."""
+    from .. import admission
+
+    slot = admission.try_take(1, kind="releasegate", label="hotfix ledger", root=_log_path().parent)
+    if slot is None:
+        raise ValueError("another ship command is checking or publishing a release; retry after it finishes")
+    try:
+        yield
+    finally:
+        slot.release()
+
+
+def record_hotfix_attempt(slug, tag, why, systems):
+    """Log the reason before publication. GitHub history determines whether the attempt consumes quota."""
+    _record(slug, tag, why, time.time(), systems)
 
 
 def _reserve_hotfix(slug, tag, why, systems, now, hours, *, candidate_platforms=()):
@@ -180,7 +225,7 @@ def _reserve_hotfix(slug, tag, why, systems, now, hours, *, candidate_platforms=
     return {"ok": True, "state": "hotfix", "tag": tag, "hotfix": why}
 
 
-def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms=()):
+def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms=(), published_only=False):
     """-> {"ok": True, ...} to go on, or {"ok": False, "state": "batch-window", ...}. `last` is (tag, epoch), a list of
     them, or None for tests; otherwise gh is asked. Only a release for the SAME system counts. A gh failure fails
     closed."""
@@ -191,7 +236,7 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms
         return {"ok": True, "state": "gate-not-github", "tag": tag}
     if last is None:
         try:
-            last = _gh_last(slug)
+            last = _gh_published(slug) if published_only else _gh_last(slug)
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "state": "gate-unreadable", "tag": tag, "error": f"could not read {slug}'s releases: {e}",
                     "next": "fail closed: fix gh access, then retry"}
@@ -218,6 +263,16 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms
     age = (now - last[1]) / 3600.0
     wait = f"{hours - age:.1f}"
     if hotfix:
+        if published_only:
+            counts = _published_hotfix_quota(rows, blocked, aliases, requested, now, hours)
+            limit = hotfix_limit()
+            for system, count in sorted(counts.items()):
+                if count >= limit:
+                    return {"ok": False, "state": "hotfix-used", "tag": tag,
+                            "error": f"{slug} published {count} of {limit} hotfixes in the last {hours:g} h for "
+                                     f"{system or 'tags without an operating-system suffix'}",
+                            "next": "wait for a hotfix to age out or for the regular release window"}
+            return {"ok": True, "state": "hotfix", "tag": tag, "hotfix": hotfix, "systems": blocked}
         return _reserve_hotfix(slug, tag, hotfix, blocked, now, hours, candidate_platforms=requested)
     affected = ", ".join(sorted(blocked)) or "releases without a system in the tag"
     return {"ok": False, "state": "batch-window", "tag": tag,

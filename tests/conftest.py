@@ -464,6 +464,7 @@ def _release_gate_sees_no_release(monkeypatch):
     tests/test_releasegate.py passes `last=` to guard() itself."""
     from fieldkit.method import releasegate
     monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)
+    monkeypatch.setattr(releasegate, "_gh_published", lambda slug: [])
 
 
 @pytest.fixture(autouse=True)

@@ -394,7 +394,8 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
     from . import releasegate
     from ..core import sync
-    rg = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)      # one release per batch
+    slug = sync._slug(repo)
+    rg = gate(slug, tag, hotfix) if gate else releasegate.guard(slug, tag, hotfix, published_only=True)
     if not rg["ok"]:
         return rg
     from . import tagguard
