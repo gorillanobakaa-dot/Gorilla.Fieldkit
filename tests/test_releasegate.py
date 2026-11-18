@@ -104,3 +104,20 @@ def test_every_place_that_publishes_a_release_goes_through_the_gate():
     assert publishers, "the scan found no publisher: fix the pattern"
     missing = [str(f.relative_to(root)) for f in publishers if "releasegate" not in f.read_text(encoding="utf-8", errors="replace")]
     assert not missing, f"publishes a release without the one-release-per-batch gate: {missing}"
+
+
+def test_gh_recent_skips_draft_and_zero_timestamps_and_uses_utc(monkeypatch):
+    """Windows mktime overflows on gh's 0001-01-01T00:00:00Z draft timestamp (2026-11-18)."""
+    import calendar
+    import time
+    from types import SimpleNamespace
+
+    payload = json.dumps([
+        {"tagName": "leakgate-ci-160", "publishedAt": "0001-01-01T00:00:00Z"},
+        {"tagName": "v0.10.0-draft", "publishedAt": "2026-11-18T01:00:00Z", "isDraft": True},
+        {"tagName": "v0.9.4", "publishedAt": "2026-11-10T07:25:29Z", "isDraft": False},
+    ])
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout=payload, stderr=""))
+    got = rg._gh_recent("o/r")
+    want_ts = calendar.timegm(time.strptime("2026-11-10T07:25:29", "%Y-%m-%dT%H:%M:%S"))
+    assert got == [("v0.9.4", want_ts)]
