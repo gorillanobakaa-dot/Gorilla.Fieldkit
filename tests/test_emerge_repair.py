@@ -87,6 +87,27 @@ def test_a_running_product_is_stopped_and_reopened(tmp_path):
     assert stopped == [41] and opened == [inst / "firefox.exe"]
 
 
+@pytest.mark.parametrize("failure", ["runtime", "export"])
+def test_operational_failure_restores_exact_archive_and_reopens(tmp_path, failure):
+    _, install = _world(tmp_path)
+    archive = install / "browser" / "omni.ja"
+    before = archive.read_bytes()
+    opened = []
+
+    def check(*args):
+        if failure == "runtime":
+            raise OSError("runtime unavailable")
+        return GOOD
+
+    error = OSError if failure == "runtime" else rp.Refused
+    with pytest.raises(error):
+        rp.repair(FakeRecipe(tmp_path), ["browser/Logo.mjs"], install_dir=install, base="missing-ref",
+                  check=check, procs=lambda _: [41], stop=lambda _: None, reopen=opened.append, stamp="T")
+    assert archive.read_bytes() == before
+    assert opened == [install / "firefox.exe"]
+    assert not (tmp_path / "patches").exists()
+
+
 def test_what_needs_a_build_is_refused(tmp_path):
     src, inst = _world(tmp_path)
     sp = rp.spec_of(FakeRecipe(tmp_path))
