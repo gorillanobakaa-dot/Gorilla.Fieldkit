@@ -38,7 +38,7 @@ jobs:
         run: bash .github/desktop-file-utils.sh
       - run: python .github/ci_tests.py full
         env:
-          GH_TOKEN: ${{ github.token }}
+          FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
           FIELDKIT_REUSE_CI: '1'
   candidate:
     needs: test

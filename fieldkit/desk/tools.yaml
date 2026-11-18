@@ -6642,7 +6642,7 @@ tools:
   notes: "Owner order 2026-10-30 (G1): setting up GitHub cost an evening. Data: fieldkit/github/profiles.yaml, glossary.yaml, doctor.yaml. Only plan/check/explain/profiles/doctor are read only; apply and undo need a person's terminal (task.owner_terminal) and snapshot first to state/github/. Never handles a secret (the person logs in to gh); never deletes on GitHub (undo disables a ruleset it made). Launchers: launchers/github-setup.{cmd,sh,command}. No model."
 
 - id: overhead
-  title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
+  title: Build overhead and CI fixture timings for releases and repairs. Report bare work, rework, tests and gates, LLM, owner wait and idle time, and flag jobs over budget.
   harness: core
   entry: [python, -m, fieldkit, overhead]
   path: ${FIELDKIT}/fieldkit/overhead.py
@@ -6652,6 +6652,7 @@ tools:
     - {name: since, flag: --since, type: str, required: false, help: "from this date (YYYY-MM-DD); bash-calls counts only calls after it"}
     - {name: bare, flag: --bare, type: float, required: false, help: "the bare minutes when no stage log gives them"}
     - {name: state, flag: --state, type: path, required: false, help: "Fieldkit state folder (default: this checkout's state/)"}
+    - {name: fixture, flag: --fixture, type: path, required: false, help: "report release and repair fixture timings from a Fieldkit CI receipt"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [reads-files]
   safety: read-only

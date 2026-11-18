@@ -1,6 +1,8 @@
 """CI test selection (.github/ci_tests.py, R7 in docs/HARNESS-PLAN.md): the plan is faked, nothing runs pytest."""
 import importlib.util
 import json
+import os
+import sys
 import types
 from pathlib import Path
 
@@ -42,6 +44,34 @@ def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp
     assert proof.trusted_run(run, "owner/fieldkit", "sha")
     assert not proof.trusted_run(dict(run, head_repository={"full_name": "fork/fieldkit"}), "owner/fieldkit", "sha")
     assert not proof.trusted_run(dict(run, conclusion="failure"), "owner/fieldkit", "sha")
+
+    release_file = "tests/test_releasecandidate.py"
+    report.write_text('<testsuite><testcase file="' + release_file + '" time="0.042" '
+                      'name="test_draft_recovers_an_interrupted_upload_without_changing_latest"/></testsuite>',
+                      encoding="utf-8")
+    proof.write_receipt(receipt, report, [release_file], identity, {})
+    assert json.loads(receipt.read_text(encoding="utf-8"))["fixture_seconds"] == {"release": 0.042}
+
+
+def test_merge_runs_only_selected_files_without_matching_evidence(monkeypatch):
+    selected = ["tests/test_ci_tests.py", "tests/test_releasecandidate.py"]
+    monkeypatch.setattr(ci, "selection", lambda *_: (selected, "merge fixture"))
+    monkeypatch.setenv("FIELDKIT_REUSE_CI", "1")
+    monkeypatch.setenv("FIELDKIT_CI_READ_TOKEN", "fixture")
+    monkeypatch.delenv("FIELDKIT_TEST_EVIDENCE", raising=False)
+
+    def reuse(files, token):
+        assert files == selected and token == "fixture"
+        return selected[1:]
+
+    def run(command):
+        assert command[-1:] == selected[1:]
+        assert "FIELDKIT_CI_READ_TOKEN" not in os.environ
+        return 0
+
+    monkeypatch.setitem(sys.modules, "ci_file_proof", types.SimpleNamespace(reuse=reuse))
+    monkeypatch.setattr(ci.subprocess, "call", run)
+    assert ci.main(["ci_tests.py", "main", "--merged"]) == 0
 
 
 def fake(monkeypatch, plan=None, out=None):

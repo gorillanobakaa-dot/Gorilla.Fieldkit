@@ -3,6 +3,7 @@
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import re
@@ -16,10 +17,14 @@ INPUTS = Path(".github/test-proof-inputs.json")
 COMMON_INPUTS = (".gitattributes", ".github/test-proof-inputs.json", ".github/ci_file_proof.py",
                  ".github/ci_tests.py", ".github/workflows/tests.yml", ".github/workflows/release.yml",
                  "pyproject.toml", "tests/conftest.py")
+RELEASE_FIXTURES = {
+    ("tests/test_releasecandidate.py", "test_draft_recovers_an_interrupted_upload_without_changing_latest"): "release",
+    ("tests/test_emerge_repair.py", "test_reuse_requires_the_same_runtime_dependencies"): "emergency-repair",
+}
 
 
-def command(*args):
-    return subprocess.check_output(args, text=True, stderr=subprocess.PIPE, timeout=30).strip()
+def command(*args, env=None):
+    return subprocess.check_output(args, text=True, stderr=subprocess.PIPE, timeout=30, env=env).strip()
 
 
 def context():
@@ -72,11 +77,26 @@ def passed_files(report):
 
 
 def write_receipt(output, report, selected, identity, inputs=None):
-    matched = sorted(set(selected) & passed_files(xml.parse(report)))
-    if matched:
+    junit = xml.parse(report)
+    matched = sorted(set(selected) & passed_files(junit))
+    timings = {}
+    counts = {}
+    for case in junit.iter("testcase"):
+        filename = case.get("file", "").replace("\\", "/")
+        label = RELEASE_FIXTURES.get((filename, case.get("name")))
+        if label and filename in selected and not any(case.find(x) is not None for x in ("error", "failure", "skipped")):
+            duration = float(case.get("time", "nan"))
+            if math.isfinite(duration) and duration >= 0:
+                timings[label] = duration
+                counts[label] = {item.get("name").removeprefix("fieldkit_fixture_"): int(item.get("value"))
+                                 for item in case.findall("properties/property")
+                                 if item.get("name", "").startswith("fieldkit_fixture_")
+                                 and item.get("value", "").isdigit()}
+    if matched or timings:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps({"schema": 2, "context": identity, "passed": matched,
-                                     "inputs": scoped_inputs(matched) if inputs is None else inputs}), encoding="utf-8")
+                                     "inputs": scoped_inputs(matched) if inputs is None else inputs,
+                                     "fixture_seconds": timings, "fixture_counts": counts}), encoding="utf-8")
     print(f"ci-tests: recorded passes for {len(matched)} of {len(selected)} test files", flush=True)
 
 
@@ -108,9 +128,11 @@ def missing_files(files, identity, receipts, inputs=None):
     return [name for name in files if name in remaining]
 
 
-def receipts(repo, heads, system):
+def receipts(repo, heads, system, token=""):
+    env = dict(os.environ, GH_TOKEN=token) if token else None
     for head in heads:
-        runs = json.loads(command("gh", "api", f"repos/{repo}/actions/workflows/tests.yml/runs?head_sha={head}&per_page=6"))
+        runs = json.loads(command("gh", "api", f"repos/{repo}/actions/workflows/tests.yml/runs?head_sha={head}&per_page=6",
+                                  env=env))
         for run in runs["workflow_runs"]:
             if not trusted_run(run, repo, head):
                 continue
@@ -120,14 +142,14 @@ def receipts(repo, heads, system):
             with tempfile.TemporaryDirectory(prefix="fieldkit-ci-evidence-") as folder:
                 try:
                     command("gh", "run", "download", str(run_id), "-R", repo,
-                            "-p", f"test-pass-{system}-*-attempt-{attempt}", "-D", folder)
+                            "-p", f"test-pass-{system}-*-attempt-{attempt}", "-D", folder, env=env)
                 except subprocess.CalledProcessError:
                     continue  # Older successful runs may have no receipts.
                 for path in Path(folder).rglob("proof.json"):
                     yield json.loads(path.read_text(encoding="utf-8"))
 
 
-def reuse(files):
+def reuse(files, token=""):
     started = time.monotonic()
     try:
         identity = context()
@@ -137,7 +159,8 @@ def reuse(files):
         heads = list(dict.fromkeys(command("git", "log", "-3", "--format=%H %P").split()))
         if not heads or any(not re.fullmatch(r"[a-f0-9]{40}", head) for head in heads):
             return files
-        pending = missing_files(files, identity, receipts(repo, heads, identity["image"]["RUNNER_OS"]), scoped_inputs(files))
+        evidence = receipts(repo, heads, identity["image"]["RUNNER_OS"], token=token)
+        pending = missing_files(files, identity, evidence, scoped_inputs(files))
         print(f"ci-tests: reused recorded passes for {len(files) - len(pending)} of {len(files)} test files "
               f"in {time.monotonic() - started:.2f} s", flush=True)
         return pending
