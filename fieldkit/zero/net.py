@@ -30,6 +30,7 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
                                           and a fresh HANDOFF.md (retire.py; the tool router enforces it)
     fieldkit zero schedule [--apply | --remove]   the comms check every 15 min (Windows task / systemd / launchd)
     fieldkit zero doctor                  files, chain, hook, schedule, cable key, the agent rules, the clock
+    fieldkit zero hooks AGENT [--apply]   inspect or install Codex, Gemini CLI, or Antigravity inbox hooks
     fieldkit zero task ST --objective .. --area PATH[,PATH] --done ..   Zero gives a station its order and ground
     fieldkit zero task ST ... [--done-cmd CMD]   CMD proves done: `release ST --finished` runs it, refuses unless exit 0
     fieldkit zero release ST [--finished]  Zero closes an order; fieldkit zero orders lists them (command.py, set 2)
@@ -153,10 +154,20 @@ def station_id(as_name=None, env=None, host=None):
     host = host or machine()
     if as_name:
         return as_name if "@" in as_name else f"{as_name}@{host}"
-    sid = env.get("CLAUDE_CODE_SESSION_ID")
+    kind, sid = _session_env(env)
     if sid:
-        return f"claude:{sid[:8]}@{host}"
+        return hook_station(sid, host=host, kind=kind)
     return f"shell:{env.get('USERNAME') or env.get('USER') or '?'}@{host}"
+
+
+def _session_env(env):
+    for agent, keys in (("claude", ("CLAUDE_CODE_SESSION_ID",)),
+                        ("codex", ("CODEX_THREAD_ID", "CODEX_SESSION_ID")),
+                        ("gemini", ("GEMINI_SESSION_ID",))):
+        for key in keys:
+            if env.get(key):
+                return agent, env[key]
+    return None, None
 
 
 def hook_station(session_id, host=None, kind=None):
@@ -453,7 +464,8 @@ def _push(entry, net, channels, now, flash=False):
 
 def _env_info(env=None):
     env = os.environ if env is None else env
-    return {"session": env.get("CLAUDE_CODE_SESSION_ID"), "host_session": env.get("CLAUDE_CODE_HOST_SESSION_ID"),
+    kind, session = _session_env(env)
+    return {"session": session, "host_session": (session if kind == "codex" else env.get("CLAUDE_CODE_HOST_SESSION_ID")),
             "folder": os.getcwd()}
 
 
@@ -1312,14 +1324,14 @@ def _net_line(call, event, now=None):
             before = json.dumps(rec, sort_keys=True, default=str)
             if ingest is None:                        # C6: the ingest stamp rides the lease's write, not its own
                 ingest = _ingest_due(st, now)
-            if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
+            if new or rec.get("via") != "hook" or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
                 rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me), ear=_ear_of(me),
                             host_session=call.get("host_session") or os.environ.get("CLAUDE_CODE_HOST_SESSION_ID"))
+            end = log_size()
             items = pending_for(me, rec, net, now)
-            if items:
-                rec["seen_off"] = log_size()
-            elif rec.get("seen_off") is None:
-                rec["seen_off"] = log_size()
+            more = max(0, len(items) - HOOK_MAX_LINES)
+            items = items[:HOOK_MAX_LINES]
+            rec["seen_off"] = items[-1][0] if items else end
             ear_now = (rec.get("ear") or {}).get("state")
             tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60
                                 or (ear_now and ear_now != rec.get("ear_told")))   # I-27: Zero hears a deaf ear soon
@@ -1345,10 +1357,10 @@ def _net_line(call, event, now=None):
                        "the hook. Owner words: 'zero', 'comms check', 'roll call' mean fieldkit zero (skill "
                        "fieldkit-net); 'sitrep' means the session report (skill fieldkit-sitrep): where we started, "
                        "what we did, what is going on now, what is left.")
-        for _, e in items[:HOOK_MAX_LINES]:
+        for _, e in items:
             out.append(ch.human(e, net))
-        if len(items) > HOOK_MAX_LINES:
-            out.append(f"  +{len(items) - HOOK_MAX_LINES} more: fieldkit zero checkin")
+        if more:
+            out.append(f"  +{more} more: fieldkit zero checkin")
         if items:
             _deliver(me, items, now)
         if me == zero_of(net) and event in ("UserPromptSubmit", "SessionStart"):
@@ -1502,7 +1514,7 @@ def pushed_lines(pushed):
 VERBS = {"status": "status", "open": "open", "establish": "open", "rollcall": "rollcall", "sitrep": "rollcall",
          "checkin": "checkin", "check": "check", "comms": "check", "time": "time", "handover": "handover",
          "send": "send", "ack": "ack", "log": "log", "close": "close", "doctor": "doctor", "schedule": "schedule",
-         "task": "task", "release": "release", "orders": "orders", "retire": "retire"}
+         "task": "task", "release": "release", "orders": "orders", "retire": "retire", "hooks": "hooks"}
 
 
 def _emit(a, data, lines):
@@ -1543,7 +1555,7 @@ def main(argv=None, prog="fieldkit zero"):
                     "the service manager is the one keep-alive; heal is a command run on purpose)")
     ap.add_argument("--scheduled", action="store_true", help="check: run by the schedule (prints only problems)")
     ap.add_argument("--verify", action="store_true", help="log: check the hash chain and the signatures")
-    ap.add_argument("--apply", action="store_true", help="schedule: install it")
+    ap.add_argument("--apply", action="store_true", help="schedule or hooks: install configuration")
     ap.add_argument("--remove", action="store_true", help="schedule: remove it")
     ap.add_argument("--objective", help="task: what the station is to achieve")
     ap.add_argument("--area", action="append", default=[], help="task: the folder(s) it may write, PATH[,PATH]")
@@ -1559,6 +1571,27 @@ def main(argv=None, prog="fieldkit zero"):
     verb = VERBS[a.verb]
     me = station_id(a.as_name)
     try:
+        if verb == "hooks":
+            from . import hooks
+            if len(a.rest) != 1 or a.rest[0] not in hooks.EVENTS:
+                ap.error("hooks requires one of codex, gemini, antigravity")
+            try:
+                result = hooks.configure(a.rest[0], a.apply)
+            except (OSError, ValueError, RecursionError) as exc:
+                _emit(a, {"configured": False, "error": str(exc)}, [f"Zero hook installation refused: {exc}"])
+                return NONET
+            configured = result["configured"]
+            result["checked_in"] = sorted(
+                sid for sid, rec in load_stations()["stations"].items()
+                if kind_of(sid) == a.rest[0] and machine_of(sid) == machine()
+                and rec.get("via") == "hook" and state_of(rec, time.time()) == "UP"
+            )
+            lines = [f"Zero {a.rest[0]} hooks {'configured' if configured else 'missing or stale'}: {result['path']}"]
+            if result["trust_review"] and configured:
+                lines.append("Codex requires its native hook trust review. A live check-in verifies delivery.")
+            lines.append("Live native hook stations: " + (", ".join(result["checked_in"]) or "none"))
+            _emit(a, result, lines)
+            return OK if configured else NONET
         if verb == "status":
             r = status()
             from .. import plan                       # the plan first: phase and open items (2026-10-28)

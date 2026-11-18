@@ -6930,6 +6930,24 @@ tools:
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
 
+- id: zero-hooks
+  title: Inspect native Zero inbox hooks for Codex, Gemini CLI, and Antigravity with live station check-in evidence
+  harness: core
+  entry: [python, -m, fieldkit, zero, hooks]
+  path: ${FIELDKIT}/fieldkit/zero/hooks.py
+  inputs:
+    - {name: agent, flag: null, type: str, required: true, choices: [codex, gemini, antigravity], help: "agent whose Zero inbox hook should be inspected"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable configuration and check-in status"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: "hook is missing, stale, or configuration cannot be read"}
+  platforms: [windows, linux]
+  e2e: {windows: e2e-zero-hooks-windows, linux: e2e-zero-hooks-linux}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_hooks.py"]
+  skill: skills/fieldkit-net/SKILL.md
+  notes: "At the CLI add --apply to install only the named agent's hook alongside existing hooks. Native Codex trust review must approve the installed hook before it can read the inbox. Configuration and a live station check-in are reported separately. The paired cable remains the only cross-machine transport."
+
 - id: cmd
   title: "A command is checked before it is given - every fieldkit command in a text (a sudoers line, a brief, an inbox command, a doc, a bash -c, a PowerShell line) looked up in the LIVE argparse command tree (fieldkit/core/cmdtree.json, regenerated from every verb's own parser; a stale tree fails CI); exit 3 on an unknown verb or sub-verb with the closest real command (did you mean: fieldkit build-harness leakgate). The same lookup refuses an unknown verb in inbox add, task lint/start and the PreToolUse tool router, and scans docs, rules, skills, cards and generated unit lines in CI"
   harness: core

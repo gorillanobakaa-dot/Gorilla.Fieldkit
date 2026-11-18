@@ -4429,5 +4429,15 @@
   "ids": [
    "zero"
   ]
+ },
+ "zero hooks": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "zero-hooks"
+  ]
  }
 }
