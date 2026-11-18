@@ -7168,7 +7168,8 @@ tools:
   entry: [python, -m, fieldkit, parity, os]
   path: ${FIELDKIT}/fieldkit/desk/osparity.py
   inputs:
-    - {name: json, flag: --json, type: flag, required: false, help: "records, lists, summary as JSON"}
+    - {name: json, flag: --json, type: flag, required: false, help: "audit or check results as JSON"}
+    - {name: check, flag: --check, type: flag, required: false, help: "read-only gate for missing or stale records and docs/PLATFORMS.md"}
     - {name: write, flag: --write, type: flag, required: false, help: "regenerate docs/PLATFORMS.md"}
     - {name: since, flag: --since, type: str, required: false, help: "only the records whose file a branch touched since REF"}
     - {name: briefs, flag: --briefs, type: str, required: false, help: "write one data-only brief per batch of gaps into DIR"}
@@ -7176,7 +7177,7 @@ tools:
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
-  exits: {0: "no gap and no problem", 3: "a gap exists, or a single-system item has no valid record (a new one, or a stale record)"}
+  exits: {0: "audit has no gaps or problems, or --check passes", 1: "cannot read the check inputs", 3: "audit finds gaps or problems, or --check finds invalid inventory or stale docs"}
   platforms: [windows, linux, darwin]
   e2e: {linux: e2e-parity-os-linux, windows: e2e-parity-os-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_osparity.py"]

@@ -5,6 +5,7 @@ import json
 import subprocess
 
 from fieldkit.method import shiprelease as sr
+from fieldkit.method import tagguard
 
 
 def _g(repo, *a):
@@ -74,6 +75,23 @@ def test_slug_keeps_dots_in_the_repository_name(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     _g(tmp_path, "remote", "add", "origin", "https://github.com/someone/Gorilla.Fieldkit.git")
     assert sr.repo_slug(tmp_path) == "someone/Gorilla.Fieldkit"
+
+
+def test_release_parity_reads_the_candidate_commit(tmp_path, monkeypatch):
+    from fieldkit.desk import osparity
+
+    repo = _origin_and_clone(tmp_path)
+    for path in ("fieldkit/__init__.py", "skills/example", "hooks/example",
+                 ".github/example", "docs/PLATFORMS.md"):
+        file = repo / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("committed", encoding="utf-8")
+    _g(repo, "add", "-A")
+    _g(repo, "commit", "-qm", "Fieldkit candidate")
+    (repo / "docs/PLATFORMS.md").write_text("changed after commit", encoding="utf-8")
+    monkeypatch.setattr(osparity, "check", lambda tree: [
+        (tree / "docs/PLATFORMS.md").read_text(encoding="utf-8")])
+    assert tagguard.parity_row(repo, _g(repo, "rev-parse", "HEAD")) == (False, "committed")
 
 
 def test_release_waits_while_ci_is_still_running(tmp_path):

@@ -96,6 +96,10 @@ items:
   module:fieldkit/buildh/task.py:
     reason: UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes through sudo -n, never an elevated token
     status: NATIVE-ONLY
+  module:fieldkit/capture/session_history.py:
+    action: DOCUMENT
+    status: PARTIAL
+    target: Session archival runs on both systems. POSIX additionally verifies the archive directory owner and mode.
   module:fieldkit/core/longpath.py:
     reason: the Windows 260-character path limit and its registry switch have no Linux twin; Linux PATH_MAX is 4096 with no setting to turn on
     status: NATIVE-ONLY
@@ -137,6 +141,10 @@ items:
   module:fieldkit/thermal/sensors.py:
     reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
     status: NATIVE-ONLY
+  module:fieldkit/zero/hooks.py:
+    action: DOCUMENT
+    status: PARTIAL
+    target: Hook commands quote executable paths on both systems. Windows additionally rejects unsafe cmd characters.
   skill:fieldkit-evidence:
     action: ADAPT
     effort: S

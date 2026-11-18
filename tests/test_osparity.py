@@ -71,6 +71,43 @@ def test_shipped_items_match_the_scanners():
     assert osparity.item_problems() == []
 
 
+def test_release_check_refuses_missing_records_and_stale_docs(tmp_path):
+    desk = tmp_path / "fieldkit" / "desk"
+    core = tmp_path / "fieldkit" / "core"
+    docs = tmp_path / "docs"
+    for folder in (desk, core, docs):
+        folder.mkdir(parents=True)
+    (desk / "tools.yaml").write_text("tools: []\n", encoding="utf-8")
+    (desk / "platform_index.json").write_text("{}", encoding="utf-8")
+    data = desk / "os_parity.yaml"
+    data.write_text("rows: {}\nitems: {}\n", encoding="utf-8")
+    (core / "crossos.yaml").write_text("commands: {}\n", encoding="utf-8")
+    doc = docs / "PLATFORMS.md"
+    doc.write_text(osparity.markdown([], [], []), encoding="utf-8")
+    assert osparity.check(tmp_path) == []
+
+    (core / "example.py").write_text(
+        'def operation():\n    if os.name != "nt":\n        return None\n    return 1\n', encoding="utf-8")
+    findings = osparity.check(tmp_path)
+    assert len(findings) == 2
+    assert "module:fieldkit/core/example.py" in findings[0]
+    assert "docs/PLATFORMS.md is missing or stale" in findings[1]
+
+    data.write_text("items:\n  module:fieldkit/core/example.py:\n    status: NATIVE-ONLY\n"
+                    "    reason: an example Windows operation\n", encoding="utf-8")
+    assert osparity.check(tmp_path) == [findings[1]]
+    recs = osparity.records([], {}, osparity.load_items(data), osparity.scan_all(tmp_path))
+    doc.write_text(osparity.markdown([], recs, []), encoding="utf-8")
+    assert osparity.check(tmp_path) == []
+
+
+def test_release_check_exit_status_and_no_write(monkeypatch, capsys):
+    monkeypatch.setattr(osparity, "check", lambda: ["missing row"])
+    assert osparity.main(["--check", "--json"]) == 3
+    assert json.loads(capsys.readouterr().out) == {"ok": False, "problems": ["missing row"]}
+    assert osparity.main(["--check", "--write"]) == 2
+
+
 def test_new_single_os_module_without_record_fails():
     p = osparity.item_problems(items={}, found=[_found()])
     assert len(p) == 1 and "module:fieldkit/x.py" in p[0]
