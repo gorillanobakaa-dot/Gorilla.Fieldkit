@@ -148,6 +148,21 @@ def test_a_release_needs_from_tag_the_tag_on_origin_and_green_ci(home):
     assert M.allows(g, "release_tag", DAY, repo_path=".", tag="v1", provers=Facts())[0] == "ask"
 
 
+def test_candidate_publication_uses_one_signed_publisher(home, monkeypatch):
+    import socket
+
+    policy = dict(repo_path=".", tag="v1", provers=Facts(), single_publisher=True)
+    no_publisher = write_mandate(home)
+    assert M.allows(no_publisher, "release_tag", DAY, **policy)[0] == "ask"
+    data = yaml.safe_load(yaml.safe_dump(GOOD))
+    data["orchestrator"] = {"device": "publisher"}
+    signed = write_mandate(home, data, name="with-publisher")
+    monkeypatch.setattr(socket, "gethostname", lambda: "worker")
+    assert M.allows(signed, "release_tag", DAY, **policy)[0] == "deny"
+    monkeypatch.setattr(socket, "gethostname", lambda: "Publisher")
+    assert M.allows(signed, "release_tag", DAY, **policy)[0] == "allow"
+
+
 @pytest.mark.parametrize("what,cmd", [("kernel", "sudo dpkg -i linux-image-7.0.9-unleashed_amd64.deb"),
                                       ("linux-headers-7.0.9", "apt install ./x.deb"),
                                       ("grub", "sudo update-grub"), ("boot it", "sudo kexec -l vmlinuz"),

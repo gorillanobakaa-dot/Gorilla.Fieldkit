@@ -260,6 +260,8 @@ def doors(m):
                        f"moved or deleted)")
         if r.get("release") == "from_tag":
             out.append(f"  and publish a GitHub release (gh release create) of such a tag once its CI is green")
+            if r.get("publisher"):
+                out.append(f"  the designated publisher for {repo} is {r['publisher']}")
         if r.get("kernel"):
             out.append("  kernel repository: build, push the branches above, publish the .deb on a release; NEVER "
                        "install or boot it on your machine (that needs your separate yes)")
@@ -529,6 +531,15 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
             return ("allow", f"repos.{repo}.tags matches {tag}; {ev}") if ok else ("ask", ev)
         if r.get("release") != "from_tag":
             return "ask", f"repos.{repo}.release is not from_tag: publishing a release is the owner's"
+        if p.get("single_publisher"):
+            import socket
+
+            orchestrator = m.get("orchestrator")
+            publisher = r.get("publisher") or (orchestrator.get("device") if isinstance(orchestrator, dict) else None)
+            if not isinstance(publisher, str) or not publisher.strip():
+                return "ask", f"the signed mandate for {repo} must name its publisher or orchestrator device"
+            if publisher.casefold() != socket.gethostname().casefold():
+                return "deny", f"only the signed publisher {publisher} may promote candidates for {repo}"
         ok, ev = pv.tag_on_origin(repo_path, tag)
         if not ok:
             return "ask", ev

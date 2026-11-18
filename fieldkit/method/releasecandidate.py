@@ -57,6 +57,8 @@ def validate_policy(data):
     policy = mapping(data)
     if type(policy.get("schema")) is not int or policy["schema"] != 1:
         raise Refused("release policy requires schema: 1")
+    if policy.get("publication", "local") not in ("local", "single-publisher"):
+        raise Refused("publication must be local or single-publisher")
     targets = mapping(policy.get("targets", {}))
     if policy.get("distribution") == "source" and not targets:
         workflow = policy.get("source_workflow")
@@ -281,7 +283,7 @@ def check_page(candidate, directory, assets):
     return title, notes_path, notes
 
 
-def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None, platforms=()):
+def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None, platforms=(), single_publisher=False):
     from . import releasegate
 
     title, notes_path, notes = check_page(candidate, directory, assets)
@@ -307,7 +309,7 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
         if (online_assets(row, assets) != assets or not row["draft"] or row["name"] != title
                 or (row.get("body") or "").strip() != notes or row["tag_name"] != tag or row["prerelease"]):
             raise Refused("the draft is incomplete or changed during upload")
-        with releasegate.publication_slot() if gate is None else nullcontext():
+        with releasegate.publication_slot(single_publisher=single_publisher) if gate is None else nullcontext():
             authorize()
             check = gate or partial(releasegate.guard, platforms=platforms, published_only=True)
             verdict = check(gh.slug, tag, hotfix)
@@ -360,7 +362,8 @@ def verify(repo, gh, tag, path):
     return candidate, path.parent, assets, platforms
 
 
-def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
+def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None, single_publisher=False):
     gh = GitHub(slug)
     candidate, directory, assets, platforms = verify(repo, gh, tag, path)
-    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate, platforms=platforms)
+    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate, platforms=platforms,
+                   single_publisher=single_publisher)

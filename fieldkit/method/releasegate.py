@@ -165,11 +165,12 @@ def _record(slug, tag, why, now, systems=None):
 
 
 @contextmanager
-def publication_slot():
+def publication_slot(*, single_publisher=False):
     """Keep the remote accounting check and promotion together for local publishers."""
     from .. import admission
 
-    slot = admission.try_take(1, kind="releasegate", label="hotfix ledger", root=_log_path().parent)
+    root = Path.home() / ".fieldkit" / "release-publication" if single_publisher else _log_path().parent
+    slot = admission.try_take(1, kind="releasegate", label="hotfix ledger", root=root)
     if slot is None:
         raise ValueError("another ship command is checking or publishing a release; retry after it finishes")
     try:

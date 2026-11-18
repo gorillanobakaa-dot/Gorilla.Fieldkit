@@ -1,6 +1,8 @@
 """Release windows and the logged hotfix quota."""
 import json
 
+import pytest
+
 from fieldkit.method import releasegate as rg, ship
 
 NOW = 1_800_000_000.0
@@ -97,6 +99,18 @@ def test_public_quota_ignores_attempts_and_uses_shared_history(monkeypatch, tmp_
     assert denied["state"] == "hotfix-used" and "10 of 10" in denied["error"]
     assert rg.guard("o/r", "v15-windows", "retry", now=NOW, platforms=["windows"], published_only=True)["ok"]
     assert rg.guard("o/r", "v16", "broken", now=NOW, platforms=["debian"], published_only=True)["ok"]
+
+
+def test_signed_publisher_lock_is_shared_between_checkouts(monkeypatch, tmp_path):
+    monkeypatch.setattr(rg.Path, "home", lambda: tmp_path)
+    _state(monkeypatch, tmp_path / "checkout-a")
+    with rg.publication_slot(single_publisher=True):
+        _state(monkeypatch, tmp_path / "checkout-b")
+        with pytest.raises(ValueError, match="another ship command"):
+            with rg.publication_slot(single_publisher=True):
+                pytest.fail("the second checkout acquired the lock")
+    with rg.publication_slot(single_publisher=True):
+        pass
 
 
 def test_gh_failure_fails_closed(monkeypatch, tmp_path):
