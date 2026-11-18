@@ -35,8 +35,11 @@ a station + quiet hours; FLASH = sent at once.
 ## Every station
 
 - A Claude Code session is checked in by the room hook at every prompt and tool call; it sees its traffic there.
-- Gemini, Antigravity, Codex and any agent with no hook: run `fieldkit zero checkin --as gemini:NAME` at start and
-  every 15 minutes (AGENTS.md / GEMINI.md rule).
+- `fieldkit zero hooks codex`, `fieldkit zero hooks gemini`, and `fieldkit zero hooks antigravity` report configuration
+  and live hook check-ins. Add `--apply` at the CLI to install the named hook beside existing hooks. In Codex, review the
+  new hook in the native hook UI. A new session checks in at the first hook, then receives pending messages as it works.
+- Without a running hook, check in with `fieldkit zero checkin`. Use `--as AGENT:NAME` if the client supplies no
+  session identity. Address replies to the station named on the received message.
 - Answering a roll call (all six fields, one plain line each, `-` for none):
 
 ```
