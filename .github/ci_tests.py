@@ -17,6 +17,7 @@ suite (29 of 66 PR runs, 720 min, `fieldkit ciaudit`). The whole suite runs only
 (tests/*_mutations.yaml) are read only by `fieldkit mutate` and select nothing.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -90,6 +91,8 @@ def present(tests, root="."):
 
 
 def main(argv):
+    from pathlib import Path
+
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
     shard = None
@@ -102,7 +105,6 @@ def main(argv):
     if tests is not REFUSED and tests:
         tests = present(tests)
     if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
-        from pathlib import Path
         from fieldkit.method import shard as sh
         every = tests if tests is not None else sorted(p.as_posix() for p in Path("tests").rglob("test_*.py"))
         tests = sh.pick(every, sh.load(), shard)
@@ -114,7 +116,29 @@ def main(argv):
         return 1
     if tests == []:
         return 0
+    if os.getenv("FIELDKIT_REUSE_CI") == "1" and tests is None:
+        from ci_file_proof import reuse
+
+        all_files = sorted({path.as_posix() for root in (Path("tests"), Path("local/tests"))
+                            for pattern in ("test_*.py", "*_test.py") for path in root.rglob(pattern)})
+        if all_files:
+            tests = reuse(all_files)
+            if not tests:
+                return 0
+    proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
     cmd = [sys.executable, "-m", "pytest", "-q", "-rsf", *(tests or [])]
+    if proof and tests:
+        from ci_file_proof import context, write_receipt
+
+        identity = context()
+        if identity:
+            report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
+            cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
+            print("ci-tests:", " ".join(cmd), flush=True)
+            status = subprocess.call(cmd)
+            if status == 0:
+                write_receipt(Path(proof), report, tests, identity)
+            return status
     print("ci-tests:", " ".join(cmd), flush=True)
     return subprocess.call(cmd)
 
