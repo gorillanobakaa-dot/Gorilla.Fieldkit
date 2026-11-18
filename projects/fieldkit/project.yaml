@@ -13,6 +13,7 @@ cookbook:
 entry:
   - {cmd: "fieldkit plan next", what: "the next plan item"}
   - {cmd: "fieldkit testcost staged", what: "the tests covering what you changed"}
+  - {cmd: "fieldkit overhead --fixture RECEIPT", what: "measured CI release and repair fixture timings"}
 tests:
   - {cmd: "fieldkit testcost staged", paths: ["fieldkit/", "tests/"]}
 platforms: [linux, windows]

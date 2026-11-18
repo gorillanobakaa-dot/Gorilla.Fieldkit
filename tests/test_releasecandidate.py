@@ -97,7 +97,7 @@ def test_replacing_one_installer_reuses_only_independent_proof():
                         dict(assets, **{"shared.zip": "replacement"}), installers)
 
 
-def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
+def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path, record_property):
     for name in ("a.deb", "b.exe"):
         (tmp_path / name).write_bytes(name.encode())
     assets = {name: rc.file_digest(tmp_path / name) for name in ("a.deb", "b.exe")}
@@ -147,6 +147,7 @@ def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
     with pytest.raises(rc.Refused, match="connection interrupted"):
         rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate)
     assert gh.row["draft"] and gh.latest == "old" and not approvals
+    kept = len(gh.uploads)
     gh.fail = False
     with pytest.raises(rc.Refused, match="release window"):
         rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize,
@@ -155,6 +156,8 @@ def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
     assert rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate) == "new"
     assert gh.uploads == ["a.deb", "b.exe"]
     assert approvals == [True, True]
+    record_property("fieldkit_fixture_assets_reused", kept)
+    record_property("fieldkit_fixture_uploads_completed", len(gh.uploads))
 
 
 def test_independent_repo_uses_its_tagged_policy_in_cli_and_ci(tmp_path, monkeypatch):
