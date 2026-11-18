@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
 jobs:
   shard-windows-latest:
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
@@ -46,6 +49,8 @@ jobs:
         shell: bash
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
+          FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
+          FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="origin/${{ github.base_ref }}"
@@ -101,6 +106,8 @@ jobs:
         shell: bash
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
+          FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
+          FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="origin/${{ github.base_ref }}"

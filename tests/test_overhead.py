@@ -23,6 +23,20 @@ def utc(monkeypatch):
 CFG = {"max_ratio": 1.5, "baselines": {}, "sessions": {}}
 
 
+def test_fixture_timings_are_reported_as_ci_measurements(tmp_path, capsys):
+    source = tmp_path / "proof.json"
+    receipt = {"schema": 2, "context": {"tree": "tested-tree", "image": {"RUNNER_OS": "Windows"}},
+               "fixture_seconds": {"release": 0.015, "emergency-repair": 0.28}}
+    source.write_text(json.dumps(receipt), encoding="utf-8")
+    assert overhead.main(["--fixture", str(source), "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert {row["job"]: row["wall_s"] for row in rows} == receipt["fixture_seconds"]
+    assert all(row["scope"] == "ci-fixture" and row["system"] == "Windows" for row in rows)
+    receipt["fixture_seconds"]["release"] = -1
+    source.write_text(json.dumps(receipt), encoding="utf-8")
+    assert overhead.main(["--fixture", str(source)]) == 2
+
+
 def _inbox(tmp_path):
     d = tmp_path / "inbox"
     d.mkdir()

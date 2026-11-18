@@ -745,6 +745,29 @@ def bash_calls(root=None, since="2020-01-01"):
     return sorted(rows, key=lambda r: -r["seconds"])
 
 
+def fixture_timings(paths):
+    """Report actual measured fixture time, without implying a live build or deployment took place."""
+    import math
+
+    rows = []
+    for path in paths:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if data.get("schema") != 2:
+            raise ValueError(f"{path}: expected a CI test receipt")
+        context = data["context"]
+        system = context["image"]["RUNNER_OS"]
+        for job, seconds in data.get("fixture_seconds", {}).items():
+            if (job not in ("release", "emergency-repair") or type(seconds) not in (float, int)
+                    or not math.isfinite(seconds) or seconds < 0):
+                raise ValueError(f"{path}: invalid fixture timing")
+            counts = data.get("fixture_counts", {}).get(job, {})
+            if not isinstance(counts, dict) or any(type(value) is not int or value < 0 for value in counts.values()):
+                raise ValueError(f"{path}: invalid fixture counts")
+            rows.append({"job": job, "scope": "ci-fixture", "system": system,
+                         "tree": context["tree"], "wall_s": seconds, "counts": counts})
+    return sorted(rows, key=lambda row: (row["system"], row["job"], row["tree"]))
+
+
 def main(argv=None, prog="fieldkit overhead"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -755,8 +778,24 @@ def main(argv=None, prog="fieldkit overhead"):
     ap.add_argument("--until")
     ap.add_argument("--bare", type=float, help="the bare minutes, when no stage log gives them")
     ap.add_argument("--state", help="Fieldkit state folder (default: this checkout's state/)")
+    ap.add_argument("--fixture", action="append", help="report release and repair fixture timings from a CI receipt")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.fixture:
+        try:
+            rows = fixture_timings(a.fixture)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            print(f"overhead: {exc}", file=sys.stderr)
+            return 2
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            for row in rows:
+                counts = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in sorted(row["counts"].items()))
+                print(f"{row['system']} {row['job']} CI fixture: {row['wall_s']:.3f} s" + (f" ({counts})" if counts else ""))
+            if not rows:
+                print("No release or repair fixture timings in these CI receipts.")
+        return 0
     cfg = config()
     if a.job == "bash-calls":
         rows = bash_calls(since=a.since or "2020-01-01")

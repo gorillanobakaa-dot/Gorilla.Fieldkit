@@ -3,5 +3,11 @@
     ".github",
     "fieldkit",
     "tests/testmap.yaml"
+  ],
+  "tests/test_ci_templates.py": [
+    ".github",
+    "fieldkit",
+    "projects",
+    "releases"
   ]
 }

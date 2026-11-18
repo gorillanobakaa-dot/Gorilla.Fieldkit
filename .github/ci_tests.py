@@ -116,14 +116,18 @@ def main(argv):
         return 1
     if tests == []:
         return 0
-    if os.getenv("FIELDKIT_REUSE_CI") == "1" and tests is None:
+    evidence_token = os.environ.pop("FIELDKIT_CI_READ_TOKEN", "")
+    if os.getenv("FIELDKIT_REUSE_CI") == "1":
         from ci_file_proof import reuse
 
-        all_files = sorted({path.as_posix() for root in (Path("tests"), Path("local/tests"))
-                            for pattern in ("test_*.py", "*_test.py") for path in root.rglob(pattern)})
-        if all_files:
-            tests = reuse(all_files)
-            if not tests:
+        selected = tests if tests is not None else sorted({path.as_posix() for root in (Path("tests"), Path("local/tests"))
+                                                          for pattern in ("test_*.py", "*_test.py")
+                                                          for path in root.rglob(pattern)})
+        if selected:
+            pending = reuse(selected, token=evidence_token)
+            if tests is not None or pending != selected:
+                tests = pending
+            if tests == []:
                 return 0
     proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
     cmd = [sys.executable, "-m", "pytest", "-q", "-rsf", *(tests or [])]
