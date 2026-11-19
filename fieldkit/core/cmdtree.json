@@ -972,6 +972,7 @@
     "--limit": 1,
     "--max-whole-share": 1,
     "--repo": 1,
+    "--run": 1,
     "--since": 1,
     "--workflow": 1,
     "-h": 0
@@ -3175,12 +3176,14 @@
    "c": [],
    "f": {
     "--bare": 1,
+    "--fixture": 1,
     "--help": 0,
     "--json": 0,
     "--session": 1,
     "--since": 1,
     "--state": 1,
     "--until": 1,
+    "--work-id": 1,
     "-h": 0
    },
    "open": false,
@@ -3723,11 +3726,14 @@
     "handover": {
      "c": [],
      "f": {
+      "--ci-run": 1,
       "--done": 1,
       "--help": 0,
+      "--job-id": 1,
       "--json": 0,
       "--next": 1,
       "--not-verified": 1,
+      "--plan-file": 1,
       "--session": 1,
       "--title": 1,
       "--transcript": 1,
