@@ -820,7 +820,8 @@ class Emerge:
                 self._line(i, n, sid, "RUN", eta)
                 self._journal("build-stage-start", stage=sid, key=x["key"])
                 passed, secs, outs, tail = self._execute(s)
-                testcost.record(check_name(self.recipe.name, sid), "pass" if passed else "fail", secs, key=x["key"])
+                testcost.record(check_name(self.recipe.name, sid), "pass" if passed else "fail", secs, key=x["key"],
+                                job_id=os.environ.get("FIELDKIT_WORK_ID") or self.recipe.vars.get("task"))
                 if passed:
                     bad_pin = self._pins_after(sid)     # before the record: a wrong pin is never cached as a pass
                     if bad_pin:
@@ -940,7 +941,8 @@ class Emerge:
     def _passed(self, i, n, s, x, secs, outs, diffs, report, b, testcost, recorded=False):
         sid = s["id"]
         if not recorded:
-            testcost.record(check_name(self.recipe.name, sid), "pass", secs, key=x["key"])
+            testcost.record(check_name(self.recipe.name, sid), "pass", secs, key=x["key"],
+                            job_id=os.environ.get("FIELDKIT_WORK_ID") or self.recipe.vars.get("task"))
         b["tests" if s.get("bucket") == "tests" else "tools" if s.get("bucket") == "tools" else "bare"] += secs
         report.setdefault("bare_parts", {})[sid] = round(secs, 1)
         self._journal("build-stage-done", stage=sid, key=x["key"], seconds=round(secs, 1),

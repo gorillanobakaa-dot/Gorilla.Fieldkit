@@ -261,6 +261,23 @@ def test_handover_never_creates_a_missing_plan(tmp_path):
     assert rotate.main(["handover", "--transcript", str(p), "--title", "t", "--next", "n", "--done", "d"]) == 1
 
 
+def test_durable_handoff_preserves_current_complete_scope_and_ci(tmp_path):
+    import hashlib
+
+    transcript = monster(tmp_path)
+    plan = tmp_path / "approved.md"
+    approved = b"# Approved Fieldkit plan\n\nWork only in Fieldkit.\n\nKeep the complete checklist.\n"
+    plan.write_bytes(approved)
+    result = rotate.handover(transcript, "job", "watch CI", "changes pushed", job_id="work-123",
+                             plan_file=plan, ci_runs=[654], now=1_800_000_000)
+    plan.write_text("later changes", encoding="utf-8")
+    assert Path(result["scope_plan"]).read_bytes() == approved
+    assert result["plan_sha256"] == hashlib.sha256(approved).hexdigest()
+    assert "Outstanding CI run IDs: 654" in result["brief"]
+    assert "original task" not in result["brief"] and result["scope_plan"] in result["brief"]
+    assert json.loads((tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8"))["job_id"] == "work-123"
+
+
 # ---------------------------------------------------------------- finished side sessions
 
 def test_finished_needs_end_turn_idle_and_no_open_pr(tmp_path):

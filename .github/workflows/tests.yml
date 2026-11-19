@@ -29,9 +29,58 @@ jobs:
           FIELDKIT_BEFORE: ${{ github.event.before }}
         run: python3 .github/ci_merge_proof.py match
 
-  shard-windows-latest:
+  coverage:
     needs: merge-proof
     if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Every tracked file has covering tests
+        run: python -m fieldkit testcost unmapped --all
+
+  selection:
+    needs: merge-proof
+    if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Select the tests once for this checkout
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+            *) base=full ;;
+          esac
+          python .github/ci_tests.py "$base" --write-selection "$RUNNER_TEMP/fieldkit-selection.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldkit-selection
+          path: ${{ runner.temp }}/fieldkit-selection.json
+          if-no-files-found: error
+          retention-days: 1
+
+  shard-windows-latest:
+    needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (windows-latest, ${{ matrix.shard }})
@@ -55,9 +104,10 @@ jobs:
         timeout-minutes: 8
         shell: bash
         run: bash .github/desktop-file-utils.sh
-      - name: every tracked file has covering tests (else CI would run the whole suite for it)
-        if: matrix.shard == 1
-        run: python -m fieldkit testcost unmapped --all
+      - uses: actions/download-artifact@v4
+        with:
+          name: fieldkit-selection
+          path: ${{ runner.temp }}
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request' && matrix.shard == 1
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
@@ -66,19 +116,12 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            base="${{ github.event.before }}"
-          else
-            base="full"
-          fi
-          python .github/ci_tests.py "$base" --shard "${{ matrix.shard }}/4"
+        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/4"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         with:
@@ -88,8 +131,8 @@ jobs:
           if-no-files-found: ignore
 
   shard-ubuntu-latest:
-    needs: merge-proof
-    if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
+    needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (ubuntu-latest, ${{ matrix.shard }})
@@ -113,9 +156,10 @@ jobs:
         timeout-minutes: 8
         shell: bash
         run: bash .github/desktop-file-utils.sh
-      - name: every tracked file has covering tests (else CI would run the whole suite for it)
-        if: matrix.shard == 1
-        run: python -m fieldkit testcost unmapped --all
+      - uses: actions/download-artifact@v4
+        with:
+          name: fieldkit-selection
+          path: ${{ runner.temp }}
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request' && matrix.shard == 1
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
@@ -124,19 +168,12 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            base="${{ github.event.before }}"
-          else
-            base="full"
-          fi
-          python .github/ci_tests.py "$base" --shard "${{ matrix.shard }}/4"
+        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/4"
       - name: Record the exact PR checkout
         if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
@@ -162,7 +199,7 @@ jobs:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
     # each is green only when EVERY shard of its OS is green. Skipped or cancelled shards are red here.
     name: test (${{ matrix.os }})
-    needs: [merge-proof, shard-windows-latest, shard-ubuntu-latest]
+    needs: [merge-proof, coverage, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -179,6 +216,8 @@ jobs:
             echo "Exact merge tree passed prior PR CI on both platforms"
             exit 0
           fi
+          echo "coverage: ${{ needs.coverage.result }}"
+          test "${{ needs.coverage.result }}" = success || exit 1
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
           test "$result" = "success"

@@ -558,13 +558,31 @@ def _cell(s):
     return " ".join(str(s or "-").split()).replace("|", "/")
 
 
-def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=None):
+def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=None, *, job_id=None, plan_file=None,
+             ci_runs=()):
     """Write the note + the dated PLAN.md section. -> {note, plan, plan_written, brief, row, report}. P24: no rotation
     without a report: an empty Done or Next is refused (ValueError), and the four-part sitrep (started from, done so
     far, doing now, left to do) goes to Zero over the net before the successor starts ("report": what was sent)."""
     if not str(done or "").strip() or not str(next_ or "").strip() or str(done).strip() == "-" or str(next_).strip() == "-":
         raise ValueError("handover refused: Done and Next must both say something (the report Zero receives is built "
                          "from them): --done what was done, --next what is left")
+    import hashlib
+
+    job_id = job_id or os.environ.get("FIELDKIT_WORK_ID")
+    plan_file = plan_file or os.environ.get("FIELDKIT_WORK_PLAN")
+    if bool(job_id) != bool(plan_file) or (ci_runs and not job_id):
+        raise ValueError("a durable handoff needs both --job-id and --plan-file")
+    if job_id and (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", job_id)
+                   or any(type(run) is not int or run <= 0 for run in ci_runs)):
+        raise ValueError("expected a short work ID and positive CI run IDs")
+    plan_bytes = None
+    if plan_file:
+        source = Path(plan_file)
+        if source.suffix.casefold() != ".md" or not source.is_file():
+            raise ValueError("--plan-file must name the current Markdown plan")
+        plan_bytes = source.read_bytes()
+        if not plan_bytes.decode("utf-8-sig").strip():
+            raise ValueError("the work plan is empty")
     now = now or time.time()
     a, p = sc.resolve(str(transcript), sc.adapters_for("all"))
     if a is None:
@@ -579,12 +597,27 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     note = coord / f"rotate-{time.strftime('%Y-%m-%d-%H%M', time.localtime(now))}-{sid}.md"
     where = row.get("cwd") or "?"
     branch = row.get("branch") or "?"
+    work = {}
+    if plan_bytes is not None:
+        digest = hashlib.sha256(plan_bytes).hexdigest()
+        snapshot = coord / f"job-{job_id}-{digest}.md"
+        if not snapshot.exists():
+            with snapshot.open("xb") as output:
+                output.write(plan_bytes)
+        elif snapshot.read_bytes() != plan_bytes:
+            raise ValueError("the saved work plan does not match its recorded digest")
+        work = {"job_id": job_id, "scope_plan": str(snapshot), "plan_sha256": digest, "ci_runs": list(ci_runs)}
     brief = (f"You are continuing \"{title}\" from session {sid}, rotated by fieldkit rotate ({row['level']}: "
              f"{'; '.join(row['why']) or 'by hand'}). Do NOT start over. Read {note} first.\n"
              f"Working folder: {where} (branch {branch}).\n"
              f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n"
              f"SESSION TITLE: {title} (title yourself exactly this; it starts with the machine's tag)\n")
-    if row.get("task"):
+    if work:
+        brief += (f"\nWork ID: {job_id}\nBefore taking action read the complete approved plan at {snapshot}. "
+                  "Its scope governs this job and supersedes older summaries.\n"
+                  f"Plan SHA-256: {digest}\nOutstanding CI run IDs: {', '.join(map(str, ci_runs)) or 'none supplied'}\n"
+                  "Keep this work ID and plan when you hand off again.\n")
+    elif row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
     from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
     brief += protocol.brief_tail()
@@ -618,11 +651,11 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
                     f"{_cell(done)} | {_cell(next_)} | {_cell(not_verified)} | {note.name} |\n")
     with open(state_dir() / "handovers.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": stamp, "session": row["session"], "title": title, "level": row["level"],
-                            "note": str(note), "plan_written": written}) + "\n")
+                            "note": str(note), "plan_written": written, **work}) + "\n")
     started = (row.get("task") or "").strip() or f"session {sid} in {where}"
     report = zero_net.report_rotation(row["session"], title, started, done, next_, not_verified, branch, now)
     return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row,
-            "honesty": honest, "report": report}
+            "honesty": honest, "report": report, **work}
 
 
 def _honesty(path, done, not_verified):
@@ -914,6 +947,9 @@ def main(argv=None):
     h.add_argument("--next", required=True, dest="next_")
     h.add_argument("--done", default="")
     h.add_argument("--not-verified", default="")
+    h.add_argument("--job-id", help="stable work ID carried into the successor")
+    h.add_argument("--plan-file", help="complete Markdown plan and current scope for that work ID")
+    h.add_argument("--ci-run", action="append", type=int, default=[], help="outstanding GitHub Actions run ID")
     h.add_argument("--json", action="store_true")
     f = sub.add_parser("finished")
     f.add_argument("--hours", type=float)
@@ -946,7 +982,8 @@ def main(argv=None):
         return max([EXIT[r["level"]] for r in rows] or [0])
     if a.cmd == "handover":
         try:
-            r = handover(a.transcript or a.session, a.title, a.next_, a.done, a.not_verified)
+            r = handover(a.transcript or a.session, a.title, a.next_, a.done, a.not_verified,
+                         job_id=a.job_id, plan_file=a.plan_file, ci_runs=a.ci_run)
         except FileNotFoundError as e:
             print(f"rotate: not found: {e}", file=sys.stderr)
             return 3

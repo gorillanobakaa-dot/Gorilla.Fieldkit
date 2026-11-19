@@ -98,6 +98,21 @@ def test_merge_runs_only_selected_files_without_matching_evidence(monkeypatch):
     assert ci.main(["ci_tests.py", "main", "--merged"]) == 0
 
 
+def test_shards_use_one_checkout_bound_selection(tmp_path, monkeypatch):
+    head = "a" * 40
+    manifest = tmp_path / "selection.json"
+    selected = ["tests/test_ci_tests.py"]
+    monkeypatch.setattr(ci, "checkout_head", lambda: head)
+    monkeypatch.setattr(ci, "selection", lambda *_: (selected, "common fixture"))
+    assert ci.main(["ci_tests.py", "base", "--write-selection", str(manifest)]) == 0
+    assert ci.read_selection(manifest, head) == (selected, "common fixture")
+    with pytest.raises(ValueError, match="checked out commit"):
+        ci.read_selection(manifest, "b" * 40)
+    manifest.write_text(json.dumps({"schema": 1, "head": head, "tests": ["tests/../../other"]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid test paths"):
+        ci.read_selection(manifest, head)
+
+
 def fake(monkeypatch, plan=None, out=None):
     def run(cmd, **kw):
         return types.SimpleNamespace(returncode=0, stdout=out if out is not None else json.dumps(plan))
