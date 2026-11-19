@@ -7,6 +7,21 @@ import pytest
 from fieldkit.method import releasecandidate as rc, ship
 
 
+def test_older_candidate_policy_requires_the_signed_publisher(monkeypatch, tmp_path):
+    from fieldkit.core import sync
+
+    monkeypatch.setattr(sync, "_slug", lambda _: "owner/repo")
+    monkeypatch.setattr(rc, "effective_policy", lambda *_: {"publication": "local"})
+    monkeypatch.setattr(rc, "publish", lambda *a, **k: pytest.fail("a non-publisher attempted promotion"))
+
+    def authorize(action, **kwargs):
+        assert action == "release_tag" and kwargs["single_publisher"] is True
+        return "deny", "only the signed publisher may promote", None
+
+    result = ship.gh_release(tmp_path, "v1.2", ["--candidate", "candidate.yaml"], mandate=authorize)
+    assert result["state"] == "candidate-refused" and "only the signed publisher" in result["error"]
+
+
 def test_github_retries_explicit_short_cooldown_and_keeps_long_cooldown_for_resume():
     waits = []
     responses = iter([

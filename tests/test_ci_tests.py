@@ -30,6 +30,13 @@ def test_e2e_runs_only_affected_jobs_and_falls_back_for_shared_inputs():
     for shared in (".github/workflows/e2e.yml", ".github/e2e/vaio_batch.py", "fieldkit/cli.py"):
         assert e2e.select(["fieldkit/leakgate/gate.py", shared]) == {"e2e": ["*"], "e2e_l15": ["*"]}
     assert e2e.select(["fieldkit/leakgate/new.py"])["e2e"] == ["*"]
+    assert e2e.select(["fieldkit/once.py", "fieldkit/lifecycle/pool.py"]) == {
+        "e2e": sorted(e2e.both("once", "pool")), "e2e_l15": []}
+    batch = e2e.select(["fieldkit/method/train.py", "tests/test_ci_wait.py"])
+    assert batch["e2e"] == [] and len(batch["e2e_l15"]) == 10
+    l15 = yaml.safe_load((root / ".github/workflows/e2e-l15.yml").read_text(encoding="utf-8"))
+    assert all(f"'{name}'" in l15["jobs"][name]["if"] for name in batch["e2e_l15"])
+    assert e2e.select(["fieldkit/once.py", "tests/conftest.py"])["e2e"] == ["*"]
     assert e2e.select(None) == {"e2e": ["*"], "e2e_l15": ["*"]}
     assert e2e.select(["docs/METHODS.md"]) == {"e2e": [], "e2e_l15": []}
 

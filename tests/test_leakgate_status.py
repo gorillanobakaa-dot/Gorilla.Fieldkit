@@ -146,6 +146,13 @@ def test_restart_rejects_changed_inputs_gaps_corruption_and_finished_runs(runs):
 
     assert recover() == [(row, receipt)]
     assert recover("changed policy or executable") == []
+    running = dict(marker, state="running", owner={"pid": 10, "created": 1})
+    gate._publish_json(work / restart.FILE, running)
+    assert recover() == []
+    assert restart.prefix(work, names, marker["context"], gate.CHECKPOINT_DIR, gate._sha,
+                          recovered_cleanup=lambda *_: False) == []
+    assert restart.prefix(work, names, marker["context"], gate.CHECKPOINT_DIR, gate._sha,
+                          recovered_cleanup=lambda folder, owner: folder == work and owner["pid"] == 10) == [(row, receipt)]
     gate._publish_json(work / restart.FILE, dict(marker, records={names[1]: receipt}))
     assert recover() == []
     gate._publish_json(work / restart.FILE, marker)
@@ -154,6 +161,39 @@ def test_restart_rejects_changed_inputs_gaps_corruption_and_finished_runs(runs):
     sensor_file.write_bytes(b"fixture capture")
     gate._publish_json(work / "test-results.json", {"FINAL_RESULT": "FAIL"})
     assert recover() == []
+
+
+def test_windows_network_snapshot_does_not_produce_proof_on_query_error(monkeypatch):
+    from fieldkit.leakgate import restart
+
+    snapshot = dict(addresses=[{"IPAddress": "192.0.2.2"}], routes=[], dns=["fixture"], dnsLog=True,
+                    profiles=[], firewall=[], firewallRules={}, proxy=[], packets=["fixture status"])
+    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: json.dumps(snapshot).encode())
+    first = restart.windows_network()
+    assert first == restart.digest(snapshot)
+    snapshot["dns"] = ["other"]
+    assert first != restart.windows_network()
+    snapshot.pop("packets")
+    assert restart.windows_network() is None
+    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: b"unreadable")
+    assert restart.windows_network() is None
+
+
+def test_crash_recovery_refuses_the_original_process_and_its_remaining_worker(tmp_path, monkeypatch):
+    import psutil
+    from types import SimpleNamespace
+    from fieldkit.leakgate import restart
+
+    previous = {"pid": 10, "created": 100}
+    current = SimpleNamespace(create_time=lambda: 100)
+    monkeypatch.setattr(psutil, "Process", lambda pid: current)
+    assert not restart.owner_gone(tmp_path, previous)
+    current.create_time = lambda: 200
+    worker = SimpleNamespace(info={"cmdline": ["worker", str(tmp_path / "runs" / "capture")]})
+    monkeypatch.setattr(psutil, "process_iter", lambda *a, **kw: iter([worker]))
+    assert not restart.owner_gone(tmp_path, previous)
+    monkeypatch.setattr(psutil, "process_iter", lambda *a, **kw: iter([]))
+    assert restart.owner_gone(tmp_path, previous)
 
 
 def test_a_gate_that_is_gone_or_a_reused_pid_is_not_running():

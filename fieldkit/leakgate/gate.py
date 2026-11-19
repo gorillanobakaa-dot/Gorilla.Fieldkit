@@ -653,22 +653,22 @@ def run(*args, say=print, **kw):
     def refused(why):
         raise RuntimeError(f"leakgate: the preflight refused the run: {why}")
     measure = functools.partial(_run, *args, say=say, **kw)
-    if not sys.platform.startswith("linux"):
+    if not (sys.platform.startswith("linux") or sys.platform == "win32"):
         return preflight.call("leak gate", "gate", measure, say=say, wait_s=600, refused=refused)
 
     from .. import admission
 
-    def measure_namespace():
-        # All namespace runs use the same interface and namespace names.
-        slot = admission.try_take(1, kind="leakgate", label="namespace", root=Path.home() / ".fieldkit" / "leakgate")
+    def measure_exclusively():
+        # A machine has one test namespace or packet monitor.
+        slot = admission.try_take(1, kind="leakgate", label="capture", root=Path.home() / ".fieldkit" / "leakgate")
         if slot is None:
-            return refused("another gate owns the test network namespace")
+            return refused("another gate owns local capture")
         try:
             return measure()
         finally:
             slot.release()
 
-    return preflight.call("leak gate", "gate", measure_namespace, say=say, wait_s=600, refused=refused)
+    return preflight.call("leak gate", "gate", measure_exclusively, say=say, wait_s=600, refused=refused)
 
 
 def unpack_deb(deb, dest, runner=subprocess.run):
@@ -704,24 +704,39 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     package_digest = None
     recovered = []
     work = workroot / time.strftime("%Y%m%d-%H%M%S")
-    if linux and release and only is None:
+    network = None
+    if release and only is None and (linux or (sys.platform == "win32" and se.is_admin())):
+        if not linux:
+            network = restart.windows_network()
         package_digest = _sha(zip_path)
         identity = restart.context(package_digest, workdir_tree, upstream,
                                    (allow_path, spec_path, disp_path, owner_root / "leakgate" / "baseline.json",
-                                    previous_zip), st0["tools"],
+                                    previous_zip), st0["tools"] if linux else restart.windows_tools(),
                                    {"work": os.environ.get("FIELDKIT_WORK_ID") or str(workroot),
-                                    "scenarios": planned, "repeat": repeat, "soak": soak, "firewall": firewall}, _sha)
+                                    "scenarios": planned, "repeat": repeat, "soak": soak, "firewall": firewall}, _sha,
+                                   network=network)
         if identity and workroot.is_dir():
             previous = next((path for path in sorted(workroot.iterdir(), reverse=True)
                              if path.is_dir() and re.fullmatch(r"\d{8}-\d{6}", path.name)), None)
             if previous:
-                recovered = restart.prefix(previous, planned, identity, CHECKPOINT_DIR, _sha)
+                def recovered_cleanup(folder, recorded):
+                    # The Windows identity already compared the baseline capture, DNS and firewall state.
+                    return (not linux or lx.namespace_idle()) and restart.owner_gone(folder, recorded)
+
+                recovered = restart.prefix(previous, planned, identity, CHECKPOINT_DIR, _sha,
+                                           recovered_cleanup=recovered_cleanup)
                 if recovered:
                     work = previous
                     say(f"  reusing {len(recovered)} verified scenario records from {previous.name}")
     work.mkdir(parents=True, exist_ok=bool(recovered))
+    records = {row["scenario_run"]: receipt for row, receipt in recovered}
+    run_owner = restart.owner() if identity else None
+
+    def save_restart(state):
+        _publish_json(work / restart.FILE, {"context": identity, "state": state, "owner": run_owner, "records": records})
+
     if identity:
-        _publish_json(work / restart.FILE, {"context": identity, "state": "running"})
+        save_restart("running")
     if linux:
         packets, dns_prev = True, None
     else:
@@ -831,14 +846,12 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     events, artifacts, scen_hosts = [], {}, {}
     checkpoints = work / CHECKPOINT_DIR
     streams = {"page_results": server.results, "page_requests": server.requests, "doh_queries": doh.queries}
-    records = {}
-    for row, receipt in recovered:
+    for row, _receipt in recovered:
         run_id, art = row["scenario_run"], row["artifact"]
         events.extend(row["events"])
         artifacts[run_id] = art
         for name, observations in row["observations_since_previous_checkpoint"].items():
             streams[name].extend(observations)
-        records[run_id] = receipt
     offsets = {name: len(rows) for name, rows in streams.items()} if recovered else dict.fromkeys(streams, 0)
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
@@ -889,6 +902,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                         if identity and len(records) == len(artifacts) - 1:
                             row = json.loads((checkpoints / f"{run_id}.json").read_text(encoding="utf-8"))
                             records[run_id] = {"row": restart.digest(row), "files": restart.files(work, art, _sha)}
+                            save_restart("running")
                     except (OSError, ValueError) as e:
                         say(f"  checkpoint for {run_id} unavailable: {e}")
     finally:
@@ -903,8 +917,10 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             extras.firewall_unblock(fw_name)
         if linux:
             lx.netns_down()
-        if identity and records and not Path("/run/netns", lx.NS).exists():
-            _publish_json(work / restart.FILE, {"context": identity, "state": "ready", "records": records})
+        if identity and records:
+            clean = lx.namespace_idle() if linux else restart.windows_network() == network
+            if clean:
+                save_restart("ready")
 
     # the controlled resolver's own log is a sensor: every name the browser asked for, answered or not
     for q in doh.queries:
