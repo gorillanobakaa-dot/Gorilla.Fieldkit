@@ -47,6 +47,34 @@ def test_required_statuses_depend_on_the_e2e_verdict():
         assert f'test "${result}" = success || exit 1' in step["run"]
 
 
+def test_ci_shard_reports_a_stall_and_leaves_other_shards_independent(monkeypatch, tmp_path, capsys):
+    from contextlib import nullcontext
+
+    from fieldkit.core import contain, liveness
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("RUNNER_OS", "fixture")
+    monkeypatch.setattr(liveness, "beacon", lambda *args: nullcontext(None))
+    calls = []
+
+    def run(cmd, **kwargs):
+        path = kwargs["stdout_path"]
+        calls.append(path.name)
+        assert kwargs["deadline_s"] >= 600 and kwargs["idle_s"] == 360
+        path.write_text("test started\n", encoding="utf-8")
+        kwargs["on_tick"]()
+        return (contain.Outcome("stalled", 124, seconds=361, why="owned process stopped")
+                if len(calls) == 1 else contain.Outcome("ok", 0, seconds=1))
+
+    monkeypatch.setattr(contain, "run", run)
+    assert ci.run_tests(["fixture"], ["tests/test_ci_tests.py"], "1/4") == 124
+    assert ci.run_tests(["fixture"], ["tests/test_ci_templates.py"], "2/4") == 0
+    assert calls == ["fieldkit-pytest-1.log", "fieldkit-pytest-2.log"]
+    assert "stalled in 361.0s: owned process stopped" in capsys.readouterr().out
+
+
 def test_merge_preflight_requires_trusted_success_and_exact_base_head_and_tree(monkeypatch):
     folder = Path(__file__).resolve().parents[1] / ".github"
     monkeypatch.syspath_prepend(str(folder))

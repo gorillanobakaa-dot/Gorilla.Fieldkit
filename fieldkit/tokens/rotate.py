@@ -8,6 +8,9 @@
     fieldkit rotate handover --transcript PATH|--session ID --title T --next TEXT [--done TEXT] [--not-verified TEXT]
                                                                  the dated PLAN.md section + a note file + the brief
                                                                  for the fresh session; prints the exact next step
+        [--job-id ID --plan-file FILE] [--ci-run RUN ...]         carry the complete approved plan and pending CI
+    fieldkit rotate takeover --job-id ID [--note NOTE --as-session ID] [--json]
+                                                                 find the job or acknowledge the current handoff
     fieldkit rotate finished [--hours 72] [--gh] [--json]        ended, idle sessions with no open PR: for archive
     fieldkit rotate log [N]                                      the last N verdicts
     fieldkit rotate endcheck --transcript PATH                   a turn may end only with no open PR it mentioned unless a
@@ -559,6 +562,18 @@ def _cell(s):
     return " ".join(str(s or "-").split()).replace("|", "/")
 
 
+def _worktree_head(folder):
+    if not Path(folder).is_dir():
+        return None
+    try:
+        result = subprocess.run(["git", "-C", folder, "rev-parse", "--verify", "HEAD"], capture_output=True,
+                                text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    head = result.stdout.strip()
+    return head if result.returncode == 0 and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", head) else None
+
+
 def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=None, *, job_id=None, plan_file=None,
              ci_runs=()):
     """Write the note + the dated PLAN.md section. -> {note, plan, plan_written, brief, row, report}. P24: no rotation
@@ -610,16 +625,19 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         elif snapshot.read_bytes() != plan_bytes:
             raise ValueError("the saved work plan does not match its recorded digest")
         work = {"job_id": job_id, "scope_plan": str(snapshot), "plan_sha256": digest, "ci_runs": list(ci_runs),
-                "cwd": where, "branch": branch}
+                "cwd": where, "branch": branch, "commit": _worktree_head(where), "title": title,
+                "launch_brief": str(state_dir() / "briefs" / note.name)}
     brief = (f"You are continuing \"{title}\" from session {sid}, rotated by fieldkit rotate ({row['level']}: "
              f"{'; '.join(row['why']) or 'by hand'}). Do NOT start over. Read {note} first.\n"
              f"Working folder: {where} (branch {branch}).\n"
              f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n"
              f"SESSION TITLE: {title} (title yourself exactly this; it starts with the machine's tag)\n")
     if work:
-        brief += (f"\nWork ID: {job_id}\nBefore taking action read the complete approved plan at {snapshot}. "
+        brief += (f"\nWork ID: {job_id}\nHandoff note: {note}\n"
+                  f"Before taking action read the complete approved plan at {snapshot}. "
                   "Its scope governs this job and supersedes older summaries.\n"
-                  f"Plan SHA-256: {digest}\nOutstanding CI run IDs: {', '.join(map(str, ci_runs)) or 'none supplied'}\n"
+                  f"Plan SHA-256: {digest}\nRecorded worktree commit: {work['commit'] or 'unknown'}\n"
+                  f"Outstanding CI run IDs: {', '.join(map(str, ci_runs)) or 'none supplied'}\n"
                   f'Before continuing, run fieldkit rotate takeover --job-id "{job_id}" --note "{note}" '
                   "--as-session YOUR_SESSION_ID. Continue only after it confirms your claim. "
                   "Keep this work ID and plan when you hand off again.\n")
@@ -653,6 +671,10 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         f"{': ' + '; '.join(x['kind'] + ' ' + x['detail'] for x in honest) if honest else ''}\n\n"
         f"## Done\n\n{done or '-'}\n\n## Next\n\n{next_}\n\n## NOT verified\n\n{not_verified or '-'}\n\n"
         f"## Brief for the fresh session\n\n```\n{brief}```\n", encoding="utf-8")
+    if work:
+        launch_brief = Path(work["launch_brief"])
+        launch_brief.parent.mkdir(parents=True, exist_ok=True)
+        launch_brief.write_text(brief, encoding="utf-8")
     if not work:
         _journal_handoff(record)
     if written:                                       # never creates the plan: a missing PLAN.md is said, not hidden
@@ -688,7 +710,22 @@ def _journal_handoff(record):
 
 def _begin_takeover_write(db):
     db.execute("CREATE TABLE IF NOT EXISTS takeover (note TEXT PRIMARY KEY, session TEXT NOT NULL, at REAL)")
+    db.execute("CREATE TABLE IF NOT EXISTS launch (note TEXT PRIMARY KEY, at REAL)")
     db.execute("BEGIN IMMEDIATE")
+
+
+def reserve_launch(job_id, note):
+    """Allow exactly one launch through Fieldkit for a particular scoped handoff."""
+    from contextlib import closing
+
+    with closing(sqlite3.connect(state_dir() / "takeovers.sqlite3")) as db, db:
+        _begin_takeover_write(db)
+        record = _latest_work(job_id)
+        if not record or Path(note).resolve() != Path(record["note"]).resolve():
+            raise ValueError("this launch does not match the current scoped handoff")
+        if db.execute("SELECT 1 FROM takeover WHERE note = ?", (record["note"],)).fetchone():
+            return False
+        return db.execute("INSERT OR IGNORE INTO launch VALUES (?, ?)", (record["note"], time.time())).rowcount == 1
 
 
 def _register_work(record):
@@ -1094,8 +1131,9 @@ def main(argv=None):
             for x in r.get("honesty") or []:
                 print(f"HONESTY {x['kind']}: {x['detail']}")
             if r.get("job_id"):
-                print(f'NEXT: start a fresh session with the brief below. Check fieldkit rotate takeover --job-id '
-                      f'"{r["job_id"]}" for its acknowledgement before archiving this one.\n')
+                print(f'NEXT: fieldkit rotate successor --brief "{r["launch_brief"]}" --title "{r["title"]}" '
+                      '--origin user (use session for a turn started by another session).')
+                print(f'Check fieldkit rotate takeover --job-id "{r["job_id"]}" for acknowledgement before archiving.\n')
             else:
                 print("NEXT: start a fresh session with the brief below, then archive this one "
                       "(Claude desktop: start_session context fresh + archive_session \"self\").\n")
@@ -1141,10 +1179,15 @@ def main(argv=None):
         return doctor()
     if a.cmd == "successor":
         from . import budget
-        r = budget.start_successor(a.brief, a.title, a.origin)
+        try:
+            r = budget.start_successor(a.brief, a.title, a.origin)
+        except (OSError, ValueError, sqlite3.Error) as e:
+            print(f"rotate: {e}", file=sys.stderr)
+            return 3
         print(r["line"])
         print({"self": "NEXT: call start_session now", "zero": "NEXT: archive this session once Zero confirms",
-               "headless-sonnet": "NEXT: fieldkit task status", "failed": "NEXT: fieldkit inbox add"}[r["step"]])
+               "headless-sonnet": "NEXT: fieldkit task status", "failed": "NEXT: fieldkit inbox add",
+               "already-requested": "NEXT: use rotate takeover to read the acknowledgement"}[r["step"]])
         return 3 if r["step"] == "failed" else 0
     if a.cmd == "endcheck":
         try:

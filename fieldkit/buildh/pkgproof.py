@@ -109,10 +109,21 @@ def run_group(name, t, app, say=print):
 
 def prove(t, zip_path, say=print, groups=PACKAGE_GROUPS, run=run_group):
     """build-verify: every package group on the unpacked zip -> {"rows", "proven", "seconds", "files"}."""
-    files = zip_files(zip_path)
     tmp, app = unpack(zip_path)
     proven, seconds, rows = {}, {}, []
     try:
+        # The normal package contains one application root. Hash the files already unpacked for the checks
+        # instead of inflating the entire archive a second time just to calculate its file manifest.
+        files = None
+        if app != tmp:
+            with zipfile.ZipFile(zip_path) as archive:
+                names = [member.filename for member in archive.infolist() if not member.is_dir()]
+            if names and all(name.startswith(app.name + "/") for name in names):
+                actual = folder_files(app)
+                if len(names) == len(actual) and {_rel(name) for name in names} == actual.keys():
+                    files = actual
+        if files is None:
+            files = zip_files(zip_path)
         for g in groups:
             t0 = time.time()
             got = run(g, t, app, say)
