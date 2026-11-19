@@ -98,6 +98,31 @@ def test_an_older_run_uses_artifacts_or_the_launcher_log_and_says_so(runs, tmp_p
     assert status.plan(d, tmp_path / "nowhere")["total"] is None
 
 
+def test_interrupted_run_retains_sensors_and_has_no_final_verdict(runs):
+    d = runs / "20300101-080000"
+    planned = gate.planned_runs(1, True, only={"newtab"})
+    gate._publish_json(d / gate.PLAN_FILE, {"pid": os.getpid(), "runs": planned})
+    _start(d, planned)
+    folder = d / gate.CHECKPOINT_DIR
+    folder.mkdir()
+    sensors = {"page_results": [{"page": "newtab"}], "page_requests": [{"path": "/"}],
+               "doh_queries": [{"name": "example.invalid"}]}
+    offsets = dict.fromkeys(sensors, 0)
+    offsets = gate._scenario_checkpoint(folder, planned[0], 1, 2.75, [], {"files": []}, sensors, offsets)
+    sensors["page_results"].append({"page": "next"})
+    gate._scenario_checkpoint(folder, planned[1], 4, 1, [], {}, sensors, offsets)
+    (folder / f"{planned[2]}.tmp").write_text("{", encoding="utf-8")
+    first = json.loads((folder / f"{planned[0]}.json").read_text(encoding="utf-8"))
+    second = json.loads((folder / f"{planned[1]}.json").read_text(encoding="utf-8"))
+    assert first["elapsed_s"] == 2.75
+    assert first["observations_since_previous_checkpoint"]["doh_queries"] == [{"name": "example.invalid"}]
+    assert second["observations_since_previous_checkpoint"] == {
+        "page_results": [{"page": "next"}], "page_requests": [], "doh_queries": []}
+    report = status.status("t1")
+    assert report["captured_runs"] == planned[:2] and report["result"] is None
+    assert "2 scenario runs captured" in "\n".join(status.lines(report))
+
+
 def test_a_gate_that_is_gone_or_a_reused_pid_is_not_running():
     started = dt.datetime.now()
     assert status.alive(os.getpid(), started) is True
