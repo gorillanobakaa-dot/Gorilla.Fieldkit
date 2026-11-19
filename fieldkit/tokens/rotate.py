@@ -639,8 +639,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     if honest:
         brief += ("\nHONESTY: the hand-over's claims were NOT backed (fieldkit honesty check): "
                   + "; ".join(f"{x['kind']} {x['detail']}" for x in honest) + ". Verify them before relying on them.\n")
-    from .. import plan                               # where the harness plan stands, so the successor does not forget
-    pl = plan.line()
+    from .. import plan as harness_plan
+    pl = harness_plan.line()
     brief += f"\n{pl}\n" if pl else ""
     note.write_text(
         f"# Session rotated: {title}\n\n"
