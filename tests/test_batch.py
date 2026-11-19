@@ -154,6 +154,37 @@ def no_parked(_branch):
     return None
 
 
+def test_before_pr_ships_one_combined_tree_without_individual_prs(world):
+    repo, bare, gh = world["repo"], world["bare"], world["gh"]
+    for branch, filename, shared in (("feat/a", "a.txt", "ONE\ntwo\nthree\n"),
+                                     ("feat/b", "b.txt", None), ("feat/conflict", "c.txt", "OTHER\ntwo\nthree\n")):
+        git(repo, "checkout", "-qb", branch, "main")
+        (repo / "cards" / filename).write_text(filename, encoding="utf-8")
+        if shared:
+            (repo / "shared.txt").write_text(shared, encoding="utf-8")
+        regen(repo)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", filename)
+
+    shipped = []
+
+    def shipper(work, *, base, title, body_file):
+        branch = git(work, "branch", "--show-current")
+        body = Path(body_file).read_text(encoding="utf-8")
+        assert "fieldkit-batch" not in body  # Unproven members use the ordinary full-diff selection.
+        push = world["push"](work, base)
+        gh.create_pr(branch, base, title, body)
+        shipped.append(branch)
+        return push
+
+    result = batch.before_pr(repo, ["feat/a", "feat/b", "feat/conflict"], pol=POL, shipper=shipper, gh=gh)
+    assert result["ok"] and len(shipped) == len(gh.prs_) == 1
+    assert [m["branch"] for m in result["members"]] == ["feat/a", "feat/b"]
+    assert [m["source"] for m in result["left"]] == ["feat/conflict"]
+    assert json.loads(git(bare, "show", f"refs/heads/{shipped[0]}:index.json"))["cards"] == ["a.txt", "b.txt", "m.txt"]
+    assert git(bare, "for-each-ref", "--format=%(refname)", "refs/heads/feat/") == ""
+
+
 # -- 1. collect: only PRs green at their own head ----------------------------------------------------------------------
 def test_collect_takes_only_green_nondraft_automerge_unparked_oldest_first(world):
     w, gh = world, world["gh"]

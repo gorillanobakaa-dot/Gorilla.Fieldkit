@@ -583,10 +583,10 @@ def _mandate(action, **kw):
     return m(action, **kw)
 
 
-def clone_for(repo):
+def clone_for(repo, purpose="train-clone"):
     """The train's own clone (in the clone's git folder): there a PR branch can be checked out even while the
     session's worktree has it. Pushes go through its hooks (core.hooksPath hooks) and fieldkit ship push."""
-    work = mp.state_dir(repo) / "train-clone"
+    work = mp.state_dir(repo) / purpose
     url = _git(repo, "remote", "get-url", "origin").stdout.strip()
     if not (work / ".git").is_dir():
         r = subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(mp.common_dir(repo)), str(work)],

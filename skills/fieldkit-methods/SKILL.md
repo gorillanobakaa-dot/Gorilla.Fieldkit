@@ -195,6 +195,7 @@ fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff
 fieldkit ship train --modes       every failure mode this closes, with its check
 fieldkit cmd check TEXT|--file F   a command is checked before it is given: every fieldkit verb looked up in the live command tree (exit 3 + did-you-mean)
 fieldkit ship batch run           many ready PRs, one branch (night/batch-STAMP), one CI, one merge (SOP for 100 machines):
+fieldkit ship batch before-pr --branches BRANCH ...  combine local changes first and open only the protected batch PR
                                   `batch collect` takes only PRs green on every required check at their head; `build`
                                   joins them (a generated-file conflict is regenerated, a real one leaves that PR out);
                                   red -> the culprit from the failing test names (infra re-runs, never bisects), dropped
