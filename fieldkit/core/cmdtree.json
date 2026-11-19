@@ -3772,6 +3772,19 @@
      },
      "open": false,
      "v": {}
+    },
+    "takeover": {
+     "c": [],
+     "f": {
+      "--as-session": 1,
+      "--help": 0,
+      "--job-id": 1,
+      "--json": 0,
+      "--note": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
     }
    }
   },
