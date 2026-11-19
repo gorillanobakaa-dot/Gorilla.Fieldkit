@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path, PurePosixPath
 
 REFUSED = False                       # the selection refuses: CI fails in seconds, no test runs
 MUTATION_PLAN = re.compile(r"^tests/[^/]+_mutations\.yaml$")
@@ -86,21 +87,52 @@ def selection(base, merged=False):
 def present(tests, root="."):
     """-> the selected test files that still exist: a pull request that deletes a test file must not make pytest
     fail on "file not found" (PR 552). A deleted file has nothing left to run."""
-    from pathlib import Path
     return [t for t in tests if (Path(root) / t).exists()]
 
 
-def main(argv):
-    from pathlib import Path
+def checkout_head():
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
+
+def read_selection(path, head):
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if data.get("schema") != 1 or data.get("head") != head:
+        raise ValueError("selection does not match the checked out commit")
+    tests = data["tests"]
+    if tests is not None and (not isinstance(tests, list) or any(
+            not isinstance(t, str) or not t.startswith("tests/") or "\\" in t or ".." in PurePosixPath(t).parts
+            for t in tests)):
+        raise ValueError("invalid test paths in selection")
+    return tests, data["why"]
+
+
+def option(argv, name):
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    argv.pop(index)
+    return argv.pop(index)
+
+
+def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
-    shard = None
-    if "--shard" in argv:
-        k = argv.index("--shard")
-        shard = argv[k + 1]
-        argv = argv[:k] + argv[k + 2:]
-    tests, why = selection(argv[1] if len(argv) > 1 else "full", merged)
+    try:
+        shard = option(argv, "--shard")
+        incoming = option(argv, "--read-selection")
+        outgoing = option(argv, "--write-selection")
+        if incoming and outgoing:
+            raise ValueError("cannot read and write a test selection in the same step")
+        tests, why = (read_selection(incoming, checkout_head()) if incoming
+                      else selection(argv[1] if len(argv) > 1 else "full", merged))
+        if outgoing and tests is not REFUSED:
+            Path(outgoing).write_text(json.dumps({"schema": 1, "head": checkout_head(), "tests": tests, "why": why}),
+                                      encoding="utf-8")
+            print("ci-tests:", why)
+            return 0
+    except (IndexError, KeyError, OSError, ValueError, AttributeError, subprocess.SubprocessError) as exc:
+        print(f"ci-tests: REFUSED - selection unavailable: {exc}")
+        return 1
     print("ci-tests:", why)
     if tests is not REFUSED and tests:
         tests = present(tests)
@@ -130,7 +162,10 @@ def main(argv):
             if tests == []:
                 return 0
     proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
-    cmd = [sys.executable, "-m", "pytest", "-q", "-rsf", *(tests or [])]
+    cmd = [sys.executable, "-m", "pytest", "-q", "-rsf"]
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        cmd.extend(["-o", "faulthandler_timeout=300"])
+    cmd.extend(tests or [])
     if proof and tests:
         from ci_file_proof import context, write_receipt
 
