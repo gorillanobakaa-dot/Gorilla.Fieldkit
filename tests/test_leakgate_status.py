@@ -123,6 +123,39 @@ def test_interrupted_run_retains_sensors_and_has_no_final_verdict(runs):
     assert "2 scenario runs captured" in "\n".join(status.lines(report))
 
 
+def test_restart_rejects_changed_inputs_gaps_corruption_and_finished_runs(runs):
+    from fieldkit.leakgate import restart
+
+    work = runs / "20300101-080000"
+    folder = work / gate.CHECKPOINT_DIR
+    folder.mkdir()
+    names = gate.planned_runs(1, True, only={"newtab"})
+    sensor_file = work / "runs" / "packets.pcap"
+    sensor_file.write_bytes(b"fixture capture")
+    streams = {"page_results": [{"page": "newtab"}], "page_requests": [], "doh_queries": []}
+    artifact = {"pcap": str(sensor_file)}
+    gate._scenario_checkpoint(folder, names[0], 90, 3, [], artifact, streams, dict.fromkeys(streams, 0))
+    path = folder / f"{names[0]}.json"
+    row = json.loads(path.read_text(encoding="utf-8"))
+    receipt = {"row": restart.digest(row), "files": restart.files(work, artifact, gate._sha)}
+    marker = {"context": "matching runner and inputs", "state": "ready", "records": {names[0]: receipt}}
+    gate._publish_json(work / restart.FILE, marker)
+
+    def recover(key=marker["context"]):
+        return restart.prefix(work, names, key, gate.CHECKPOINT_DIR, gate._sha)
+
+    assert recover() == [(row, receipt)]
+    assert recover("changed policy or executable") == []
+    gate._publish_json(work / restart.FILE, dict(marker, records={names[1]: receipt}))
+    assert recover() == []
+    gate._publish_json(work / restart.FILE, marker)
+    sensor_file.write_bytes(b"changed capture")
+    assert recover() == []
+    sensor_file.write_bytes(b"fixture capture")
+    gate._publish_json(work / "test-results.json", {"FINAL_RESULT": "FAIL"})
+    assert recover() == []
+
+
 def test_a_gate_that_is_gone_or_a_reused_pid_is_not_running():
     started = dt.datetime.now()
     assert status.alive(os.getpid(), started) is True

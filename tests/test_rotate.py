@@ -318,6 +318,26 @@ def test_scoped_takeover_claims_one_successor_and_keeps_pending_ci(tmp_path, cap
     assert rotate.takeover("scoped")["successor"] is None
 
 
+def test_scoped_launch_is_dispatched_once(tmp_path):
+    from fieldkit.tokens import budget as token_budget
+
+    plan = tmp_path / "approved.md"
+    plan.write_text("# Fieldkit only\n", encoding="utf-8")
+    result = rotate.handover(monster(tmp_path), "scope", "follow CI", "changes pushed",
+                             job_id="launch-once", plan_file=plan, ci_runs=[546])
+    sent = []
+
+    def send(message):
+        sent.append(message)
+        return "zero"
+
+    first = token_budget.start_successor(result["launch_brief"], "scope", "session", send=send)
+    second = token_budget.start_successor(result["launch_brief"], "scope", "session", send=send)
+    assert first["step"] == "zero" and second["step"] == "already-requested"
+    assert len(sent) == 1
+    assert rotate.takeover("launch-once", result["note"], "successor")["ci_runs"] == [546]
+
+
 # ---------------------------------------------------------------- finished side sessions
 
 def test_finished_needs_end_turn_idle_and_no_open_pr(tmp_path):

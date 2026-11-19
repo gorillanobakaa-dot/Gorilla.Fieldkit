@@ -494,7 +494,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
             if extra[0] == "--check-candidate":
                 releasecandidate.verify(repo, releasecandidate.GitHub(slug), tag, extra[1])
                 return {"ok": True, "state": "candidate-verified", "tag": tag}
-            policy = releasecandidate.policy_at(repo, f"refs/tags/{tag}") or {}
+            policy = releasecandidate.effective_policy(repo, f"refs/tags/{tag}", slug)
             single_publisher = policy.get("publication") == "single-publisher"
             why, path = authorize()
             url = releasecandidate.publish(repo, slug, tag, extra[1], authorize, hotfix=hotfix, gate=gate,

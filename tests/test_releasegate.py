@@ -104,12 +104,14 @@ def test_public_quota_ignores_attempts_and_uses_shared_history(monkeypatch, tmp_
 def test_signed_publisher_lock_is_shared_between_checkouts(monkeypatch, tmp_path):
     monkeypatch.setattr(rg.Path, "home", lambda: tmp_path)
     _state(monkeypatch, tmp_path / "checkout-a")
-    with rg.publication_slot(single_publisher=True):
+    with rg.publication_slot(slug="owner/repo", single_publisher=True):
         _state(monkeypatch, tmp_path / "checkout-b")
+        with rg.publication_slot(slug="owner/unrelated", single_publisher=True):
+            pass
         with pytest.raises(ValueError, match="another ship command"):
-            with rg.publication_slot(single_publisher=True):
+            with rg.publication_slot(slug="Owner/Repo", single_publisher=True):
                 pytest.fail("the second checkout acquired the lock")
-    with rg.publication_slot(single_publisher=True):
+    with rg.publication_slot(slug="owner/repo", single_publisher=True):
         pass
 
 

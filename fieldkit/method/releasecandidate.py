@@ -56,6 +56,15 @@ def policy_at(repo, ref):
     return validate_policy(yaml.safe_load(result.stdout))
 
 
+def effective_policy(repo, ref, slug):
+    policy = policy_at(repo, ref)
+    if policy is None:
+        policy = registered_policy(slug)
+    if policy is None:
+        raise Refused("no release policy declared in the tagged tree")
+    return policy
+
+
 def validate_policy(data):
     policy = mapping(data)
     if type(policy.get("schema")) is not int or policy["schema"] != 1:
@@ -337,6 +346,14 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
     from . import releasegate
 
     title, notes_path, notes = check_page(candidate, directory, assets)
+    slot = releasegate.publication_slot(slug=gh.slug, single_publisher=single_publisher) if gate is None else nullcontext()
+    with slot:
+        return _promote_draft(gh, tag, directory, assets, authorize, title, notes_path, notes, hotfix, gate, platforms)
+
+
+def _promote_draft(gh, tag, directory, assets, authorize, title, notes_path, notes, hotfix, gate, platforms):
+    from . import releasegate
+
     row = gh.release(tag)
     if row is None:
         gh.gh("release", "create", tag, "-R", gh.slug, "--draft", "--verify-tag", "--latest=false",
@@ -359,15 +376,14 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
         if (online_assets(row, assets) != assets or not row["draft"] or row["name"] != title
                 or (row.get("body") or "").strip() != notes or row["tag_name"] != tag or row["prerelease"]):
             raise Refused("the draft is incomplete or changed during upload")
-        with releasegate.publication_slot(single_publisher=single_publisher) if gate is None else nullcontext():
-            authorize()
-            check = gate or partial(releasegate.guard, platforms=platforms, published_only=True)
-            verdict = check(gh.slug, tag, hotfix)
-            if not verdict["ok"]:
-                raise Refused(verdict["error"])
-            if verdict.get("systems"):
-                releasegate.record_hotfix_attempt(gh.slug, tag, verdict["hotfix"], verdict["systems"])
-            gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
+        authorize()
+        check = gate or partial(releasegate.guard, platforms=platforms, published_only=True)
+        verdict = check(gh.slug, tag, hotfix)
+        if not verdict["ok"]:
+            raise Refused(verdict["error"])
+        if verdict.get("systems"):
+            releasegate.record_hotfix_attempt(gh.slug, tag, verdict["hotfix"], verdict["systems"])
+        gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
     elif present != assets:
         raise Refused(f"published release {tag} is incomplete")
     latest = gh.api("releases/latest")
@@ -396,12 +412,7 @@ def verify(repo, gh, tag, path):
         raise Refused("the GitHub default branch commit could not be confirmed")
     if base != commit and gh.api(f"compare/{commit}...{base}")["status"] != "ahead":
         raise Refused("the candidate tag must be on the GitHub default branch history")
-    policy = policy_at(repo, commit)
-    if policy is None:
-        # Keep the pilot contract until its repositories carry their own policy.
-        policy = registered_policy(gh.slug)
-        if policy is None:
-            raise Refused("no release policy declared in the tagged tree")
+    policy = effective_policy(repo, commit, gh.slug)
     candidate = read_mapping(path)
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)

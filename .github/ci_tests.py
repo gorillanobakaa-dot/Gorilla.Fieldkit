@@ -114,6 +114,53 @@ def option(argv, name):
     return argv.pop(index)
 
 
+def run_tests(cmd, tests, shard):
+    """Bound PR shards, stream their progress, and stop only the shard's process tree."""
+    if not shard or os.getenv("GITHUB_ACTIONS") != "true" or os.getenv("GITHUB_EVENT_NAME") != "pull_request":
+        return subprocess.call(cmd)
+
+    import codecs
+    import time
+
+    from fieldkit.core import contain, liveness
+    from fieldkit.method import shard as durations
+
+    budget = durations.load()
+    planned = sum(budget.get(name, 30) for name in tests)
+    deadline = liveness.deadline_for([planned], floor=600, cap=1680, factor=4)
+    log = Path(os.environ["RUNNER_TEMP"]) / f"fieldkit-pytest-{shard.split('/')[0]}.log"
+    start = next_heartbeat = time.monotonic()
+    offset = 0
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def progress(final=False):
+        nonlocal offset, next_heartbeat
+        with log.open("rb") as output:
+            output.seek(offset)
+            chunk = output.read()
+            offset = output.tell()
+        if text := decoder.decode(chunk, final=final):
+            print(text, end="", flush=True)
+        now = time.monotonic()
+        if not final and now >= next_heartbeat:
+            print(f"ci-tests: shard {shard} active {now - start:.0f}s / {deadline:.0f}s; log {offset} bytes",
+                  flush=True)
+            next_heartbeat = now + 60
+
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+    label = f"CI {os.environ.get('RUNNER_OS', '')} shard {shard}"
+    with liveness.beacon("ci-tests", f"shard-{shard.split('/')[0]}", label) as beacon:
+        result = contain.run(cmd, label=label, deadline_s=deadline, beacon=beacon, idle_s=360,
+                             env=env, stdout_path=log, merge=True, on_tick=progress)
+        if log.is_file():
+            progress(final=True)
+    print(f"ci-tests: {label} {result.status} in {result.seconds:.1f}s"
+          + (f": {result.why}" if result.why else ""), flush=True)
+    if result.err:
+        print(result.err, file=sys.stderr)
+    return result.rc
+
+
 def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
@@ -176,12 +223,12 @@ def main(argv):
             report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
             cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
             print("ci-tests:", " ".join(cmd), flush=True)
-            status = subprocess.call(cmd)
+            status = run_tests(cmd, tests, shard)
             if status == 0:
                 write_receipt(Path(proof), report, tests, identity)
             return status
     print("ci-tests:", " ".join(cmd), flush=True)
-    return subprocess.call(cmd)
+    return run_tests(cmd, tests, shard)
 
 
 if __name__ == "__main__":

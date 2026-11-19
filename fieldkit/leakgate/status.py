@@ -69,7 +69,8 @@ def plan(d, launcher_dir=None):
     if p.is_file():
         pl = json.loads(p.read_text(encoding="utf-8"))
         return {"runs": pl["runs"], "total": len(pl["runs"]), "source": gate.PLAN_FILE, "pid": pl.get("pid"),
-                "repeat": pl.get("repeat"), "quick": pl.get("quick")}
+                "repeat": pl.get("repeat"), "quick": pl.get("quick"), "attempt_started": pl.get("started"),
+                "recovered_runs": pl.get("recovered_runs", 0)}
     art = Path(d) / "artifacts.json"
     if art.is_file():
         runs = list(json.loads(art.read_text(encoding="utf-8")))
@@ -141,6 +142,10 @@ def status(task_id, name=None, thermal_log=None, hot=70.0, launcher_dir=None):
         recorded = {p.stem for p in checkpoints.glob("*.json") if p.is_file()}
         captured = [run for run in pl["runs"] or [] if run in recorded]
     pid = pl.get("pid") or writer_pid(task_id)
+    try:
+        attempt_at = dt.datetime.fromisoformat(pl.get("attempt_started") or "")
+    except ValueError:
+        attempt_at = t0
     res_path = d / "test-results.json"
     final, ended = None, None
     if res_path.is_file():
@@ -154,7 +159,8 @@ def status(task_id, name=None, thermal_log=None, hot=70.0, launcher_dir=None):
             "expected": pl["total"], "started_runs": len(started), "latest": started[-1] if started else None,
             "captured_runs": captured,
             "not_yet": [r for r in (pl["runs"] or []) if r not in set(started)],
-            "pid": pid, "alive": alive(pid, t0), "result": final,
+            "pid": pid, "alive": alive(pid, attempt_at), "result": final,
+            "recovered_runs": pl.get("recovered_runs", 0),
             "thermal_log": str(thermal_log) if thermal_log else None, "thermal": therm,
             "elapsed_min": round((dt.datetime.now() - t0).total_seconds() / 60)}
 
@@ -172,6 +178,8 @@ def lines(s):
            + f"  [expected from {s['plan_source']}]"]
     if s.get("captured_runs") is not None:
         out.append(f"  {len(s['captured_runs'])} scenario runs captured; see scenario-checkpoints for sensor observations")
+    if s.get("recovered_runs"):
+        out.append(f"  {s['recovered_runs']} verified scenario runs reused from the previous attempt")
     if s["not_yet"] and not s["result"]:
         out.append(f"  next: {', '.join(s['not_yet'][:4])}" + (f" ... ({len(s['not_yet'])} to go)" if len(s["not_yet"]) > 4 else ""))
     if s["thermal_log"]:

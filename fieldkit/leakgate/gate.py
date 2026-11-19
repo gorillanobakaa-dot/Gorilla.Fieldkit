@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import allow as al, audit, scenarios as sc, sensors as se
+from . import allow as al, audit, restart, scenarios as sc, sensors as se
 from ..buildh.proof import VENDOR_HOST, AD_HOSTS
 
 TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",  # telemetry-ok: block list: hosts the leak gate fails on
@@ -652,8 +652,23 @@ def run(*args, say=print, **kw):
 
     def refused(why):
         raise RuntimeError(f"leakgate: the preflight refused the run: {why}")
-    return preflight.call("leak gate", "gate", functools.partial(_run, *args, say=say, **kw), say=say, wait_s=600,
-                          refused=refused)
+    measure = functools.partial(_run, *args, say=say, **kw)
+    if not sys.platform.startswith("linux"):
+        return preflight.call("leak gate", "gate", measure, say=say, wait_s=600, refused=refused)
+
+    from .. import admission
+
+    def measure_namespace():
+        # All namespace runs use the same interface and namespace names.
+        slot = admission.try_take(1, kind="leakgate", label="namespace", root=Path.home() / ".fieldkit" / "leakgate")
+        if slot is None:
+            return refused("another gate owns the test network namespace")
+        try:
+            return measure()
+        finally:
+            slot.release()
+
+    return preflight.call("leak gate", "gate", measure_namespace, say=say, wait_s=600, refused=refused)
 
 
 def unpack_deb(deb, dest, runner=subprocess.run):
@@ -683,8 +698,30 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     if release:
         repeat, quick = max(repeat, 3), False
-    work = Path(workroot).resolve() / time.strftime("%Y%m%d-%H%M%S")      # absolute: /proc reports absolute paths (P27)
-    work.mkdir(parents=True)
+    planned = planned_runs(repeat, quick, only)
+    workroot = Path(workroot).resolve()                 # /proc reports absolute paths (P27)
+    identity = None
+    package_digest = None
+    recovered = []
+    work = workroot / time.strftime("%Y%m%d-%H%M%S")
+    if linux and release and only is None:
+        package_digest = _sha(zip_path)
+        identity = restart.context(package_digest, workdir_tree, upstream,
+                                   (allow_path, spec_path, disp_path, owner_root / "leakgate" / "baseline.json",
+                                    previous_zip), st0["tools"],
+                                   {"work": os.environ.get("FIELDKIT_WORK_ID") or str(workroot),
+                                    "scenarios": planned, "repeat": repeat, "soak": soak, "firewall": firewall}, _sha)
+        if identity and workroot.is_dir():
+            previous = next((path for path in sorted(workroot.iterdir(), reverse=True)
+                             if path.is_dir() and re.fullmatch(r"\d{8}-\d{6}", path.name)), None)
+            if previous:
+                recovered = restart.prefix(previous, planned, identity, CHECKPOINT_DIR, _sha)
+                if recovered:
+                    work = previous
+                    say(f"  reusing {len(recovered)} verified scenario records from {previous.name}")
+    work.mkdir(parents=True, exist_ok=bool(recovered))
+    if identity:
+        _publish_json(work / restart.FILE, {"context": identity, "state": "running"})
     if linux:
         packets, dns_prev = True, None
     else:
@@ -714,6 +751,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     is_deb = str(zip_path).endswith(".deb")
     zp = work / ("build.deb" if is_deb else "build.zip")
     shutil.copyfile(zip_path, zp)
+    if identity and _sha(zp) != package_digest:
+        raise RuntimeError("leakgate: the package changed between planning and copying")
     if linux:
         import tarfile
         def _tar_copy(dest, policies=None):
@@ -774,7 +813,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     _publish_json(work / PLAN_FILE, {
         "pid": os.getpid(), "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "build": manifest["BUILD"], "repeat": repeat,
         "quick": quick, "release": release, "only": sorted(only) if only else None, "soak": soak,
-        "runs": planned_runs(repeat, quick, only)})
+        "runs": planned, "recovered_runs": len(recovered)})
     canaries = list(sc.CANARIES.items())
     if linux:
         server = sc.Server(bind=lx.HOST_IP, port=sport)
@@ -792,10 +831,18 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     events, artifacts, scen_hosts = [], {}, {}
     checkpoints = work / CHECKPOINT_DIR
     streams = {"page_results": server.results, "page_requests": server.requests, "doh_queries": doh.queries}
-    offsets = dict.fromkeys(streams, 0)
+    records = {}
+    for row, receipt in recovered:
+        run_id, art = row["scenario_run"], row["artifact"]
+        events.extend(row["events"])
+        artifacts[run_id] = art
+        for name, observations in row["observations_since_previous_checkpoint"].items():
+            streams[name].extend(observations)
+        records[run_id] = receipt
+    offsets = {name: len(rows) for name, rows in streams.items()} if recovered else dict.fromkeys(streams, 0)
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
-        checkpoints.mkdir()
+        checkpoints.mkdir(exist_ok=bool(recovered))
         for name, target, secs, args, hosts, watch in sc.SCENARIOS:
             if only and name not in only:
                 continue
@@ -810,6 +857,9 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             modes = [(m, copies[m]) for m in modes_for(name, quick)]
             for rep in range(repeat):
                 for mode, bdir in modes:
+                    run_id = f"{name}-r{rep}-{mode}"
+                    if run_id in artifacts:
+                        continue
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")
                     try:                       # owner 2026-10-18: the ETA from the plan and this run's measured overhead
                         from ..core import eta as _eta
@@ -831,16 +881,18 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
                         ev = [*ev, {"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass",
                                     "value": "proxy did not take", "detail": "the page itself never reached mitmproxy"}]
-                    run_id = f"{name}-r{rep}-{mode}"
                     events.extend(ev)
                     artifacts[run_id] = art
-                    _write_partial(work, events, artifacts)
                     try:
                         offsets = _scenario_checkpoint(checkpoints, run_id, started_at, time.monotonic() - started_tick,
                                                        ev, art, streams, offsets)
-                    except OSError as e:
+                        if identity and len(records) == len(artifacts) - 1:
+                            row = json.loads((checkpoints / f"{run_id}.json").read_text(encoding="utf-8"))
+                            records[run_id] = {"row": restart.digest(row), "files": restart.files(work, art, _sha)}
+                    except (OSError, ValueError) as e:
                         say(f"  checkpoint for {run_id} unavailable: {e}")
     finally:
+        _write_partial(work, events, artifacts)
         if packets and not linux:
             se.close_packet_sensor()
             se.dnsclient_restore(dns_prev)
@@ -851,6 +903,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             extras.firewall_unblock(fw_name)
         if linux:
             lx.netns_down()
+        if identity and records and not Path("/run/netns", lx.NS).exists():
+            _publish_json(work / restart.FILE, {"context": identity, "state": "ready", "records": records})
 
     # the controlled resolver's own log is a sensor: every name the browser asked for, answered or not
     for q in doh.queries:
