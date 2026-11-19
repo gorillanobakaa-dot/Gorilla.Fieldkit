@@ -535,11 +535,14 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
             import socket
 
             orchestrator = m.get("orchestrator")
-            publisher = r.get("publisher") or (orchestrator.get("device") if isinstance(orchestrator, dict) else None)
-            if not isinstance(publisher, str) or not publisher.strip():
-                return "ask", f"the signed mandate for {repo} must name its publisher or orchestrator device"
-            if publisher.casefold() != socket.gethostname().casefold():
-                return "deny", f"only the signed publisher {publisher} may promote candidates for {repo}"
+            publisher = r.get("publisher")
+            if publisher is None and isinstance(orchestrator, dict):
+                publisher = orchestrator.get("device")
+            if publisher is not None:
+                if not isinstance(publisher, str) or not publisher.strip():
+                    return "ask", f"the signed publisher for {repo} must be a device name"
+                if publisher.casefold() != socket.gethostname().casefold():
+                    return "deny", f"only the signed publisher {publisher} may promote candidates for {repo}"
         ok, ev = pv.tag_on_origin(repo_path, tag)
         if not ok:
             return "ask", ev
