@@ -11,6 +11,8 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
+  pull-requests: read
 jobs:
   merge-proof:
     if: github.event_name == 'push'
@@ -50,6 +52,9 @@ jobs:
     if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      e2e: ${{ steps.plan.outputs.e2e }}
+      e2e_l15: ${{ steps.plan.outputs.e2e_l15 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +65,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e .
       - name: Select the tests once for this checkout
+        id: plan
         shell: bash
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -71,12 +77,27 @@ jobs:
             *) base=full ;;
           esac
           python .github/ci_tests.py "$base" --write-selection "$RUNNER_TEMP/fieldkit-selection.json"
+          python .github/ci_e2e.py "$base"
       - uses: actions/upload-artifact@v4
         with:
           name: fieldkit-selection
           path: ${{ runner.temp }}/fieldkit-selection.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
+
+  e2e:
+    needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success' && needs.selection.outputs.e2e != '[]'
+    uses: ./.github/workflows/e2e.yml
+    with:
+      selected: ${{ needs.selection.outputs.e2e }}
+
+  e2e-l15:
+    needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success' && needs.selection.outputs.e2e_l15 != '[]'
+    uses: ./.github/workflows/e2e-l15.yml
+    with:
+      selected: ${{ needs.selection.outputs.e2e_l15 }}
 
   shard-windows-latest:
     needs: selection
@@ -199,7 +220,7 @@ jobs:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
     # each is green only when EVERY shard of its OS is green. Skipped or cancelled shards are red here.
     name: test (${{ matrix.os }})
-    needs: [merge-proof, coverage, shard-windows-latest, shard-ubuntu-latest]
+    needs: [merge-proof, selection, coverage, e2e, e2e-l15, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -211,6 +232,10 @@ jobs:
         shell: bash
         env:
           REUSED_MERGE_PROOF: ${{ needs.merge-proof.outputs.reuse }}
+          MAIN_SELECTED: ${{ needs.selection.outputs.e2e }}
+          MAIN_RESULT: ${{ needs.e2e.result }}
+          L15_SELECTED: ${{ needs.selection.outputs.e2e_l15 }}
+          L15_RESULT: ${{ needs.e2e-l15.result }}
         run: |
           if [ "$REUSED_MERGE_PROOF" = true ]; then
             echo "Exact merge tree passed prior PR CI on both platforms"
@@ -218,6 +243,18 @@ jobs:
           fi
           echo "coverage: ${{ needs.coverage.result }}"
           test "${{ needs.coverage.result }}" = success || exit 1
+          test "${{ needs.selection.result }}" = success || exit 1
+          echo "E2E: $MAIN_RESULT, L15 E2E: $L15_RESULT"
+          if [ "$MAIN_SELECTED" = '[]' ]; then
+            test "$MAIN_RESULT" = skipped || exit 1
+          else
+            test -n "$MAIN_SELECTED" && test "$MAIN_RESULT" = success || exit 1
+          fi
+          if [ "$L15_SELECTED" = '[]' ]; then
+            test "$L15_RESULT" = skipped || exit 1
+          else
+            test -n "$L15_SELECTED" && test "$L15_RESULT" = success || exit 1
+          fi
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
           test "$result" = "success"
