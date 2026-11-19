@@ -567,6 +567,7 @@ def vendor_messages(bi):
 
 # ---------------------------------------------------------------------------------------------- run
 PLAN_FILE = "gate-plan.json"
+CHECKPOINT_DIR = "scenario-checkpoints"
 
 
 def modes_for(name, quick):
@@ -620,6 +621,26 @@ def _write_partial(work, events, artifacts):
         (work / "partial.txt").write_text(f"partial: {len(artifacts)} runs done, the gate has not finished\n", encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
+
+
+def _publish_json(path, data):
+    """Publish a complete snapshot for readers while the gate is active."""
+    pending = path.with_suffix(".tmp")
+    pending.write_text(json.dumps(data, indent=1, default=str), encoding="utf-8")
+    pending.replace(path)
+
+
+def _scenario_checkpoint(folder, run_id, started, elapsed_s, events, artifact, streams, offsets):
+    """Keep raw progress and sensor observations for diagnosis after an interruption."""
+    positions = {name: len(rows) for name, rows in streams.items()}
+    _publish_json(folder / f"{run_id}.json", {
+        "scenario_run": run_id, "started_at": started, "elapsed_s": round(elapsed_s, 3),
+        "events": events, "artifact": artifact,
+        "observations_since_previous_checkpoint": {
+            name: rows[offsets[name]:positions[name]] for name, rows in streams.items()
+        },
+    })
+    return positions
 
 
 def run(*args, say=print, **kw):
@@ -745,14 +766,15 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
         extras.firewall_block(str(direct / "firefox.exe"), fw_name)
         say(f"  firewall: outbound block for the direct build copy ({fw_name}); removed at the end")
     manifest = build_manifest(direct, workdir_tree, upstream, allow_path, spec_path)
+    _publish_json(work / "build-manifest.json", manifest)
     say(f"leakgate: build {manifest['BUILD']} ({manifest['VERSION']}), packets {'ON' if packets else 'OFF (not elevated)'}, "
         f"repeat {repeat}, {'quick' if quick else 'release'} durations -> {work}")
     # the run's own record of what it will do, for `leakgate-status` while it runs (2026-10-06: the hourly sitrep of a
     # 4-hour release run had the run folder, the gate's PID and the 141 expected runs typed in by hand)
-    (work / PLAN_FILE).write_text(json.dumps({
+    _publish_json(work / PLAN_FILE, {
         "pid": os.getpid(), "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "build": manifest["BUILD"], "repeat": repeat,
         "quick": quick, "release": release, "only": sorted(only) if only else None, "soak": soak,
-        "runs": planned_runs(repeat, quick, only)}, indent=1), encoding="utf-8")
+        "runs": planned_runs(repeat, quick, only)})
     canaries = list(sc.CANARIES.items())
     if linux:
         server = sc.Server(bind=lx.HOST_IP, port=sport)
@@ -768,8 +790,12 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             lx.netns_down()
             raise
     events, artifacts, scen_hosts = [], {}, {}
+    checkpoints = work / CHECKPOINT_DIR
+    streams = {"page_results": server.results, "page_requests": server.requests, "doh_queries": doh.queries}
+    offsets = dict.fromkeys(streams, 0)
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
+        checkpoints.mkdir()
         for name, target, secs, args, hosts, watch in sc.SCENARIOS:
             if only and name not in only:
                 continue
@@ -790,6 +816,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                         say("    " + _eta.human(_eta.leakgate(work, repeat, quick)))
                     except Exception:  # noqa: BLE001 - an estimate never stops a gate
                         pass
+                    started_at, started_tick = time.time(), time.monotonic()
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
@@ -801,12 +828,18 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                                              graceful=name in sc.GRACEFUL, poison=mode == "poisoned", prefs=prefs)
                     for e in ev:
                         e["scenario"], e["rep"] = name, rep
-                    events.extend(ev)
-                    artifacts[f"{name}-r{rep}-{mode}"] = art
-                    _write_partial(work, events, artifacts)     # a late crash never loses the runs already done
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
-                        events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
-                                       "detail": "the page itself never reached mitmproxy"})
+                        ev = [*ev, {"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass",
+                                    "value": "proxy did not take", "detail": "the page itself never reached mitmproxy"}]
+                    run_id = f"{name}-r{rep}-{mode}"
+                    events.extend(ev)
+                    artifacts[run_id] = art
+                    _write_partial(work, events, artifacts)
+                    try:
+                        offsets = _scenario_checkpoint(checkpoints, run_id, started_at, time.monotonic() - started_tick,
+                                                       ev, art, streams, offsets)
+                    except OSError as e:
+                        say(f"  checkpoint for {run_id} unavailable: {e}")
     finally:
         if packets and not linux:
             se.close_packet_sensor()
@@ -933,10 +966,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     result["FINAL_RESULT"] = "PASS" if all(result[p] == "PASS" for p in POLICIES) else "FAIL"
     result["ARTIFACTS"] = str(work)
 
-    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     (work / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
-    (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
-    (work / "build-manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     (work / "source-inventory.json").write_text(json.dumps(st, indent=1), encoding="utf-8")
     (work / "binary-hosts.json").write_text(json.dumps(bi, indent=1), encoding="utf-8")
     (work / "artifacts.json").write_text(json.dumps(artifacts, indent=1, default=str), encoding="utf-8")
@@ -946,7 +976,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     (work / "dns.new").write_text("\n".join(result["UNEXPECTED_DNS"]) + "\n", encoding="utf-8")
     (work / "sockets.new").write_text("\n".join(result["UNEXPECTED_SOCKETS"]) + "\n", encoding="utf-8")
     result["PERIODIC_HOSTS"] = {h: v for h, v in period.items() if v["regular"]}
-    (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
+    _publish_json(work / "test-results.json", result)
+    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     return result, events, st, bi
 
 

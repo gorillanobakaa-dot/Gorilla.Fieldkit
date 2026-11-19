@@ -5383,7 +5383,7 @@ tools:
   notes: "Always exit 0; the verdict is in the last line."
 
 - id: bh-leakgate-status
-  title: A (running) leak gate - runs started of expected, alive, result, CPU since start; safe while it runs
+  title: Leak gate progress - runs started and captured, gate verdict, CPU since start
   harness: build
   entry: [python, -m, fieldkit, build-harness, leakgate-status]
   path: ${FIELDKIT}/fieldkit/leakgate/status.py
