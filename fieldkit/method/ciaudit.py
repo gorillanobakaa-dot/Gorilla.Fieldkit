@@ -51,7 +51,7 @@ def _secs(a, b):
 def audit(repo, since=None, limit=100, workflow="tests.yml", gh=None):
     gh = gh or _gh
     args = ["run", "list", "--workflow", workflow, "--limit", str(limit), "--json",
-            "databaseId,event,createdAt,updatedAt,headBranch,conclusion"]
+            "databaseId,event,createdAt,startedAt,updatedAt,attempt,headBranch,conclusion"]
     if repo:
         args += ["--repo", repo]
     if since:
@@ -59,13 +59,15 @@ def audit(repo, since=None, limit=100, workflow="tests.yml", gh=None):
     rc, out, err = gh(args)
     if rc:
         raise RuntimeError(f"gh run list: {err.strip()[:300]}")
-    runs = [r for r in json.loads(out or "[]") if r.get("event") == "pull_request"]
+    runs = [r for r in json.loads(out or "[]") if r.get("event") == "pull_request" and r.get("conclusion")]
     rows = []
     for r in runs:
         rc, log, _ = gh(["run", "view", str(r["databaseId"]), "--log", *(["--repo", repo] if repo else [])])
         kind, files = classify(log if rc == 0 else "")
         rows.append({"run": r["databaseId"], "branch": r.get("headBranch"), "kind": kind, "files": files,
-                     "minutes": round(_secs(r.get("createdAt"), r.get("updatedAt")) / 60, 1),
+                     "minutes": round(_secs(r.get("startedAt"), r.get("updatedAt")) / 60, 1),
+                     "attempt": r.get("attempt"),
+                     "lifetime_minutes": round(_secs(r.get("createdAt"), r.get("updatedAt")) / 60, 1),
                      "conclusion": r.get("conclusion")})
     return rows
 
