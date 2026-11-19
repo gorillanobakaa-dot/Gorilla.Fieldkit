@@ -60,6 +60,7 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -567,6 +568,7 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         raise ValueError("handover refused: Done and Next must both say something (the report Zero receives is built "
                          "from them): --done what was done, --next what is left")
     import hashlib
+    import uuid
 
     job_id = job_id or os.environ.get("FIELDKIT_WORK_ID")
     plan_file = plan_file or os.environ.get("FIELDKIT_WORK_PLAN")
@@ -594,7 +596,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     sid = row["session"][:8]
     coord = coordination_dir()
     coord.mkdir(parents=True, exist_ok=True)
-    note = coord / f"rotate-{time.strftime('%Y-%m-%d-%H%M', time.localtime(now))}-{sid}.md"
+    key = f"{sid}-{uuid.uuid4().hex[:12]}" if job_id else sid
+    note = coord / f"rotate-{time.strftime('%Y-%m-%d-%H%M', time.localtime(now))}-{key}.md"
     where = row.get("cwd") or "?"
     branch = row.get("branch") or "?"
     work = {}
@@ -606,7 +609,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
                 output.write(plan_bytes)
         elif snapshot.read_bytes() != plan_bytes:
             raise ValueError("the saved work plan does not match its recorded digest")
-        work = {"job_id": job_id, "scope_plan": str(snapshot), "plan_sha256": digest, "ci_runs": list(ci_runs)}
+        work = {"job_id": job_id, "scope_plan": str(snapshot), "plan_sha256": digest, "ci_runs": list(ci_runs),
+                "cwd": where, "branch": branch}
     brief = (f"You are continuing \"{title}\" from session {sid}, rotated by fieldkit rotate ({row['level']}: "
              f"{'; '.join(row['why']) or 'by hand'}). Do NOT start over. Read {note} first.\n"
              f"Working folder: {where} (branch {branch}).\n"
@@ -616,9 +620,17 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         brief += (f"\nWork ID: {job_id}\nBefore taking action read the complete approved plan at {snapshot}. "
                   "Its scope governs this job and supersedes older summaries.\n"
                   f"Plan SHA-256: {digest}\nOutstanding CI run IDs: {', '.join(map(str, ci_runs)) or 'none supplied'}\n"
+                  f'Before continuing, run fieldkit rotate takeover --job-id "{job_id}" --note "{note}" '
+                  "--as-session YOUR_SESSION_ID. Continue only after it confirms your claim. "
                   "Keep this work ID and plan when you hand off again.\n")
     elif row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
+    plan = coord / "PLAN.md"
+    written = plan.is_file()                           # a missing PLAN.md is reported
+    record = {"at": stamp, "session": row["session"], "title": title, "level": row["level"],
+              "note": str(note), "plan_written": written, **work}
+    if work:
+        _register_work(record)
     from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
     brief += protocol.brief_tail()
     from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
@@ -641,21 +653,96 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         f"{': ' + '; '.join(x['kind'] + ' ' + x['detail'] for x in honest) if honest else ''}\n\n"
         f"## Done\n\n{done or '-'}\n\n## Next\n\n{next_}\n\n## NOT verified\n\n{not_verified or '-'}\n\n"
         f"## Brief for the fresh session\n\n```\n{brief}```\n", encoding="utf-8")
-    plan = coord / "PLAN.md"
-    written = plan.is_file()
+    if not work:
+        _journal_handoff(record)
     if written:                                       # never creates the plan: a missing PLAN.md is said, not hidden
         with open(plan, "a", encoding="utf-8") as f:
             f.write(f"\n## {stamp}: session rotated: {_cell(title)} ({sid})\n\n"
                     "| Session | Verdict | Done | Next | NOT verified | Note |\n|---|---|---|---|---|---|\n"
                     f"| {sid} ({_cell(where)}, {_cell(branch)}) | {row['level']}: {_cell('; '.join(row['why']))} | "
                     f"{_cell(done)} | {_cell(next_)} | {_cell(not_verified)} | {note.name} |\n")
-    with open(state_dir() / "handovers.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": stamp, "session": row["session"], "title": title, "level": row["level"],
-                            "note": str(note), "plan_written": written, **work}) + "\n")
-    started = (row.get("task") or "").strip() or f"session {sid} in {where}"
+    started = f"work {job_id}, approved plan {work['scope_plan']}" if work else (
+        (row.get("task") or "").strip() or f"session {sid} in {where}")
     report = zero_net.report_rotation(row["session"], title, started, done, next_, not_verified, branch, now)
     return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row,
             "honesty": honest, "report": report, **work}
+
+
+def _latest_work(job_id):
+    journal = state_dir() / "handovers.jsonl"
+    if journal.is_file():
+        for line in reversed(journal.read_text(encoding="utf-8").splitlines()):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("job_id") == job_id:
+                return row
+    return None
+
+
+def _journal_handoff(record):
+    with open(state_dir() / "handovers.jsonl", "a", encoding="utf-8") as journal:
+        journal.write(json.dumps(record) + "\n")
+
+
+def _begin_takeover_write(db):
+    db.execute("CREATE TABLE IF NOT EXISTS takeover (note TEXT PRIMARY KEY, session TEXT NOT NULL, at REAL)")
+    db.execute("BEGIN IMMEDIATE")
+
+
+def _register_work(record):
+    """Only the current session can issue a newer handoff for an existing work ID."""
+    from contextlib import closing
+
+    with closing(sqlite3.connect(state_dir() / "takeovers.sqlite3")) as db, db:
+        _begin_takeover_write(db)
+        previous = _latest_work(record["job_id"])
+        if previous:
+            claimed = db.execute("SELECT session FROM takeover WHERE note = ?", (previous["note"],)).fetchone()
+            current = claimed[0] if claimed else previous["session"]
+            if current.casefold() != record["session"].casefold():
+                raise ValueError(f"work {record['job_id']} is held by session {current}")
+        _journal_handoff(record)
+
+
+def takeover(job_id, note=None, successor=None):
+    """Resolve a handoff directly by work ID or acknowledge it once from an eligible successor."""
+    import hashlib
+    from contextlib import closing
+
+    if bool(note) != bool(successor):
+        raise ValueError("claiming a handoff requires both --note and --as-session")
+    claim_store = state_dir() / "takeovers.sqlite3"
+    record = _latest_work(job_id)
+    if not record:
+        raise ValueError(f"no handoff recorded for {job_id}")
+    if not successor and not claim_store.is_file():
+        return {**record, "successor": None}
+    with closing(sqlite3.connect(claim_store)) as db, db:
+        if successor:
+            _begin_takeover_write(db)
+            record = _latest_work(job_id)
+            if not record:
+                raise ValueError(f"no handoff recorded for {job_id}")
+            if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", successor)
+                    or successor.casefold() == record["session"].casefold()):
+                raise ValueError("use the distinct session ID of the successor")
+            issued_note = Path(record["note"])
+            if Path(note).resolve() != issued_note.resolve():
+                raise ValueError("this handoff has been superseded; read the latest work record")
+            if not issued_note.is_file():
+                raise ValueError("the handoff note has not been written")
+            snapshot = Path(record["scope_plan"])
+            if not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest() != record["plan_sha256"]:
+                raise ValueError("the saved work plan does not match its recorded digest")
+            db.execute("INSERT OR IGNORE INTO takeover VALUES (?, ?, ?)", (record["note"], successor, time.time()))
+        elif not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'takeover'").fetchone():
+            return {**record, "successor": None}
+        claimed = db.execute("SELECT session, at FROM takeover WHERE note = ?", (record["note"],)).fetchone()
+        if successor and claimed[0] != successor:
+            raise ValueError(f"handoff already accepted by {claimed[0]}")
+    return {**record, "successor": claimed[0] if claimed else None, "accepted_at": claimed[1] if claimed else None}
 
 
 def _honesty(path, done, not_verified):
@@ -951,6 +1038,11 @@ def main(argv=None):
     h.add_argument("--plan-file", help="complete Markdown plan and current scope for that work ID")
     h.add_argument("--ci-run", action="append", type=int, default=[], help="outstanding GitHub Actions run ID")
     h.add_argument("--json", action="store_true")
+    take = sub.add_parser("takeover", help="look up a work ID or acknowledge its latest scoped handoff")
+    take.add_argument("--job-id", required=True)
+    take.add_argument("--note", help="the handoff note issued to this successor")
+    take.add_argument("--as-session", help="the successor's own session ID")
+    take.add_argument("--json", action="store_true")
     f = sub.add_parser("finished")
     f.add_argument("--hours", type=float)
     f.add_argument("--gh", action="store_true", help="ask the local gh for each mentioned PR's state")
@@ -990,6 +1082,9 @@ def main(argv=None):
         except ValueError as e:
             print(f"rotate: {e}", file=sys.stderr)
             return 2
+        except (OSError, sqlite3.Error) as e:
+            print(f"rotate: {e}", file=sys.stderr)
+            return 3
         if a.json:
             print(json.dumps({k: v for k, v in r.items() if k != "row"}, indent=1))
         else:
@@ -998,10 +1093,28 @@ def main(argv=None):
             print(f"PLAN.md: {'section appended' if r['plan_written'] else 'NOT FOUND, nothing written'}: {r['plan']}")
             for x in r.get("honesty") or []:
                 print(f"HONESTY {x['kind']}: {x['detail']}")
-            print("NEXT: start a fresh session with the brief below, then archive this one "
-                  "(Claude desktop: start_session context fresh + archive_session \"self\").\n")
+            if r.get("job_id"):
+                print(f'NEXT: start a fresh session with the brief below. Check fieldkit rotate takeover --job-id '
+                      f'"{r["job_id"]}" for its acknowledgement before archiving this one.\n')
+            else:
+                print("NEXT: start a fresh session with the brief below, then archive this one "
+                      "(Claude desktop: start_session context fresh + archive_session \"self\").\n")
             print(r["brief"])
         return 0 if r["plan_written"] else 1
+    if a.cmd == "takeover":
+        try:
+            r = takeover(a.job_id, a.note, a.as_session)
+        except (ValueError, OSError, sqlite3.Error) as e:
+            print(f"rotate: {e}", file=sys.stderr)
+            return 3
+        if a.json:
+            print(json.dumps(r, indent=1))
+        else:
+            print(f"work {a.job_id}: " + (f"accepted by {r['successor']}" if r["successor"] else "awaiting takeover"))
+            print(f"note: {r['note']}\nplan: {r['scope_plan']}")
+            print("NEXT: resume from the saved plan" if a.as_session else
+                  "NEXT: retire the previous session" if r["successor"] else "NEXT: the successor acknowledges the handoff")
+        return 0
     if a.cmd == "finished":
         done, held = finished(a.hours, a.gh, exclude=a.exclude)
         if a.json:

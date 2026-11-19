@@ -278,6 +278,46 @@ def test_durable_handoff_preserves_current_complete_scope_and_ci(tmp_path):
     assert json.loads((tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8"))["job_id"] == "work-123"
 
 
+def test_scoped_takeover_claims_one_successor_and_keeps_pending_ci(tmp_path, capsys):
+    from concurrent.futures import ThreadPoolExecutor
+
+    transcript = monster(tmp_path)
+    plan = tmp_path / "approved.md"
+    plan.write_text("# Approved plan\n\nOnly Fieldkit.\n", encoding="utf-8")
+    first = rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped",
+                            plan_file=plan, ci_runs=[123])
+    second = rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped",
+                             plan_file=plan, ci_runs=[456])
+    assert first["note"] != second["note"] and "rotate takeover" in second["brief"]
+    assert rotate.takeover("scoped")["successor"] is None
+    with pytest.raises(ValueError, match="superseded"):
+        rotate.takeover("scoped", first["note"], "old-start")
+
+    def claim(session):
+        try:
+            return rotate.takeover("scoped", second["note"], session)["successor"]
+        except ValueError as exc:
+            assert "already accepted" in str(exc)
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = [s for s in pool.map(claim, ["candidate-a", "candidate-b"]) if s]
+    assert len(claimed) == 1 and claim(claimed[0]) == claimed[0]
+    assert rotate.main(["takeover", "--job-id", "scoped", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["successor"] == claimed[0] and report["ci_runs"] == [456]
+    assert report["branch"] == "feat/x" and report["plan_sha256"] == second["plan_sha256"]
+    with pytest.raises(ValueError, match="held by session"):
+        rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped", plan_file=plan)
+    Path(second["scope_plan"]).write_text("tampered", encoding="utf-8")
+    with pytest.raises(ValueError, match="recorded digest"):
+        rotate.takeover("scoped", second["note"], claimed[0])
+    plan.write_text("# Next approved plan\n\nOnly Fieldkit.\n", encoding="utf-8")
+    successor_transcript = monster(tmp_path, name=claimed[0])
+    rotate.handover(successor_transcript, "scope", "follow CI", "changes pushed", job_id="scoped", plan_file=plan)
+    assert rotate.takeover("scoped")["successor"] is None
+
+
 # ---------------------------------------------------------------- finished side sessions
 
 def test_finished_needs_end_turn_idle_and_no_open_pr(tmp_path):
