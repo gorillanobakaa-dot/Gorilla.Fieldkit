@@ -49,7 +49,7 @@ LOCAL = ROOT / "fieldkit.local.json"
 
 BUCKETS = ("bare", "rework", "tests", "tools", "llm", "owner", "idle")        # priority order, first wins
 LABEL = {"bare": "bare work", "rework": "rework", "tests": "tests+gates", "tools": "agent tools", "llm": "LLM",
-         "owner": "waiting-for-owner", "idle": "idle"}
+         "owner": "waiting-for-owner", "idle": "unattributed"}
 BARE_STAGES = ("migrate", "compile", "package")
 MIGRATE_EVENTS = {"migrate-init", "migrate-work", "migrate-check", "migrate-action", "script-start",
                   "script-done", "script-failed", "auto-done", "auto-miss", "obsolete", "dropped", "packet", "lesson",
@@ -365,10 +365,12 @@ def _tool_bucket(name, inp, secs, journal):
 
 
 # ---- other sources ------------------------------------------------------------------------------------------------
-def testcost_intervals(path):
+def testcost_intervals(path, job_id=None):
     """testcost runs.jsonl rows -> tests; a re-run of a check on a tree that already passed it -> rework."""
     out, passed = [], set()
     for r in _jsonl(path):
+        if job_id is not None and r.get("job_id") != job_id:
+            continue
         try:
             t, s = parse_t(r["t"]), float(r.get("seconds") or 0)
         except (KeyError, ValueError):
@@ -564,9 +566,11 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
         tv, counts = transcript_intervals(files, journal=journal)
         iv += tv
     elif not sessions:
-        notes.append("no session transcript given: model and agent time are not split out (they count as idle)")
+        notes.append("no session transcript given: model and agent time may be unattributed")
     st = state_dir(state)
-    iv += testcost_intervals(testcost_log or st / "testcost" / "runs.jsonl")
+    job_id = job.get("job_id") or os.environ.get("FIELDKIT_WORK_ID") or job.get("task") or job.get("gid") or name
+    # An explicitly supplied log can be scoped by its caller. The shared ledger must match this job.
+    iv += testcost_intervals(testcost_log or st / "testcost" / "runs.jsonl", None if testcost_log else job_id)
     if inbox_dir is None:
         from .autopilot import hardlines
         inbox_dir = hardlines.STATE / "inbox"
@@ -587,7 +591,8 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
             "bare_s": round(bare) if bare else None, "bare_parts": {k: round(v) for k, v in bare_parts.items()},
             "ratio": round(ratio, 2) if ratio else None, "max_ratio": cfg["max_ratio"], "level": level,
             "buckets": {k: round(v) for k, v in secs.items()}, "rework": {k: round(v) for k, v in rework.items()},
-            "runs": dict(run_counts), "counts": dict(counts), "sessions": sessions, "notes": notes}
+            "runs": dict(run_counts), "counts": dict(counts), "sessions": sessions, "notes": notes,
+            "unattributed_s": round(secs["idle"])}
 
 
 def report_line(r):

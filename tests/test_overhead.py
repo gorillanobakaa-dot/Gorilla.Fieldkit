@@ -89,7 +89,7 @@ def test_synthetic_job_every_second_in_one_bucket(tmp_path):
 def test_line_names_ratio_and_where_the_time_went(tmp_path):
     line = overhead.report_line(synthetic(tmp_path))
     assert line.startswith("synthetic-task: bare 1 h 35 min (migrate 30 min, compile 1 h 00 min, package 5 min), "
-                           "took 4 h 00 min = 2.5x WARN (max 1.5x); rework 59 min, tests+gates 39 min, idle 26 min")
+                           "took 4 h 00 min = 2.5x WARN (max 1.5x); rework 59 min, tests+gates 39 min, unattributed 26 min")
     assert "waiting-for-owner 17 min" in line and "LLM 4 min" in line
 
 
@@ -97,6 +97,15 @@ def test_without_a_transcript_the_split_says_so_and_ratio_stands(tmp_path):
     r = synthetic(tmp_path, sessions=())
     assert r["ratio"] == round(240 / 95, 2) and r["buckets"]["llm"] == 0
     assert any("no session transcript" in n for n in r["notes"])
+
+
+def test_shared_testcost_log_counts_only_matching_work_id(tmp_path):
+    log = tmp_path / "runs.jsonl"
+    row = dict(t="2026-10-20 12:55:00", check="same", status="pass", seconds=100, key="K")
+    rows = [dict(row, job_id="other"), row, dict(row, job_id="own")]
+    log.write_text("\n".join(json.dumps(entry) for entry in rows), encoding="utf-8")
+    selected = overhead.testcost_intervals(log, "own")
+    assert len(selected) == 1 and selected[0][2] == "tests"
 
 
 def test_a_silent_day_starts_a_follow_up_job():
