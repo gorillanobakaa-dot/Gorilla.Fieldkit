@@ -157,17 +157,21 @@ class GH:
 
     def ci_state(self, sha):
         """-> ("green" | "pending" | "red" | "none", why) from GitHub's check runs for exactly `sha`."""
-        rc, out, err = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                                "[.check_runs[] | {name, status, conclusion}]")
+        try:
+            checks = self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+            # A rerun can be in progress while the previous attempt's check runs still read as finished.
+            workflows = self._ci_pages(f"actions/runs?head_sha={sha}", "workflow_runs")
+        except (RuntimeError, ValueError) as exc:
+            return "none", f"CI unreadable (gh): {str(exc)[:160]}"
+        return ci_verdict(checks, sha, workflows=workflows, slug=self.slug)
+
+    def _ci_pages(self, endpoint, key):
+        # Emit a JSON object per item. With --paginate, selecting an array would emit a separate array per page.
+        rc, out, err = self._gh("api", "--paginate", f"repos/{self.slug}/{endpoint}", "--jq",
+                                f".{key}[] | {{name,status,conclusion}}")
         if rc:
-            return "none", f"CI unreadable (gh): {err.strip()[:160]}"
-        # the workflow runs too: a re-run puts its run back to queued/in_progress while the old check runs still read
-        # green or red (2026-10-26: #124 merged while its windows re-run was still running)
-        rc2, out2, err2 = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
-                                   "[.workflow_runs[] | {name, status, conclusion}]")
-        if rc2:
-            return "none", f"workflow runs unreadable (gh): {err2.strip()[:160]}"
-        return ci_verdict(json.loads(out or "[]"), sha, workflows=json.loads(out2 or "[]"), slug=self.slug)
+            raise RuntimeError(err.strip())
+        return [json.loads(line) for line in out.splitlines() if line]
 
     def wait_checks(self, n, timeout):
         try:
@@ -177,13 +181,21 @@ class GH:
             pass
 
     def failed_log(self, sha, lines=30):
-        """The last `lines` lines of `gh run view --log-failed` for each failed workflow run of `sha`."""
+        """Keep failing pytest IDs alongside the tail, even when aggregate jobs log last."""
         rc, out, _ = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
                               "[.workflow_runs[] | select(.conclusion == \"failure\") | .id]")
         out_lines = []
         for rid in (json.loads(out or "[]") if rc == 0 else [])[:3]:
             rc2, log, _ = self._gh("run", "view", str(rid), "-R", self.slug, "--log-failed", timeout=300)
-            out_lines += [f"-- run {rid}"] + (log.splitlines()[-lines:] if rc2 == 0 else ["(log unreadable)"])
+            out_lines.append(f"-- run {rid}")
+            if rc2:
+                out_lines.append("(log unreadable)")
+                continue
+            log_lines = log.splitlines()
+            tail = log_lines[-lines:]
+            omitted = strikes.failed_tests(log_lines) - strikes.failed_tests(tail)
+            out_lines.extend(f"FAILED {test_id}" for test_id in sorted(omitted))
+            out_lines.extend(tail)
         return out_lines
 
     def rerun_failed(self, sha):
@@ -202,9 +214,7 @@ class GH:
 
     def failed_checks(self, sha):
         """-> the names of the check runs of `sha` that failed (empty when unreadable)."""
-        rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                              "[.check_runs[] | select(.conclusion == \"failure\") | .name]")
-        return set(json.loads(out or "[]")) if rc == 0 else set()
+        return {check["name"] for check in self.check_runs(sha) if check["conclusion"] == "failure"}
 
     def base_head(self, base="main"):
         """-> the head commit of `base` on GitHub, or ""."""
@@ -232,8 +242,10 @@ class GH:
 
     def check_runs(self, sha):
         """-> [{name, status, conclusion}] of the check runs GitHub has registered for exactly `sha`."""
-        return self._json("api", "--paginate", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                          "[.check_runs[] | {name, status, conclusion}]") or []
+        try:
+            return self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+        except (RuntimeError, ValueError):
+            return []
 
     def behind(self, n):
         """True when GitHub reads the PR as BEHIND its base (the rule wants it up to date before the merge)."""
@@ -621,15 +633,21 @@ def _local_update(repo, branch, base, gens, ci, push):
 
 def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
     end = clock() + max_wait_s
+    waited = False
     while True:
         state, why = gh.ci_state(head)
-        if state in ("green", "red") or clock() >= end:
+        pr = gh.pr(n)
+        if pr.get("state", "OPEN") != "OPEN" or pr["headRefOid"] != head:
+            return "pr-changed", f"PR now reads {pr.get('state')} at {pr['headRefOid'][:10]}"
+        if state in ("green", "red"):
             return state, why
-        gh.wait_checks(n, timeout=max(60, min(1800, end - clock())))
-        state, why = gh.ci_state(head)
-        if state in ("green", "red") or clock() >= end:
+        if waited:
+            sleep(max(0, min(30, end - clock())))
+        remaining = end - clock()
+        if remaining <= 0:
             return state, why
-        sleep(30)
+        gh.wait_checks(n, timeout=min(60, remaining))
+        waited = True
 
 
 def _mains_failure(gh, head, log, base):
@@ -756,7 +774,18 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
     if strikes.parked_for(r["branch"]):
         return dict(r, ok=False, state="parked", why=strikes.refusal([r["branch"]]),
                     next="parked, go on with the plan")
-    state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
+    deadline = clock() + max_wait_s
+    while True:
+        state, why = wait_green(gh, n, head, max(0, deadline - clock()), sleep, clock)
+        if state != "pr-changed":
+            break
+        pr = gh.pr(n)
+        head = pr["headRefOid"]
+        r.update(head=head, branch=pr["headRefName"])
+        if pr.get("state") != "OPEN":
+            return dict(r, ok=pr.get("state") == "MERGED", state=pr.get("state", "?").lower(), why=why)
+        if clock() >= deadline:
+            return dict(r, ok=False, state="timeout", why=why, next="the PR changed before the wait budget expired")
     log, reruns = None, []
     while state == "red":                               # P9: the runner's own outage is re-run, never a strike
         log = gh.failed_log(head)
@@ -772,6 +801,9 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
                         next=f"the runner is still down: the same CI locally counts (owner 2026-11-11): "
                              f"fieldkit ship ci-local {n}")
         sleep(strikes.infra_backoff(k))
+        current = gh.pr(n)
+        if current.get("state") != "OPEN" or current["headRefOid"] != head:
+            return dict(r, ok=False, state="pr-changed", why="the PR changed before the failed jobs could be retried")
         ok, runs, msg = gh.rerun_failed(head)
         strikes.record_infra(r["branch"], head, inf, pr=n, runs=runs)
         reruns.append({"rerun": k, "runs": runs, "why": inf, "ok": ok})
@@ -781,6 +813,9 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
                         next=f"re-run the failed jobs by hand, then ci-wait {n} again")
         for _ in range(RERUN_POLLS):                    # the re-run puts the workflow run back to queued
             sleep(RERUN_POLL_S)
+            current = gh.pr(n)
+            if current.get("state") != "OPEN" or current["headRefOid"] != head:
+                return dict(r, ok=False, state="pr-changed", why="the PR changed during the runner retry")
             if gh.ci_state(head)[0] != "red":
                 break
         state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
@@ -839,12 +874,13 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if state != "green":
             return dict(r, ok=False, state="timeout" if state == "pending" else state, why=why,
                         next="the updated head's CI did not turn green; run ci-wait again in the background")
-    ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(None, k, m), sleep, clock)
-    after = gh.pr(n).get("state")
-    if not ok or after != "MERGED":                     # the artefact, not the exit code
-        return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after}",
+    _ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(None, k, m), sleep, clock)
+    after = gh.pr(n)
+    if after.get("state") != "MERGED":                   # the artefact, not the exit code
+        return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after.get('state')}",
                     next="read the PR; nothing was forced")
-    return dict(r, ok=True, state="merged", next=f"#{n} is merged at {head[:10]}")
+    merged_head = after["headRefOid"]
+    return dict(r, ok=True, state="merged", head=merged_head, next=f"#{n} is merged at {merged_head[:10]}")
 
 
 def _ci_wait_lines(d):

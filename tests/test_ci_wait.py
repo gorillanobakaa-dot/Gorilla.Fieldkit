@@ -1,8 +1,11 @@
 """fieldkit ship ci-wait (O4): one blocking call per PR, the train's CI verdict, the failed log tail, a proven merge."""
+import json
+
 import pytest
 
 from fieldkit.method import strikes, train
 
+DEFAULT_RUNNER = strikes.default_runner
 
 @pytest.fixture(autouse=True)
 def _own_registry(tmp_path, monkeypatch):
@@ -77,6 +80,69 @@ def test_a_pr_already_merged_is_ok_without_waiting():
     gh = GH(["pending"], state="MERGED")
     r = train.ci_wait(gh, 166, merge=True, sleep=lambda s: None)
     assert r["ok"] and r["state"] == "merged" and gh.waits == 0 and gh.merges == []
+
+
+@pytest.mark.parametrize("auto_merge", [False, True])
+def test_wait_follows_the_latest_head_without_repairing_the_old_head(auto_merge):
+    class UpdatedGH(GH):
+        head = "a" * 40
+
+        def pr(self, n):
+            return dict(super().pr(n), headRefOid=self.head)
+
+        def ci_state(self, sha):
+            if sha == "b" * 40:
+                return "green", "updated head passed CI"
+            return ("red", "superseded check failed") if self.waits else ("pending", "initial checks")
+
+        def failed_log(self, sha):
+            pytest.fail(f"read failure for a superseded head {sha}")
+
+        def wait_checks(self, n, timeout):
+            assert timeout <= 60
+            self.waits += 1
+            self.head = "b" * 40
+            if auto_merge:
+                self.state = "MERGED"
+
+    gh = UpdatedGH(["pending"])
+    r = train.ci_wait(gh, 166, merge=True, sleep=lambda s: None)
+    assert r["ok"] and r["state"] == "merged" and r["head"] == "b" * 40
+    assert gh.waits == 1 and gh.merges == ([] if auto_merge else ["b" * 40])
+
+
+def test_checks_after_the_first_api_page_can_block_green():
+    gh = train.GH.__new__(train.GH)
+    gh.slug = "o/r"
+    checks = [{"name": f"earlier test {i}", "status": "completed", "conclusion": "success"} for i in range(30)]
+    checks.append({"name": "late Linux check", "status": "completed", "conclusion": "failure"})
+
+    def api(command, paginate, endpoint, jq, selector):
+        assert (command, paginate, jq) == ("api", "--paginate", "--jq")
+        if endpoint.endswith("check-runs"):
+            assert selector.startswith(".check_runs[]")
+            return 0, "\n".join(map(json.dumps, checks)), ""
+        assert selector.startswith(".workflow_runs[]")
+        return 0, "", ""
+
+    gh._gh = api
+    assert gh.ci_state("a" * 40)[0] == "red"
+    assert gh.failed_checks("a" * 40) == {"late Linux check"}
+
+
+def test_failure_ids_survive_aggregate_job_logs():
+    gh = train.GH.__new__(train.GH)
+    gh.slug = "o/r"
+    log = "shard 4\tFAILED tests/test_x.py::test_y\n" + "\n".join(["aggregator: shard result failed"] * 40)
+    gh._gh = lambda command, *args, **kw: (0, "[7]" if command == "api" else log, "")
+    assert strikes.failed_tests(gh.failed_log("a" * 40)) == {"tests/test_x.py::test_y"}
+
+
+def test_ci_failure_evidence_does_not_start_local_tests_without_the_owner(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_LOCAL_TESTS", raising=False)
+    monkeypatch.setattr(strikes.subprocess, "run", lambda *a, **kw: pytest.fail("started local verification"))
+    with pytest.raises(RuntimeError, match="local verification is disabled"):
+        DEFAULT_RUNNER("b" * 40, ["tests/test_x.py::test_y"])
 
 
 def test_the_cli_exit_code_follows_the_verdict(monkeypatch, capsys):
