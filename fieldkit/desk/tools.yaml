@@ -7720,7 +7720,7 @@ tools:
   e2e: {linux: e2e-ship-batch-run-linux, windows: e2e-ship-batch-run-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
+  notes: "Use fieldkit ship batch before-pr --branches BRANCH ... for related local changes that have no PRs. The combined tree gets the ordinary protected checks in one PR. Use batch run for PRs that already exist and passed their own CI. Policy lives in fieldkit/method/batch.yaml. Mutation plan tests/batch_mutations.yaml."
 
 - id: ship-batch-status
   title: "Batch merge (many PRs, one branch, one CI, one merge): The batch journal: what was collected, joined, left out and why, each CI result, the culprit and how it was found, what merged"
