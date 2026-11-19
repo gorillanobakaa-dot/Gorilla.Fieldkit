@@ -13,6 +13,30 @@ ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
 
 
+def test_merge_preflight_requires_trusted_success_and_exact_base_head_and_tree(monkeypatch):
+    folder = Path(__file__).resolve().parents[1] / ".github"
+    monkeypatch.syspath_prepend(str(folder))
+    loader = importlib.util.spec_from_file_location("ci_merge_proof", folder / "ci_merge_proof.py")
+    proof = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(proof)
+    expected = {"schema": 1, "base": "a" * 40, "head": "b" * 40, "tree": "c" * 40}
+    run = {"id": 31, "run_attempt": 2, "head_sha": expected["head"], "event": "pull_request",
+           "head_repository": {"full_name": "owner/repo"}, "status": "completed", "conclusion": "success",
+           "path": ".github/workflows/tests.yml"}
+    api = lambda _: {"workflow_runs": [run]}
+
+    def download(run_id, attempt):
+        assert (run_id, attempt) == (31, 2)
+        return expected
+
+    assert proof.prior_run("owner/repo", expected, api, download) == 31
+    for different in (dict(expected, base="e" * 40), dict(expected, tree="e" * 40), None):
+        assert proof.prior_run("owner/repo", expected, api, lambda *_: different) is None
+    for untrusted in (dict(run, conclusion="failure"), dict(run, event="push"),
+                      dict(run, head_repository={"full_name": "fork/repo"})):
+        assert proof.prior_run("owner/repo", expected, lambda _: {"workflow_runs": [untrusted]}, download) is None
+
+
 def test_per_file_release_evidence_refuses_skipped_cases_and_changed_context(tmp_path):
     path = Path(__file__).resolve().parents[1] / ".github" / "ci_file_proof.py"
     loader = importlib.util.spec_from_file_location("ci_file_proof", path)

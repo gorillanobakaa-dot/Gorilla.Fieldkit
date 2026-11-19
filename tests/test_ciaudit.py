@@ -15,7 +15,8 @@ LOGS = {
 def fake_gh(args):
     if args[:2] == ["run", "list"]:
         runs = [{"databaseId": i, "event": "pull_request", "headBranch": f"b{i}", "conclusion": "success",
-                 "createdAt": "2026-11-01T10:00:00Z", "updatedAt": f"2026-11-01T10:{i * 5:02d}:00Z"} for i in LOGS]
+                 "startedAt": "2026-11-01T10:00:00Z", "attempt": 2,
+                 "createdAt": "2026-11-01T01:00:00Z", "updatedAt": f"2026-11-01T10:{i * 5:02d}:00Z"} for i in LOGS]
         runs.append({"databaseId": 9, "event": "push", "createdAt": "2026-11-01T10:00:00Z",
                      "updatedAt": "2026-11-01T11:00:00Z"})
         return 0, json.dumps(runs), ""
@@ -26,6 +27,7 @@ def test_each_run_is_classified_with_its_minutes_and_trigger_files():
     rows = ciaudit.audit("o/r", gh=fake_gh)
     assert [r["kind"] for r in rows] == ["whole", "targeted", "whole", "none", "unknown"]   # the push run is skipped
     assert rows[0]["minutes"] == 5.0 and rows[2]["files"] == ["a.yaml", "releases/parity-pin.yaml"]
+    assert rows[0]["lifetime_minutes"] == 545.0 and rows[0]["attempt"] == 2
     s = ciaudit.summary(rows)
     assert s["whole_runs"] == 2 and s["whole_minutes"] == 20.0 and s["whole_share"] == 0.5
     assert s["triggers"][0] == ("releases/parity-pin.yaml", 2)

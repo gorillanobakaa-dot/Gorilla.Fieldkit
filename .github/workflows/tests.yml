@@ -12,7 +12,26 @@ permissions:
   contents: read
   actions: read
 jobs:
+  merge-proof:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      reuse: ${{ steps.proof.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIELDKIT_BEFORE: ${{ github.event.before }}
+        run: python3 .github/ci_merge_proof.py match
+
   shard-windows-latest:
+    needs: merge-proof
+    if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (windows-latest, ${{ matrix.shard }})
@@ -53,14 +72,13 @@ jobs:
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="origin/${{ github.base_ref }}"
+            base="${{ github.event.pull_request.base.sha }}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             base="${{ github.event.before }}"
-            merged="--merged"
           else
             base="full"
           fi
-          python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+          python .github/ci_tests.py "$base" --shard "${{ matrix.shard }}/4"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         with:
@@ -70,6 +88,8 @@ jobs:
           if-no-files-found: ignore
 
   shard-ubuntu-latest:
+    needs: merge-proof
+    if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (ubuntu-latest, ${{ matrix.shard }})
@@ -110,14 +130,26 @@ jobs:
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="origin/${{ github.base_ref }}"
+            base="${{ github.event.pull_request.base.sha }}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             base="${{ github.event.before }}"
-            merged="--merged"
           else
             base="full"
           fi
-          python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+          python .github/ci_tests.py "$base" --shard "${{ matrix.shard }}/4"
+      - name: Record the exact PR checkout
+        if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          FIELDKIT_PR_BASE: ${{ github.event.pull_request.base.sha }}
+          FIELDKIT_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python .github/ci_merge_proof.py record
+      - uses: actions/upload-artifact@v4
+        if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          name: tested-tree-attempt-${{ github.run_attempt }}
+          path: .ci-proof/checkout.json
+          include-hidden-files: true
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         with:
@@ -130,7 +162,7 @@ jobs:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
     # each is green only when EVERY shard of its OS is green. Skipped or cancelled shards are red here.
     name: test (${{ matrix.os }})
-    needs: [shard-windows-latest, shard-ubuntu-latest]
+    needs: [merge-proof, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -140,7 +172,13 @@ jobs:
     steps:
       - name: every shard of this OS passed
         shell: bash
+        env:
+          REUSED_MERGE_PROOF: ${{ needs.merge-proof.outputs.reuse }}
         run: |
+          if [ "$REUSED_MERGE_PROOF" = true ]; then
+            echo "Exact merge tree passed prior PR CI on both platforms"
+            exit 0
+          fi
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
           test "$result" = "success"
