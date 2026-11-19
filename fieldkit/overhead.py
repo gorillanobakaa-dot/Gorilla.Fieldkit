@@ -568,7 +568,7 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
     elif not sessions:
         notes.append("no session transcript given: model and agent time may be unattributed")
     st = state_dir(state)
-    job_id = job.get("job_id") or os.environ.get("FIELDKIT_WORK_ID") or job.get("task") or job.get("gid") or name
+    job_id = job.get("job_id") or job.get("task") or job.get("gid") or name
     # An explicitly supplied log can be scoped by its caller. The shared ledger must match this job.
     iv += testcost_intervals(testcost_log or st / "testcost" / "runs.jsonl", None if testcost_log else job_id)
     if inbox_dir is None:
@@ -783,9 +783,12 @@ def main(argv=None, prog="fieldkit overhead"):
     ap.add_argument("--until")
     ap.add_argument("--bare", type=float, help="the bare minutes, when no stage log gives them")
     ap.add_argument("--state", help="Fieldkit state folder (default: this checkout's state/)")
+    ap.add_argument("--work-id", help="attribute test ledger entries to this work ID for a single named job")
     ap.add_argument("--fixture", action="append", help="report release and repair fixture timings from a CI receipt")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.work_id and (not a.job or a.fixture):
+        ap.error("--work-id needs a single named job")
     if a.fixture:
         try:
             rows = fixture_timings(a.fixture)
@@ -870,7 +873,8 @@ def main(argv=None, prog="fieldkit overhead"):
             print(f"overhead: no job {a.job!r}; known: {', '.join(jobs) or 'none'}", file=sys.stderr)
             return 2
         try:
-            r = measure(a.job, jobs[a.job], a.session, a.since, a.until, a.bare, cfg, a.state)
+            job = dict(jobs[a.job], job_id=a.work_id) if a.work_id else jobs[a.job]
+            r = measure(a.job, job, a.session, a.since, a.until, a.bare, cfg, a.state)
         except ValueError as e:
             print(f"overhead: {e}", file=sys.stderr)
             return 2
