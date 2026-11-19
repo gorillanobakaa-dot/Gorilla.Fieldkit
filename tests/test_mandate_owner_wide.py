@@ -224,6 +224,19 @@ def test_gate_allows_a_mandated_branch_and_logs_it(home, clone):
     assert any(e["what"] == "push-gate" for e in M.read_log(f))
 
 
+def test_repo_preflight_checks_the_existing_seal_without_pushing(home, clone):
+    f = write_mandate(home)
+    log = list(M.read_log(f))
+    result = G.preflight(clone, today=DAY)
+    assert result["ok"] and result["mandate"] == f.stem
+    assert result["repo"] and result["expires"]
+    assert M.read_log(f) == log
+
+    git(clone, "remote", "set-url", "origin", "https://example.org/elsewhere.git")
+    refused = G.preflight(clone, today=DAY)
+    assert not refused["ok"] and "does not name elsewhere" in refused["reason"]
+
+
 def test_gate_refuses_a_push_that_did_not_come_through_ship(home, clone):
     write_mandate(home)
     ok, why, _ = G.check(clone, line("refs/heads/feat/x", sha(clone), "refs/heads/feat/x"), env={}, today=DAY)

@@ -17,6 +17,7 @@ Administrators-only write ACL, written through the elevate kit (the Windows side
 
 A reader refuses a root this user can write (`guarded()`): if the protection is not there, nothing in it counts.
 """
+import json
 import os
 import re
 import shlex
@@ -140,15 +141,35 @@ def acl_verdict(acl, me=None):
     return True, "Administrators-only write"
 
 
+def _windows_powershell_home():
+    import ctypes
+
+    directory = ctypes.create_unicode_buffer(32768)
+    size = ctypes.windll.kernel32.GetSystemDirectoryW(directory, len(directory))
+    if not 0 < size < len(directory):
+        raise OSError("could not locate the Windows system directory")
+    return Path(directory.value) / "WindowsPowerShell" / "v1.0"
+
+
 def _read_acl(p, run=subprocess.run):
-    ps = ("$a = Get-Acl -LiteralPath $env:FK_PATH; [pscustomobject]@{owner=$a.Owner; access=@($a.Access | "
+    shell = _windows_powershell_home()
+    ps = ("$ErrorActionPreference = 'Stop'; "
+          "$a = Microsoft.PowerShell.Security\\Get-Acl -LiteralPath $env:FK_PATH; "
+          "[pscustomobject]@{owner=$a.Owner; access=@($a.Access | "
           "ForEach-Object { $_.IdentityReference.Value + '|' + $_.FileSystemRights + '|' + $_.AccessControlType })} | "
           "ConvertTo-Json -Compress")
-    import json
-    import os
-    r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True,
-            env=dict(os.environ, FK_PATH=str(p)), timeout=60)
-    return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+    # A Python process launched by PowerShell 7 can pass its module paths to
+    # Windows PowerShell 5 unchanged. Only load the native system modules.
+    r = run([str(shell / "powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, env=dict(os.environ, FK_PATH=str(p),
+                                                    PSModulePath=str(shell / "Modules")), timeout=60)
+    if r.returncode != 0 or r.stderr.strip():
+        detail = next((line.strip() for line in r.stderr.splitlines() if line.strip()), "no ACL response")
+        raise OSError(f"Windows PowerShell ACL probe failed (exit {r.returncode}): {detail}")
+    acl = json.loads(r.stdout)
+    if not isinstance(acl, dict) or not acl.get("owner") or not isinstance(acl.get("access"), list):
+        raise ValueError("Windows PowerShell returned incomplete ACL data")
+    return acl
 
 
 def _guarded_windows(p, acl_reader=None):

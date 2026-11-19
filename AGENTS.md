@@ -20,6 +20,7 @@ stage). Each output ends with `NEXT:`, the step to take. Find a tool: `fieldkit 
 fieldkit emerge list|plan|run|status RECIPE      every build, compile and package (rules/CORE.md BUILDS)
 fieldkit emerge repair RECIPE --files F ...       a small frontend fix in one step: no stages, checked, next patch
 fieldkit testcost staged                          the tests covering what you changed (the pre-commit hook runs it)
+fieldkit mandate status --repo .                   check existing approval at the start of a job that needs to ship
 fieldkit guard -- CMD ...                         every heavy command on the Windows laptop
 fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through the owner-wide mandate
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review

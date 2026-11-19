@@ -22,7 +22,7 @@ vars:
   targets: "linux/amd64,windows/amd64"
   main: "."                # the package to build
   cgo: "0"
-  tests: all               # all | short
+  tests: all               # all | short | github-main (full Linux and Windows CI for git_ref)
   out: ""                  # empty: <src>/dist
   windows_name: gorilla-opencode.exe   # the name the releases use
   # v0.1.155 shipped without these (2026-10-27): the Windows release is `go build -tags toolbox` with the seven
@@ -76,7 +76,7 @@ stages:
     timeout: 10800
     run: {python: "fieldkit.build.goapp:stage_test", args: {mode: "{tests}"}}
     verify:
-      - {python: {target: "fieldkit.build.goapp:verify_test"}}
+      - {python: {target: "fieldkit.build.goapp:verify_test", args: {mode: "{tests}"}}}
     triage: go
 
   - id: build
