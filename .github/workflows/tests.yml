@@ -29,6 +29,22 @@ jobs:
           FIELDKIT_BEFORE: ${{ github.event.before }}
         run: python3 .github/ci_merge_proof.py match
 
+  coverage:
+    needs: merge-proof
+    if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Every tracked file has covering tests
+        run: python -m fieldkit testcost unmapped --all
+
   selection:
     needs: merge-proof
     if: always() && !cancelled() && needs.merge-proof.outputs.reuse != 'true'
@@ -43,8 +59,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e .
-      - name: Every tracked file has covering tests
-        run: python -m fieldkit testcost unmapped --all
       - name: Select the tests once for this checkout
         shell: bash
         env:
@@ -66,6 +80,7 @@ jobs:
 
   shard-windows-latest:
     needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (windows-latest, ${{ matrix.shard }})
@@ -117,6 +132,7 @@ jobs:
 
   shard-ubuntu-latest:
     needs: selection
+    if: always() && !cancelled() && needs.selection.result == 'success'
     # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
     # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
     name: shard (ubuntu-latest, ${{ matrix.shard }})
@@ -183,7 +199,7 @@ jobs:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
     # each is green only when EVERY shard of its OS is green. Skipped or cancelled shards are red here.
     name: test (${{ matrix.os }})
-    needs: [merge-proof, shard-windows-latest, shard-ubuntu-latest]
+    needs: [merge-proof, coverage, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -200,6 +216,8 @@ jobs:
             echo "Exact merge tree passed prior PR CI on both platforms"
             exit 0
           fi
+          echo "coverage: ${{ needs.coverage.result }}"
+          test "${{ needs.coverage.result }}" = success || exit 1
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
           test "$result" = "success"
