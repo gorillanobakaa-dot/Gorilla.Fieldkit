@@ -51,6 +51,7 @@ fieldkit testcost plan                                         changed files -> 
 fieldkit testcost staged                                       names the covering tests; GitHub CI (Linux and Windows) runs them, never this computer (--local only when the owner asks)
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
+fieldkit ciaudit --run RUN                                    queue, active time and gaps for all attempts of one Actions run
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND

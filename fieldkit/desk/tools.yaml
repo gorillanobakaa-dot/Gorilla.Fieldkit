@@ -6493,12 +6493,13 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
 - id: ciaudit
-  title: What CI really ran - per pull-request run of the tests workflow the selection ci_tests.py printed (whole suite, N test files, no code), its minutes, and the files that sent it to the whole suite; exit 3 over the whole-suite budget
+  title: Audit CI test selection and measure queue, active time and gaps between attempts
   harness: method
   entry: [python, -m, fieldkit, ciaudit]
   path: ${FIELDKIT}/fieldkit/method/ciaudit.py
   inputs:
     - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: this checkout's repository)"}
+    - {name: run, flag: --run, type: int, required: false, help: "a GitHub Actions run ID for an attempt timeline"}
     - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD: runs created on or after"}
     - {name: limit, flag: --limit, type: int, required: false, help: "how many runs to read (100)"}
     - {name: max_whole_share, flag: --max-whole-share, type: float, required: false, help: "budget: whole-suite runs / judged runs (0.1)"}
@@ -6509,7 +6510,7 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciaudit.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Network: gh run list and gh run view --log on GitHub only. Pairs with testcost unmapped --all (the cause) and tests/testmap.yaml (the fix)."
+  notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Reads workflow selection logs or run attempt timestamps from GitHub. Pairs with testcost unmapped --all and tests/testmap.yaml."
 
 - id: rules
   title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
