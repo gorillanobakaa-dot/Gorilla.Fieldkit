@@ -423,8 +423,8 @@ def verify(repo, gh, tag, path):
     return candidate, path.parent, assets, platforms
 
 
-def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None, single_publisher=False):
+def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
     gh = GitHub(slug)
     candidate, directory, assets, platforms = verify(repo, gh, tag, path)
     return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate, platforms=platforms,
-                   single_publisher=single_publisher)
+                   single_publisher=True)

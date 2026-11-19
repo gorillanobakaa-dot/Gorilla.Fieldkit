@@ -76,8 +76,8 @@ unexpected or incompatible assets, and promotes only a complete verified draft. 
 For a rate-limited GitHub API call, Fieldkit honors the reported retry delay or reset time. Longer waits or
 exhausted retries return a resume time and leave the candidate available for the same retry.
 The candidate publisher counts hotfixes using GitHub publication history. Tag pushes, drafts and failed
-publication attempts leave the quota unchanged. Fieldkit's source policy uses `publication: single-publisher`.
-That mode takes the publisher from the signed mandate's repository `publisher` field or its existing
+publication attempts leave the quota unchanged. Every candidate promotion goes through the signed publisher,
+including older policies that say `publication: local`. The publisher comes from the signed mandate's repository `publisher` field or its existing
 `orchestrator.device`. Other machines can verify the candidate and supply evidence. The designated publisher
 serializes the quota check and promotion across its checkouts. Keep the same signed publisher on every machine.
 Changing publishers requires the owner to retire the old authority before approving the replacement.

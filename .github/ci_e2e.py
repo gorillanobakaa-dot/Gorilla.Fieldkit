@@ -25,6 +25,22 @@ LEAK_GATE_JOBS = ["e2e-leakgate-linux", "e2e-bh-leakgate-ci-linux", "e2e-bh-leak
                   "e2e-cmd-check-linux", "e2e-cmd-check-windows"]
 
 
+def both(*names):
+    return [f"e2e-{name}-{system}" for name in names for system in ("linux", "windows")]
+
+
+# Keep this limited to inputs audited against the named E2E entry points. Shared CLI, configuration
+# and unreviewed changes in an active workflow retain its existing coverage.
+SCOPES = (
+    ("e2e", {"fieldkit/leakgate/gate.py", "fieldkit/leakgate/status.py", "fieldkit/leakgate/restart.py",
+             "fieldkit/leakgate/linux.py"}, LEAK_GATE_JOBS),
+    ("e2e", {"fieldkit/once.py"}, both("once")),
+    ("e2e", {"fieldkit/lifecycle/pool.py"}, both("pool")),
+    ("e2e_l15", {"fieldkit/method/batch.py", "fieldkit/method/train.py"},
+     both("ship-batch-status", "ship-batch-collect", "ship-batch-select", "ship-batch-build", "ship-batch-run")),
+)
+
+
 def matches(paths, patterns):
     return any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in patterns)
 
@@ -33,9 +49,16 @@ def select(paths):
     """Only narrow explicitly audited changes. Shared files select the full E2E set."""
     if paths is None or matches(paths, SHARED):
         return dict.fromkeys(TRIGGERS, ["*"])
-    audited = {"fieldkit/leakgate/gate.py", "fieldkit/leakgate/status.py", "tests/test_leakgate_status.py"}
-    if paths and set(paths) <= audited and matches(paths, TRIGGERS["e2e"]):
-        return {"e2e": LEAK_GATE_JOBS, "e2e_l15": []}
+    fixtures = {"tests/test_leakgate_status.py", "tests/test_once.py", "tests/test_pool.py", "tests/test_batch.py",
+                "tests/test_train.py", "tests/test_ci_wait.py"}
+    code = set(paths) - fixtures
+    audited = set().union(*(files for _workflow, files, _jobs in SCOPES))
+    if code and code <= audited:
+        selected = {workflow: set() for workflow in TRIGGERS}
+        for workflow, files, jobs in SCOPES:
+            if code & files:
+                selected[workflow].update(jobs)
+        return {workflow: sorted(jobs) for workflow, jobs in selected.items()}
     return {workflow: ["*"] if matches(paths, patterns) else [] for workflow, patterns in TRIGGERS.items()}
 
 
@@ -52,14 +75,16 @@ def changed(base):
 
 def main(base):
     choices = dict.fromkeys(TRIGGERS, []) if base == "full" else select(changed(base))
-    if choices["e2e"] and choices["e2e"] != ["*"]:
-        from pathlib import Path
+    from pathlib import Path
 
-        import yaml
+    import yaml
 
-        workflow = yaml.safe_load(Path(".github/workflows/e2e.yml").read_text(encoding="utf-8"))
-        if not set(choices["e2e"]) <= workflow["jobs"].keys():
-            choices["e2e"] = ["*"]
+    for name, jobs in choices.items():
+        if jobs and jobs != ["*"]:
+            path = Path(".github/workflows") / (name.replace("_", "-") + ".yml")
+            workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not set(jobs) <= workflow["jobs"].keys():
+                choices[name] = ["*"]
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         for workflow, jobs in choices.items():
             print(f"{workflow}={json.dumps(jobs, separators=(',', ':'))}", file=output)

@@ -94,6 +94,17 @@ def netns_down():
     sh("ip", "link", "del", "lg0", check=False)
 
 
+def namespace_idle():
+    """An old namespace must have no remaining workers before its evidence can be resumed."""
+    try:
+        current = sh("ip", "netns", "list", timeout=10)
+        if not any(line.split()[:1] == [NS] for line in current.stdout.splitlines()):
+            return True
+        return not sh("ip", "netns", "pids", NS, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def snapshot_namespace(work):
     """Spec: record interfaces, addresses, routes, ARP/neighbours, rules, DNS and firewall before the run."""
     out = {}
