@@ -9,7 +9,7 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
                 for. Too old or missing: the exact install line for this system, never a silent download.
     modules     go mod download + go mod verify: every dependency matches go.sum, or the build stops
     vet         go vet ./...                      a short report: the problems, not the whole log
-    test        go test ./... -count=1 [-short]   the failing packages and tests, each with its first lines
+    test        go test ./... -count=1 [-short], or the full GitHub suites for an OpenCode release commit
     build       each target (GOOS/GOARCH), CGO off, -trimpath, stamped with the version (-ldflags -X), so the same
                 commit gives the same bytes on any machine; Windows gets .exe and its committed resources (.syso)
     repro       each target built AGAIN from a copy of the source in another folder (own build cache and temp folder,
@@ -586,12 +586,55 @@ def verify_vet(ctx):
     return _fresh(ctx, "vet")
 
 
+def _opencode_ci_tests(ctx, github=None):
+    """Read full-suite results for an immutable OpenCode release commit from GitHub Actions."""
+    from ..method.releasecandidate import GitHub, Refused
+
+    repo = "gorillanobakaa-dot/Gorilla.Opencode"
+    commit = ctx.vars.get("git_ref") or ""
+    if ctx.vars.get("repo") != repo or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return {"ok": False, "detail": "GitHub test proof requires OpenCode and its full release commit SHA as git_ref"}
+    github = github or GitHub(repo)
+    try:
+        runs = github.api(f"actions/workflows/ci.yml/runs?branch=main&event=push&head_sha={commit}").get("workflow_runs")
+        if not isinstance(runs, list) or len(runs) != 1:
+            raise Refused("expected one main-push CI run")
+        run = runs[0]
+        run_id, attempt = run.get("id"), run.get("run_attempt")
+        if (type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0
+                or run.get("status") != "completed" or run.get("conclusion") != "success"
+                or run.get("head_branch") != "main" or run.get("event") != "push" or run.get("head_sha") != commit
+                or run.get("path") != ".github/workflows/ci.yml"
+                or (run.get("head_repository") or {}).get("full_name", "").casefold() != repo.casefold()):
+            raise Refused("the run is not a completed successful main-push CI run for this commit")
+        jobs = github.api(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs")
+        if not isinstance(jobs, list):
+            raise Refused("GitHub did not return job results")
+        for name, os_prefix in (("build-test", "ubuntu-"), ("build-test-windows", "windows-")):
+            matches = [job for job in jobs if job.get("name") == name]
+            if len(matches) != 1:
+                raise Refused(f"expected one {name} job")
+            job = matches[0]
+            full = [step for step in job.get("steps") or [] if step.get("name") == "test full Go suite"]
+            if (job.get("head_sha") != commit or job.get("status") != "completed" or job.get("conclusion") != "success"
+                    or not any(label.startswith(os_prefix) for label in job.get("labels") or [])
+                    or len(full) != 1 or full[0].get("status") != "completed" or full[0].get("conclusion") != "success"):
+                raise Refused(f"{name} lacks a successful full-suite test on this commit")
+    except (AttributeError, OSError, TypeError, ValueError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "detail": f"GitHub CI proof for {commit[:12]} refused: {exc}"}
+    return {"ok": True, "detail": f"full Linux and Windows Go suites passed for {commit} in GitHub run {run_id}/{attempt}"}
+
+
 def stage_test(ctx, mode="all"):
+    if mode == "github-main":
+        return _opencode_ci_tests(ctx)
     cmd = ["test", "./...", "-count=1", "-timeout", "45m"] + (["-short"] if mode == "short" else [])
     return _checked(ctx, "test", cmd, 3 * 3600)
 
 
 def verify_test(ctx, mode="all"):
+    if mode == "github-main":
+        return _opencode_ci_tests(ctx)
     return _fresh(ctx, "test")
 
 

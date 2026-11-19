@@ -112,6 +112,18 @@ def check(repo_path, stdin_text, env=None, today=None, where=None):
     return True, [f"allowed by the mandate {path.stem} for {repo}: " + ", ".join(x[2] for x in lines)], path
 
 
+def preflight(repo_path, today=None):
+    """Check the existing approval before work starts, without pushing or logging an approval."""
+    from . import proofs
+    repo, _ = proofs.where(repo_path)
+    if not repo:
+        return {"ok": False, "reason": "checkout has no Git origin"}
+    path, m, cfg = _mandate_for(repo, today)
+    if path is None:
+        return {"ok": False, "repo": repo, "reason": str(cfg)}
+    return {"ok": True, "repo": repo, "mandate": path.stem, "expires": str(m["expires"])}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit mandate gate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

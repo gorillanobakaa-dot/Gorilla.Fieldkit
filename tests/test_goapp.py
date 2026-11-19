@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -142,6 +143,52 @@ def test_every_go_signature_compiles_and_names_a_fix():
     for s in sigs:
         re.compile(s["pattern"])
         assert s["cause"] and s["fix"], s["id"]
+
+
+@pytest.mark.parametrize("fault", [None, "pr", "old_commit", "pending", "missing_windows", "wrong_os", "selected", "skipped"])
+def test_opencode_release_proof_requires_full_ci_on_both_platforms(monkeypatch, fault):
+    from fieldkit.method import releasecandidate
+
+    repo, sha = "gorillanobakaa-dot/Gorilla.Opencode", "a" * 40
+    run = {"id": 42, "run_attempt": 2, "head_sha": sha, "head_branch": "main", "event": "push",
+           "status": "completed", "conclusion": "success", "path": ".github/workflows/ci.yml",
+           "head_repository": {"full_name": repo}}
+    jobs = [
+        {"name": name, "head_sha": sha, "status": "completed", "conclusion": "success", "labels": [label],
+         "steps": [{"name": "test full Go suite", "status": "completed", "conclusion": "success"}]}
+        for name, label in (("build-test", "ubuntu-latest"), ("build-test-windows", "windows-latest"))
+    ]
+    if fault == "pr":
+        run["event"] = "pull_request"
+    elif fault == "old_commit":
+        run["head_sha"] = "b" * 40
+    elif fault == "pending":
+        run["status"] = "in_progress"
+    elif fault == "missing_windows":
+        jobs.pop()
+    elif fault == "wrong_os":
+        jobs[1]["labels"] = ["ubuntu-latest"]
+    elif fault == "selected":
+        jobs[1]["steps"][0]["name"] = "test selected Go packages"
+    elif fault == "skipped":
+        jobs[1]["steps"][0]["conclusion"] = "skipped"
+
+    class GitHub:
+        def __init__(self, slug):
+            assert slug == repo
+
+        def api(self, path):
+            if path == f"actions/workflows/ci.yml/runs?branch=main&event=push&head_sha={sha}":
+                return {"workflow_runs": [run]}
+            assert path == "actions/runs/42/attempts/2/jobs?per_page=100"
+            return {"jobs": jobs}
+
+    monkeypatch.setattr(releasecandidate, "GitHub", GitHub)
+    ctx = SimpleNamespace(vars={"repo": repo, "git_ref": sha})
+    assert goapp.stage_test(ctx, mode="github-main")["ok"] is (fault is None)
+    assert goapp.verify_test(ctx, mode="github-main")["ok"] is (fault is None)
+    ctx.vars["git_ref"] = "HEAD"
+    assert not goapp.verify_test(ctx, mode="github-main")["ok"]
 
 
 # -- a real Go build ----------------------------------------------------------------------------------------
