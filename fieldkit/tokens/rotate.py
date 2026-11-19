@@ -8,6 +8,9 @@
     fieldkit rotate handover --transcript PATH|--session ID --title T --next TEXT [--done TEXT] [--not-verified TEXT]
                                                                  the dated PLAN.md section + a note file + the brief
                                                                  for the fresh session; prints the exact next step
+        [--job-id ID --plan-file FILE] [--ci-run RUN ...]         carry the complete approved plan and pending CI
+    fieldkit rotate takeover --job-id ID [--note NOTE --as-session ID] [--json]
+                                                                 find the job or acknowledge the current handoff
     fieldkit rotate finished [--hours 72] [--gh] [--json]        ended, idle sessions with no open PR: for archive
     fieldkit rotate log [N]                                      the last N verdicts
     fieldkit rotate endcheck --transcript PATH                   a turn may end only with no open PR it mentioned unless a

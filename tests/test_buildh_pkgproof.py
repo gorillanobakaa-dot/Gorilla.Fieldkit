@@ -17,16 +17,22 @@ def _zip(tmp_path, files):
 FILES = {"application.ini": "[App]\nBuildID=20261009184728\n", "omni.ja": "x" * 100, "browser/omni.ja": "y" * 50}
 
 
-def test_prove_runs_every_group_on_the_unpacked_package_and_records_hashes(tmp_path):
+def test_prove_runs_every_group_on_the_unpacked_package_and_records_hashes(tmp_path, monkeypatch):
     z = _zip(tmp_path, FILES)
+    expected = pp.zip_files(z)
     seen = []
+
+    def duplicated_scan(*args):
+        raise AssertionError("an already unpacked archive was inflated again")
+
+    monkeypatch.setattr(pp, "zip_files", duplicated_scan)
 
     def run(g, t, app, say):
         seen.append((g, (app / "application.ini").is_file()))
         return [{"check": f"{g}: fine", "ok": True, "evidence": "e"}]
     got = pp.prove({}, z, say=lambda m: None, run=run)
     assert [g for g, _ in seen] == list(pp.PACKAGE_GROUPS) and all(ok for _, ok in seen)
-    assert set(got["files"]) == set(FILES) and set(got["seconds"]) == set(pp.PACKAGE_GROUPS)
+    assert got["files"] == expected and set(got["seconds"]) == set(pp.PACKAGE_GROUPS)
     assert len(got["rows"]) == len(pp.PACKAGE_GROUPS)
 
 
