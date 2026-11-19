@@ -154,6 +154,30 @@ def test_a_changed_output_is_not_trusted(env):
     assert statuses(rep)["two"] == "pass" and (work / "out" / "b.bin").read_text() == "beta\n"
 
 
+def test_dependency_receipt_reuses_identical_output_and_rechecks_changed_bytes(env, monkeypatch):
+    tmp, work = env
+    monkeypatch.setenv("FIELDKIT_WORK_ID", "fixture-restart")
+    spec_data = spec(work)
+    spec_data["stages"][0]["always_run"] = True
+    first = emerge(recipe(tmp, spec_data)).run()
+    assert first["ok"] and first["work_id"] == "fixture-restart"
+    unchanged = emerge(recipe(tmp, spec_data)).run()
+    assert statuses(unchanged) == {"one": "pass", "two": "skip", "pack": "skip"}
+
+    def produce_changed_bytes(stage):
+        assert stage["id"] == "one"
+        out = write(work / "out" / "a.bin", "different artifact\n")
+        return True, 1.0, E.outputs_of(dict(stage, outputs=[str(out)])), ""
+
+    runner = emerge(recipe(tmp, spec_data))
+    original = runner._execute
+    monkeypatch.setattr(runner, "_execute",
+                        lambda stage: produce_changed_bytes(stage) if stage["id"] == "one" else original(stage))
+    changed = runner.run()
+    assert statuses(changed) == {"one": "pass", "two": "skip", "pack": "pass"}
+    assert changed["overhead"]["work_id"] == "fixture-restart"
+
+
 def test_a_recipe_asking_for_endless_fixes_is_capped(env):
     tmp, work = env
     s = failing_spec(work)

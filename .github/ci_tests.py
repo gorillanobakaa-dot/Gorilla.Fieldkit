@@ -165,6 +165,8 @@ def main(argv):
     cmd = [sys.executable, "-m", "pytest", "-q", "-rsf"]
     if os.getenv("GITHUB_ACTIONS") == "true":
         cmd.extend(["-o", "faulthandler_timeout=300"])
+        if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+            cmd.extend(["-vv", "-x"])
     cmd.extend(tests or [])
     if proof and tests:
         from ci_file_proof import context, write_receipt

@@ -13,6 +13,40 @@ ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
 
 
+def test_e2e_runs_only_affected_jobs_and_falls_back_for_shared_inputs():
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    loader = importlib.util.spec_from_file_location("ci_e2e", root / ".github" / "ci_e2e.py")
+    e2e = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(e2e)
+    picked = e2e.select(["fieldkit/leakgate/gate.py", "tests/test_leakgate_status.py"])
+    assert picked["e2e_l15"] == []
+    assert set(picked["e2e"]) == set(e2e.LEAK_GATE_JOBS)
+    workflow = yaml.safe_load((root / ".github/workflows/e2e.yml").read_text(encoding="utf-8"))
+    assert len(picked["e2e"]) < len(workflow["jobs"])
+    for name in picked["e2e"]:
+        assert f"'{name}'" in workflow["jobs"][name]["if"]
+    for shared in (".github/workflows/e2e.yml", ".github/e2e/vaio_batch.py", "fieldkit/cli.py"):
+        assert e2e.select(["fieldkit/leakgate/gate.py", shared]) == {"e2e": ["*"], "e2e_l15": ["*"]}
+    assert e2e.select(["fieldkit/leakgate/new.py"])["e2e"] == ["*"]
+    assert e2e.select(None) == {"e2e": ["*"], "e2e_l15": ["*"]}
+    assert e2e.select(["docs/METHODS.md"]) == {"e2e": [], "e2e_l15": []}
+
+
+def test_required_statuses_depend_on_the_e2e_verdict():
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/tests.yml").read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["test"]
+    assert {"e2e", "e2e-l15"} <= set(gate["needs"])
+    assert gate["name"] == "test (${{ matrix.os }})"
+    step = gate["steps"][0]
+    for result in ("MAIN_RESULT", "L15_RESULT"):
+        assert f'test "${result}" = success || exit 1' in step["run"]
+
+
 def test_merge_preflight_requires_trusted_success_and_exact_base_head_and_tree(monkeypatch):
     folder = Path(__file__).resolve().parents[1] / ".github"
     monkeypatch.syspath_prepend(str(folder))
