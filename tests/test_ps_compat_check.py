@@ -1,4 +1,4 @@
-﻿"""Tests for fieldkit repair ps-compat-check: detects and fixes PowerShell 5.1/7 incompatibilities."""
+"""Tests for fieldkit repair ps-compat-check: detects and fixes PowerShell 5.1/7 incompatibilities."""
 import sys
 from pathlib import Path
 

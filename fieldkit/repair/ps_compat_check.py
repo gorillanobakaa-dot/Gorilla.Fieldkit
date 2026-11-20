@@ -1,4 +1,4 @@
-﻿# Version: 1.0.0 - updated 26-11-20
+# Version: 1.0.0 - updated 26-11-20
 """Check .ps1 files for PowerShell version compatibility issues that break on GitHub Actions windows-latest.
 
 GitHub Actions windows-latest ships PowerShell 7 (pwsh.exe) as the default shell. Scripts written for
