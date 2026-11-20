@@ -231,7 +231,7 @@ if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
 fi
 # 2026-11-20 (P48): catches unregistered repair tools, missing toolcards, SKILL.md entries,
 # BOM in .py files, stale generated artefacts, PS 5.1/7 compat issues.
-if git diff --cached --name-only | grep -qE '^(fieldkit/repair/[^_][^/]+\.py|fieldkit/desk/tools\.yaml|skills/fieldkit-repair/SKILL\.md|fieldkit/core/cmdtree\.json|fieldkit/desk/platform_index\.json|.*\.ps1)'; then
+if git diff --cached --name-only | grep -qE '^(fieldkit/repair/[^_][^/]+\.py|fieldkit/desk/tools\.yaml|skills/fieldkit-repair/SKILL\.md|fieldkit/core/cmdtree\.json|fieldkit/desk/platform_index\.json|.*\.ps1|\.github/workflows/.*\.yml)'; then
   if ! "$PY" -m fieldkit repair ps-compat-check --repo . >"$OUT" 2>&1; then
     cat "$OUT"
     echo "pre-commit: pre-CI health check failed (registration/BOM/stale/PS compat) - commit refused"

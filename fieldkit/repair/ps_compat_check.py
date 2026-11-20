@@ -19,6 +19,11 @@ Runs BEFORE pushing a tag or opening a PR. Detects:
 
   4. BOM (U+FEFF) in Python source files (causes SyntaxError on Linux)
 
+  5. Workflow shard consistency (the class of error that burned 2026-11-20)
+       - tests.yml and release.yml must have matching shard counts per OS
+       - both workflow files must have shard matrices for windows-latest AND ubuntu-latest
+       - release.yml must NOT run pytest directly (unsharded = OOM on windows-latest)
+
     fieldkit repair ps-compat-check [--ps1 PATH...] [--repo PATH] [--apply] [--json]
 
     --ps1 PATH...  specific .ps1 files to check (default: all in repo)
@@ -208,6 +213,87 @@ def check_stale_generated(repo):
 
 
 # ---------------------------------------------------------------------------
+# Workflow shard consistency check
+# ---------------------------------------------------------------------------
+def check_workflow_shards(repo):
+    """Verify tests.yml and release.yml have matching shard counts and both use sharding.
+
+    The class of failure this prevents (2026-11-20): release.yml ran the full 6838-test suite
+    in a single pytest process while tests.yml had 20 shards. The Windows runner OOM-crashed
+    after 47 minutes every single time.
+    """
+    import yaml as _yaml
+    findings = []
+    wf_dir = repo / ".github" / "workflows"
+    tests_yml = wf_dir / "tests.yml"
+    release_yml = wf_dir / "release.yml"
+
+    def load(p):
+        try:
+            return _yaml.safe_load(p.read_text(encoding="utf-8")), None
+        except Exception as e:
+            return None, str(e)
+
+    tests_wf, err = load(tests_yml)
+    if err:
+        findings.append({"rule": "workflow-unreadable", "message": f"tests.yml: {err}", "fix": f"fix {tests_yml}"})
+        return findings
+    release_wf, err = load(release_yml)
+    if err:
+        findings.append({"rule": "workflow-unreadable", "message": f"release.yml: {err}", "fix": f"fix {release_yml}"})
+        return findings
+
+    # Get shard counts from tests.yml
+    tests_jobs = tests_wf.get("jobs", {})
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        job_key = f"shard-{os_name}"
+        tests_job = tests_jobs.get(job_key)
+        if not tests_job:
+            findings.append({
+                "rule": "workflow-missing-shard-job",
+                "message": f"tests.yml has no job '{job_key}' - sharding not configured",
+                "fix": f"Add a shard-{os_name} job with strategy.matrix.shard to tests.yml",
+            })
+            continue
+        tests_shards = tests_job.get("strategy", {}).get("matrix", {}).get("shard", [])
+        tests_n = len(tests_shards)
+
+        # Check release.yml has matching shard job
+        release_jobs = release_wf.get("jobs", {})
+        release_job = release_jobs.get(job_key)
+        if not release_job:
+            findings.append({
+                "rule": "workflow-release-not-sharded",
+                "message": f"release.yml has no shard job '{job_key}' but tests.yml has {tests_n} shards - release will run all tests in one process and OOM-crash",
+                "fix": f"Add shard-{os_name} job to release.yml mirroring tests.yml (fieldkit ship gh-release or edit manually)",
+            })
+            continue
+        release_shards = release_job.get("strategy", {}).get("matrix", {}).get("shard", [])
+        release_n = len(release_shards)
+        if release_n != tests_n:
+            findings.append({
+                "rule": "workflow-shard-count-mismatch",
+                "message": f"{os_name}: tests.yml has {tests_n} shards, release.yml has {release_n} - they must match",
+                "fix": f"Set shard matrix in release.yml shard-{os_name} to match tests.yml: {tests_shards}",
+            })
+
+    # Check release.yml does NOT have a plain `python -m pytest` step in a non-sharded test job
+    release_jobs = release_wf.get("jobs", {})
+    test_job = release_jobs.get("test", {})
+    for step in test_job.get("steps", []):
+        run = step.get("run", "")
+        if "pytest" in run and "--shard" not in run:
+            findings.append({
+                "rule": "workflow-release-unsharded-pytest",
+                "message": "release.yml test job runs pytest without --shard: entire suite in one process will OOM on windows-latest",
+                "fix": "Remove direct pytest from release.yml test job; use shard-windows-latest / shard-ubuntu-latest jobs instead",
+            })
+            break
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # BOM check
 # ---------------------------------------------------------------------------
 def check_bom(repo):
@@ -267,9 +353,17 @@ def main(argv=None):
 
     all_findings = []
 
-    # 1. PS compat
-    ps1_files = [Path(f) for f in a.ps1] if a.ps1 else list(repo.rglob("*.ps1"))
-    ps1_files = [f for f in ps1_files if not any(p in f.parts for p in (".git", ".venv", "__pycache__"))]
+    # 1. PS compat - only scan git-tracked files to avoid false positives in local/toolbox/state
+    if a.ps1:
+        ps1_files = [Path(f) for f in a.ps1]
+    else:
+        try:
+            r = subprocess.run(["git", "ls-files", "*.ps1", "**/*.ps1"],
+                               cwd=str(repo), capture_output=True, text=True, timeout=10)
+            ps1_files = [repo / f.strip() for f in r.stdout.splitlines() if f.strip()]
+        except Exception:
+            ps1_files = [f for f in repo.rglob("*.ps1")
+                         if not any(p in f.parts for p in (".git", ".venv", "__pycache__", "local", "toolbox", "state"))]
     for ps1 in ps1_files:
         findings, err = check_ps1_file(ps1)
         if err:
@@ -285,6 +379,9 @@ def main(argv=None):
 
     # 4. BOM
     all_findings.extend(check_bom(repo))
+
+    # 5. Workflow shard consistency
+    all_findings.extend(check_workflow_shards(repo))
 
     if not all_findings:
         emit(a.json, "PASS", "pre-CI health check passed - nothing to fix",

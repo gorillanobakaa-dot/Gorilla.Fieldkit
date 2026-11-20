@@ -99,3 +99,79 @@ def test_cli_exit_0_on_clean(tmp_path):
     p = tmp_path / "good.ps1"
     p.write_text("[IO.Compression.ZipFile]::ExtractToDirectory($a, $b)\n", encoding="utf-8")
     assert pcc.main(["--ps1", str(p)]) == 0
+
+# ---------------------------------------------------------------------------
+# Workflow shard consistency tests
+# ---------------------------------------------------------------------------
+
+def _write_wf(tmp_path, name, jobs_yaml):
+    import yaml
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git").mkdir(exist_ok=True)  # make it look like a repo root
+    wf = {"name": name, "on": "push", "jobs": jobs_yaml}
+    (wf_dir / f"{name}.yml").write_text(
+        yaml.dump(wf, default_flow_style=False), encoding="utf-8"
+    )
+
+
+def _shard_job(os_name, n):
+    return {
+        f"shard-{os_name}": {
+            "runs-on": os_name,
+            "strategy": {"fail-fast": False, "matrix": {"shard": list(range(1, n + 1))}},
+            "steps": [{"run": "python ci_tests.py full --shard I/" + str(n)}],
+        }
+    }
+
+
+def test_matching_shard_counts_pass(tmp_path):
+    jobs = {}
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        jobs.update(_shard_job(os_name, 20))
+    _write_wf(tmp_path, "tests", jobs)
+    _write_wf(tmp_path, "release", dict(jobs, test={"runs-on": "ubuntu-latest", "needs": ["shard-windows-latest", "shard-ubuntu-latest"], "if": "always()", "steps": [{"run": "echo ok"}]}))
+    findings = pcc.check_workflow_shards(tmp_path)
+    assert findings == [], findings
+
+
+def test_release_missing_shard_job_is_flagged(tmp_path):
+    jobs = {}
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        jobs.update(_shard_job(os_name, 20))
+    _write_wf(tmp_path, "tests", jobs)
+    # release.yml has no shard jobs - old unsharded style
+    _write_wf(tmp_path, "release", {"test": {"runs-on": "ubuntu-latest", "steps": [{"run": "python -m pytest -q"}]}})
+    findings = pcc.check_workflow_shards(tmp_path)
+    assert any(f["rule"] == "workflow-release-not-sharded" for f in findings), findings
+
+
+def test_shard_count_mismatch_is_flagged(tmp_path):
+    tests_jobs = {}
+    release_jobs = {}
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        tests_jobs.update(_shard_job(os_name, 20))
+        release_jobs.update(_shard_job(os_name, 4))  # mismatch: 4 vs 20
+    _write_wf(tmp_path, "tests", tests_jobs)
+    _write_wf(tmp_path, "release", release_jobs)
+    findings = pcc.check_workflow_shards(tmp_path)
+    assert any(f["rule"] == "workflow-shard-count-mismatch" for f in findings), findings
+
+
+def test_unsharded_pytest_in_release_is_flagged(tmp_path):
+    jobs = {}
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        jobs.update(_shard_job(os_name, 20))
+    _write_wf(tmp_path, "tests", jobs)
+    # release.yml has matching shard jobs BUT also a plain pytest step in test job
+    release_jobs = dict(jobs)
+    release_jobs["test"] = {"runs-on": "ubuntu-latest", "steps": [{"run": "python -m pytest -q -rs"}]}
+    _write_wf(tmp_path, "release", release_jobs)
+    findings = pcc.check_workflow_shards(tmp_path)
+    assert any(f["rule"] == "workflow-release-unsharded-pytest" for f in findings), findings
+
+
+def test_real_repo_workflows_are_consistent():
+    root = Path(__file__).resolve().parents[1]
+    findings = pcc.check_workflow_shards(root)
+    assert findings == [], f"Workflow shard issues: {findings}"
