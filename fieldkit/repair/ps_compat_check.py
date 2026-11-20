@@ -243,7 +243,17 @@ def check_workflow_shards(repo):
         findings.append({"rule": "workflow-unreadable", "message": f"release.yml: {err}", "fix": f"fix {release_yml}"})
         return findings
 
-    # Get shard counts from tests.yml
+    # Load expected shard count from batch.yaml (the single source of truth)
+    expected_n = None
+    batch_yaml = repo / "fieldkit" / "method" / "batch.yaml"
+    if batch_yaml.exists():
+        try:
+            batch = _yaml.safe_load(batch_yaml.read_text(encoding="utf-8"))
+            expected_n = batch.get("batch", {}).get("shards", {}).get("default")
+        except Exception:
+            pass
+
+    # Get shard counts from tests.yml and cross-check everything
     tests_jobs = tests_wf.get("jobs", {})
     for os_name in ("windows-latest", "ubuntu-latest"):
         job_key = f"shard-{os_name}"
@@ -258,19 +268,35 @@ def check_workflow_shards(repo):
         tests_shards = tests_job.get("strategy", {}).get("matrix", {}).get("shard", [])
         tests_n = len(tests_shards)
 
+        # Check tests.yml matches batch.yaml
+        if expected_n is not None and tests_n != expected_n:
+            findings.append({
+                "rule": "workflow-shard-count-vs-policy",
+                "message": f"tests.yml shard-{os_name} has {tests_n} shards but batch.yaml says {expected_n} - update the workflow matrix",
+                "fix": f"Set shard matrix in tests.yml shard-{os_name} to list(range(1, {expected_n}+1)) and update --shard I/{expected_n}",
+            })
+
         # Check release.yml has matching shard job
         release_jobs = release_wf.get("jobs", {})
         release_job = release_jobs.get(job_key)
         if not release_job:
             findings.append({
                 "rule": "workflow-release-not-sharded",
-                "message": f"release.yml has no shard job '{job_key}' but tests.yml has {tests_n} shards - release will run all tests in one process and OOM-crash",
-                "fix": f"Add shard-{os_name} job to release.yml mirroring tests.yml (fieldkit ship gh-release or edit manually)",
+                "message": f"release.yml has no shard job '{job_key}' but tests.yml has {tests_n} shards - release will run all tests in one process and OOM-crash on windows-latest",
+                "fix": f"Add shard-{os_name} job to release.yml mirroring tests.yml with {tests_n} shards",
             })
             continue
         release_shards = release_job.get("strategy", {}).get("matrix", {}).get("shard", [])
         release_n = len(release_shards)
-        if release_n != tests_n:
+
+        # Check release.yml matches batch.yaml
+        if expected_n is not None and release_n != expected_n:
+            findings.append({
+                "rule": "workflow-shard-count-vs-policy",
+                "message": f"release.yml shard-{os_name} has {release_n} shards but batch.yaml says {expected_n} - they must all match",
+                "fix": f"Set shard matrix in release.yml shard-{os_name} to list(range(1, {expected_n}+1)) and update --shard I/{expected_n}",
+            })
+        elif release_n != tests_n:
             findings.append({
                 "rule": "workflow-shard-count-mismatch",
                 "message": f"{os_name}: tests.yml has {tests_n} shards, release.yml has {release_n} - they must match",
