@@ -597,7 +597,7 @@ tools:
   title: Hybrid local search in one Python file (name, content, meaning, snippet)
   harness: desk
   entry: [python, -B, -m, fieldkit, pfind, --json, --no-color]
-  path: ${FIELDKIT}/toolbox/pfind/pfind.py
+  path: ${FIELDKIT}/fieldkit/desk/pfind.py
   repo: gorillanobakaa-dot/pfind
   inputs:
     - {name: query, flag: null, type: str, required: true, help: "what to find: a name, text, or a code line"}

@@ -190,7 +190,8 @@ def test_the_claude_hook_denies_with_the_tool_command(capsys):
     out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
     assert out["permissionDecision"] == "deny" and "size find" in out["permissionDecisionReason"]
     tr.hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "x"}})))
-    assert capsys.readouterr().out == ""
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and "static-file-read" in out["permissionDecisionReason"]
 
 
 # -- C6 (2026-10-28): one Python start per tool call. The room's part (room line, net lease, hog registry, rotation
