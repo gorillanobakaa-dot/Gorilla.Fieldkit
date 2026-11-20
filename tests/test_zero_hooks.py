@@ -11,15 +11,23 @@ def test_configure_preserves_other_hooks_and_is_idempotent(tmp_path, agent):
     path.parent.mkdir(parents=True)
     existing = {"type": "command", "command": "another-hook"}
     event = hooks.EVENTS[agent][0]
-    original = ({"other": {event: [existing]}} if agent == "antigravity" else
-                {"hooks": {event: [{"hooks": [existing]}]}})
+    if agent == "opencode":
+        original = {"hooks": [{"event": "after_tool", **existing}]}
+    elif agent == "antigravity":
+        original = {"other": {event: [existing]}}
+    else:
+        original = {"hooks": {event: [{"hooks": [existing]}]}}
     path.write_text(json.dumps(original), encoding="utf-8")
     assert not hooks.configure(agent, home=tmp_path, env={})["configured"]
     assert json.loads(path.read_text(encoding="utf-8")) == original
     assert hooks.configure(agent, apply=True, home=tmp_path, env={})["changed"]
     document = json.loads(path.read_text(encoding="utf-8"))
-    assert (document["other"] == original["other"] if agent == "antigravity" else
-            document["hooks"][event][0]["hooks"] == [existing])
+    if agent == "opencode":
+        assert document["hooks"][0] == original["hooks"][0]
+    elif agent == "antigravity":
+        assert document["other"] == original["other"]
+    else:
+        assert document["hooks"][event][0]["hooks"] == [existing]
     assert not hooks.configure(agent, apply=True, home=tmp_path, env={})["changed"]
 
 
@@ -77,3 +85,15 @@ def test_native_hooks_deliver_a_batch_without_acknowledging_hidden_messages(tmp_
     assert not hooks.receive("codex", "PreToolUse", cr, receive)
     reply = net.send(codex, "Codex reply", to=gemini, flash=True, now=1_800_000_009)["entry"]["id"]
     assert reply in hooks.receive("gemini", "AfterTool", gr, receive)["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.mark.parametrize(("agent", "event", "payload", "wanted"), [
+    ("codex", "PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "rg needle ."}}, "updatedInput"),
+    ("gemini", "BeforeTool", {"tool_name": "run_shell_command", "tool_input": {"command": "rg needle ."}}, "tool_input"),
+    ("antigravity", "PreToolUse", {"toolCall": {"name": "run_command", "args": {"CommandLine": "rg needle ."}}},
+     "overwrite"),
+])
+def test_search_dispatch_rewrites_at_the_native_hook(agent, event, payload, wanted):
+    response = hooks.receive(agent, event, payload)
+    assert wanted in json.dumps(response)
+    assert "fieldkit.desk.pfind --content" in json.dumps(response)

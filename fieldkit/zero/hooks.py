@@ -14,8 +14,9 @@ from ..core import nowindow
 
 EVENTS = {
     "codex": ("SessionStart", "UserPromptSubmit", "PreToolUse"),
-    "gemini": ("SessionStart", "BeforeAgent", "AfterTool"),
-    "antigravity": ("SessionStart", "PreInvocation"),
+    "gemini": ("SessionStart", "BeforeAgent", "BeforeTool", "AfterTool"),
+    "antigravity": ("SessionStart", "PreInvocation", "PreToolUse"),
+    "opencode": ("before_tool",),
 }
 GROUP = "fieldkit-zero"
 LIMIT = 1024 * 1024
@@ -25,6 +26,9 @@ SID = re.compile(r"[a-zA-Z0-9_-]{8,128}\Z")
 def path_for(agent, home=None, env=None):
     env = os.environ if env is None else env
     home = Path(home or Path.home())
+    if agent == "opencode":
+        base = Path(env.get("XDG_CONFIG_HOME") or home / ".config")
+        return base / "gorilla-opencode" / "config.json"
     if agent == "codex":
         return Path(env.get("CODEX_HOME") or home / ".codex") / "hooks.json"
     gemini = Path(env.get("GEMINI_CLI_HOME") or home) / ".gemini"
@@ -62,20 +66,39 @@ def _handler(agent, event):
     else:
         exe = f'"{py}"'
     command = f"{exe} -m fieldkit.zero.hooks {agent} {event}"
+    if agent == "opencode":
+        return {"event": event, "command": command, "timeout_seconds": 8}
     return {"type": "command", "command": command, "timeout": 8 if agent != "gemini" else 8000}
 
 
 def _update(data, agent):
+    if agent == "opencode":
+        rows = data.get("hooks", [])
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Gorilla OpenCode hooks must be a list of objects")
+        data["hooks"] = [row for row in rows if not _owned(row, agent)] + [_handler(agent, "before_tool")]
+        return data
     spec = {event: [{"hooks": [_handler(agent, event)]}] for event in EVENTS[agent]}
+    if agent == "gemini":
+        spec["BeforeTool"][0]["matcher"] = ".*"
     if agent == "antigravity":
+        def handlers(event, entries):
+            if not isinstance(entries, list) or event not in EVENTS[agent]:
+                return [None]
+            if event == "PreToolUse":
+                return [hook for row in entries for hook in (row.get("hooks") or [None])] if all(
+                    isinstance(row, dict) for row in entries) else [None]
+            return entries
+
         previous = data.get(GROUP)
         if previous is not None and (not isinstance(previous, dict) or any(
             not isinstance(command, dict) or not _owned(command, agent)
-            for event, handlers in previous.items()
-            for command in (handlers if isinstance(handlers, list) and event in EVENTS[agent] else [None])
+            for event, entries in previous.items()
+            for command in handlers(event, entries)
         )):
             raise ValueError("Antigravity hook name is already in use")
         data[GROUP] = {event: [_handler(agent, event)] for event in EVENTS[agent]}
+        data[GROUP]["PreToolUse"] = [{"matcher": ".*", **spec["PreToolUse"][0]}]
         return data
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
@@ -141,9 +164,37 @@ def configure(agent, apply=False, home=None, env=None):
             "trust_review": agent == "codex"}
 
 
+def _route_tool(agent, raw):
+    from ..autopilot import toolrouter
+
+    if agent == "antigravity":
+        tool = raw.get("toolCall") or {}
+        args = tool.get("args") or {}
+        call = {"tool_name": tool.get("name"),
+                "tool_input": {"command": args.get("CommandLine") or args.get("command") or ""},
+                "cwd": args.get("Cwd")}
+    else:
+        call = raw
+    decision = toolrouter.verdict(call)
+    if not decision or agent in ("codex", "opencode"):
+        return decision or {}
+    out = decision["hookSpecificOutput"]
+    reason = out.get("permissionDecisionReason", "")
+    if out["permissionDecision"] == "deny":
+        return {"decision": "deny", "reason": reason}
+    command = out["updatedInput"]["command"]
+    if agent == "gemini":
+        return {"hookSpecificOutput": {"tool_input": {"command": command}}}
+    return {"decision": "allow", "reason": reason, "overwrite": {"CommandLine": command}}
+
+
 def receive(agent, event, raw, receive_line=None):
     if not isinstance(raw, dict) or event not in EVENTS[agent]:
         return {}
+    if event in ("PreToolUse", "BeforeTool"):
+        result = _route_tool(agent, raw)
+        if result or agent != "codex":
+            return result
     sid = raw.get("conversationId" if agent == "antigravity" else "session_id")
     if not isinstance(sid, str) or not SID.fullmatch(sid):
         return {}
@@ -171,6 +222,18 @@ def receive(agent, event, raw, receive_line=None):
     return {"hookSpecificOutput": context}
 
 
+def _opencode(stdin):
+    raw = json.loads(stdin)
+    result = _route_tool("opencode", {"tool_name": os.environ.get("GORILLA_HOOK_TOOL"),
+                                    "tool_input": raw, "cwd": os.getcwd()})
+    if result:
+        out = result["hookSpecificOutput"]
+        corrected = out.get("updatedInput", {}).get("command")
+        print(f"Use {corrected}" if corrected else out["permissionDecisionReason"])
+        return 2
+    return 0
+
+
 def main():
     nowindow.prepare()
     try:
@@ -180,10 +243,16 @@ def main():
                 data = stream.read(LIMIT + 1)
         else:
             data = sys.stdin.read(LIMIT + 1)
+        if agent == "opencode":
+            return _opencode(data) if len(data) <= LIMIT else 2
         if len(data) <= LIMIT and (result := receive(agent, event, json.loads(data))):
             print(json.dumps(result, ensure_ascii=True))
     except (KeyError, TypeError, ValueError, OSError, RecursionError):
-        pass
+        if sys.argv[1:2] == ["opencode"]:
+            return 2
+        if os.getenv("FIELDKIT_AUDIT_ONLY") == "1":
+            print(json.dumps({"decision": "deny", "reason": "Audit routing could not validate this tool call."}))
+            return 2
     return 0
 
 

@@ -39,8 +39,8 @@ def keep_list():
     return [str(x).lower() for x in _policy().get("keep", [])]
 
 
-def scratch_roots():
-    """Expand the scratch policy and skip roots missing on this machine."""
+def scratch_roots(*, include_missing=False):
+    """Expand the platform scratch policy, optionally keeping unmatched entries."""
     import glob
     out = []
     for x in _policy().get("scratch_roots", []):
@@ -48,12 +48,14 @@ def scratch_roots():
             continue
         if os.name == "nt" and str(x).startswith("/tmp/"):
             continue
-        for g in sorted(glob.glob(os.path.expandvars(os.path.expanduser(str(x))))):
+        expanded = _expand(x)
+        matches = sorted(glob.glob(str(expanded)))
+        for g in matches or ([expanded] if include_missing else []):
             path = Path(g).absolute()
-            if os.path.lexists(path) and path not in out:
+            if (include_missing or os.path.lexists(path)) and path not in out:
                 out.append(path)
     for path in (_crew_root(), *_temp_item_roots()):
-        if os.path.lexists(path) and path not in out:
+        if (include_missing or os.path.lexists(path)) and path not in out:
             out.append(path)
     return out
 
@@ -82,7 +84,7 @@ def _expand(path):
     return Path(os.path.expandvars(os.path.expanduser(path))).absolute()
 
 
-def scan_items(roots=None, before=None, keep=None, protected=None):
+def scan_items(roots=None, before=None, keep=None, protected=None, *, visit=None):
     """Read scratch metadata and produce non-overlapping recycle candidates."""
     keep = keep_list() if keep is None else keep
     protected = _protected() if protected is None else protected
@@ -106,9 +108,11 @@ def scan_items(roots=None, before=None, keep=None, protected=None):
                 return is_kept(path, keep, base, crew=crew)
 
             for child in sorted(root.iterdir()):
+                if visit is not None:
+                    visit()
                 if pattern and not (pattern.fullmatch(child.name) and stat.S_ISDIR(child.lstat().st_mode)):
                     continue
-                snapshot = retention.inspect(child, root, before, kept, protected, device, mounts, crew=crew)
+                snapshot = retention.inspect(child, root, before, kept, protected, device, mounts, crew=crew, visit=visit)
                 for row in retention.rows_to_check(snapshot, whole=crew or pattern is not None):
                     row["top"] = str(child)
                     rows.append(row)

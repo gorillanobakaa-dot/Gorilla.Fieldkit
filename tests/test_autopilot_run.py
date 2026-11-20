@@ -28,7 +28,11 @@ def test_the_claude_hook_denies_in_the_documented_shape_and_logs(state):
     out = json.loads(hook({"tool_name": "Bash", "tool_input": {"command": "gh release create v1"}}))
     h = out["hookSpecificOutput"]
     assert h["hookEventName"] == "PreToolUse" and h["permissionDecision"] == "deny" and "HARD LINE 1" in h["permissionDecisionReason"]
-    assert hook({"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q"}}) == ""
+    assert hook({"tool_name": "Bash", "tool_input": {"command": "git status --short"}}) == ""
+    test_call = {"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q"}}
+    test_denial = json.loads(hook(test_call))["hookSpecificOutput"]
+    assert test_denial["permissionDecision"] == "deny"
+    assert "tests-run-in-github-ci" in test_denial["permissionDecisionReason"]
     assert "DENY" in (state / "hook.log").read_text(encoding="utf-8")
 
 

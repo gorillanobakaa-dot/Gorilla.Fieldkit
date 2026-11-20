@@ -21,6 +21,10 @@ the dual-track generator and the debian-kernel tooling. `fieldkit gather --test`
 suites, and `fieldkit gather --check` shows where a copy differs from its source.
 Change the source, not the toolbox copy: the toolbox is regenerated.
 
+Use `fieldkit pfind` for text and code references. `fieldkit gather --only pfind`
+prepares its checked bytecode when it gathers the source. `fieldkit compileonce build`
+repairs missing, stale or incompatible artifacts. The launcher uses bytecode for every search.
+
 The list shows each tool's purpose, the systems it runs on, whether it changes things,
 and whether it has a test. If a tool already does the job, use it. Tools marked
 `changes` modify files or system state, so ask the owner before running one.

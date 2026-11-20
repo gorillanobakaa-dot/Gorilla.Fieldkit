@@ -672,6 +672,18 @@
      "open": false,
      "v": {}
     },
+    "audit": {
+     "c": [],
+     "f": {
+      "--device": 1,
+      "--help": 0,
+      "--json": 0,
+      "--via": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "classify": {
      "c": [],
      "f": {
@@ -2858,6 +2870,7 @@
    ],
    "f": {
     "--help": 0,
+    "--repo": 1,
     "-h": 0
    },
    "open": false,
@@ -3189,6 +3202,46 @@
    "open": false,
    "v": {}
   },
+  "ownership": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "install-explorer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take-drive": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "--recover-inaccessible": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "parity": {
    "c": [
     "align",
@@ -3250,6 +3303,15 @@
     "-h": 0
    },
    "open": false,
+   "v": {}
+  },
+  "pfind": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": true,
    "v": {}
   },
   "pins": {

@@ -45,7 +45,8 @@ def post(stdin=sys.stdin, stdout=sys.stdout):
 
 
 def main(stdin=sys.stdin, stdout=sys.stdout):
-    from fieldkit.autopilot import hardlines
+    from fieldkit.autopilot import hardlines, toolrouter
+    routed = None
     try:
         payload = json.load(stdin)
         tool, args = payload.get("tool_name"), payload.get("tool_input") or {}
@@ -58,6 +59,8 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
                                    read_tool=(tool or "").lower() in hardlines.READ_TOOLS)
             if stop:
                 decision, why = "deny", stop
+        if decision == "allow":
+            routed = toolrouter.verdict(payload)
     except Exception as e:  # noqa: BLE001 - a broken hook must not open the door
         payload, decision, why = {}, "deny", f"autopilot hook error ({e}); denied to be safe"
     _log(hardlines, payload, decision, why)
@@ -70,6 +73,8 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
                         readonly=True if (payload.get("tool_name") or "").lower() in hardlines.READ_TOOLS else None)
         stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                         "permissionDecisionReason": why}}))
+    elif routed:
+        stdout.write(json.dumps(routed))
     return 0
 
 

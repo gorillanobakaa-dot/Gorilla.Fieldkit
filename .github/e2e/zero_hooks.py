@@ -40,7 +40,10 @@ def main():
             data = json.loads(Path(installed["path"]).read_text(encoding="utf-8"))
             groups = data["fieldkit-zero"] if agent == "antigravity" else data["hooks"]
             for event, entries in groups.items():
-                commands[agent, event] = (entries[0] if agent == "antigravity" else entries[0]["hooks"][0])["command"]
+                entry = entries[0]
+                if agent != "antigravity" or event == "PreToolUse":
+                    entry = entry["hooks"][0]
+                commands[agent, event] = entry["command"]
 
         def hook(agent, event):
             payload = ({"conversationId": ids[agent], "workspacePaths": [folder]} if agent == "antigravity" else
