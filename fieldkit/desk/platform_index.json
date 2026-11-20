@@ -2124,6 +2124,16 @@
    "install-verify"
   ]
  },
+ "install preflight": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "install-preflight"
+  ]
+ },
  "integration": {
   "platforms": [
    "linux",

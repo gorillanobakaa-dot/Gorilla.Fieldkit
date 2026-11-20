@@ -31,4 +31,10 @@ def git(repo, *a):
 rc, out = fk("build-harness", "installer-test", "e2e-no-such-task", both=True)
 assert rc == 2, rc
 assert "REFUSED: no task 'e2e-no-such-task'" in out, out
-print("E2E OK: installer-test on", sys.platform)
+
+rc_pf, out_pf = fk("install", "preflight", "--allow-missing-terminal", "--json", both=True)
+doc_pf = last_json(out_pf)
+assert doc_pf["mutations_performed"] == 0, doc_pf
+assert doc_pf["order"][0] == "installer", doc_pf
+assert "terminal:gorilla-size" in doc_pf["order"] and "terminal:gorilla-trash" in doc_pf["order"], doc_pf
+print("E2E OK: installer-test and install preflight on", sys.platform)

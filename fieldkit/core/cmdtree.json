@@ -2166,16 +2166,20 @@
   "install": {
    "c": [
     "app",
+    "preflight",
     "purge",
     "self-test",
     "verify"
    ],
    "f": {
+    "--allow-missing-terminal": 0,
     "--apply": 0,
     "--dir": 1,
+    "--full": 0,
     "--help": 0,
     "--host": 1,
     "--json": 0,
+    "--lean": 0,
     "--name": 1,
     "--os": 1,
     "--peer": 0,

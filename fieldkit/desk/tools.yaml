@@ -6246,7 +6246,7 @@ tools:
   entry: [python, -m, fieldkit, install]
   path: ${FIELDKIT}/fieldkit/method/installverify.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "verify | self-test | app | purge"}
+    - {name: action, flag: null, type: str, required: true, help: "verify | self-test | app | purge | preflight"}
     - {name: product, flag: null, type: str, required: false, help: "product name (verify/purge) or source path (app)"}
     - {name: name, flag: --name, type: str, required: false, help: "app: program name (e.g. antigravity)"}
     - {name: replace, flag: --replace, type: bool, required: false, help: "app: purge any existing install before installing"}
@@ -6265,6 +6265,26 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py", "${FIELDKIT}/tests/test_installverify_os.py", "${FIELDKIT}/tests/test_appinstall_purge.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-11-01 (plan W6) after an old Jul-23 icon in ~/.local/share/icons shadowed the release's in /usr/share. The reference is the release itself (its .deb, fetched from the public URL and checked against SHA256SUMS). Network: that one download. Wayland keeps the old icon in the running GNOME session until log out/in; reported as INFO. Windows reads the shortcuts with PowerShell's WScript.Shell and the exe's icon frames with pefile; macOS reads the app bundle when the release ships one. --peer sends one read-only probe over the cable link; --host sends this module to the Mac's python3 over ssh."
+
+- id: install-preflight
+  title: Deterministic read-only installer preflight for terminal commands and consuming background services before install or update changes
+  harness: desk
+  entry: [python, -m, fieldkit, install, preflight]
+  path: ${FIELDKIT}/fieldkit/desk/install_preflight.py
+  inputs:
+    - {name: lean, flag: --lean, type: bool, required: false, help: "check lean package requirements (default)"}
+    - {name: full, flag: --full, type: bool, required: false, help: "check full package requirements"}
+    - {name: allow_missing_terminal, flag: --allow-missing-terminal, type: bool, required: false, help: "exit 0 when terminal commands are missing so installation can proceed, while still exiting 3 on service discovery failure"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable JSON report"}
+  effects: [reads-files, processes]
+  safety: read-only
+  output: own
+  exits: {3: "installer prerequisite, terminal command validation, or background service discovery failed"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_install_preflight.py"]
+  e2e: {linux: e2e-installer-test-linux, windows: e2e-installer-test-windows}
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Reuses installer checks, resolves gorilla-size --version and gorilla-trash --help from a fresh user terminal outside the install folder before checking service consumers (such as Gorilla Size in the VAIO cable listener), stops before install on service discovery failure, and routes missing terminal tools to fieldkit size integrate."
 
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)

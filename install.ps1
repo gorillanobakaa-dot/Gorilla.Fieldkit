@@ -257,6 +257,14 @@ try {
         Push-Location -LiteralPath $Target
         try { Invoke-Quiet { & $py.Path -m fieldkit.core.doctor --probe } | ForEach-Object { Write-Host "   $_" } } finally { Pop-Location }
     }
+    if (Test-Path -LiteralPath (Join-Path $Target 'fieldkit\desk\install_preflight.py')) {
+        # read-only installer preflight before creating .venv or installing packages
+        Push-Location -LiteralPath $Target
+        try {
+            & $py.Path -m fieldkit.desk.install_preflight --lean --allow-missing-terminal
+            if ($LASTEXITCODE -ne 0) { Stop-Install "installer preflight exit $LASTEXITCODE" }
+        } finally { Pop-Location }
+    }
 
     # 4. the private environment and the lean packages
     $venv = Join-Path $Target '.venv'
