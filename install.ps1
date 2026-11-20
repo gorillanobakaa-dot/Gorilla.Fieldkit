@@ -305,7 +305,7 @@ for name in sys.argv[1:]:
     Write-Host '5. fieldkit doctor --lean'
     Push-Location -LiteralPath $Target
     try {
-        & $vpy -m fieldkit compileonce build
+        & $vpy -m fieldkit.compileonce build
         if ($LASTEXITCODE -ne 0) { Stop-Install 'compileonce failed' }
         & $vpy -m fieldkit.core.doctor --lean
         $doctor = $LASTEXITCODE

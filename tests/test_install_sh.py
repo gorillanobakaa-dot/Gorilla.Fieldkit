@@ -18,8 +18,9 @@ pytestmark = pytest.mark.skipif(os.name == "nt" or not shutil.which("sh") or not
 def _zip(tmp_path):
     z = tmp_path / "fk.zip"
     with zipfile.ZipFile(z, "w") as zf:
-        for rel in ("fieldkit/__init__.py", "pyproject.toml", "install.sh"):
+        for rel in ("fieldkit/__init__.py", "fieldkit/compileonce.py", "pyproject.toml", "install.sh"):
             zf.write(ROOT / rel, f"Gorilla.Fieldkit-main/{rel}")
+        zf.writestr("Gorilla.Fieldkit-main/toolbox/pfind/pfind.py", "def main():\n    return 0\n")
         for p in (ROOT / "fieldkit" / "core").rglob("*"):
             if p.is_file() and "__pycache__" not in p.parts:
                 zf.write(p, f"Gorilla.Fieldkit-main/{p.relative_to(ROOT)}")
@@ -44,6 +45,7 @@ def test_downloads_the_zip_into_a_new_folder_and_lists_what_it_did(tmp_path):
     dest = work / "Fieldkit"
     assert (dest / "fieldkit" / "core" / "doctor.py").is_file(), out[-1500:]
     assert (dest / ".venv").is_dir() and "WAY IN:" in out                      # the probe ran
+    assert "COMPILEONCE: OK" in out and list((dest / "toolbox/pfind/__pycache__").glob("pfind.*.pyc")), out
     listing = (dest / "INSTALLED.txt").read_text()
     assert "downloaded" in listing and "fk.zip" in listing and ".venv" in listing and "delete" in listing
 

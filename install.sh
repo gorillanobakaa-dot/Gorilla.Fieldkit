@@ -153,7 +153,7 @@ else
 fi
 
 # Prepare bundled or previously gathered Python tools with the installed interpreter.
-(cd "$SRC" && "$VPY" -m fieldkit compileonce build) || exit 3
+"$VPY" -m fieldkit.compileonce build || exit 3
 
 # 5 the doctor, and the list
 if [ "$FULL" = 1 ]; then "$VPY" -m fieldkit.core.doctor; RC=$?; else "$VPY" -m fieldkit.core.doctor --lean; RC=$?; fi
