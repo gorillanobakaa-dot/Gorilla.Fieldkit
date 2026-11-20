@@ -8,6 +8,7 @@ builds it here, offline, from the crates vendored in that source. Nothing is dow
     fieldkit size [ARGS ...]          run gorilla-size (fieldkit size --help for its options)
     fieldkit size doctor [--install]  is the program here and working? --install builds it (cargo, offline)
     fieldkit size where               the binary that would run
+    fieldkit size integrate            install both built programs for the current user
 
 Born 2026-10-16: a model measured four Firefox trees with `du` (stopped after 25 minutes on one folder of 480,000
 files), then with a hand-typed robocopy line, because the harness had no tool for "how big are these folders".
@@ -131,6 +132,9 @@ def doctor(install=False, out=print):
 
 
 def main(argv, prog="fieldkit size"):
+    if argv[:1] == ["integrate"]:
+        from .size_install import main as integrate
+        return integrate(argv[1:], source_dir() / "target" / "release")
     if argv[:1] == ["doctor"]:
         return doctor(install="--install" in argv[1:])
     if argv[:1] == ["where"]:

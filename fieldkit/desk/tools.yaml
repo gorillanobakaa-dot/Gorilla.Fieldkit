@@ -627,6 +627,7 @@ tools:
 # --- Gorilla Size Calculation (fieldkit size): sizes, never an improvised du/robocopy line (2026-10-16) ---------
 - id: gorilla-size
   title: How big folders are and where the space went, biggest first (every core, read-only, links never followed)
+  notes: "To install both already-built programs for use from any terminal, use fieldkit size integrate. Windows registers a Recycle Bin menu for the current user. Gorilla Trash asks the user before permanently emptying the bin."
   harness: desk
   entry: [python, -m, fieldkit, size, --json]
   path: ${FIELDKIT}/fieldkit/desk/size.py
