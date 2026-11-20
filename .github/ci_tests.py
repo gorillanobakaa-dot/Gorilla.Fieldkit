@@ -17,9 +17,11 @@ suite (29 of 66 PR runs, 720 min, `fieldkit ciaudit`). The whole suite runs only
 (tests/*_mutations.yaml) are read only by `fieldkit mutate` and select nothing.
 """
 import json
+import os
 import re
 import subprocess
 import sys
+from pathlib import Path, PurePosixPath
 
 REFUSED = False                       # the selection refuses: CI fails in seconds, no test runs
 MUTATION_PLAN = re.compile(r"^tests/[^/]+_mutations\.yaml$")
@@ -85,24 +87,103 @@ def selection(base, merged=False):
 def present(tests, root="."):
     """-> the selected test files that still exist: a pull request that deletes a test file must not make pytest
     fail on "file not found" (PR 552). A deleted file has nothing left to run."""
-    from pathlib import Path
     return [t for t in tests if (Path(root) / t).exists()]
+
+
+def checkout_head():
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+
+def read_selection(path, head):
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if data.get("schema") != 1 or data.get("head") != head:
+        raise ValueError("selection does not match the checked out commit")
+    tests = data["tests"]
+    if tests is not None and (not isinstance(tests, list) or any(
+            not isinstance(t, str) or not t.startswith("tests/") or "\\" in t or ".." in PurePosixPath(t).parts
+            for t in tests)):
+        raise ValueError("invalid test paths in selection")
+    return tests, data["why"]
+
+
+def option(argv, name):
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    argv.pop(index)
+    return argv.pop(index)
+
+
+def run_tests(cmd, tests, shard):
+    """Bound PR shards, stream their progress, and stop only the shard's process tree."""
+    if not shard or os.getenv("GITHUB_ACTIONS") != "true" or os.getenv("GITHUB_EVENT_NAME") != "pull_request":
+        return subprocess.call(cmd)
+
+    import codecs
+    import time
+
+    from fieldkit.core import contain, liveness
+    from fieldkit.method import shard as durations
+
+    budget = durations.load()
+    planned = sum(budget.get(name, 30) for name in tests)
+    deadline = liveness.deadline_for([planned], floor=600, cap=1680, factor=4)
+    log = Path(os.environ["RUNNER_TEMP"]) / f"fieldkit-pytest-{shard.split('/')[0]}.log"
+    start = next_heartbeat = time.monotonic()
+    offset = 0
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def progress(final=False):
+        nonlocal offset, next_heartbeat
+        with log.open("rb") as output:
+            output.seek(offset)
+            chunk = output.read()
+            offset = output.tell()
+        if text := decoder.decode(chunk, final=final):
+            print(text, end="", flush=True)
+        now = time.monotonic()
+        if not final and now >= next_heartbeat:
+            print(f"ci-tests: shard {shard} active {now - start:.0f}s / {deadline:.0f}s; log {offset} bytes",
+                  flush=True)
+            next_heartbeat = now + 60
+
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+    label = f"CI {os.environ.get('RUNNER_OS', '')} shard {shard}"
+    with liveness.beacon("ci-tests", f"shard-{shard.split('/')[0]}", label) as beacon:
+        result = contain.run(cmd, label=label, deadline_s=deadline, beacon=beacon, idle_s=360,
+                             env=env, stdout_path=log, merge=True, on_tick=progress)
+        if log.is_file():
+            progress(final=True)
+    print(f"ci-tests: {label} {result.status} in {result.seconds:.1f}s"
+          + (f": {result.why}" if result.why else ""), flush=True)
+    if result.err:
+        print(result.err, file=sys.stderr)
+    return result.rc
 
 
 def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
-    shard = None
-    if "--shard" in argv:
-        k = argv.index("--shard")
-        shard = argv[k + 1]
-        argv = argv[:k] + argv[k + 2:]
-    tests, why = selection(argv[1] if len(argv) > 1 else "full", merged)
+    try:
+        shard = option(argv, "--shard")
+        incoming = option(argv, "--read-selection")
+        outgoing = option(argv, "--write-selection")
+        if incoming and outgoing:
+            raise ValueError("cannot read and write a test selection in the same step")
+        tests, why = (read_selection(incoming, checkout_head()) if incoming
+                      else selection(argv[1] if len(argv) > 1 else "full", merged))
+        if outgoing and tests is not REFUSED:
+            Path(outgoing).write_text(json.dumps({"schema": 1, "head": checkout_head(), "tests": tests, "why": why}),
+                                      encoding="utf-8")
+            print("ci-tests:", why)
+            return 0
+    except (IndexError, KeyError, OSError, ValueError, AttributeError, subprocess.SubprocessError) as exc:
+        print(f"ci-tests: REFUSED - selection unavailable: {exc}")
+        return 1
     print("ci-tests:", why)
     if tests is not REFUSED and tests:
         tests = present(tests)
     if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
-        from pathlib import Path
         from fieldkit.method import shard as sh
         every = tests if tests is not None else sorted(p.as_posix() for p in Path("tests").rglob("test_*.py"))
         tests = sh.pick(every, sh.load(), shard)
@@ -114,9 +195,40 @@ def main(argv):
         return 1
     if tests == []:
         return 0
-    cmd = [sys.executable, "-m", "pytest", "-q", "-rsf", *(tests or [])]
+    evidence_token = os.environ.pop("FIELDKIT_CI_READ_TOKEN", "")
+    if os.getenv("FIELDKIT_REUSE_CI") == "1":
+        from ci_file_proof import reuse
+
+        selected = tests if tests is not None else sorted({path.as_posix() for root in (Path("tests"), Path("local/tests"))
+                                                          for pattern in ("test_*.py", "*_test.py")
+                                                          for path in root.rglob(pattern)})
+        if selected:
+            pending = reuse(selected, token=evidence_token)
+            if tests is not None or pending != selected:
+                tests = pending
+            if tests == []:
+                return 0
+    proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
+    cmd = [sys.executable, "-m", "pytest", "-q", "-rsf"]
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        cmd.extend(["-o", "faulthandler_timeout=300"])
+        if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+            cmd.extend(["-vv", "-x"])
+    cmd.extend(tests or [])
+    if proof and tests:
+        from ci_file_proof import context, write_receipt
+
+        identity = context()
+        if identity:
+            report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
+            cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
+            print("ci-tests:", " ".join(cmd), flush=True)
+            status = run_tests(cmd, tests, shard)
+            if status == 0:
+                write_receipt(Path(proof), report, tests, identity)
+            return status
     print("ci-tests:", " ".join(cmd), flush=True)
-    return subprocess.call(cmd)
+    return run_tests(cmd, tests, shard)
 
 
 if __name__ == "__main__":

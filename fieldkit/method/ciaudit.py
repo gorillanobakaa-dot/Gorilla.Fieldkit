@@ -51,7 +51,7 @@ def _secs(a, b):
 def audit(repo, since=None, limit=100, workflow="tests.yml", gh=None):
     gh = gh or _gh
     args = ["run", "list", "--workflow", workflow, "--limit", str(limit), "--json",
-            "databaseId,event,createdAt,updatedAt,headBranch,conclusion"]
+            "databaseId,event,createdAt,startedAt,updatedAt,attempt,headBranch,conclusion"]
     if repo:
         args += ["--repo", repo]
     if since:
@@ -59,15 +59,56 @@ def audit(repo, since=None, limit=100, workflow="tests.yml", gh=None):
     rc, out, err = gh(args)
     if rc:
         raise RuntimeError(f"gh run list: {err.strip()[:300]}")
-    runs = [r for r in json.loads(out or "[]") if r.get("event") == "pull_request"]
+    runs = [r for r in json.loads(out or "[]") if r.get("event") == "pull_request" and r.get("conclusion")]
     rows = []
     for r in runs:
         rc, log, _ = gh(["run", "view", str(r["databaseId"]), "--log", *(["--repo", repo] if repo else [])])
         kind, files = classify(log if rc == 0 else "")
         rows.append({"run": r["databaseId"], "branch": r.get("headBranch"), "kind": kind, "files": files,
-                     "minutes": round(_secs(r.get("createdAt"), r.get("updatedAt")) / 60, 1),
+                     "minutes": round(_secs(r.get("startedAt"), r.get("updatedAt")) / 60, 1),
+                     "attempt": r.get("attempt"),
+                     "lifetime_minutes": round(_secs(r.get("createdAt"), r.get("updatedAt")) / 60, 1),
                      "conclusion": r.get("conclusion")})
     return rows
+
+
+def timeline(repo, run_id, gh=None):
+    """Read the timestamps of every attempt of one run, including time between attempts."""
+    gh = gh or _gh
+
+    def read(endpoint):
+        rc, out, err = gh(["api", endpoint])
+        if rc:
+            raise RuntimeError(f"gh api {endpoint}: {err.strip()[:300]}")
+        data = json.loads(out)
+        if not isinstance(data, dict):
+            raise ValueError(f"expected an object from {endpoint}")
+        return data
+
+    endpoint = f"repos/{repo}/actions/runs/{run_id}"
+    run = read(endpoint)
+    count = run.get("run_attempt")
+    if type(count) is not int or count < 1:
+        raise ValueError(f"run {run_id} has no usable attempt count")
+    rows = []
+    previous_end = None
+    for attempt in range(1, count + 1):
+        data = read(f"{endpoint}/attempts/{attempt}")
+        created, start = data.get("created_at"), data.get("run_started_at")
+        end = data.get("updated_at") if data.get("status") == "completed" else None
+        # Some reruns report creation seconds after start. There is no defensible queue interval for those.
+        queue = _secs(created, start) if created and start else None
+        elapsed = _secs(start, end) if start and end else None
+        # A per-attempt queue belongs to that attempt, so do not count it again as an inter-attempt gap.
+        boundary = min(created, start) if created and start else created or start
+        gap = _secs(previous_end, boundary) if previous_end and boundary else None
+        rows.append({"attempt": attempt, "created_at": created, "started_at": start, "ended_at": end,
+                     "queue_s": queue if queue is not None and queue >= 0 else None,
+                     "active_s": elapsed if elapsed is not None and elapsed >= 0 else None,
+                     "gap_before_s": max(0, gap) if gap is not None else None,
+                     "conclusion": data.get("conclusion")})
+        previous_end = end
+    return {"run": run_id, "attempts": rows}
 
 
 def summary(rows):
@@ -87,9 +128,31 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=100)
     ap.add_argument("--workflow", default="tests.yml")
     ap.add_argument("--max-whole-share", type=float, default=0.1, help="budget: whole-suite runs / judged runs")
+    ap.add_argument("--run", type=int, help="show queue, active time and gaps for each attempt of one run")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
+        if a.run is not None:
+            if a.run < 1:
+                ap.error("--run must be a positive run ID")
+            repo = a.repo
+            if not repo:
+                rc, repo, err = _gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"])
+                if rc:
+                    raise RuntimeError(f"gh repo view: {err.strip()[:300]}")
+            report = timeline(repo.strip(), a.run)
+            if a.json:
+                print(json.dumps(report))
+            else:
+                def seconds(value):
+                    return f"{value:,.0f} s" if value is not None else "unknown"
+
+                for row in report["attempts"]:
+                    print(f"attempt {row['attempt']}: queue {seconds(row['queue_s'])}, "
+                          f"active {seconds(row['active_s'])}, "
+                          f"prior gap {seconds(row['gap_before_s'])}, {row['conclusion'] or 'pending'}")
+                print("NEXT: nothing to do")
+            return 0
         rows = audit(a.repo, a.since, a.limit, a.workflow)
     except (RuntimeError, ValueError) as e:
         print(f"ciaudit: {e}")

@@ -28,6 +28,7 @@
     fieldkit mandate ask "..." [--why "..."]      what truly needs the owner, queued for that report (never asked live)
     fieldkit mandate quiet --install              while a mandate is in force no session asks the owner (two hooks)
     fieldkit mandate status                       every mandate here and whether it is in force
+    fieldkit mandate status --repo PATH           fail unless a verified mandate names the job's checkout
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
     fieldkit mandate gate [--repo .]              a repository's pre-push hook: the push lines on stdin, allowed only
                                                   through fieldkit ship push under a mandate in force (gate.py)
@@ -260,6 +261,8 @@ def doors(m):
                        f"moved or deleted)")
         if r.get("release") == "from_tag":
             out.append(f"  and publish a GitHub release (gh release create) of such a tag once its CI is green")
+            if r.get("publisher"):
+                out.append(f"  the designated publisher for {repo} is {r['publisher']}")
         if r.get("kernel"):
             out.append("  kernel repository: build, push the branches above, publish the .deb on a release; NEVER "
                        "install or boot it on your machine (that needs your separate yes)")
@@ -529,6 +532,18 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
             return ("allow", f"repos.{repo}.tags matches {tag}; {ev}") if ok else ("ask", ev)
         if r.get("release") != "from_tag":
             return "ask", f"repos.{repo}.release is not from_tag: publishing a release is the owner's"
+        if p.get("single_publisher"):
+            import socket
+
+            orchestrator = m.get("orchestrator")
+            publisher = r.get("publisher")
+            if publisher is None and isinstance(orchestrator, dict):
+                publisher = orchestrator.get("device")
+            if publisher is not None:
+                if not isinstance(publisher, str) or not publisher.strip():
+                    return "ask", f"the signed publisher for {repo} must be a device name"
+                if publisher.casefold() != socket.gethostname().casefold():
+                    return "deny", f"only the signed publisher {publisher} may promote candidates for {repo}"
         ok, ev = pv.tag_on_origin(repo_path, tag)
         if not ok:
             return "ask", ev
@@ -858,6 +873,7 @@ def main(argv=None):
                                        "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate",
                                        "doctor", "install-hooks", "renew", "prereqs"])
     ap.add_argument("rest", nargs="*")
+    ap.add_argument("--repo", help="check whether this checkout has a mandate in force (status only)")
     # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
     # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
     # (found 2026-10-23 by the first real job)
@@ -910,6 +926,19 @@ def main(argv=None):
     # status and install were cut out by mistake on 2026-10-23 (a block replacement that ran to the next marker);
     # restored the same evening, with tests that call them
     if a.action == "status":
+        if a.repo is not None:
+            from . import gate
+            try:
+                result = gate.preflight(a.repo)
+            except Exception as e:  # an unreadable approval cannot authorize work
+                result = {"ok": False, "reason": str(e)}
+            if "--json" in extra:
+                print(json.dumps(result))
+            elif result["ok"]:
+                print(f"IN FORCE {result['mandate']} for {result['repo']} until {result['expires']}")
+            else:
+                print(f"NOT IN FORCE for {result.get('repo', a.repo)}: {result['reason']}")
+            return 0 if result["ok"] else 3
         d = home() / "mandates"
         for p in sorted(d.glob("*.yaml")) if d.is_dir() else []:
             ok, why = verify(p)

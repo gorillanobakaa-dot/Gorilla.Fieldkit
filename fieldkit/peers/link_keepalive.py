@@ -42,6 +42,7 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory={root}
 Environment=PYTHONPATH={root}
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart={py} -P -m fieldkit peers link {verb}
 Restart=always
 RestartSec=5

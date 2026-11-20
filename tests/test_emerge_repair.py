@@ -79,6 +79,39 @@ def test_a_page_the_check_never_measured_is_a_failure(tmp_path):
     assert not res["ok"] and "about:newtab: not measured" in res["problems"]
 
 
+def test_reuse_requires_the_same_runtime_dependencies(tmp_path, monkeypatch, record_property):
+    from fieldkit.emerge import repairproof
+
+    _, install = _world(tmp_path)
+    preference = install / "preferences.js"
+    preference.write_bytes(b"one")
+    calls = []
+
+    def check(directory, *, only, dprs, say):
+        calls.append((directory, only, dprs))
+        return {"items": [*GOOD["items"], {
+            "rule": "RT-RUN", "item": "dpr 1", "verdict": "PASS", "evidence": "run complete",
+        }]}
+
+    monkeypatch.setattr(repairproof.runtime, "run", check)
+    monkeypatch.setattr(repairproof.settings, "state_root", lambda: tmp_path)
+
+    def repair_at(sequence):
+        return rp.repair(FakeRecipe(tmp_path), ["browser/Logo.mjs"], install_dir=install,
+                         say=lambda _: None, procs=lambda _: [], stamp=f"20261001-100000-{sequence:06d}")
+
+    first = repair_at(1)["proof_reused"]
+    second = repair_at(2)["proof_reused"]
+    assert not first and second
+    assert len(calls) == 1
+    preference.write_bytes(b"two")
+    third = repair_at(3)["proof_reused"]
+    assert not third
+    assert len(calls) == 2
+    record_property("fieldkit_fixture_runtime_checks", len(calls))
+    record_property("fieldkit_fixture_runtime_checks_reused", sum((first, second, third)))
+
+
 def test_a_running_product_is_stopped_and_reopened(tmp_path):
     src, inst = _world(tmp_path)
     stopped, opened = [], []

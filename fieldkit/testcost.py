@@ -103,9 +103,12 @@ def _read(name):
     return rows
 
 
-def record(check, status, seconds, key=None, note=""):
+def record(check, status, seconds, key=None, note="", *, job_id=None):
     row = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "check": check, "status": status, "seconds": round(float(seconds), 1),
            "key": key or "", "note": note}
+    job_id = job_id or os.environ.get("FIELDKIT_WORK_ID")
+    if job_id:
+        row["job_id"] = str(job_id)
     if os.environ.get("FIELDKIT_PARITY_MANIFEST"):      # what it ran on (fieldkit/parity.py, set by the run guard)
         row["manifest"] = os.environ["FIELDKIT_PARITY_MANIFEST"]
     if os.environ.get("FIELDKIT_PARITY_DEFENDER"):     # Defender state on every result, baseline or not

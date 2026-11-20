@@ -2017,10 +2017,13 @@ def run(a, emit):
             task.journal(task.load(tid), "build-verified", ok=all(r["ok"] for r in rows), via="build-verify")
         emit(rows, lambda rows: print("\n".join(cg.lines(rows, act.upper()))))
         if act == "build-gate" and all(r["ok"] for r in rows):
-            print("\nThe tree is recorded. The OWNER now compiles it, from a normal terminal (this changes the power scheme):\n"
-                  "  1. in Gorilla.firefox: python harness\\gorilla_build.py build\n"
-                  "  2. python harness\\gorilla_build.py package\n"
-                  "  3. fieldkit build-harness build-verify " + tid)
+            if task.load(tid).get("meta", {}).get("built_by") == "emerge":
+                print("\nNEXT: emerge continues with build verification of the package it produced.")
+            else:
+                print("\nThe tree is recorded. The OWNER now compiles it, from a normal terminal (this changes the power scheme):\n"
+                      "  1. in Gorilla.firefox: python harness\\gorilla_build.py build\n"
+                      "  2. python harness\\gorilla_build.py package\n"
+                      "  3. fieldkit build-harness build-verify " + tid)
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "audit":
         from . import audit

@@ -1820,6 +1820,10 @@ def build_parser():
                    help="one machine-wide gate for heavy jobs (suite, mutate, builds, go test): N at once, the rest "
                         "queue and never ask (fieldkit admit status)")
 
+    pf = sub.add_parser("pfind", add_help=False, help="search locally with prepared pfind bytecode")
+    pf.add_argument("args", nargs=argparse.REMAINDER)
+    pf.set_defaults(_external_parser=True)
+    sub.add_parser("ownership", add_help=False, help="Windows Take Ownership and Explorer registration")
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
                               "safely (fieldkit win11)")
@@ -3232,6 +3236,12 @@ def main(argv=None):
     if args[:1] == ["orchestrate"]:                   # the boss's side of the household (fieldkit/orchestrate.py)
         from . import orchestrate
         return orchestrate.main(args[1:])
+    if args[:1] == ["pfind"]:
+        from .desk import pfind
+        return pfind.main(args[1:])
+    if args[:1] == ["ownership"]:
+        from .desk import ownership
+        return ownership.main(args[1:])
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])

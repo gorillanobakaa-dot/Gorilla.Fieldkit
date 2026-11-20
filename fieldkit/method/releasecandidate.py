@@ -2,10 +2,14 @@
 
 import hashlib
 import json
+import math
 import re
 import subprocess
 import tempfile
+import time
+from contextlib import nullcontext
 from functools import partial
+from itertools import count
 from pathlib import Path
 from urllib.parse import quote
 
@@ -13,6 +17,7 @@ import yaml
 
 POLICY_PATH = ".github/fieldkit-release.yaml"
 SLUG = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+")
+WORKFLOW = re.compile(r"\.github/workflows/[a-zA-Z0-9_.-]+\.ya?ml")
 
 
 class Refused(ValueError):
@@ -51,12 +56,26 @@ def policy_at(repo, ref):
     return validate_policy(yaml.safe_load(result.stdout))
 
 
+def effective_policy(repo, ref, slug):
+    policy = policy_at(repo, ref)
+    if policy is None:
+        policy = registered_policy(slug)
+    if policy is None:
+        raise Refused("no release policy declared in the tagged tree")
+    return policy
+
+
 def validate_policy(data):
     policy = mapping(data)
     if type(policy.get("schema")) is not int or policy["schema"] != 1:
         raise Refused("release policy requires schema: 1")
+    if policy.get("publication", "local") not in ("local", "single-publisher"):
+        raise Refused("publication must be local or single-publisher")
     targets = mapping(policy.get("targets", {}))
     if policy.get("distribution") == "source" and not targets:
+        workflow = policy.get("source_workflow")
+        if workflow is not None and (not isinstance(workflow, str) or not WORKFLOW.fullmatch(workflow)):
+            raise Refused("source_workflow must name a GitHub Actions workflow")
         return policy
     if policy.get("distribution") != "installers" or not targets:
         raise Refused("declare installer targets or explicit source distribution")
@@ -67,7 +86,7 @@ def validate_policy(data):
         for field in ("platform", "arch", "installer", "workflow"):
             if not isinstance(spec.get(field), str) or not spec[field].strip():
                 raise Refused(f"{target}: expected {field}")
-        if not re.fullmatch(r"\.github/workflows/[a-zA-Z0-9_.-]+\.ya?ml", spec["workflow"]):
+        if not WORKFLOW.fullmatch(spec["workflow"]):
             raise Refused(f"{target}: workflow must name a GitHub Actions workflow")
         if "{version}" not in spec["installer"]:
             raise Refused(f"{target}: installer pattern must include {{version}}")
@@ -75,12 +94,19 @@ def validate_policy(data):
             re.compile(spec["installer"].replace("{version}", "0"))
         except re.error as exc:
             raise Refused(f"{target}: invalid installer pattern: {exc}") from exc
+        inputs = spec.get("install_inputs", [])
+        if not isinstance(inputs, list) or any(not isinstance(pattern, str) or not pattern for pattern in inputs):
+            raise Refused(f"{target}: install_inputs must be a list of asset filename patterns")
+        for pattern in inputs:
+            try:
+                re.compile(pattern.replace("{version}", "0"))
+            except re.error as exc:
+                raise Refused(f"{target}: invalid install input pattern: {exc}") from exc
         if "minimum_os" in spec and (not isinstance(spec["minimum_os"], str)
                                      or not re.fullmatch(r"\d+(?:\.\d+)*", spec["minimum_os"])):
             raise Refused(f"{target}: minimum_os must be a quoted OS version")
-        if "installer_member" in spec and (not isinstance(spec["installer_member"], str)
-                                            or not spec["installer_member"].strip()):
-            raise Refused(f"{target}: installer_member must name an archive member")
+        if "installer_member" in spec:
+            installer_member(spec["installer_member"])
     return policy
 
 
@@ -120,6 +146,13 @@ def filename(name):
     return name
 
 
+def installer_member(name):
+    if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.+ -]+(?:/[A-Za-z0-9_.+ -]+)*", name)
+            or any(part.strip(". ") == "" for part in name.split("/"))):
+        raise Refused("installer_member must be a relative path to a file in the ZIP")
+    return name
+
+
 def check_assets(policy, candidate, directory, tag):
     version = candidate["version"]
     if not isinstance(version, str) or not re.fullmatch(r"[0-9][a-zA-Z0-9.+-]*", version) or tag != f"v{version}":
@@ -154,10 +187,29 @@ def check_assets(policy, candidate, directory, tag):
     return assets, installers
 
 
+def retry_delay(status, headers, body, now, attempt):
+    if status not in (403, 429):
+        return None
+    delays = []
+    after = headers.get("retry-after", "")
+    if after.isdecimal():
+        delays.append(int(after))
+    reset = headers.get("x-ratelimit-reset", "")
+    if headers.get("x-ratelimit-remaining") == "0" and reset.isdecimal():
+        delays.append(max(0, math.ceil(int(reset) - now) + 1))
+    if delays:
+        return max(1, max(delays))
+    if status == 429 or "rate limit" in body.lower():
+        return 60 * 2 ** attempt
+    return None
+
+
 class GitHub:
-    def __init__(self, slug, run=subprocess.run):
+    def __init__(self, slug, run=subprocess.run, now=time.time, pause=time.sleep):
         self.slug = slug
         self.run = run
+        self.now = now
+        self.pause = pause
 
     def gh(self, *args):
         result = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", timeout=900)
@@ -167,17 +219,39 @@ class GitHub:
 
     def api(self, path, *args):
         endpoint = f"repos/{self.slug}"
-        return json.loads(self.gh("api", f"{endpoint}/{path}" if path else endpoint, *args))
+        cmd = ["gh", "api", "--include", f"{endpoint}/{path}" if path else endpoint, *args]
+        for attempt in range(3):
+            result = self.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=900)
+            head, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
+            status = re.match(r"HTTP/\S+\s+(\d{3})\b", head)
+            if not result.returncode and status:
+                return json.loads(body)
+            headers = {name.lower(): value.strip() for line in head.splitlines()[1:]
+                       for name, sep, value in [line.partition(":")] if sep}
+            delay = retry_delay(int(status[1]), headers, body, self.now(), attempt) if status else None
+            if delay is None:
+                raise Refused((result.stderr or body or "GitHub did not return an HTTP response").strip()[-500:])
+            if delay > 60 or attempt == 2:
+                raise Refused(f"GitHub rate limited {path or self.slug}; resume the same candidate after {delay} seconds")
+            self.pause(delay)
+
+    def releases(self):
+        for page in count(1):
+            rows = self.api(f"releases?per_page=100&page={page}")
+            if not isinstance(rows, list):
+                raise Refused("GitHub did not return a list of releases")
+            yield from rows
+            if len(rows) < 100:
+                return
 
     def release(self, tag):
         # Authenticated listing also finds drafts. A failed request cannot be taken as absence.
-        pages = self.api("releases?per_page=100", "--paginate", "--slurp")
-        matches = [row for page in pages for row in page if row["tag_name"] == tag]
+        matches = [row for row in self.releases() if row["tag_name"] == tag]
         if len(matches) > 1:
             raise Refused(f"multiple releases use {tag}")
         return matches[0] if matches else None
 
-    def proof(self, target, run_id, workflow, commit):
+    def check_run(self, target, run_id, workflow, commit):
         if type(run_id) is not int or run_id <= 0:
             raise Refused(f"{target}: expected a numeric GitHub Actions run ID")
         row = self.api(f"actions/runs/{run_id}")
@@ -186,9 +260,34 @@ class GitHub:
                 or row.get("path", "").split("@", 1)[0] != workflow
                 or (row.get("head_repository") or {}).get("full_name", "").lower() != self.slug.lower()):
             raise Refused(f"{target}: run {run_id} is not a successful release check for {commit}")
+
+    def proof(self, target, run_id, workflow, commit):
+        self.check_run(target, run_id, workflow, commit)
         with tempfile.TemporaryDirectory(prefix="fieldkit-release-proof-") as folder:
             self.gh("run", "download", str(run_id), "-R", self.slug, "-n", f"install-proof-{target}", "-D", folder)
             return mapping(json.loads((Path(folder) / "proof.json").read_text(encoding="utf-8")))
+
+    def source_proof(self, candidate, directory, workflow, commit):
+        run_id = candidate.get("source_run")
+        self.check_run("source", run_id, workflow, commit)
+        with tempfile.TemporaryDirectory(prefix="fieldkit-release-source-") as folder:
+            self.gh("run", "download", str(run_id), "-R", self.slug, "-n", "release-candidate", "-D", folder)
+            published = Path(folder)
+            notes = filename(candidate["notes"])
+            if (read_mapping(published / "candidate.json") != candidate
+                    or file_digest(published / notes) != file_digest(directory / notes)):
+                raise Refused("source candidate differs from the successful release workflow artifact")
+
+
+def install_inputs(target, spec, assets, version):
+    inputs = set()
+    for pattern in spec.get("install_inputs", []):
+        matching_assets = [name for name in assets
+                           if re.fullmatch(pattern.replace("{version}", re.escape(version)), name)]
+        if len(matching_assets) != 1:
+            raise Refused(f"{target}: install input {pattern!r} matched {len(matching_assets)} candidate assets")
+        inputs.add(matching_assets[0])
+    return inputs
 
 
 def check_proofs(gh, policy, candidate, commit, assets, installers):
@@ -209,9 +308,10 @@ def check_proofs(gh, policy, candidate, commit, assets, installers):
         if minimum and not re.fullmatch(re.escape(minimum) + r"(?:\.\d+)*", str(proof.get("os_version", ""))):
             raise Refused(f"{target}: install proof must cover OS {minimum}")
         observed = mapping(proof.get("assets"))
-        if installer not in observed or any(assets.get(name) != digest for name, digest in observed.items()):
+        required_files = {installer} | install_inputs(target, spec, assets, candidate["version"])
+        if any(observed.get(name) != assets[name] for name in required_files):
             raise Refused(f"{target}: package hashes differ from the install run")
-        covered.update(observed)
+        covered.update(name for name, digest in assets.items() if observed.get(name) == digest)
     if covered != set(assets):
         raise Refused("assets missing from build evidence: " + ", ".join(sorted(set(assets) - covered)))
 
@@ -242,10 +342,18 @@ def check_page(candidate, directory, assets):
     return title, notes_path, notes
 
 
-def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None):
+def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate=None, platforms=(), single_publisher=False):
     from . import releasegate
 
     title, notes_path, notes = check_page(candidate, directory, assets)
+    slot = releasegate.publication_slot(slug=gh.slug, single_publisher=single_publisher) if gate is None else nullcontext()
+    with slot:
+        return _promote_draft(gh, tag, directory, assets, authorize, title, notes_path, notes, hotfix, gate, platforms)
+
+
+def _promote_draft(gh, tag, directory, assets, authorize, title, notes_path, notes, hotfix, gate, platforms):
+    from . import releasegate
+
     row = gh.release(tag)
     if row is None:
         gh.gh("release", "create", tag, "-R", gh.slug, "--draft", "--verify-tag", "--latest=false",
@@ -269,9 +377,12 @@ def promote(gh, tag, candidate, directory, assets, authorize, *, hotfix="", gate
                 or (row.get("body") or "").strip() != notes or row["tag_name"] != tag or row["prerelease"]):
             raise Refused("the draft is incomplete or changed during upload")
         authorize()
-        verdict = (gate or releasegate.guard)(gh.slug, tag, hotfix)
+        check = gate or partial(releasegate.guard, platforms=platforms, published_only=True)
+        verdict = check(gh.slug, tag, hotfix)
         if not verdict["ok"]:
             raise Refused(verdict["error"])
+        if verdict.get("systems"):
+            releasegate.record_hotfix_attempt(gh.slug, tag, verdict["hotfix"], verdict["systems"])
         gh.api(f"releases/{release_id}", "-X", "PATCH", "-F", "draft=false", "-f", "make_latest=true")
     elif present != assets:
         raise Refused(f"published release {tag} is incomplete")
@@ -301,25 +412,19 @@ def verify(repo, gh, tag, path):
         raise Refused("the GitHub default branch commit could not be confirmed")
     if base != commit and gh.api(f"compare/{commit}...{base}")["status"] != "ahead":
         raise Refused("the candidate tag must be on the GitHub default branch history")
-    policy = policy_at(repo, commit)
-    if policy is None:
-        # Keep the pilot contract until its repositories carry their own policy.
-        policy = registered_policy(gh.slug)
-        if policy is None:
-            raise Refused("no release policy declared in the tagged tree")
+    policy = effective_policy(repo, commit, gh.slug)
     candidate = read_mapping(path)
     assets, installers = check_assets(policy, candidate, path.parent, tag)
     check_proofs(gh, policy, candidate, commit, assets, installers)
     check_page(candidate, path.parent, assets)
+    if policy.get("distribution") == "source" and policy.get("source_workflow"):
+        gh.source_proof(candidate, path.parent, policy["source_workflow"], commit)
     platforms = {policy["targets"][target]["platform"] for target in installers}
     return candidate, path.parent, assets, platforms
 
 
 def publish(repo, slug, tag, path, authorize, *, hotfix="", gate=None):
-    from . import releasegate
-
     gh = GitHub(slug)
     candidate, directory, assets, platforms = verify(repo, gh, tag, path)
-    if gate is None:
-        gate = partial(releasegate.guard, platforms=platforms)
-    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate)
+    return promote(gh, tag, candidate, directory, assets, authorize, hotfix=hotfix, gate=gate, platforms=platforms,
+                   single_publisher=True)

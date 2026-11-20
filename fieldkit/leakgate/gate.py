@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import allow as al, audit, scenarios as sc, sensors as se
+from . import allow as al, audit, restart, scenarios as sc, sensors as se
 from ..buildh.proof import VENDOR_HOST, AD_HOSTS
 
 TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",  # telemetry-ok: block list: hosts the leak gate fails on
@@ -567,6 +567,7 @@ def vendor_messages(bi):
 
 # ---------------------------------------------------------------------------------------------- run
 PLAN_FILE = "gate-plan.json"
+CHECKPOINT_DIR = "scenario-checkpoints"
 
 
 def modes_for(name, quick):
@@ -622,6 +623,26 @@ def _write_partial(work, events, artifacts):
         pass
 
 
+def _publish_json(path, data):
+    """Publish a complete snapshot for readers while the gate is active."""
+    pending = path.with_suffix(".tmp")
+    pending.write_text(json.dumps(data, indent=1, default=str), encoding="utf-8")
+    pending.replace(path)
+
+
+def _scenario_checkpoint(folder, run_id, started, elapsed_s, events, artifact, streams, offsets):
+    """Keep raw progress and sensor observations for diagnosis after an interruption."""
+    positions = {name: len(rows) for name, rows in streams.items()}
+    _publish_json(folder / f"{run_id}.json", {
+        "scenario_run": run_id, "started_at": started, "elapsed_s": round(elapsed_s, 3),
+        "events": events, "artifact": artifact,
+        "observations_since_previous_checkpoint": {
+            name: rows[offsets[name]:positions[name]] for name, rows in streams.items()
+        },
+    })
+    return positions
+
+
 def run(*args, say=print, **kw):
     """The gate under the one run guard (2026-10-26): observation and the safe reclaim only, before and during; it
     changes no allowlist, judgment or verdict. A STOP (free RAM under the floor after reclaiming) waits up to 10 min,
@@ -631,8 +652,23 @@ def run(*args, say=print, **kw):
 
     def refused(why):
         raise RuntimeError(f"leakgate: the preflight refused the run: {why}")
-    return preflight.call("leak gate", "gate", functools.partial(_run, *args, say=say, **kw), say=say, wait_s=600,
-                          refused=refused)
+    measure = functools.partial(_run, *args, say=say, **kw)
+    if not (sys.platform.startswith("linux") or sys.platform == "win32"):
+        return preflight.call("leak gate", "gate", measure, say=say, wait_s=600, refused=refused)
+
+    from .. import admission
+
+    def measure_exclusively():
+        # A machine has one test namespace or packet monitor.
+        slot = admission.try_take(1, kind="leakgate", label="capture", root=Path.home() / ".fieldkit" / "leakgate")
+        if slot is None:
+            return refused("another gate owns local capture")
+        try:
+            return measure()
+        finally:
+            slot.release()
+
+    return preflight.call("leak gate", "gate", measure_exclusively, say=say, wait_s=600, refused=refused)
 
 
 def unpack_deb(deb, dest, runner=subprocess.run):
@@ -662,8 +698,45 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     if release:
         repeat, quick = max(repeat, 3), False
-    work = Path(workroot).resolve() / time.strftime("%Y%m%d-%H%M%S")      # absolute: /proc reports absolute paths (P27)
-    work.mkdir(parents=True)
+    planned = planned_runs(repeat, quick, only)
+    workroot = Path(workroot).resolve()                 # /proc reports absolute paths (P27)
+    identity = None
+    package_digest = None
+    recovered = []
+    work = workroot / time.strftime("%Y%m%d-%H%M%S")
+    network = None
+    if release and only is None and (linux or (sys.platform == "win32" and se.is_admin())):
+        if not linux:
+            network = restart.windows_network()
+        package_digest = _sha(zip_path)
+        identity = restart.context(package_digest, workdir_tree, upstream,
+                                   (allow_path, spec_path, disp_path, owner_root / "leakgate" / "baseline.json",
+                                    previous_zip), st0["tools"] if linux else restart.windows_tools(),
+                                   {"work": os.environ.get("FIELDKIT_WORK_ID") or str(workroot),
+                                    "scenarios": planned, "repeat": repeat, "soak": soak, "firewall": firewall}, _sha,
+                                   network=network)
+        if identity and workroot.is_dir():
+            previous = next((path for path in sorted(workroot.iterdir(), reverse=True)
+                             if path.is_dir() and re.fullmatch(r"\d{8}-\d{6}", path.name)), None)
+            if previous:
+                def recovered_cleanup(folder, recorded):
+                    # The Windows identity already compared the baseline capture, DNS and firewall state.
+                    return (not linux or lx.namespace_idle()) and restart.owner_gone(folder, recorded)
+
+                recovered = restart.prefix(previous, planned, identity, CHECKPOINT_DIR, _sha,
+                                           recovered_cleanup=recovered_cleanup)
+                if recovered:
+                    work = previous
+                    say(f"  reusing {len(recovered)} verified scenario records from {previous.name}")
+    work.mkdir(parents=True, exist_ok=bool(recovered))
+    records = {row["scenario_run"]: receipt for row, receipt in recovered}
+    run_owner = restart.owner() if identity else None
+
+    def save_restart(state):
+        _publish_json(work / restart.FILE, {"context": identity, "state": state, "owner": run_owner, "records": records})
+
+    if identity:
+        save_restart("running")
     if linux:
         packets, dns_prev = True, None
     else:
@@ -693,6 +766,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     is_deb = str(zip_path).endswith(".deb")
     zp = work / ("build.deb" if is_deb else "build.zip")
     shutil.copyfile(zip_path, zp)
+    if identity and _sha(zp) != package_digest:
+        raise RuntimeError("leakgate: the package changed between planning and copying")
     if linux:
         import tarfile
         def _tar_copy(dest, policies=None):
@@ -745,14 +820,15 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
         extras.firewall_block(str(direct / "firefox.exe"), fw_name)
         say(f"  firewall: outbound block for the direct build copy ({fw_name}); removed at the end")
     manifest = build_manifest(direct, workdir_tree, upstream, allow_path, spec_path)
+    _publish_json(work / "build-manifest.json", manifest)
     say(f"leakgate: build {manifest['BUILD']} ({manifest['VERSION']}), packets {'ON' if packets else 'OFF (not elevated)'}, "
         f"repeat {repeat}, {'quick' if quick else 'release'} durations -> {work}")
     # the run's own record of what it will do, for `leakgate-status` while it runs (2026-10-06: the hourly sitrep of a
     # 4-hour release run had the run folder, the gate's PID and the 141 expected runs typed in by hand)
-    (work / PLAN_FILE).write_text(json.dumps({
+    _publish_json(work / PLAN_FILE, {
         "pid": os.getpid(), "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "build": manifest["BUILD"], "repeat": repeat,
         "quick": quick, "release": release, "only": sorted(only) if only else None, "soak": soak,
-        "runs": planned_runs(repeat, quick, only)}, indent=1), encoding="utf-8")
+        "runs": planned, "recovered_runs": len(recovered)})
     canaries = list(sc.CANARIES.items())
     if linux:
         server = sc.Server(bind=lx.HOST_IP, port=sport)
@@ -768,8 +844,18 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             lx.netns_down()
             raise
     events, artifacts, scen_hosts = [], {}, {}
+    checkpoints = work / CHECKPOINT_DIR
+    streams = {"page_results": server.results, "page_requests": server.requests, "doh_queries": doh.queries}
+    for row, _receipt in recovered:
+        run_id, art = row["scenario_run"], row["artifact"]
+        events.extend(row["events"])
+        artifacts[run_id] = art
+        for name, observations in row["observations_since_previous_checkpoint"].items():
+            streams[name].extend(observations)
+    offsets = {name: len(rows) for name, rows in streams.items()} if recovered else dict.fromkeys(streams, 0)
     closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
+        checkpoints.mkdir(exist_ok=bool(recovered))
         for name, target, secs, args, hosts, watch in sc.SCENARIOS:
             if only and name not in only:
                 continue
@@ -784,12 +870,16 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             modes = [(m, copies[m]) for m in modes_for(name, quick)]
             for rep in range(repeat):
                 for mode, bdir in modes:
+                    run_id = f"{name}-r{rep}-{mode}"
+                    if run_id in artifacts:
+                        continue
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")
                     try:                       # owner 2026-10-18: the ETA from the plan and this run's measured overhead
                         from ..core import eta as _eta
                         say("    " + _eta.human(_eta.leakgate(work, repeat, quick)))
                     except Exception:  # noqa: BLE001 - an estimate never stops a gate
                         pass
+                    started_at, started_tick = time.time(), time.monotonic()
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
@@ -801,13 +891,22 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
                                              graceful=name in sc.GRACEFUL, poison=mode == "poisoned", prefs=prefs)
                     for e in ev:
                         e["scenario"], e["rep"] = name, rep
-                    events.extend(ev)
-                    artifacts[f"{name}-r{rep}-{mode}"] = art
-                    _write_partial(work, events, artifacts)     # a late crash never loses the runs already done
                     if name == "page" and mode == "proxied" and not any(e["sensor"] == "mitm" and "anthropic" in e["value"] for e in ev):
-                        events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
-                                       "detail": "the page itself never reached mitmproxy"})
+                        ev = [*ev, {"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass",
+                                    "value": "proxy did not take", "detail": "the page itself never reached mitmproxy"}]
+                    events.extend(ev)
+                    artifacts[run_id] = art
+                    try:
+                        offsets = _scenario_checkpoint(checkpoints, run_id, started_at, time.monotonic() - started_tick,
+                                                       ev, art, streams, offsets)
+                        if identity and len(records) == len(artifacts) - 1:
+                            row = json.loads((checkpoints / f"{run_id}.json").read_text(encoding="utf-8"))
+                            records[run_id] = {"row": restart.digest(row), "files": restart.files(work, art, _sha)}
+                            save_restart("running")
+                    except (OSError, ValueError) as e:
+                        say(f"  checkpoint for {run_id} unavailable: {e}")
     finally:
+        _write_partial(work, events, artifacts)
         if packets and not linux:
             se.close_packet_sensor()
             se.dnsclient_restore(dns_prev)
@@ -818,6 +917,10 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
             extras.firewall_unblock(fw_name)
         if linux:
             lx.netns_down()
+        if identity and records:
+            clean = lx.namespace_idle() if linux else restart.windows_network() == network
+            if clean:
+                save_restart("ready")
 
     # the controlled resolver's own log is a sensor: every name the browser asked for, answered or not
     for q in doh.queries:
@@ -933,10 +1036,7 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     result["FINAL_RESULT"] = "PASS" if all(result[p] == "PASS" for p in POLICIES) else "FAIL"
     result["ARTIFACTS"] = str(work)
 
-    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     (work / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
-    (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
-    (work / "build-manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     (work / "source-inventory.json").write_text(json.dumps(st, indent=1), encoding="utf-8")
     (work / "binary-hosts.json").write_text(json.dumps(bi, indent=1), encoding="utf-8")
     (work / "artifacts.json").write_text(json.dumps(artifacts, indent=1, default=str), encoding="utf-8")
@@ -946,7 +1046,8 @@ def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick
     (work / "dns.new").write_text("\n".join(result["UNEXPECTED_DNS"]) + "\n", encoding="utf-8")
     (work / "sockets.new").write_text("\n".join(result["UNEXPECTED_SOCKETS"]) + "\n", encoding="utf-8")
     result["PERIODIC_HOSTS"] = {h: v for h, v in period.items() if v["regular"]}
-    (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
+    _publish_json(work / "test-results.json", result)
+    (work / "partial.txt").unlink(missing_ok=True)       # the run finished
     return result, events, st, bi
 
 

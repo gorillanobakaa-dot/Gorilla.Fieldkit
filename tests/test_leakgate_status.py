@@ -98,6 +98,104 @@ def test_an_older_run_uses_artifacts_or_the_launcher_log_and_says_so(runs, tmp_p
     assert status.plan(d, tmp_path / "nowhere")["total"] is None
 
 
+def test_interrupted_run_retains_sensors_and_has_no_final_verdict(runs):
+    d = runs / "20300101-080000"
+    planned = gate.planned_runs(1, True, only={"newtab"})
+    gate._publish_json(d / gate.PLAN_FILE, {"pid": os.getpid(), "runs": planned})
+    _start(d, planned)
+    folder = d / gate.CHECKPOINT_DIR
+    folder.mkdir()
+    sensors = {"page_results": [{"page": "newtab"}], "page_requests": [{"path": "/"}],
+               "doh_queries": [{"name": "example.invalid"}]}
+    offsets = dict.fromkeys(sensors, 0)
+    offsets = gate._scenario_checkpoint(folder, planned[0], 1, 2.75, [], {"files": []}, sensors, offsets)
+    sensors["page_results"].append({"page": "next"})
+    gate._scenario_checkpoint(folder, planned[1], 4, 1, [], {}, sensors, offsets)
+    (folder / f"{planned[2]}.tmp").write_text("{", encoding="utf-8")
+    first = json.loads((folder / f"{planned[0]}.json").read_text(encoding="utf-8"))
+    second = json.loads((folder / f"{planned[1]}.json").read_text(encoding="utf-8"))
+    assert first["elapsed_s"] == 2.75
+    assert first["observations_since_previous_checkpoint"]["doh_queries"] == [{"name": "example.invalid"}]
+    assert second["observations_since_previous_checkpoint"] == {
+        "page_results": [{"page": "next"}], "page_requests": [], "doh_queries": []}
+    report = status.status("t1")
+    assert report["captured_runs"] == planned[:2] and report["result"] is None
+    assert "2 scenario runs captured" in "\n".join(status.lines(report))
+
+
+def test_restart_rejects_changed_inputs_gaps_corruption_and_finished_runs(runs):
+    from fieldkit.leakgate import restart
+
+    work = runs / "20300101-080000"
+    folder = work / gate.CHECKPOINT_DIR
+    folder.mkdir()
+    names = gate.planned_runs(1, True, only={"newtab"})
+    sensor_file = work / "runs" / "packets.pcap"
+    sensor_file.write_bytes(b"fixture capture")
+    streams = {"page_results": [{"page": "newtab"}], "page_requests": [], "doh_queries": []}
+    artifact = {"pcap": str(sensor_file)}
+    gate._scenario_checkpoint(folder, names[0], 90, 3, [], artifact, streams, dict.fromkeys(streams, 0))
+    path = folder / f"{names[0]}.json"
+    row = json.loads(path.read_text(encoding="utf-8"))
+    receipt = {"row": restart.digest(row), "files": restart.files(work, artifact, gate._sha)}
+    marker = {"context": "matching runner and inputs", "state": "ready", "records": {names[0]: receipt}}
+    gate._publish_json(work / restart.FILE, marker)
+
+    def recover(key=marker["context"]):
+        return restart.prefix(work, names, key, gate.CHECKPOINT_DIR, gate._sha)
+
+    assert recover() == [(row, receipt)]
+    assert recover("changed policy or executable") == []
+    running = dict(marker, state="running", owner={"pid": 10, "created": 1})
+    gate._publish_json(work / restart.FILE, running)
+    assert recover() == []
+    assert restart.prefix(work, names, marker["context"], gate.CHECKPOINT_DIR, gate._sha,
+                          recovered_cleanup=lambda *_: False) == []
+    assert restart.prefix(work, names, marker["context"], gate.CHECKPOINT_DIR, gate._sha,
+                          recovered_cleanup=lambda folder, owner: folder == work and owner["pid"] == 10) == [(row, receipt)]
+    gate._publish_json(work / restart.FILE, dict(marker, records={names[1]: receipt}))
+    assert recover() == []
+    gate._publish_json(work / restart.FILE, marker)
+    sensor_file.write_bytes(b"changed capture")
+    assert recover() == []
+    sensor_file.write_bytes(b"fixture capture")
+    gate._publish_json(work / "test-results.json", {"FINAL_RESULT": "FAIL"})
+    assert recover() == []
+
+
+def test_windows_network_snapshot_does_not_produce_proof_on_query_error(monkeypatch):
+    from fieldkit.leakgate import restart
+
+    snapshot = dict(addresses=[{"IPAddress": "192.0.2.2"}], routes=[], dns=["fixture"], dnsLog=True,
+                    profiles=[], firewall=[], firewallRules={}, proxy=[], packets=["fixture status"])
+    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: json.dumps(snapshot).encode())
+    first = restart.windows_network()
+    assert first == restart.digest(snapshot)
+    snapshot["dns"] = ["other"]
+    assert first != restart.windows_network()
+    snapshot.pop("packets")
+    assert restart.windows_network() is None
+    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: b"unreadable")
+    assert restart.windows_network() is None
+
+
+def test_crash_recovery_refuses_the_original_process_and_its_remaining_worker(tmp_path, monkeypatch):
+    import psutil
+    from types import SimpleNamespace
+    from fieldkit.leakgate import restart
+
+    previous = {"pid": 10, "created": 100}
+    current = SimpleNamespace(create_time=lambda: 100)
+    monkeypatch.setattr(psutil, "Process", lambda pid: current)
+    assert not restart.owner_gone(tmp_path, previous)
+    current.create_time = lambda: 200
+    worker = SimpleNamespace(info={"cmdline": ["worker", str(tmp_path / "runs" / "capture")]})
+    monkeypatch.setattr(psutil, "process_iter", lambda *a, **kw: iter([worker]))
+    assert not restart.owner_gone(tmp_path, previous)
+    monkeypatch.setattr(psutil, "process_iter", lambda *a, **kw: iter([]))
+    assert restart.owner_gone(tmp_path, previous)
+
+
 def test_a_gate_that_is_gone_or_a_reused_pid_is_not_running():
     started = dt.datetime.now()
     assert status.alive(os.getpid(), started) is True

@@ -17,6 +17,7 @@ def test_the_units_restart_forever_and_start_at_boot(tmp_path):
         assert "Restart=always" in t and "StartLimitIntervalSec=0" in t and "WantedBy=default.target" in t
         assert f"ExecStart=/usr/bin/python3 -P -m fieldkit {verb}\n" in t
         assert "Environment=PYTHONPATH=/opt/Fieldkit" in t
+        assert "Environment=PATH=%h/.local/bin:" in t
     for p in K.write_units(tmp_path):
         assert b"\r\n" not in open(p, "rb").read()
 

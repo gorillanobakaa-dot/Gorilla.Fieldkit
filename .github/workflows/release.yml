@@ -1,19 +1,15 @@
-# A tag v* publishes a GitHub release, and only after the whole suite has passed for that exact commit on Windows
-# and on Linux. The page is releases/notes/<tag>/page.md, built by `fieldkit release-page compose` and checked here
-# again by `fieldkit release-page check`: both tracks in full, plain language first. The tag must name the version
-# the package carries, or nothing is published. Run by hand (workflow_dispatch) with a tag that does not exist yet,
-# it does the same for the commit it runs on and creates the tag there.
+# Prepare the source release candidate after Windows and Linux tests. The checked page travels with the
+# candidate. The mandate-controlled `fieldkit ship gh-release` command promotes it after verification.
 name: release
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "the version to publish, e.g. v0.2.0 (created on this commit)"
-        required: true
+permissions:
+  contents: read
+  actions: read
 env:
-  TAG: ${{ inputs.tag || github.ref_name }}
+  TAG: ${{ github.ref_name }}
 jobs:
 
   # 2026-11-20: probe runner hardware before the suite so OOM crashes can be diagnosed.
@@ -43,6 +39,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -77,6 +76,9 @@ jobs:
         run: bash .github/desktop-file-utils.sh
       - name: run shard
         shell: bash
+        env:
+          FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
+          FIELDKIT_REUSE_CI: '1'
         run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
 
   test:
@@ -95,12 +97,11 @@ jobs:
         run: |
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
-          test "$result" = "success" 
-  publish:
+          test "$result" = "success"
+  candidate:
     needs: test
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -115,10 +116,14 @@ jobs:
         run: |
           d="releases/notes/$TAG"
           python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
-      - name: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Assemble the checked source candidate
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then where=--verify-tag; else where="--target $GITHUB_SHA"; fi
-          gh release create "$TAG" --title "Fieldkit $TAG" \
-            --notes-file "releases/notes/$TAG/page.md" $where
+          mkdir candidate
+          cp "releases/notes/$TAG/page.md" candidate/page.md
+          jq -n --arg version "${TAG#v}" --arg title "Fieldkit $TAG" --argjson run "$GITHUB_RUN_ID" \
+            '{version: $version, title: $title, notes: "page.md", assets: [], runs: {}, source_run: $run}' > candidate/candidate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate/
+          if-no-files-found: error

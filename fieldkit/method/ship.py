@@ -394,7 +394,8 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
     from . import releasegate
     from ..core import sync
-    rg = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)      # one release per batch
+    slug = sync._slug(repo)
+    rg = gate(slug, tag, hotfix) if gate else releasegate.guard(slug, tag, hotfix, published_only=True)
     if not rg["ok"]:
         return rg
     from . import tagguard
@@ -483,7 +484,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
             return {"ok": False, "state": "bad-input", "error": "expected a GitHub repo, version tag and one candidate file"}
 
         def authorize():
-            verdict, why, path = mandate("release_tag", repo_path=repo, tag=tag)
+            verdict, why, path = mandate("release_tag", repo_path=repo, tag=tag, single_publisher=True)
             if verdict != "allow":
                 raise releasecandidate.Refused(why)
             return why, path
@@ -492,6 +493,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run,
             if extra[0] == "--check-candidate":
                 releasecandidate.verify(repo, releasecandidate.GitHub(slug), tag, extra[1])
                 return {"ok": True, "state": "candidate-verified", "tag": tag}
+            releasecandidate.effective_policy(repo, f"refs/tags/{tag}", slug)
             why, path = authorize()
             url = releasecandidate.publish(repo, slug, tag, extra[1], authorize, hotfix=hotfix, gate=gate)
             _mandate_log(path, "release", why, tag=tag, url=url)

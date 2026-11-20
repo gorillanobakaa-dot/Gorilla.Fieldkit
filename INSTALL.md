@@ -189,6 +189,25 @@ python install_skills.py
 - **Pass:** start a new chat and ask "Find me a tool that checks a Word file is safe to
   send". The model calls `discover` and finds `office-deliver`.
 
+## Install the Gorilla Size and Gorilla Trash commands
+
+Before making changes, `install.ps1`, `install.sh` and `fieldkit size integrate` run the read-only installer preflight
+(`fieldkit install preflight`). It checks the installer prerequisites, resolves `gorilla-size --version` and
+`gorilla-trash --help` from a fresh user terminal outside the install folder first, and then checks background services
+that consume them (such as Gorilla Size in the VAIO cable listener). When the terminal command works and a service cannot
+resolve it, preflight stops before installation or replacement and reports service discovery as the failure.
+
+Use `fieldkit size integrate --from-dir RELEASE_DIR` with the directory that contains the two native binaries
+from your verified Gorilla Size release or build for this operating system. The command installs the existing
+binaries for your account. A new terminal can then run `gorilla-size --version` and `gorilla-trash --help`.
+
+On Windows the command adds the Fieldkit binary directory to your user PATH and registers **Empty with Gorilla
+Trash...** on the Recycle Bin's right-click menu. Windows may show it under **Show more options**. The menu opens
+the interactive Gorilla Trash prompt. Review the displayed items before deciding whether to empty the bin.
+
+On Linux the commands are linked from `~/.local/bin`. This directory must be on your shell's PATH. On systems
+that add it at login, open a new login session after the first installation.
+
 ## Removing Fieldkit
 
 1. Remove the `fieldkit` entry from each program's MCP settings (or put the backups back).

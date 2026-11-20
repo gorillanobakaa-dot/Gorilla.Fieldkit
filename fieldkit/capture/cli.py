@@ -401,6 +401,10 @@ def main(argv=None):
     stt.add_argument("--lookback", metavar="AGE", help="read recent calls (for example 30m) from selected Claude or Codex transcripts")
     stt.add_argument("--session", metavar="AGENT=ID", action="append", default=[],
                      help="restrict capture to this session for the selected agent; repeat for other agents")
+    audit = sub.add_parser("audit", help="read-only clean-slate audit of configured scratch roots")
+    audit.add_argument("--json", action="store_true", help="machine-readable report")
+    audit.add_argument("--device", help="audit this configured household peer instead of this computer")
+    audit.add_argument("--via", choices=("cable", "ssh", "both"), help="transport choice for this remote audit")
     clean = sub.add_parser("clean", help="inventory temp and session stores and preview scratch retention")
     clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
     clean.add_argument("--retire-sessions", action="store_true",
@@ -470,6 +474,9 @@ def main(argv=None):
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
         t.add_argument("--" + k.replace("_", "-"), dest=k, action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "audit":
+        from . import audit
+        return audit.cmd(a)
     if a.action in ("start", "clean"):
         from . import cleanslate
         if a.action == "start" and not a.dispose and not (a.project and a.lesson):

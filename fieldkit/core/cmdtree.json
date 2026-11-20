@@ -672,6 +672,18 @@
      "open": false,
      "v": {}
     },
+    "audit": {
+     "c": [],
+     "f": {
+      "--device": 1,
+      "--help": 0,
+      "--json": 0,
+      "--via": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "classify": {
      "c": [],
      "f": {
@@ -972,6 +984,7 @@
     "--limit": 1,
     "--max-whole-share": 1,
     "--repo": 1,
+    "--run": 1,
     "--since": 1,
     "--workflow": 1,
     "-h": 0
@@ -2153,16 +2166,20 @@
   "install": {
    "c": [
     "app",
+    "preflight",
     "purge",
     "self-test",
     "verify"
    ],
    "f": {
+    "--allow-missing-terminal": 0,
     "--apply": 0,
     "--dir": 1,
+    "--full": 0,
     "--help": 0,
     "--host": 1,
     "--json": 0,
+    "--lean": 0,
     "--name": 1,
     "--os": 1,
     "--peer": 0,
@@ -2857,6 +2874,7 @@
    ],
    "f": {
     "--help": 0,
+    "--repo": 1,
     "-h": 0
    },
    "open": false,
@@ -3175,16 +3193,58 @@
    "c": [],
    "f": {
     "--bare": 1,
+    "--fixture": 1,
     "--help": 0,
     "--json": 0,
     "--session": 1,
     "--since": 1,
     "--state": 1,
     "--until": 1,
+    "--work-id": 1,
     "-h": 0
    },
    "open": false,
    "v": {}
+  },
+  "ownership": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "install-explorer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take-drive": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "--recover-inaccessible": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "parity": {
    "c": [
@@ -3247,6 +3307,15 @@
     "-h": 0
    },
    "open": false,
+   "v": {}
+  },
+  "pfind": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": true,
    "v": {}
   },
   "pins": {
@@ -3724,11 +3793,14 @@
     "handover": {
      "c": [],
      "f": {
+      "--ci-run": 1,
       "--done": 1,
       "--help": 0,
+      "--job-id": 1,
       "--json": 0,
       "--next": 1,
       "--not-verified": 1,
+      "--plan-file": 1,
       "--session": 1,
       "--title": 1,
       "--transcript": 1,
@@ -3763,6 +3835,19 @@
       "--help": 0,
       "--origin": 1,
       "--title": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "takeover": {
+     "c": [],
+     "f": {
+      "--as-session": 1,
+      "--help": 0,
+      "--job-id": 1,
+      "--json": 0,
+      "--note": 1,
       "-h": 0
      },
      "open": false,

@@ -34,6 +34,10 @@ from .desk import readiness
 
 PROTOCOL = "2024-11-05"
 
+AUDIT_TOOL = {"name": "clean_slate_audit", "description": "Read-only audit of configured scratch folders.",
+              "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+              "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}}
+
 TOOLS = [
     # 2026-10-19, Gemma 4 E2B through Gorilla OpenCode: asked about the TV, an Office file and the cooling profile,
     # it read these ten names, decided Fieldkit "is focused on build harnesses" and answered "no such tool" three
@@ -120,6 +124,8 @@ def _text(lines):
 
 def offered():
     """FIELDKIT_MCP_TOOLS=a,b limits what this server offers (the harness worker gets only what a job needs)."""
+    if os.getenv("FIELDKIT_AUDIT_ONLY") == "1":
+        return [AUDIT_TOOL]
     allow = {x.strip() for x in os.environ.get("FIELDKIT_MCP_TOOLS", "").split(",") if x.strip()}
     return [t for t in TOOLS if not allow or t["name"] in allow]
 
@@ -144,6 +150,13 @@ def call_tool(name, args):
     """-> (text, is_error). Every refusal is a normal answer with a NEXT line, not a crash."""
     if name not in {t["name"] for t in offered()}:
         return f"no tool {name!r} on this server", True
+    if name == AUDIT_TOOL["name"]:
+        from .capture import audit
+
+        if args:
+            return "clean_slate_audit accepts no input", True
+        report = audit.local()
+        return json.dumps(report), audit.partial(report)
     if name == "run" and labels(name, args)["egress"] and args.get("network") is not True:
         return (f"REFUSED: '{args.get('tool')}' goes online. NEXT: call run again with network=true, so the "
                 "person can be asked first."), False
@@ -210,7 +223,8 @@ def handle(msg):
         t0 = time.time()
         name, args = params.get("name"), params.get("arguments") or {}
         text, err = call_tool(name, args)
-        record(name, args, text, err, time.time() - t0)
+        if os.getenv("FIELDKIT_AUDIT_ONLY") != "1":
+            record(name, args, text, err, time.time() - t0)
         meta = labels(name, args)
         if text.startswith("REFUSED:") and name == "run":
             meta = {"untrusted": False, "egress": False}        # refused before anything ran: Fieldkit's own words

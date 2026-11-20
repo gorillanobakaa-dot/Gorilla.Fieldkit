@@ -107,7 +107,7 @@ def generate():
     for name, sp in sorted(sub.choices.items()):
         node = _walk(sp)
         node["f"].update({"-h": 0, "--help": 0})
-        cap = _capture([name, "--help"])
+        cap = None if sp.get_default("_external_parser") else _capture([name, "--help"])
         if cap is not None and cap.prog != top.prog:
             deep = _walk(cap)
             _merge(node, deep) if (deep["v"] or deep["f"] or deep["c"] or not deep["open"]) else None

@@ -20,6 +20,7 @@ local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
 | tokens, context per call, hook text, as a table | `fieldkit token-audit --all` |
 | which sessions are monsters now? | `fieldkit rotate check` (exit 0 OK, 1 WARN, 2 ROTATE) |
 | hand this session over to a fresh one | `fieldkit rotate handover --transcript PATH --title T --done D --next N --not-verified V` |
+| find a scoped job and its pending CI | `fieldkit rotate takeover --job-id ID --json` |
 | finished sessions to archive | `fieldkit rotate finished --gh --exclude <own session id>` |
 | am I (Codex, Antigravity, Gorilla OpenCode, ...) over the line? | `fieldkit rotate check --source <agent> --cwd . --newest` |
 | which agents are measured and told? | `fieldkit rotate doctor` (per agent: measured yes/no, triggered yes/no) |
@@ -37,6 +38,9 @@ local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
   writes `state/coordination/rotate-<date>-<id>.md` and prints the brief. Then start a fresh session with that brief
   (Claude desktop: `start_session`, context "fresh", the brief as its prompt) and archive this one
   (`archive_session "self"`). In the CLI: a fresh `claude` in the same folder with the brief.
+- For scoped work, pass `--job-id ID --plan-file FILE` and one `--ci-run RUN` for each pending Actions run.
+  The successor reads the saved full plan, claims the handoff with the command in its brief and resumes the
+  recorded CI. The retiring session checks for the acknowledgement before archiving.
 - Under `fieldkit autopilot` this is automatic: the job's hook denies all but the checkpoint (HANDOFF.md + WIP
   commit), and the job restarts from it in a NEW session, never `--resume` of the old one (5 rotations, then the
   owner's inbox).

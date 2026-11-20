@@ -1,9 +1,45 @@
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from fieldkit.method import releasecandidate as rc, ship
+
+
+def test_older_candidate_policy_requires_the_signed_publisher(monkeypatch, tmp_path):
+    from fieldkit.core import sync
+
+    monkeypatch.setattr(sync, "_slug", lambda _: "owner/repo")
+    monkeypatch.setattr(rc, "effective_policy", lambda *_: {"publication": "local"})
+    monkeypatch.setattr(rc, "publish", lambda *a, **k: pytest.fail("a non-publisher attempted promotion"))
+
+    def authorize(action, **kwargs):
+        assert action == "release_tag" and kwargs["single_publisher"] is True
+        return "deny", "only the signed publisher may promote", None
+
+    result = ship.gh_release(tmp_path, "v1.2", ["--candidate", "candidate.yaml"], mandate=authorize)
+    assert result["state"] == "candidate-refused" and "only the signed publisher" in result["error"]
+
+
+def test_github_retries_explicit_short_cooldown_and_keeps_long_cooldown_for_resume():
+    waits = []
+    responses = iter([
+        SimpleNamespace(returncode=1, stderr="rate limited", stdout="HTTP/2 429\r\nRetry-After: 3\r\n\r\n{}"),
+        SimpleNamespace(returncode=0, stderr="", stdout='HTTP/2 200\n\n{"id": 42}'),
+        SimpleNamespace(returncode=1, stderr="rate limited", stdout=("HTTP/2 403\nX-RateLimit-Remaining: 0\n"
+                                                                    "X-RateLimit-Reset: 1199\n\n{}")),
+    ])
+
+    def run(args, **kwargs):
+        assert args[:3] == ["gh", "api", "--include"]
+        return next(responses)
+
+    gh = rc.GitHub("owner/repo", run=run, now=lambda: 1000, pause=waits.append)
+    assert gh.api("releases/42") == {"id": 42}
+    with pytest.raises(rc.Refused, match="resume the same candidate after 200 seconds"):
+        gh.api("releases/42")
+    assert waits == [3]
 
 
 @pytest.mark.parametrize("missing, substitute", [
@@ -51,7 +87,32 @@ def test_online_digest_must_match():
         rc.online_assets(draft, {"test.deb": "expected"})
 
 
-def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
+def test_replacing_one_installer_reuses_only_independent_proof():
+    installers = {"windows": "windows.exe", "debian": "debian.deb", "mac": "mac.pkg"}
+    specs = {target: {"workflow": ".github/workflows/release-candidate.yml", "platform": platform, "arch": "x86_64"}
+             for target, platform in (("windows", "windows"), ("debian", "debian"), ("mac", "macos"))}
+    candidate = {"version": "1.0", "runs": {"windows": 4, "debian": 2, "mac": 3}}
+    assets = {"windows.exe": "win-new", "debian.deb": "deb", "mac.pkg": "mac", "shared.zip": "shared"}
+
+    class Proofs:
+        def proof(self, target, run, workflow, commit):
+            assert run == candidate["runs"][target]
+            observed = {installers[target]: assets[installers[target]], "shared.zip": "shared"}
+            if target != "windows":
+                observed["windows.exe"] = "win-old"
+            return {"target": target, "version": "1.0", "commit": commit, "installed": True,
+                    "installer": installers[target], "platform": specs[target]["platform"], "arch": "x86_64",
+                    "assets": observed}
+
+    rc.check_proofs(Proofs(), {"targets": specs}, candidate, "commit", assets, installers)
+    for spec in specs.values():
+        spec["install_inputs"] = [r"shared\.zip"]
+    with pytest.raises(rc.Refused, match="windows: package hashes differ"):
+        rc.check_proofs(Proofs(), {"targets": specs}, candidate, "commit",
+                        dict(assets, **{"shared.zip": "replacement"}), installers)
+
+
+def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path, record_property):
     for name in ("a.deb", "b.exe"):
         (tmp_path / name).write_bytes(name.encode())
     assets = {name: rc.file_digest(tmp_path / name) for name in ("a.deb", "b.exe")}
@@ -101,6 +162,7 @@ def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
     with pytest.raises(rc.Refused, match="connection interrupted"):
         rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate)
     assert gh.row["draft"] and gh.latest == "old" and not approvals
+    kept = len(gh.uploads)
     gh.fail = False
     with pytest.raises(rc.Refused, match="release window"):
         rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize,
@@ -109,6 +171,8 @@ def test_draft_recovers_an_interrupted_upload_without_changing_latest(tmp_path):
     assert rc.promote(gh, "v1.0", candidate, tmp_path, assets, authorize, gate=gate) == "new"
     assert gh.uploads == ["a.deb", "b.exe"]
     assert approvals == [True, True]
+    record_property("fieldkit_fixture_assets_reused", kept)
+    record_property("fieldkit_fixture_uploads_completed", len(gh.uploads))
 
 
 def test_independent_repo_uses_its_tagged_policy_in_cli_and_ci(tmp_path, monkeypatch):

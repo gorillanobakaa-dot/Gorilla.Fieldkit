@@ -300,6 +300,9 @@ def default_runner(base_sha, ids, job="", repo="."):
     """Runs exactly `ids` with pytest on a fresh detached worktree of `base_sha` in the scratch root; on Windows under
     `fieldkit guard --`; a job named ubuntu goes to the peer (`fieldkit task start --on peer --run --tree DIR -- LINE`).
     -> {id: "pass" | "fail"}, ids missing from pytest's report left out (unproven)."""
+    from ..autopilot.toolrouter import LOCAL_TESTS_ENV
+    if os.environ.get(LOCAL_TESTS_ENV) != "1":
+        raise RuntimeError("local verification is disabled; use existing GitHub CI evidence")
     out = subprocess.run([sys.executable, "-m", "fieldkit", "scratch", "new", "whose-red", "--print-path"],
                          capture_output=True, text=True, timeout=120, cwd=repo)
     scratch = out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else ""

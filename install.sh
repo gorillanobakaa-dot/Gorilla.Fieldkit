@@ -128,8 +128,9 @@ else
 fi
 cd "$SRC" || exit 3
 
-# 3 the machine
+# 3 the machine and read-only installer preflight (before creating .venv or installing packages)
 "$PY" -m fieldkit.core.doctor --probe || true
+"$PY" -m fieldkit.desk.install_preflight --lean --allow-missing-terminal || exit 3
 
 # 4 a private environment in the folder
 if [ "$FULL" = 1 ]; then WHAT="every dependency (about 150 MB; needs a fast connection)"; else WHAT="the lean set: PyYAML and psutil (about 2 MB)"; fi
@@ -151,6 +152,9 @@ else
   say "No environment made. To use Fieldkit without it: cd $SRC && $PY -m fieldkit doctor --lean"
   VPY="$PY"
 fi
+
+# Prepare bundled or previously gathered Python tools with the installed interpreter.
+"$VPY" -m fieldkit.compileonce build || exit 3
 
 # 5 the doctor, and the list
 if [ "$FULL" = 1 ]; then "$VPY" -m fieldkit.core.doctor; RC=$?; else "$VPY" -m fieldkit.core.doctor --lean; RC=$?; fi

@@ -146,7 +146,16 @@ def _choice(arg=None, **_):
     return choice.render(rows, socket.gethostname()).splitlines(), rows
 
 
-PROBES = {"choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
+def _clean_slate(arg=None, **_):
+    from ..capture import audit
+
+    if arg is not None:
+        raise ValueError("clean-slate-audit accepts no argument")
+    report = audit.local()
+    return [], report
+
+
+PROBES = {"clean-slate-audit": _clean_slate, "choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
           "sessions": _sessions, "antigravity-sessions": _antigravity_sessions}
 
 

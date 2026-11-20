@@ -49,7 +49,7 @@ LOCAL = ROOT / "fieldkit.local.json"
 
 BUCKETS = ("bare", "rework", "tests", "tools", "llm", "owner", "idle")        # priority order, first wins
 LABEL = {"bare": "bare work", "rework": "rework", "tests": "tests+gates", "tools": "agent tools", "llm": "LLM",
-         "owner": "waiting-for-owner", "idle": "idle"}
+         "owner": "waiting-for-owner", "idle": "unattributed"}
 BARE_STAGES = ("migrate", "compile", "package")
 MIGRATE_EVENTS = {"migrate-init", "migrate-work", "migrate-check", "migrate-action", "script-start",
                   "script-done", "script-failed", "auto-done", "auto-miss", "obsolete", "dropped", "packet", "lesson",
@@ -365,10 +365,12 @@ def _tool_bucket(name, inp, secs, journal):
 
 
 # ---- other sources ------------------------------------------------------------------------------------------------
-def testcost_intervals(path):
+def testcost_intervals(path, job_id=None):
     """testcost runs.jsonl rows -> tests; a re-run of a check on a tree that already passed it -> rework."""
     out, passed = [], set()
     for r in _jsonl(path):
+        if job_id is not None and r.get("job_id") != job_id:
+            continue
         try:
             t, s = parse_t(r["t"]), float(r.get("seconds") or 0)
         except (KeyError, ValueError):
@@ -564,9 +566,11 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
         tv, counts = transcript_intervals(files, journal=journal)
         iv += tv
     elif not sessions:
-        notes.append("no session transcript given: model and agent time are not split out (they count as idle)")
+        notes.append("no session transcript given: model and agent time may be unattributed")
     st = state_dir(state)
-    iv += testcost_intervals(testcost_log or st / "testcost" / "runs.jsonl")
+    job_id = job.get("job_id") or job.get("task") or job.get("gid") or name
+    # An explicitly supplied log can be scoped by its caller. The shared ledger must match this job.
+    iv += testcost_intervals(testcost_log or st / "testcost" / "runs.jsonl", None if testcost_log else job_id)
     if inbox_dir is None:
         from .autopilot import hardlines
         inbox_dir = hardlines.STATE / "inbox"
@@ -587,7 +591,8 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
             "bare_s": round(bare) if bare else None, "bare_parts": {k: round(v) for k, v in bare_parts.items()},
             "ratio": round(ratio, 2) if ratio else None, "max_ratio": cfg["max_ratio"], "level": level,
             "buckets": {k: round(v) for k, v in secs.items()}, "rework": {k: round(v) for k, v in rework.items()},
-            "runs": dict(run_counts), "counts": dict(counts), "sessions": sessions, "notes": notes}
+            "runs": dict(run_counts), "counts": dict(counts), "sessions": sessions, "notes": notes,
+            "unattributed_s": round(secs["idle"])}
 
 
 def report_line(r):
@@ -745,6 +750,29 @@ def bash_calls(root=None, since="2020-01-01"):
     return sorted(rows, key=lambda r: -r["seconds"])
 
 
+def fixture_timings(paths):
+    """Report actual measured fixture time, without implying a live build or deployment took place."""
+    import math
+
+    rows = []
+    for path in paths:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if data.get("schema") != 2:
+            raise ValueError(f"{path}: expected a CI test receipt")
+        context = data["context"]
+        system = context["image"]["RUNNER_OS"]
+        for job, seconds in data.get("fixture_seconds", {}).items():
+            if (job not in ("release", "emergency-repair") or type(seconds) not in (float, int)
+                    or not math.isfinite(seconds) or seconds < 0):
+                raise ValueError(f"{path}: invalid fixture timing")
+            counts = data.get("fixture_counts", {}).get(job, {})
+            if not isinstance(counts, dict) or any(type(value) is not int or value < 0 for value in counts.values()):
+                raise ValueError(f"{path}: invalid fixture counts")
+            rows.append({"job": job, "scope": "ci-fixture", "system": system,
+                         "tree": context["tree"], "wall_s": seconds, "counts": counts})
+    return sorted(rows, key=lambda row: (row["system"], row["job"], row["tree"]))
+
+
 def main(argv=None, prog="fieldkit overhead"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -755,8 +783,27 @@ def main(argv=None, prog="fieldkit overhead"):
     ap.add_argument("--until")
     ap.add_argument("--bare", type=float, help="the bare minutes, when no stage log gives them")
     ap.add_argument("--state", help="Fieldkit state folder (default: this checkout's state/)")
+    ap.add_argument("--work-id", help="attribute test ledger entries to this work ID for a single named job")
+    ap.add_argument("--fixture", action="append", help="report release and repair fixture timings from a CI receipt")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.work_id and (not a.job or a.fixture):
+        ap.error("--work-id needs a single named job")
+    if a.fixture:
+        try:
+            rows = fixture_timings(a.fixture)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            print(f"overhead: {exc}", file=sys.stderr)
+            return 2
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            for row in rows:
+                counts = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in sorted(row["counts"].items()))
+                print(f"{row['system']} {row['job']} CI fixture: {row['wall_s']:.3f} s" + (f" ({counts})" if counts else ""))
+            if not rows:
+                print("No release or repair fixture timings in these CI receipts.")
+        return 0
     cfg = config()
     if a.job == "bash-calls":
         rows = bash_calls(since=a.since or "2020-01-01")
@@ -826,7 +873,8 @@ def main(argv=None, prog="fieldkit overhead"):
             print(f"overhead: no job {a.job!r}; known: {', '.join(jobs) or 'none'}", file=sys.stderr)
             return 2
         try:
-            r = measure(a.job, jobs[a.job], a.session, a.since, a.until, a.bare, cfg, a.state)
+            job = dict(jobs[a.job], job_id=a.work_id) if a.work_id else jobs[a.job]
+            r = measure(a.job, job, a.session, a.since, a.until, a.bare, cfg, a.state)
         except ValueError as e:
             print(f"overhead: {e}", file=sys.stderr)
             return 2

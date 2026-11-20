@@ -7,19 +7,20 @@ global rules file (Gorilla OpenCode) reads `rules/CORE.md` first.
 Where the harness is going: `docs/VISION.md`; the work that gets it there, item by item: `docs/HARNESS-PLAN.md`.
 Where a plan, idea, hand-over or brief is kept, and where a new one goes: `docs/WHERE-THINGS-LIVE.md`.
 
-Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does it the same way every time and
-reports the result. Prefer a Fieldkit command to a one-off script for the same job.
+Prefer Fieldkit commands to one-off scripts. The model chooses the action; Fieldkit runs it deterministically and
+reports the result.
 
 ## Commands
 
-Every command accepts `--json`. Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets or a failed
-stage). Each output ends with `NEXT:`, the step to take. Find a tool: `fieldkit tools find WORDS`,
-`fieldkit tools list`, `fieldkit cards show NAME`, or the skills (fieldkit-*). The ones every job uses:
+Commands accept `--json` and print the next step as `NEXT:`. Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings
+(problems, secrets or a failed stage). Find tools with `fieldkit tools find WORDS`, `fieldkit tools list`,
+`fieldkit cards show NAME`, or fieldkit-* skills.
 
 ```
 fieldkit emerge list|plan|run|status RECIPE      every build, compile and package (rules/CORE.md BUILDS)
 fieldkit emerge repair RECIPE --files F ...       a small frontend fix in one step: no stages, checked, next patch
 fieldkit testcost staged                          the tests covering what you changed (the pre-commit hook runs it)
+fieldkit mandate status --repo .                   check existing approval at the start of a job that needs to ship
 fieldkit guard -- CMD ...                         every heavy command on the Windows laptop
 fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through the owner-wide mandate
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review

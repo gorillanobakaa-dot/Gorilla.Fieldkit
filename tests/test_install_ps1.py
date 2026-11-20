@@ -39,11 +39,15 @@ def make_zip(path, entries=None, doctor_exit=0):
         entries = {
             "Gorilla.Fieldkit-main/fieldkit/__init__.py": "",
             "Gorilla.Fieldkit-main/fieldkit/__main__.py": "",
+            "Gorilla.Fieldkit-main/fieldkit/compileonce.py": (ROOT / "fieldkit" / "compileonce.py").read_text(encoding="utf-8"),
+            "Gorilla.Fieldkit-main/fieldkit/desk/__init__.py": "",
+            "Gorilla.Fieldkit-main/fieldkit/desk/install_preflight.py": (ROOT / "fieldkit" / "desk" / "install_preflight.py").read_text(encoding="utf-8"),
             "Gorilla.Fieldkit-main/fieldkit/core/__init__.py": "",
             "Gorilla.Fieldkit-main/fieldkit/core/doctor.py":
-                f"import sys\nprint('LEAN', sys.argv[1:])\nsys.exit({doctor_exit} if '--lean' in sys.argv else 2)\n",
+                f"import sys\ndef check(lean=True):\n    return {{'packages': [], 'install_line': ''}}\nif __name__ == '__main__':\n    print('LEAN', sys.argv[1:])\n    sys.exit({doctor_exit} if '--lean' in sys.argv else 2)\n",
             "Gorilla.Fieldkit-main/fieldkit/core/requirements.json": '{"lean": {"packages": ["pyyaml>=6", "psutil>=5.9"]}}',
             "Gorilla.Fieldkit-main/README.md": "fake\n",
+            "Gorilla.Fieldkit-main/toolbox/pfind/pfind.py": "def main():\n    return 0\n",
         }
     with zipfile.ZipFile(path, "w") as z:
         for name, text in entries.items():
@@ -172,8 +176,12 @@ def test_full_run_writes_installed_txt(tmp_path):
     zip_path = make_zip(tmp_path / "fk.zip")
     code, out = run_script(target, ["y", "y", "y"], zip_path)
     assert code == 0, out
+    assert "fieldkit installer preflight" in out
+    assert out.index("fieldkit installer preflight") < out.index("4a. Create a private Python environment")
     assert (target / "fieldkit" / "__main__.py").is_file()
     assert (target / ".venv" / "Scripts" / "python.exe").is_file()
+    (prepared,) = (target / "toolbox" / "pfind" / "__pycache__").glob("pfind.*.pyc")
+    assert prepared.read_bytes()[4:8] == b"\x03\x00\x00\x00"  # checked-hash bytecode
     rec = (target / "INSTALLED.txt").read_text(encoding="utf-8-sig")
     assert "Copied (not downloaded): file:///" in rec
     assert f"({zip_path.stat().st_size} bytes)" in rec and "sha256 " in rec

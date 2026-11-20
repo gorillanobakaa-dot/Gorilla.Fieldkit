@@ -682,7 +682,7 @@ STOP_CMD = '"{py}" -m fieldkit.tokens.rotate --stop-hook'
 ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 #: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve;
 #: archive_session: Zero retires only into a new Zero, fieldkit/zero/retire.py; start_session: no own_initiative card)
-TOOL_MATCH = ("Bash|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage|mcp__ccd_session_mgmt__archive_session"
+TOOL_MATCH = ("Bash|Grep|Glob|Read|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage|mcp__ccd_session_mgmt__archive_session"
               "|mcp__ccd_session__start_session")
 
 

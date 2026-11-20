@@ -3,21 +3,15 @@
 # check, row 5-e2e). Runs on pull requests that touch the code it proves, and by hand.
 name: e2e
 on:
-  pull_request:
-    paths:
-      - "fieldkit/leakgate/**"
-      - "fieldkit/integration/**"
-      - "fieldkit/capture/**"
-      - "fieldkit/zero/**"
-      - "fieldkit/lifecycle/pool*"
-      - "fieldkit/lifecycle/choice*"
-      - "fieldkit/core/prepare*"
-      - "fieldkit/once.py"
-      - ".github/e2e/**"
-      - ".github/workflows/e2e.yml"
+  workflow_call:
+    inputs:
+      selected:
+        required: true
+        type: string
   workflow_dispatch:
 jobs:
   e2e-zero-hooks-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-zero-hooks-linux')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,6 +22,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/zero_hooks.py
   e2e-zero-hooks-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-zero-hooks-windows')
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -38,6 +33,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/zero_hooks.py
   e2e-capture-clean-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-capture-clean-linux')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -50,6 +46,7 @@ jobs:
       - run: python -m fieldkit compileonce check
       - run: python .github/e2e/capture_footprint.py
   e2e-capture-clean-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-capture-clean-windows')
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -62,6 +59,7 @@ jobs:
       - run: python -m fieldkit compileonce check
       - run: python .github/e2e/capture_footprint.py
   e2e-capture-lesson-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-capture-lesson-linux')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -73,6 +71,7 @@ jobs:
       - run: python -m fieldkit compileonce build
       - run: python .github/e2e/capture_lesson.py
   e2e-capture-lesson-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-capture-lesson-windows')
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -84,6 +83,7 @@ jobs:
       - run: python -m fieldkit compileonce build
       - run: python .github/e2e/capture_lesson.py
   e2e-leakgate-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-leakgate-linux')
     # the gate's Linux enforcement layer: selftest, then a network namespace whose nftables policy DROP lets the allowed
     # port through and blocks every other one. ubuntu-latest has passwordless sudo.
     name: e2e-leakgate-linux
@@ -102,6 +102,7 @@ jobs:
       - name: allowed connection passes, forbidden one is blocked, in the gate's real namespace
         run: sudo -E env "PATH=$PATH" python .github/e2e/leakgate_linux.py
   e2e-night-pack-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-night-pack-linux')
     # fieldkit build-harness night-pack: the real entry point; empty pack refused, prepare, status, an unarmed run does nothing.
     name: e2e-night-pack-linux
     runs-on: ubuntu-latest
@@ -114,6 +115,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/night_pack.py
   e2e-night-pack-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-night-pack-windows')
     # fieldkit build-harness night-pack: the real entry point; empty pack refused, prepare, status, an unarmed run does nothing.
     name: e2e-night-pack-windows
     runs-on: windows-latest
@@ -126,6 +128,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/night_pack.py
   e2e-autoaccept-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-autoaccept-linux')
     # fieldkit autoaccept: the real entry point on safe paths (.github/e2e/vaio_batch.py autoaccept).
     name: e2e-autoaccept-linux
     runs-on: ubuntu-latest
@@ -138,6 +141,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py autoaccept
   e2e-autoaccept-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-autoaccept-windows')
     # fieldkit autoaccept: the real entry point on safe paths (.github/e2e/vaio_batch.py autoaccept).
     name: e2e-autoaccept-windows
     runs-on: windows-latest
@@ -150,6 +154,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py autoaccept
   e2e-compileonce-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-compileonce-linux')
     # fieldkit compileonce: the real entry point on safe paths (.github/e2e/vaio_batch.py compileonce).
     name: e2e-compileonce-linux
     runs-on: ubuntu-latest
@@ -162,6 +167,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py compileonce
   e2e-compileonce-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-compileonce-windows')
     # fieldkit compileonce: the real entry point on safe paths (.github/e2e/vaio_batch.py compileonce).
     name: e2e-compileonce-windows
     runs-on: windows-latest
@@ -173,7 +179,32 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py compileonce
+  e2e-clean-slate-audit-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-clean-slate-audit-linux')
+    name: e2e-clean-slate-audit-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py clean-slate-audit
+  e2e-clean-slate-audit-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-clean-slate-audit-windows')
+    name: e2e-clean-slate-audit-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py clean-slate-audit
   e2e-idle-report-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-idle-report-linux')
     # fieldkit idle-report: the real entry point on safe paths (.github/e2e/vaio_batch.py idle-report).
     name: e2e-idle-report-linux
     runs-on: ubuntu-latest
@@ -186,6 +217,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py idle-report
   e2e-idle-report-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-idle-report-windows')
     # fieldkit idle-report: the real entry point on safe paths (.github/e2e/vaio_batch.py idle-report).
     name: e2e-idle-report-windows
     runs-on: windows-latest
@@ -198,6 +230,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py idle-report
   e2e-harness-firefox-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-firefox-linux')
     # fieldkit harness-firefox: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-firefox).
     name: e2e-harness-firefox-linux
     runs-on: ubuntu-latest
@@ -210,6 +243,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-firefox
   e2e-harness-firefox-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-firefox-windows')
     # fieldkit harness-firefox: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-firefox).
     name: e2e-harness-firefox-windows
     runs-on: windows-latest
@@ -222,6 +256,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-firefox
   e2e-harness-kernel-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-kernel-linux')
     # fieldkit harness-kernel: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-kernel).
     name: e2e-harness-kernel-linux
     runs-on: ubuntu-latest
@@ -234,6 +269,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-kernel
   e2e-harness-kernel-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-kernel-windows')
     # fieldkit harness-kernel: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-kernel).
     name: e2e-harness-kernel-windows
     runs-on: windows-latest
@@ -246,6 +282,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-kernel
   e2e-harness-opencode-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-opencode-linux')
     # fieldkit harness-opencode: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-opencode).
     name: e2e-harness-opencode-linux
     runs-on: ubuntu-latest
@@ -258,6 +295,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-opencode
   e2e-harness-opencode-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-harness-opencode-windows')
     # fieldkit harness-opencode: the real entry point on safe paths (.github/e2e/vaio_batch.py harness-opencode).
     name: e2e-harness-opencode-windows
     runs-on: windows-latest
@@ -270,6 +308,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py harness-opencode
   e2e-bh-capture-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-capture-linux')
     # fieldkit bh-capture: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-capture).
     name: e2e-bh-capture-linux
     runs-on: ubuntu-latest
@@ -282,6 +321,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-capture
   e2e-bh-capture-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-capture-windows')
     # fieldkit bh-capture: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-capture).
     name: e2e-bh-capture-windows
     runs-on: windows-latest
@@ -294,6 +334,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-capture
   e2e-bh-request-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-request-linux')
     # fieldkit bh-request: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-request).
     name: e2e-bh-request-linux
     runs-on: ubuntu-latest
@@ -306,6 +347,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-request
   e2e-bh-request-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-request-windows')
     # fieldkit bh-request: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-request).
     name: e2e-bh-request-windows
     runs-on: windows-latest
@@ -318,6 +360,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-request
   e2e-bh-leakgate-ci-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-leakgate-ci-linux')
     # fieldkit bh-leakgate-ci: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-leakgate-ci).
     name: e2e-bh-leakgate-ci-linux
     runs-on: ubuntu-latest
@@ -330,6 +373,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-leakgate-ci
   e2e-bh-leakgate-ci-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-bh-leakgate-ci-windows')
     # fieldkit bh-leakgate-ci: the real entry point on safe paths (.github/e2e/vaio_batch.py bh-leakgate-ci).
     name: e2e-bh-leakgate-ci-windows
     runs-on: windows-latest
@@ -342,6 +386,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py bh-leakgate-ci
   e2e-pool-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-pool-linux')
     # fieldkit pool plan: the real entry point, a session list in, ordered app-tool calls out.
     name: e2e-pool-linux
     runs-on: ubuntu-latest
@@ -354,6 +399,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/pool_plan.py
   e2e-pool-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-pool-windows')
     name: e2e-pool-windows
     runs-on: windows-latest
     timeout-minutes: 10
@@ -365,6 +411,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/pool_plan.py
   e2e-once-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-once-linux')
     # fieldkit once: the real entry point; a success skipped, a changed input re-run, a repeated watcher line says stop.
     name: e2e-once-linux
     runs-on: ubuntu-latest
@@ -377,6 +424,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/once.py
   e2e-once-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-once-windows')
     # fieldkit once: the real entry point; a success skipped, a changed input re-run, a repeated watcher line says stop.
     name: e2e-once-windows
     runs-on: windows-latest
@@ -389,6 +437,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/once.py
   e2e-antigravity-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-antigravity-linux')
     name: e2e-antigravity-linux
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -400,6 +449,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/antigravity_bridge.py
   e2e-antigravity-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-antigravity-windows')
     name: e2e-antigravity-windows
     runs-on: windows-latest
     timeout-minutes: 10
@@ -411,6 +461,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/antigravity_bridge.py
   e2e-models-choice-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-models-choice-linux')
     name: e2e-models-choice-linux
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -422,6 +473,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/models_choice.py
   e2e-models-choice-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-models-choice-windows')
     name: e2e-models-choice-windows
     runs-on: windows-latest
     timeout-minutes: 10
@@ -433,6 +485,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/models_choice.py
   e2e-agy-tools-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-agy-tools-linux')
     # fieldkit antigravity (the Rust agy-tools): cargo test, the release build from source, the real entry points.
     name: e2e-agy-tools-linux
     runs-on: ubuntu-latest
@@ -450,6 +503,7 @@ jobs:
       - run: python .github/e2e/agy_tools.py
       - run: python -m pytest -q -p no:cacheprovider tests/test_antigravity.py
   e2e-agy-tools-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-agy-tools-windows')
     # fieldkit antigravity (the Rust agy-tools): cargo test, the release build from source, the real entry points.
     name: e2e-agy-tools-windows
     runs-on: windows-latest
@@ -467,6 +521,7 @@ jobs:
       - run: python .github/e2e/agy_tools.py
       - run: python -m pytest -q -p no:cacheprovider tests/test_antigravity.py
   e2e-prepare-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-prepare-linux')
     # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
     name: e2e-prepare-linux
     runs-on: ubuntu-latest
@@ -479,6 +534,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/prepare_gate.py
   e2e-prepare-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-prepare-windows')
     # fieldkit prepare: the real entry point, READY for a job whose tools are there, NOT-READY (exit 3) for a missing one.
     name: e2e-prepare-windows
     runs-on: windows-latest
@@ -491,6 +547,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/prepare_gate.py
   e2e-firefox-cookbook-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-firefox-cookbook-linux')
     # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
     # entry point prints the release chain.
     name: e2e-firefox-cookbook-linux
@@ -505,6 +562,7 @@ jobs:
       - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
       - run: python -m fieldkit firefox release 1.0
   e2e-firefox-cookbook-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-firefox-cookbook-windows')
     # P38: a toy Firefox through the whole cookbook chain (seams 1-7, handover, each OS's apply step), then the real
     # entry point prints the release chain.
     name: e2e-firefox-cookbook-windows
@@ -519,6 +577,7 @@ jobs:
       - run: python -m pytest -q -p no:cacheprovider tests/test_firefox_cookbook_e2e.py
       - run: python -m fieldkit firefox release 1.0
   e2e-cookbook-load-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-cookbook-load-linux')
     # P41a: the registry is valid and the real entry point loads a brief by cwd and by id.
     name: e2e-cookbook-load-linux
     runs-on: ubuntu-latest
@@ -532,6 +591,7 @@ jobs:
       - run: python -m fieldkit cookbook check
       - run: python -m fieldkit cookbook load fieldkit --no-state
   e2e-cookbook-load-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-cookbook-load-windows')
     # P41a: the registry is valid and the real entry point loads a brief by cwd and by id.
     name: e2e-cookbook-load-windows
     runs-on: windows-latest
@@ -545,6 +605,7 @@ jobs:
       - run: python -m fieldkit cookbook check
       - run: python -m fieldkit cookbook load fieldkit --no-state
   e2e-cmd-check-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-cmd-check-linux')
     # P9: the real entry point judges a command against the live argparse tree.
     name: e2e-cmd-check-linux
     runs-on: ubuntu-latest
@@ -557,6 +618,7 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/cmd_check.py
   e2e-cmd-check-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-cmd-check-windows')
     name: e2e-cmd-check-windows
     runs-on: windows-latest
     timeout-minutes: 10

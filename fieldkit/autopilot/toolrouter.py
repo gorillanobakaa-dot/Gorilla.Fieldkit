@@ -13,6 +13,7 @@ not. The table is data: one row per tool, each with a test (tests/test_autopilot
     python -m fieldkit.autopilot.toolrouter "<command>"   (prints the verdict; exit 2 when refused)
 """
 import json
+import os
 import re
 import sys
 
@@ -37,8 +38,8 @@ ROUTES = [
     ("text-search-in-tree",
      re.compile(r"(Get-ChildItem|\bgci\b)[^|\n]*-Recurse[^|\n]*\|\s*(Select-String|sls)\b|"
                 r"\bfindstr\s+[^|;\n]*/s\b", re.I),
-     "the Grep tool (ripgrep), or fieldkit size find --grep TEXT for files matched by name, size or age",
-     FK + " size find --ext py --grep vctip <folder>"),
+     "pfind for text and code references",
+     FK + " agent run pfind --input query=vctip --input content=true"),
     # -- 2026-10-19: every hand-rolled habit a Fieldkit tool replaces (worker session, job 2). Each row has a test that
     #    it fires and a test that its look-alike does not (tests/test_autopilot_toolrouter.py).
     # -- 2026-10-25: the hand steps of the Gorilla OpenCode v0.1.152 release from Windows, each now a tool
@@ -398,6 +399,54 @@ def local_tests_refusal(command, environ=None):
     return LOCAL_TESTS if any(p.search(cmd) for p in TEST_RUNNERS) else None
 
 
+PFIND_ROUTE = {"route": "text-search-in-tree", "use": "pfind for text and code references",
+               "example": FK + " agent run pfind --input query=needle --input content=true"}
+SIZE_FIND_ROUTE = {"route": "recursive-file-search", "use": "fieldkit size find for filesystem inventory",
+                   "example": FK + " size find --name '*.py' --paths ."}
+SIZE_ROUTE = {"route": "folder-size", "use": "fieldkit size for measurements", "example": FK + " size ."}
+READ_ROUTE = {"route": "static-file-read", "use": "fieldkit size find for bounded static reads",
+              "example": FK + " size find --tail 20 log.txt"}
+RAW_SEARCH = (
+    (re.compile(_AT + r"(?:rg(?:\.exe)?\s+--files\b|find\s+|Get-ChildItem\b|gci\s+)", re.I | re.M), SIZE_FIND_ROUTE),
+    (re.compile(_AT + r"(?:rg|grep|egrep|fgrep|ag|findstr|select-string|sls)(?:\.exe)?(?:[\"']?\s)", re.I | re.M), PFIND_ROUTE),
+    (re.compile(_AT + r"(?:du|ncdu)(?:\.exe)?\s", re.I | re.M), SIZE_ROUTE),
+    (re.compile(_AT + r"(?:head|tail|cat|Get-Content|tc|gc)(?:\.exe)?(?:[\"']?\s)", re.I | re.M), READ_ROUTE),
+)
+FOLLOW = re.compile(r"\s(?:--follow(?:=(?:name|descriptor))?|-\w*[fF]\w*|-Wait)(?=\s|$)", re.I)
+
+
+def search_route(command):
+    """Find covered searches outside quoted data and inside recognized shell wrappers."""
+    quoted = [m.span() for m in re.finditer(r"\"[^\"\n]*\"|'[^'\n]*'", command)]
+    for offset, _, statement in _statements(command):
+        if re.match(r"^\s*cat\s+(?:[<>]|/proc/|/sys/)", statement):
+            continue
+        if re.match(r"^\s*(?:tail|Get-Content|gc)(?:\.exe)?\s", statement, re.I) and FOLLOW.search(statement):
+            continue
+        for pattern, route in RAW_SEARCH:
+            for match in pattern.finditer(statement):
+                start = offset + match.start()
+                if not any(left < start < right for left, right in quoted):
+                    return route
+    for wrapped in INNER.finditer(command):
+        if result := search_route(wrapped.group(2)):
+            return result
+    return None
+
+
+def search_rewrite(command, result):
+    # Translate only simple commands with an unambiguous single query or path.
+    rg = re.fullmatch(r"\s*rg\s+(?:-n\s+)?(-F\s+)?(?:--\s+)?([\w.]+)(\s+[\w./:\\\\-]+)?\s*", command)
+    if rg and result == PFIND_ROUTE:
+        fixed, query, paths = rg.groups()
+        mode = "" if fixed else " --regex"
+        return f"python -B -m fieldkit.desk.pfind --content{mode} -- {query}{paths or ''}"
+    du = re.fullmatch(r"\s*du\s+-sh\s+([\w./:\\\\-]+)\s*", command)
+    if du and result == SIZE_ROUTE:
+        return f"{FK} size --depth 0 {du[1]}"
+    return None
+
+
 def route(command, cwd="", shell=""):
     """-> None (allowed) or {"route", "use", "example"} for the first route the command matches. A heredoc's body is
     data written to a file or a program, not a command (2026-10-18: appending the rule that NAMES these commands to
@@ -421,7 +470,7 @@ def route(command, cwd="", shell=""):
                                        and _hit(name, PS_LS, cmd))
         if hit and not (name == "sleep-to-wait" and _sampling(cmd)):
             return {"route": name, "use": use, "example": example}
-    return unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
+    return (unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd) or search_route(cmd))
 
 
 def unknown_verb_refusal(command):
@@ -644,6 +693,9 @@ def _allow(command, rule, tool_input):
         "updatedInput": dict(tool_input, command=command)}}
 
 
+AUDIT_TOOLS = {"mcp__fieldkit__clean_slate_audit", "mcp_fieldkit_clean_slate_audit", "fieldkit_clean_slate_audit"}
+
+
 def verdict(call):
     """-> the deny JSON for a tool call, or None: ground claims, the primary checkout, the rotation stop, the circuit breaker, then (Bash and
     PowerShell) the route table."""
@@ -654,13 +706,24 @@ def verdict(call):
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()
-    if tool not in ("bash", "powershell"):
+    if os.getenv("FIELDKIT_AUDIT_ONLY") == "1" and tool not in AUDIT_TOOLS:
+        return _deny("Audit mode permits only the fixed clean_slate_audit tool.")
+    if tool in {"grep", "search_file_content", "grep_search", "git_grep"}:
+        return _deny(message(PFIND_ROUTE))
+    if tool in {"glob", "find_by_name", "list_directory", "list_dir"}:
+        return _deny(message(SIZE_FIND_ROUTE))
+    if tool in {"read", "read_file", "view_file"}:
+        return _deny(message(READ_ROUTE))
+    if tool not in ("bash", "powershell", "exec_command", "run_shell_command", "run_command"):
         return None
     ti = call.get("tool_input") or {}
     r = route(ti.get("command", ""), call.get("cwd") or "", tool)
     if not r:
         return None
-    fix = rewrite(ti.get("command", ""), call.get("cwd") or "") if tool == "bash" else None
+    command = ti.get("command", "")
+    if fixed := search_rewrite(command, r):
+        return _allow(fixed, r["route"], ti)
+    fix = rewrite(command, call.get("cwd") or "") if tool == "bash" else None
     if fix:
         return _allow(fix[0], fix[1], ti)
     return _deny(message(r))
