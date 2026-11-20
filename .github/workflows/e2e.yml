@@ -179,6 +179,30 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/vaio_batch.py compileonce
+  e2e-clean-slate-audit-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-clean-slate-audit-linux')
+    name: e2e-clean-slate-audit-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py clean-slate-audit
+  e2e-clean-slate-audit-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-clean-slate-audit-windows')
+    name: e2e-clean-slate-audit-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/vaio_batch.py clean-slate-audit
   e2e-idle-report-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-idle-report-linux')
     # fieldkit idle-report: the real entry point on safe paths (.github/e2e/vaio_batch.py idle-report).

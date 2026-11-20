@@ -30,7 +30,7 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
                                           and a fresh HANDOFF.md (retire.py; the tool router enforces it)
     fieldkit zero schedule [--apply | --remove]   the comms check every 15 min (Windows task / systemd / launchd)
     fieldkit zero doctor                  files, chain, hook, schedule, cable key, the agent rules, the clock
-    fieldkit zero hooks AGENT [--apply]   inspect or install Codex, Gemini CLI, or Antigravity inbox hooks
+    fieldkit zero hooks AGENT [--apply]   inspect or install Codex, Gemini CLI, Antigravity or Gorilla OpenCode hooks
     fieldkit zero task ST --objective .. --area PATH[,PATH] --done ..   Zero gives a station its order and ground
     fieldkit zero task ST ... [--done-cmd CMD]   CMD proves done: `release ST --finished` runs it, refuses unless exit 0
     fieldkit zero release ST [--finished]  Zero closes an order; fieldkit zero orders lists them (command.py, set 2)
@@ -1577,7 +1577,7 @@ def main(argv=None, prog="fieldkit zero"):
         if verb == "hooks":
             from . import hooks
             if len(a.rest) != 1 or a.rest[0] not in hooks.EVENTS:
-                ap.error("hooks requires one of codex, gemini, antigravity")
+                ap.error("hooks requires one of codex, gemini, antigravity, opencode")
             try:
                 result = hooks.configure(a.rest[0], a.apply)
             except (OSError, ValueError, RecursionError) as exc:

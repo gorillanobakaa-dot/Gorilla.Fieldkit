@@ -596,7 +596,7 @@ tools:
 - id: pfind
   title: Hybrid local search in one Python file (name, content, meaning, snippet)
   harness: desk
-  entry: [python, "${FIELDKIT}/toolbox/pfind/pfind.py", --json, --no-color]
+  entry: [python, -B, -m, fieldkit, pfind, --json, --no-color]
   path: ${FIELDKIT}/toolbox/pfind/pfind.py
   repo: gorillanobakaa-dot/pfind
   inputs:
@@ -610,7 +610,8 @@ tools:
   effects: [reads-files]
   safety: read-only
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/pfind/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_compileonce.py"]
+  skill: skills/fieldkit-tools/SKILL.md
 
 - id: leakgate-runs
   title: Every leak-gate run - verdict, build, size and every file that cites it; only uncited runs are free to remove
@@ -6139,6 +6140,38 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "P18 build loop (owner 2026-11-10): `emerge run` records (capture on at start, off at the end, also on a crash; a switch someone else turned on is left alone) and the end makes tools: fieldkit/capture/loop.py distil = episodes, intents, recipes, classify; a recipe that replays becomes state/capture/candidates/ID/ (script, card.yaml, test) and fieldkit/capture/autoadopt.py tries it by itself: its test passes, fieldkit mutate breaks its script and the test must fail every time, fieldkit privacy scan is clean; all three -> a branch with the card in tools.yaml, script in fieldkit/capture/adopted/, test in tests/capture/adopted/, shipped with the ship push --auto route (one PR per run; `fieldkit capture adopted [ID]` lists or runs them), any failure -> an agent-ledger line with the failed step; a group that does not replay goes to state/capture/agent-ledger.jsonl with its reason. FIELDKIT_EMERGE_NO_CAPTURE=1 disables it, FIELDKIT_CAPTURE_NO_ADOPT=1 only the adopt step. P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
 
+- id: take-ownership
+  title: Request UAC and take ownership of one Windows file or directory
+  harness: desk
+  entry: [python, -m, fieldkit, ownership, take]
+  path: ${FIELDKIT}/fieldkit/desk/ownership.py
+  inputs:
+    - {name: path, flag: null, type: str, required: true, help: "one existing Windows file or directory"}
+  effects: [writes-files]
+  safety: irreversible
+  output: own
+  exits: {0: "owner and discretionary ACL verified", 2: "bad arguments or UAC declined", 3: "refused or verification failed"}
+  platforms: [windows]
+  platforms_why: "The Windows takeown executable, UAC, and Explorer shell are required."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ownership.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+
+- id: clean-slate-audit
+  title: One read-only clean-slate audit of the configured scratch folders
+  harness: method
+  entry: [python, -m, fieldkit, capture, audit]
+  path: ${FIELDKIT}/fieldkit/capture/audit.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable report"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {0: "report complete", 2: "bad arguments", 3: "partial audit or unavailable route"}
+  platforms: [windows, linux]
+  e2e: {windows: e2e-clean-slate-audit-windows, linux: e2e-clean-slate-audit-linux}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_audit.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+
 - id: capture-clean
   title: Inventory temporary folders and agent session stores, and preview capture scratch and transcript retention
   harness: method
@@ -7931,4 +7964,3 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."
-

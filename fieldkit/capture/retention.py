@@ -145,14 +145,16 @@ def _crew_owner_reason(path, device, mounts):
     return None
 
 
-def inspect(path, root, before, kept, protected, device, mounts=(), *, crew=False):
+def inspect(path, root, before, kept, protected, device, mounts=(), *, crew=False, visit=None):
     """Return a tree snapshot, stopping at directories that must stay intact."""
+    if visit is not None:
+        visit()
     info = path.lstat()
     stamp = (info.st_dev, info.st_ino, info.st_mode, info.st_size,
              info.st_mtime_ns, info.st_ctime_ns, getattr(info, "st_file_attributes", 0))
     row = {"path": str(path), "root": str(root), "name": path.name,
            "kind": "folder" if stat.S_ISDIR(info.st_mode) else "file", "files": 0,
-           "status": "undigested"}
+           "status": "undigested", "bytes": 0}
     reason = None
     children = []
     if link(info) or info.st_dev != device or str(path) in mounts or os.path.ismount(path):
@@ -169,10 +171,13 @@ def inspect(path, root, before, kept, protected, device, mounts=(), *, crew=Fals
         if reason is None and crew:
             reason = _crew_owner_reason(path, device, mounts)
         if reason is None:
-            children = [inspect(path / name, root, before, kept, protected, device, mounts) for name in names]
+            children = [inspect(path / name, root, before, kept, protected, device, mounts, visit=visit)
+                        for name in names]
             row["files"] = sum(child["files"] for child in children)
+            row["bytes"] = sum(child["bytes"] for child in children)
     elif stat.S_ISREG(info.st_mode):
         row["files"] = 1
+        row["bytes"] = info.st_size
         if info.st_nlink != 1:
             reason = "hard-linked file"
     else:

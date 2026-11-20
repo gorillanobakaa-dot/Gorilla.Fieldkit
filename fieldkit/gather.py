@@ -133,7 +133,14 @@ def gather_one(src, offline=False):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / rel, target)
         records[rel] = _sha(target)
-        if rel.endswith(".py"):
+        if src["name"] == "pfind" and rel == "pfind.py":
+            from .compileonce import prepare_pfind
+
+            try:
+                prepare_pfind(target)
+            except (OSError, py_compile.PyCompileError) as exc:
+                bad_py.append(f"{rel}: {exc}")
+        elif rel.endswith(".py"):
             try:
                 py_compile.compile(str(target), doraise=True, cfile=str(target) + "c.tmp")
             except py_compile.PyCompileError as e:

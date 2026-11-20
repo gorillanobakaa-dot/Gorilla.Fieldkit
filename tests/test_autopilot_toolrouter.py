@@ -27,9 +27,7 @@ def test_hand_rolled_scans_are_routed_to_the_tool(cmd, route):
 @pytest.mark.parametrize("cmd", [
     "git status --short",
     "ls -la /c/Users",
-    "Get-ChildItem C:\\gfobj\\dist\\*.zip",
     "python -m fieldkit size find --name vctip.exe --type f C:/",
-    "find . -maxdepth 1",
     "Get-ChildItem -Recurse x  # toolrouter-ok: a 3-file fixture folder in a test",
 ])
 def test_ordinary_commands_and_the_tools_pass(cmd):
@@ -246,7 +244,7 @@ def test_an_allowed_call_gets_the_room_in_the_same_process(tmp_path, monkeypatch
     assert "permissionDecision" not in capsys.readouterr().out
     assert room.tail()[-1].split("\t")[3] == "commit"              # written by the router's process
     tr.hook(io.StringIO(json.dumps(dict(commit, session_id="s2", transcript_path="C:/t/s2.jsonl",
-                                        tool_name="Read", tool_input={"file_path": "x"}))))
+                                        tool_name="NotebookRead", tool_input={"file_path": "x"}))))
     out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
     assert out["hookEventName"] == "PreToolUse" and "permissionDecision" not in out
     assert "commit" in out["additionalContext"]                     # the other session is shown it
@@ -274,9 +272,10 @@ def test_a_sleep_between_two_measurements_is_a_sampling_interval():
 
 
 def test_a_habit_named_inside_quotes_or_a_search_is_data():
-    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', "grep -n Get-FileHash docs/x.md",
-                'echo "wget https://example.org/x"', "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
+    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', 'echo "wget https://example.org/x"']:
         assert tr.route(cmd) is None, cmd
+    for cmd in ["grep -n Get-FileHash docs/x.md", "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
+        assert tr.route(cmd)["route"] == "text-search-in-tree", cmd
     for cmd, name in [("robocopy C:\\src D:\\dst /E", "tree-copy-by-hand"),
                       ('bash -c "robocopy a b /E"', "tree-copy-by-hand"),
                       ("grep -n x f; robocopy a b /E", "tree-copy-by-hand"),
@@ -363,3 +362,32 @@ def test_a_started_session_or_a_proposal_id_start_is_not_a_card(initiation):
     if initiation:
         ti["initiation"] = initiation
     assert tr._no_card({"tool_name": "mcp__ccd_session__start_session", "tool_input": ti}) is None
+
+
+def test_audit_only_blocks_shell_python_and_native_search(monkeypatch):
+    monkeypatch.setenv("FIELDKIT_AUDIT_ONLY", "1")
+    for tool, command in [("Bash", "python -c pass"), ("PowerShell", "rg x ."), ("Grep", "")]:
+        out = tr.verdict({"tool_name": tool, "tool_input": {"command": command}})["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny"
+    assert tr.verdict({"tool_name": "mcp__fieldkit__clean_slate_audit"}) is None
+
+
+@pytest.mark.parametrize(("cmd", "route"), [
+    ("rg needle .", "text-search-in-tree"),
+    ("rg --files .", "recursive-file-search"),
+    ("find . -maxdepth 1", "recursive-file-search"),
+    ("Get-ChildItem -Recurse", "recursive-file-search"),
+    ("tail -n 20 app.log", "static-file-read"),
+    ('bash -c "rg needle ."', "text-search-in-tree"),
+    ("du .", "folder-size"),
+])
+def test_raw_searches_go_to_fieldkit(cmd, route):
+    assert tr.route(cmd)["route"] == route
+
+
+def test_follow_is_live_and_simple_rg_rewrites_in_place():
+    assert tr.route("tail -f app.log") is None
+    assert tr.route("Get-Content app.log -Tail 20 -Wait", shell="PowerShell") is None
+    call = {"tool_name": "PowerShell", "tool_input": {"command": "rg needle ."}}
+    decision = tr.verdict(call)["hookSpecificOutput"]
+    assert decision["updatedInput"]["command"] == "python -B -m fieldkit.desk.pfind --content --regex -- needle ."

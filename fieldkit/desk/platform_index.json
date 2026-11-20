@@ -1544,6 +1544,16 @@
    "capture"
   ]
  },
+ "capture audit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "clean-slate-audit"
+  ]
+ },
  "capture clean": {
   "platforms": [
    "linux",
@@ -2705,6 +2715,15 @@
   "why": "",
   "ids": [
    "overhead"
+  ]
+ },
+ "ownership take": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "The Windows takeown executable, UAC, and Explorer shell are required.",
+  "ids": [
+   "take-ownership"
   ]
  },
  "parity": {

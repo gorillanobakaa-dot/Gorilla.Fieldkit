@@ -304,7 +304,12 @@ for name in sys.argv[1:]:
     Write-Host ''
     Write-Host '5. fieldkit doctor --lean'
     Push-Location -LiteralPath $Target
-    try { & $vpy -m fieldkit.core.doctor --lean; $doctor = $LASTEXITCODE } finally { Pop-Location }
+    try {
+        & $vpy -m fieldkit compileonce build
+        if ($LASTEXITCODE -ne 0) { Stop-Install 'compileonce failed' }
+        & $vpy -m fieldkit.core.doctor --lean
+        $doctor = $LASTEXITCODE
+    } finally { Pop-Location }
     Add-Record "python -m fieldkit.core.doctor --lean: exit $doctor"
 
     # 6. the record

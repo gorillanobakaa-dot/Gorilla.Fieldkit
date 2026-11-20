@@ -1195,6 +1195,8 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb == "probe":
         # read-only, like load: one probe of the FIXED set (link_probe.PROBES), no AI, no command; unknown = refused
         from . import link_probe
+        if req.get("name") == "clean-slate-audit" and via != "cable":
+            return {"ok": False, "error": "clean-slate-audit is restricted to the cable"}
         _log(f"probe {req.get('name')!r} from {req.get('from_host')}")
         return link_probe.run(req.get("name"), req.get("arg"))
     if verb == "start-app":
@@ -1598,13 +1600,34 @@ def device_named(h, name=None):
     return d
 
 
-def _call(req, dev, k, timeout):
+def cable_probe(name, probe, timeout=20):
+    """Run one fixed probe on the paired cable endpoint, with no alternate address."""
+    h, k = household(), key()
+    if not h or not k:
+        return {"ok": False, "error": "not paired"}
+    try:
+        dev = device_named(h, name)
+        cfg = config()
+        src, dst = cfg.get("me"), cfg.get("peer")
+        if dev.get("link") != "cable" or dst not in dev.get("address", []) or not src:
+            raise ValueError("no paired cable endpoint for this device")
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    def connect():
+        return socket.create_connection((dst, int(dev.get("port") or h.get("port", PORT))),
+                                        timeout=timeout, source_address=(src, 0)), k
+
+    return _call({"verb": "probe", "name": probe}, dev, k, timeout, connect=connect, max_reply=1024 * 1024)
+
+
+def _call(req, dev, k, timeout, *, connect=None, max_reply=None):
     data = json.dumps(sign(req, k), ensure_ascii=False).encode("utf-8") + b"\n"
     if len(data) > MAX_REQUEST:
         return {"ok": False, "error": f"too large ({len(data)} bytes, at most {MAX_REQUEST})"}
     try:
-        c, _k = connect_device(dev["name"], timeout=timeout)
-    except (ConnectionError, ValueError) as e:
+        c, _k = connect() if connect is not None else connect_device(dev["name"], timeout=timeout)
+    except (OSError, ValueError) as e:
         return {"ok": False, "error": str(e)}
     try:
         with c:
@@ -1615,6 +1638,8 @@ def _call(req, dev, k, timeout):
                 if not chunk:
                     break
                 buf += chunk
+                if max_reply is not None and len(buf) > max_reply:
+                    raise ValueError("probe reply exceeded its size limit")
         return json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
     except (OSError, ValueError) as e:
         return {"ok": False, "error": f"{dev['name']} did not answer ({e}): is `fieldkit peers link serve` "
