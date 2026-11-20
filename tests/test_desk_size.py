@@ -55,6 +55,8 @@ def test_integrate_runs_only_safe_binary_probes_and_installs_both(tmp_path, monk
         probes.append(args)
         return subprocess.CompletedProcess(args, 0, Path(args[0]).stem + " description", "")
 
+    from fieldkit.desk import install_preflight
+    monkeypatch.setattr(install_preflight, "run_preflight", lambda **kw: {"status": "ok"})
     monkeypatch.setattr(size_install.subprocess, "run", probe)
     monkeypatch.setattr(size_install, "install_windows", lambda *args: registry.append(args))
     assert size_install.main([], source) == 0

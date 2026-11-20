@@ -191,6 +191,12 @@ python install_skills.py
 
 ## Install the Gorilla Size and Gorilla Trash commands
 
+Before making changes, `install.ps1`, `install.sh` and `fieldkit size integrate` run the read-only installer preflight
+(`fieldkit install preflight`). It checks the installer prerequisites, resolves `gorilla-size --version` and
+`gorilla-trash --help` from a fresh user terminal outside the install folder first, and then checks background services
+that consume them (such as Gorilla Size in the VAIO cable listener). When the terminal command works and a service cannot
+resolve it, preflight stops before installation or replacement and reports service discovery as the failure.
+
 Use `fieldkit size integrate --from-dir RELEASE_DIR` with the directory that contains the two native binaries
 from your verified Gorilla Size release or build for this operating system. The command installs the existing
 binaries for your account. A new terminal can then run `gorilla-size --version` and `gorilla-trash --help`.

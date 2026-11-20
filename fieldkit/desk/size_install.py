@@ -59,10 +59,19 @@ def main(argv, default_source):
     parser = argparse.ArgumentParser(prog="fieldkit size integrate")
     parser.add_argument("--from-dir", type=Path, default=default_source,
                         help="directory containing both already-built native programs")
+    parser.add_argument("--skip-preflight", action="store_true",
+                        help="skip the read-only installer preflight check")
     args = parser.parse_args(argv)
     if sys.platform not in ("win32", "linux"):
         print("Gorilla Size integration supports Windows and Linux", file=sys.stderr)
         return 2
+
+    if not args.skip_preflight:
+        from . import install_preflight
+        preflight = install_preflight.run_preflight()
+        if preflight.get("status") == "service_discovery_failed":
+            print(install_preflight.format_report(preflight), file=sys.stderr)
+            return 3
 
     windows = sys.platform == "win32"
     suffix = ".exe" if windows else ""

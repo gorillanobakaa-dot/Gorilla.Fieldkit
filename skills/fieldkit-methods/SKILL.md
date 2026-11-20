@@ -226,3 +226,7 @@ then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never
 kernel, Fieldkit): purpose, where its cookbook and recipes are, current state, the next command. The SessionStart hook
 runs it by cwd, so do not search the disk to learn where things are: read the brief. `cookbook list|show ID|check`;
 the registry is `projects/<id>/project.yaml` (projects/README.md).
+
+## Installer preflight (P47)
+
+`fieldkit install preflight [--lean|--full] [--allow-missing-terminal] [--json]` (`fieldkit.desk.install_preflight`) runs deterministic, read-only installer preflight before install or update changes on Windows and Linux. It reuses the existing installer checks, resolves `gorilla-size --version` and `gorilla-trash --help` from a fresh user terminal outside the install folder first, and then checks consuming background services (starting with Gorilla Size in the VAIO cable listener). When the terminal works and the service cannot resolve the tool, it stops before install or replacement and reports service discovery as the failure; when a terminal tool is missing, it routes through `fieldkit size integrate`.

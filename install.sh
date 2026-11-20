@@ -128,8 +128,9 @@ else
 fi
 cd "$SRC" || exit 3
 
-# 3 the machine
+# 3 the machine and read-only installer preflight (before creating .venv or installing packages)
 "$PY" -m fieldkit.core.doctor --probe || true
+"$PY" -m fieldkit.desk.install_preflight --lean --allow-missing-terminal || exit 3
 
 # 4 a private environment in the folder
 if [ "$FULL" = 1 ]; then WHAT="every dependency (about 150 MB; needs a fast connection)"; else WHAT="the lean set: PyYAML and psutil (about 2 MB)"; fi
