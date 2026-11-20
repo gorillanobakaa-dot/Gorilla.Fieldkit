@@ -70,6 +70,16 @@ def test_compileonce_cli_json(tmp_path: Path, capsys):
     assert out_c["fresh"] == 1
 
 
+def test_pfind_help_is_available_before_gather(tmp_path, monkeypatch, capsys):
+    from fieldkit.desk import pfind
+
+    monkeypatch.setattr(pfind.settings, "ROOT", tmp_path)
+    assert pfind.main(["--help"]) == 0
+    assert "fieldkit gather --only pfind" in capsys.readouterr().out
+    assert pfind.main(["needle"]) == 2
+    assert "tool source missing" in capsys.readouterr().err
+
+
 def test_pfind_launcher_refuses_missing_and_same_size_stale_bytecode(tmp_path, monkeypatch, capsys):
     import os
 

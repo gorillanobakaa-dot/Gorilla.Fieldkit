@@ -68,7 +68,8 @@ fieldkit once run|check [--key K] [--state PATH] -- CMD   skip a command the jou
 fieldkit capture audit --json   read-only clean-slate audit of configured Windows or Linux scratch roots
 fieldkit capture audit --device PEER --via cable --json   audit a peer through the selected transport
 fieldkit ownership take PATH   Windows UAC action on one file or directory, with owner and DACL verification
-fieldkit ownership install-explorer   register the current user's Take Ownership action
+fieldkit ownership take-drive DRIVE   take ownership recursively on a selected local drive
+fieldkit ownership install-explorer   register the current user's file, folder and drive actions
 fieldkit compileonce build [--force] | check   pre-compile all Python modules in fieldkit/ and kits/ to .pyc ahead of time; check verifies 0 stale/missing
 fieldkit install app SRC --name APP [--replace] [--apply] [--peer]   install a program on Linux or Windows (or on the peer over the cable) with icons, .desktop / .lnk, caches, and verification
 fieldkit install purge APP [--dir PATH] [--apply] [--peer]           completely remove/quarantine a program on Linux or Windows (processes, folders, shortcuts, registry keys, icon caches)

@@ -6156,6 +6156,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ownership.py"]
   skill: skills/fieldkit-methods/SKILL.md
 
+- id: take-drive-ownership
+  title: Request UAC and take ownership recursively on one local Windows drive
+  harness: desk
+  entry: [python, -m, fieldkit, ownership, take-drive]
+  path: ${FIELDKIT}/fieldkit/desk/ownership.py
+  inputs:
+    - {name: path, flag: null, type: str, required: true, help: "explicit local drive root such as D:/"}
+    - {name: recover_inaccessible, flag: --recover-inaccessible, type: flag, required: false, help: "allow Windows to replace permissions on directories it cannot list"}
+  effects: [writes-files]
+  safety: irreversible
+  output: own
+  exits: {0: "recursive command completed and drive root owner verified", 2: "bad arguments or UAC declined", 3: "refused or verification failed"}
+  platforms: [windows]
+  platforms_why: "The Windows takeown executable, UAC, and Explorer shell are required."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ownership.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+
 - id: clean-slate-audit
   title: One read-only clean-slate audit of the configured scratch folders
   harness: method

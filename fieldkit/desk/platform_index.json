@@ -2726,6 +2726,15 @@
    "take-ownership"
   ]
  },
+ "ownership take-drive": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "The Windows takeown executable, UAC, and Explorer shell are required.",
+  "ids": [
+   "take-drive-ownership"
+  ]
+ },
  "parity": {
   "platforms": [
    "darwin",

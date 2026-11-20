@@ -3228,6 +3228,17 @@
      },
      "open": false,
      "v": {}
+    },
+    "take-drive": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "--recover-inaccessible": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
     }
    }
   },

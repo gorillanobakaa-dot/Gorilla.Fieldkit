@@ -9,10 +9,30 @@ from .. import compileonce
 from ..core import settings
 
 
+BOOTSTRAP_HELP = """usage: pfind [options] QUERY [PATH ...]
+
+Prepare the search engine with fieldkit gather --only pfind.
+Run pfind --help after preparation for the engine's full options.
+
+Common search options:
+  --names          Search file names.
+  --content        Search file contents.
+  -x, --exact      Match an exact code snippet.
+  --ext EXT [...]  Limit results to these extensions.
+  --limit N        Limit the number of results.
+  --json           Return machine-readable results.
+  --no-color       Disable colored output.
+"""
+
+
 def main(argv=None):
     started = time.perf_counter()
+    args = sys.argv[1:] if argv is None else argv
     source = settings.ROOT / compileonce.PFIND_FILE
     if not source.is_file():
+        if list(args) in (["--help"], ["-h"]):
+            print(BOOTSTRAP_HELP, end="")
+            return 0
         print("pfind: tool source missing. Prepare it with fieldkit gather --only pfind.", file=sys.stderr)
         return 2
     try:
@@ -23,7 +43,7 @@ def main(argv=None):
         print(f"pfind: {exc}. Prepare the bytecode with fieldkit compileonce build.", file=sys.stderr)
         return 3
     original_argv = sys.argv
-    sys.argv = [str(source), *(sys.argv[1:] if argv is None else argv)]
+    sys.argv = [str(source), *args]
     sys.path.insert(0, str(source.parent))
     try:
         namespace = {"__name__": "_fieldkit_pfind", "__file__": str(source), "__package__": None}
