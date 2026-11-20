@@ -235,7 +235,10 @@ try {
     Write-Host "2. Unpack it into $Target ($(Format-Bytes $zipBytes) zip)"
     if (-not (Read-Answer '   Unpack it?')) { Write-Host 'STOPPED at step 2: nothing was written.'; exit 3 }
     $stage = Join-Path $work 'unpacked'
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $stage
+    # Expand-Archive on windows-latest uses pwsh 7 which has an incompatible .NET overload; use ZipFile directly
+    # (works on PowerShell 5.1 and PowerShell 7 without hitting the broken ExtractToDirectory overload)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $stage)
     $top = Get-ChildItem -LiteralPath $stage -Directory | Select-Object -First 1
     if (-not (Test-Path -LiteralPath $Target)) { New-Item -ItemType Directory -Path $Target | Out-Null }
     Get-ChildItem -LiteralPath $top.FullName -Force | Move-Item -Destination $Target

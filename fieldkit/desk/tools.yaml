@@ -48,6 +48,23 @@ tools:
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_install_ps1.py"]
 
+- id: ps-compat-check
+  title: Detect and fix PowerShell 5.1/7 compatibility issues in .ps1 files before CI runs (Expand-Archive, Get-FileHash, ConvertFrom-Json -AsHashtable)
+  harness: core
+  entry: [python, -m, fieldkit, repair, ps-compat-check]
+  path: ${FIELDKIT}/fieldkit/repair/ps_compat_check.py
+  inputs:
+    - {name: files, flag: null, type: str, required: true, help: ".ps1 file(s) to check"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "auto-fix findings that have a known safe rewrite"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable output"}
+  effects: [reads-files]
+  safety: read-only
+  notes: "GitHub Actions windows-latest upgraded to PowerShell 7 (pwsh.exe). Expand-Archive in PS7 hits a removed .NET 6 ExtractToDirectory overload (MethodCountCouldNotFindBest). Get-FileHash fails when powershell.exe is started from pwsh.exe due to inherited module path. This tool detects these patterns and auto-fixes Expand-Archive with [IO.Compression.ZipFile]::ExtractToDirectory. Run before every CI push to catch regressions. Exit 0 clean, 3 findings."
+  platforms: [windows, linux]
+  platforms_why: "check runs on any OS; the .ps1 files are Windows scripts but the check is pure Python"
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ps_compat_check.py"]
+
 - id: autopilot
   title: Unattended agent runs (Claude Code, Antigravity, agy, Codex, Gorilla OpenCode) with specific model and thinking level, held by hard lines, quota guards and no credential
   harness: core
