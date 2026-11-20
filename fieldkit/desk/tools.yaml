@@ -6276,7 +6276,7 @@ tools:
     - {name: full, flag: --full, type: bool, required: false, help: "check full package requirements"}
     - {name: allow_missing_terminal, flag: --allow-missing-terminal, type: bool, required: false, help: "exit 0 when terminal commands are missing so installation can proceed, while still exiting 3 on service discovery failure"}
     - {name: json, flag: --json, type: bool, required: false, help: "machine-readable JSON report"}
-  effects: [reads-files, processes]
+  effects: [reads-files]
   safety: read-only
   output: own
   exits: {3: "installer prerequisite, terminal command validation, or background service discovery failed"}
