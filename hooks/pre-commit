@@ -229,6 +229,16 @@ if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
     exit 1
   fi
 fi
+# 2026-11-20 (P48): catches unregistered repair tools, missing toolcards, SKILL.md entries,
+# BOM in .py files, stale generated artefacts, PS 5.1/7 compat issues.
+if git diff --cached --name-only | grep -qE '^(fieldkit/repair/[^_][^/]+\.py|fieldkit/desk/tools\.yaml|skills/fieldkit-repair/SKILL\.md|fieldkit/core/cmdtree\.json|fieldkit/desk/platform_index\.json|.*\.ps1)'; then
+  if ! "$PY" -m fieldkit repair ps-compat-check --repo . >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: pre-CI health check failed (registration/BOM/stale/PS compat) - commit refused"
+    exit 1
+  fi
+  tail -1 "$OUT" | sed 's/^/pre-commit: /'
+fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1
