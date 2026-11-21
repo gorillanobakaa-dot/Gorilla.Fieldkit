@@ -3303,6 +3303,16 @@
    "plan-row-insert"
   ]
  },
+ "repair ps-compat-check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "check runs on any OS; the .ps1 files are Windows scripts but the check is pure Python",
+  "ids": [
+   "ps-compat-check"
+  ]
+ },
  "repair pwsh-parent-chains": {
   "platforms": [
    "darwin",

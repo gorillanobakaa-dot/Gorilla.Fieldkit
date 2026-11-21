@@ -3696,6 +3696,7 @@
     "missing-import-fix",
     "pid-guarded-stop",
     "plan-row-insert",
+    "ps-compat-check",
     "pwsh-parent-chains",
     "pwsh-syntax-check",
     "tpfan-config-verify",

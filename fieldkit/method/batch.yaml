@@ -30,6 +30,6 @@ batch:
     overlap_risk: true
   # CI shards (item 7): the selected test files are split into N parallel jobs per OS, balanced by recorded durations.
   shards:
-    default: 4
+    default: 20
     durations: .github/test_durations.json   # {"tests/test_x.py": seconds}; a file with no record counts the median
     required_status: "test ({os})"           # the check name each OS keeps: green only when every shard is green

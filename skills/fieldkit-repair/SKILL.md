@@ -23,6 +23,7 @@ endings, and writes nothing if the result would not parse. Exit 0 fine, 1 error,
 | a Board row into PLAN.md | `fieldkit repair plan-row-insert FILE --anchor A --row R [--apply]` |
 | a Mach-O's minimum macOS (Mac 10.13 release) | `fieldkit repair evidence-macho-extract BINARY [--max-minos 10.13.0]` |
 | TPFanControl.ini `Active=` mode, exe pin | `fieldkit repair tpfan-config-verify INI [--set-active N] [--exe F --sha256 H] [--apply]` |
+| `Expand-Archive` / `Get-FileHash` break on windows-latest (pwsh 7) | `fieldkit repair ps-compat-check FILE... [--apply]` |
 
 Related: `fieldkit pyliterals` (stray backslashes), `fieldkit triage LOG --set agent-shell` names these failures,
 `fieldkit hog` reports a hoarding parent, `fieldkit board add` writes a session's own Board row.

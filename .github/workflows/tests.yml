@@ -108,7 +108,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +142,7 @@ jobs:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
-        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/4"
+        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/20"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         with:
@@ -160,7 +160,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,7 +194,7 @@ jobs:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
           FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
-        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/4"
+        run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/20"
       - name: Record the exact PR checkout
         if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
