@@ -246,6 +246,19 @@ def test_run_green_merges_one_pr_and_closes_the_members(world, monkeypatch):
     assert all(f"#{i}" in body for i in (1, 2, 3)) and "fieldkit-batch" in body
 
 
+def test_unmapped_file_refuses_the_batch_and_names_it_like_ci_tests(world, monkeypatch):
+    """F2.6: batch and .github/ci_tests.py share one rule: an unmapped file fails closed and is named."""
+    w, gh = world, world["gh"]
+    for i, c in enumerate("ab", 1):
+        w["pr"](i, f"feat/{c}", card=f"{c}.txt")
+    monkeypatch.setattr(batch, "collect", lambda g, p=None, m=None: _collect(g))
+    monkeypatch.setattr(batch, "select", lambda *a, **k: (_ for _ in ()).throw(
+        batch.Unmapped("no test covers fieldkit/x.py: map each in tests/testmap.yaml")))
+    r = batch.run(w["repo"], gh, pol=POL, push=w["push"], waiter=lambda n: {"ok": True})
+    assert not r["ok"] and r["state"] == "unmapped" and "fieldkit/x.py" in r["error"], r
+    assert gh.merged == [] and 100 not in gh.prs_                      # no PR was opened
+
+
 def _collect(gh):
     return {"take": [{"pr": p["number"], "branch": p["headRefName"], "head": p["headRefOid"]}
                                          for p in sorted(gh.batch_prs(), key=lambda p: p["createdAt"])], "left": []}
