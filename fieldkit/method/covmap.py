@@ -1,7 +1,7 @@
 # Version: 1.0.0 · updated 26-11-22-18-30
 """Coverage map: which test ran which lines (CI-SPEED-PLAN C4.1, the base of C5 test-level receipts and C4.2 selection).
 
-    fieldkit ci covmap build DB OUT [--root DIR]    coverage database (dynamic_context = test_function) -> map JSON
+    fieldkit ci covmap build DB OUT [--root DIR]    coverage database (pytest --cov-context=test) -> map JSON
     fieldkit ci covmap merge A B ... OUT            union of maps (Linux + Windows, or shards)
     fieldkit ci covmap show MAP [--test NODE]       size, or the files one test covered
     fieldkit ci covmap key MAP NODE [--root DIR]    the receipt key of a test: sha256 of node + the git blob of each covered file
@@ -21,14 +21,10 @@ SCHEMA = 1
 
 
 def parse_context(ctx):
-    """'tests.test_x.Class.test_y' (coverage dynamic context) -> 'tests/test_x.py::Class::test_y'; '' = not a test."""
-    if not ctx:
-        return ""
-    parts = ctx.split(".")
-    for i, part in enumerate(parts):
-        if part.startswith("test_"):
-            return "/".join(parts[:i + 1]) + ".py" + (f"::{'::'.join(parts[i + 1:])}" if parts[i + 1:] else "")
-    return ""
+    """pytest-cov context 'tests/test_x.py::Class::test_y[param]|run' -> 'tests/test_x.py::Class::test_y[param]'; '' = not a test
+    (a line run at import or collection time has an empty context). setup and teardown count as the test."""
+    node = (ctx or "").split("|", 1)[0].replace("\\", "/")
+    return node if ".py::" in node else ""
 
 
 def ranges(lines):
