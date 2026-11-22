@@ -198,10 +198,13 @@ def check_stale_generated(repo):
                 "fix": f"cd {repo}; {' '.join(str(c) for c in cmd)}",
             })
             continue
-        # Ask git whether the file differs from HEAD (fast - no generator run)
+        # Stale = the generator's output differs from what git would commit (the index). The old test (differs from
+        # HEAD) refused every commit that carried a correctly regenerated file and passed a file nobody regenerated
+        # (proven 2026-11-22 on feat/agent-models-guard: cmdtree stale said FRESH, the commit was refused).
         try:
+            subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
             r = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD", "--", rel_path],
+                ["git", "diff", "--name-only", "--", rel_path],
                 cwd=str(repo), capture_output=True, text=True, timeout=10
             )
             if rel_path in r.stdout:

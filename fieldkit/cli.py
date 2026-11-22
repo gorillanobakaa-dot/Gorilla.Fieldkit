@@ -1871,6 +1871,7 @@ def build_parser():
                                        "hook text (fieldkit token-audit)"),
                        ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
                                 "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
+                       ("agent-models", "keep Claude Code's Explore subagent on Haiku: check, enforce (template back), audit (models subagents really ran on)"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
@@ -3278,7 +3279,7 @@ def main(argv=None):
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])
-    if args[:1] in (["session-cost"], ["token-audit"], ["rotate"]):   # what sessions cost; rotate the monsters
+    if args[:1] in (["session-cost"], ["token-audit"], ["rotate"], ["agent-models"]):   # what sessions cost; rotate the monsters
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])

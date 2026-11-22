@@ -73,6 +73,13 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 # C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
 # toolrouter.hook must not write a room line, check a station in or register a process in the real state.
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
+# The room hook runs the agent-models guard; keep it off the real ~/.claude and give it correct templates so
+# hook tests stay silent on a CI runner whose home has no agent files.
+_os.environ["FIELDKIT_CLAUDE_HOME"] = _tempfile.mkdtemp(prefix="fieldkit-test-claude-")
+_os.environ["FIELDKIT_AGENT_MODELS_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-agentmodels-")
+_os.environ["FIELDKIT_AGENT_MODELS_TRASH"] = _tempfile.mkdtemp(prefix="fieldkit-test-agenttrash-")
+from fieldkit.tokens.agent_models import write_templates as _wt  # noqa: E402
+_wt(_os.path.join(_os.environ["FIELDKIT_CLAUDE_HOME"], "agents"))
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
 # 2026-11-16: refusals.record() with no root wrote fixture rows into the real state/refusals.jsonl, which
