@@ -423,11 +423,18 @@ def doctor(install=False, cwd=None):
     return (0 if code == 0 and ok else 3), lines + more
 
 
+# Options live on the subcommands; the top-level --help names them so a card that lists them agrees with it.
+SUBCOMMAND_OPTIONS = ("\noptions by subcommand:\n"
+                      "  check  [--json]               verdict as JSON\n"
+                      "  audit  [--days N] [--json]    subagent runs in the last N days (7), as JSON\n"
+                      "  doctor [--install]            write the templates and merge settings.json env\n")
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     p = argparse.ArgumentParser(prog="fieldkit agent-models",
                                 description="Keep Claude Code's Explore subagent on Haiku and general-purpose on Sonnet.",
-                                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("Usage:")[0])
+                                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("Usage:")[0] + SUBCOMMAND_OPTIONS)
     sub = p.add_subparsers(dest="cmd")
     c = sub.add_parser("check")
     c.add_argument("--json", action="store_true")
