@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.5"]
+test = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.5", "coverage>=7.4"]
 readers = ["markitdown", "docling"]
 ocr = ["pytesseract", "pdf2image"]   # scanned study materials (academic/read_sources.py; needs Tesseract)
 
