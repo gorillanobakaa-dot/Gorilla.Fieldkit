@@ -35,11 +35,17 @@ def timeout_for(weights, hang=None):
     return int(min(max(h["factor"] * p90, h["floor"]), h["cap"]))
 
 
+_CRASH = re.compile(r"worker 'gw\d+' crashed while running '(?P<node>[^']+)'")
+
+
 def hung_node(log):
     """-> the node id of the test pytest-timeout killed, from a -v log, or None when the log shows no timeout.
     The hung test is the last one that started and never printed a result."""
     if not _MARK.search(log):
         return None
+    crashed = _CRASH.findall(log)            # xdist: the thread timeout ends the worker, xdist names its test
+    if crashed:
+        return crashed[-1].replace("\\", "/")
     last = None
     for line in log.splitlines():
         m = _NODE.match(line.strip())

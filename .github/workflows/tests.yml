@@ -49,6 +49,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install -e .
       - name: Every tracked file has covering tests
         run: python -m fieldkit testcost unmapped --all
@@ -73,6 +75,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install -e .
       - name: Fetch the recorded test durations (artifact ci-durations of main; none yet = degraded split, said loudly)
         shell: bash
@@ -137,7 +141,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[test]"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install with uv (C7 - resolver and wheel cache)
+        shell: bash
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+        run: |
+          python -m pip install uv
+          uv pip install --system -e ".[test]"
       - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
         if: runner.os == 'Linux'
         # P9 (2026-11-11): Ubuntu's archive DNS was down for hours while pip worked. The package is pinned in
@@ -157,7 +169,7 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
-        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
@@ -198,7 +210,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[test]"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install with uv (C7 - resolver and wheel cache)
+        shell: bash
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+        run: |
+          python -m pip install uv
+          uv pip install --system -e ".[test]"
       - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
         if: runner.os == 'Linux'
         # P9 (2026-11-11): Ubuntu's archive DNS was down for hours while pip worked. The package is pinned in
@@ -218,7 +238,7 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
-        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
@@ -267,6 +287,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install -e .
       - uses: actions/download-artifact@v4
         with:
