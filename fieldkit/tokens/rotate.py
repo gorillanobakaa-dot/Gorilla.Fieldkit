@@ -645,8 +645,13 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
     plan = coord / "PLAN.md"
     written = plan.is_file()                           # a missing PLAN.md is reported
+    from ..lifecycle import sessionmode               # F0.6: the caps travel with the work, never reset by a rotation
+    mode = sessionmode.current(row["session"])
+    brief += (f"\nSESSION MODE {mode['mode']} ({mode.get('speed')}, cap {mode.get('cap')}"
+              f"{' per node' if mode.get('per_node') else ''}), inherited from the rotated session: your first step is "
+              f"`python -m fieldkit route choose --session-mode {mode['mode']}`; no sub-agents past that cap.\n")
     record = {"at": stamp, "session": row["session"], "title": title, "level": row["level"],
-              "note": str(note), "plan_written": written, **work}
+              "note": str(note), "plan_written": written, "session_mode": mode, **work}
     if work:
         _register_work(record)
     from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
@@ -687,7 +692,7 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         (row.get("task") or "").strip() or f"session {sid} in {where}")
     report = zero_net.report_rotation(row["session"], title, started, done, next_, not_verified, branch, now)
     return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row,
-            "honesty": honest, "report": report, **work}
+            "honesty": honest, "report": report, "session_mode": mode, **work}
 
 
 def _latest_work(job_id):
