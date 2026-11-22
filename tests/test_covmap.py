@@ -11,7 +11,7 @@ def test_context_names_become_node_ids():
     assert covmap.parse_context("tests/test_x.py::TestA::test_y[a-1]|setup") == "tests/test_x.py::TestA::test_y[a-1]"
     assert covmap.parse_context("") == ""
     assert covmap.parse_context("helpers.setup") == ""
-    assert covmap.parse_context("tests\test_x.py::test_y|run") == "tests/test_x.py::test_y"
+    assert covmap.parse_context(r"tests\test_x.py::test_y|run") == "tests/test_x.py::test_y"
 
 
 def test_ranges_join_neighbours_only():
