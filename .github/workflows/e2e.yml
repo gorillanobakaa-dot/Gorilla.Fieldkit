@@ -127,6 +127,32 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/night_pack.py
+  e2e-ci-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ci-linux')
+    # fieldkit ci: the real entry point; junit to durations file, then the selection's durations line.
+    name: e2e-ci-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/ci_durations.py
+  e2e-ci-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ci-windows')
+    # fieldkit ci: the real entry point; junit to durations file, then the selection's durations line.
+    name: e2e-ci-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/ci_durations.py
   e2e-autoaccept-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-autoaccept-linux')
     # fieldkit autoaccept: the real entry point on safe paths (.github/e2e/vaio_batch.py autoaccept).

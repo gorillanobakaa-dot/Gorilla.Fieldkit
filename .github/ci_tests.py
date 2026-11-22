@@ -106,6 +106,23 @@ def read_selection(path, head):
     return tests, data["why"]
 
 
+def read_durations_block(path):
+    """-> the durations block of a selection file (None when it has none)."""
+    return json.loads(Path(path).read_text(encoding="utf-8")).get("durations")
+
+
+def durations_block(path, tests, base):
+    """-> (block, error): the weights every shard splits by, or why the selection must fail closed (ciplan.block)."""
+    from fieldkit.method import ciplan
+
+    selected = tests if tests is not None else sorted(p.as_posix() for p in Path("tests").rglob("test_*.py"))
+    added = []
+    if base and base != "full" and set(base) != {"0"}:
+        r = subprocess.run(["git", "diff", "--diff-filter=A", "--name-only", f"{base}...HEAD"], capture_output=True, text=True)
+        added = [x.replace("\\", "/") for x in r.stdout.split()] if r.returncode == 0 else []
+    return ciplan.block(ciplan.read(path), selected, added)
+
+
 def option(argv, name):
     if name not in argv:
         return None
@@ -168,13 +185,24 @@ def main(argv):
         shard = option(argv, "--shard")
         incoming = option(argv, "--read-selection")
         outgoing = option(argv, "--write-selection")
+        durations_file = option(argv, "--durations")
         if incoming and outgoing:
             raise ValueError("cannot read and write a test selection in the same step")
         tests, why = (read_selection(incoming, checkout_head()) if incoming
                       else selection(argv[1] if len(argv) > 1 else "full", merged))
+        block = read_durations_block(incoming) if incoming else None
         if outgoing and tests is not REFUSED:
-            Path(outgoing).write_text(json.dumps({"schema": 1, "head": checkout_head(), "tests": tests, "why": why}),
-                                      encoding="utf-8")
+            record = {"schema": 1, "head": checkout_head(), "tests": tests, "why": why}
+            if durations_file:
+                from fieldkit.method import ciplan
+
+                found, err = durations_block(durations_file, tests, argv[1] if len(argv) > 1 else "full")
+                if err:
+                    print(f"ci-tests: REFUSED - {err}")
+                    return 1
+                record["durations"] = found
+                print("ci-tests:", ciplan.explain(found))
+            Path(outgoing).write_text(json.dumps(record), encoding="utf-8")
             print("ci-tests:", why)
             return 0
     except (IndexError, KeyError, OSError, ValueError, AttributeError, subprocess.SubprocessError) as exc:
@@ -186,7 +214,10 @@ def main(argv):
     if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
         from fieldkit.method import shard as sh
         every = tests if tests is not None else sorted(p.as_posix() for p in Path("tests").rglob("test_*.py"))
-        tests = sh.pick(every, sh.load(), shard)
+        from fieldkit.method import ciplan
+
+        weights = ((block or {}).get("weights") or {}).get(ciplan.os_key()) or sh.load()
+        tests = sh.pick(every, weights, shard)
         print(f"ci-tests: shard {shard}: {len(tests)} file(s)")
         if not tests:
             return 0
@@ -224,6 +255,10 @@ def main(argv):
             cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
             print("ci-tests:", " ".join(cmd), flush=True)
             status = run_tests(cmd, tests, shard)
+            if report.is_file():                      # C1: every shard hands its junit to the durations job
+                import shutil
+                Path(proof).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(report, Path(proof).parent / "junit.xml")
             if status == 0:
                 write_receipt(Path(proof), report, tests, identity)
             return status
