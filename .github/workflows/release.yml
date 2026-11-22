@@ -10,6 +10,10 @@ permissions:
   actions: read
 env:
   TAG: ${{ github.ref_name }}
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
 
   # F1.1: a tag on a commit whose tests already passed on main runs 0 shards and logs the run it reused.
@@ -30,7 +34,7 @@ jobs:
           echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ -n "$run" ]; then echo "release: reused green main run $run for ${{ github.sha }}; 0 shards"; else echo "release: no green main run for ${{ github.sha }}; running the shards"; fi
 
-  # 2026-11-20: shard the release suite 20x per OS so no single runner runs all 6838 tests (causes OOM crash).
+  # 2026-11-20: shard the release suite 16x per OS so no single runner runs all 6838 tests (causes OOM crash).
   shard-windows-latest:
     needs: reuse
     if: needs.reuse.outputs.run == ''
@@ -38,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +58,7 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: run shard
         shell: bash
-        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
 
   shard-ubuntu-latest:
     needs: reuse
@@ -63,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +88,7 @@ jobs:
         env:
           FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
           FIELDKIT_REUSE_CI: '1'
-        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
 
   test:
     # aggregate: green only when every shard of both OSes is green
