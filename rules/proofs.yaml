@@ -278,7 +278,7 @@ SHORT SESSIONS:
     test: tests/test_rotate.py::test_stop_refuses_new_work_past_rotate
     mutate:
     - fieldkit/tokens/rotate_stop.py
-    - 'if said.get("level") != "ROTATE":'
+    - 'if level != "ROTATE" or _handover_call(tool, ti):'
     - 'if True:'
   gaps:
   - demand: one job per session
@@ -525,7 +525,7 @@ ROTATE:
     test: tests/test_rotate.py::test_stop_refuses_new_work_past_rotate
     mutate:
     - fieldkit/tokens/rotate_stop.py
-    - 'if said.get("level") != "ROTATE":'
+    - 'if level != "ROTATE" or _handover_call(tool, ti):'
     - 'if True:'
   gaps:
   - demand: run `fieldkit rotate check` at the start of each task and after each commit (Codex/Gemini, no hook)
