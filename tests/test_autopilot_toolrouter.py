@@ -239,6 +239,9 @@ def test_an_allowed_call_gets_the_room_in_the_same_process(tmp_path, monkeypatch
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
     monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
     room.unseen("s2")
+    (tmp_path / "rot" / "said").mkdir(parents=True)                # marks for both sessions (a missing mark now blocks)
+    for sid in ("s1", "s2"):
+        (tmp_path / "rot" / "said" / f"{sid}.json").write_text(json.dumps({"level": "OK", "t": 0}), encoding="utf-8")
     commit = {"session_id": "s1", "cwd": "C:/x/Fieldkit", "tool_name": "Bash", "transcript_path": "C:/t/s1.jsonl",
               "tool_input": {"command": "git commit -m a"}, "hook_event_name": "PreToolUse"}
     tr.hook(io.StringIO(json.dumps(commit)))

@@ -47,32 +47,60 @@ def _said_dir():
     return Path(root) / "said"
 
 
-def stop_refusal(call):
-    """PreToolUse: -> the refusal text when this session is over the ROTATE line and the call is not part of handing
-    over, else None. Never raises (fails open)."""
+def _optout_log(why):
+    """Every use of the FIELDKIT_ROTATE=off opt-out is logged (owner O4, 2026-11-22). Never raises."""
     try:
-        if os.environ.get("FIELDKIT_JOB_DIR") or os.environ.get("FIELDKIT_ROTATE") == "off":
+        import time
+        d = _said_dir().parent
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / "optout.log", "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {why}\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_BLOCK = ("SESSION ROTATION STOP (fieldkit rotate, R1): this session is over the ROTATE line, so it may only "
+          "hand over: commit, push, write HANDOFF.md or the Board row, then `python -m fieldkit rotate handover "
+          "...` and start the successor. This call is not part of that.")
+
+
+def _handover_call(tool, ti):
+    """True when the call is part of handing over (the allow list)."""
+    if tool in ("bash", "powershell"):
+        return bool(HANDOVER_CMD.search(ti.get("command") or ""))
+    if tool in ("edit", "write", "multiedit", "notebookedit", "read"):
+        return Path(ti.get("file_path") or ti.get("notebook_path") or "").name in HANDOVER_FILES
+    return tool.startswith("mcp__ccd_")                   # the app's own session tools: start the successor, archive
+
+
+def stop_refusal(call):
+    """PreToolUse: -> the refusal text when this session is over the ROTATE line (or its state is unknown) and the call
+    is not part of handing over, else None. Fails CLOSED (owner O4, 2026-11-22: an unreadable or missing mark blocks
+    every tool except the handover); every tool counts, Read, Grep and Agent included."""
+    try:
+        if os.environ.get("FIELDKIT_JOB_DIR"):
             return None                                   # inside an autopilot job the budget hook enforces it
+        if os.environ.get("FIELDKIT_ROTATE") == "off":
+            _optout_log(f"FIELDKIT_ROTATE=off: {call.get('tool_name')} allowed ({call.get('session_id') or '?'})")
+            return None
         tp = call.get("transcript_path")
         if not tp:
-            return None
+            return None                                   # no transcript: nothing identifies a session to hold
         if permanent_zero(Path(tp).stem):
             return None                                   # owner 2026-11-09: Session 0 never rotates
-        said = json.loads((_said_dir() / (Path(tp).stem + ".json")).read_text(encoding="utf-8"))
-        if said.get("level") != "ROTATE":
-            return None
         tool = (call.get("tool_name") or "").lower()
         ti = call.get("tool_input") or {}
-        if tool in ("bash", "powershell"):
-            if HANDOVER_CMD.search(ti.get("command") or ""):
+        try:
+            said = json.loads((_said_dir() / (Path(tp).stem + ".json")).read_text(encoding="utf-8"))
+            level = said.get("level")
+        except Exception:  # noqa: BLE001 - no mark, unreadable mark: the state is unknown
+            if _handover_call(tool, ti):
                 return None
-        elif tool in ("edit", "write", "multiedit", "notebookedit"):
-            if Path(ti.get("file_path") or ti.get("notebook_path") or "").name in HANDOVER_FILES:
-                return None
-        else:
+            return ("SESSION ROTATION STOP (unknown state): the rotate mark for this session is missing or "
+                    "unreadable, so only the handover runs (fail closed). Run `python -m fieldkit rotate check` "
+                    "to write it; set FIELDKIT_ROTATE=off only to repair this (each use is logged).")
+        if level != "ROTATE" or _handover_call(tool, ti):
             return None
-        return ("SESSION ROTATION STOP (fieldkit rotate, R1): this session is over the ROTATE line, so it may only "
-                "hand over: commit, push, write HANDOFF.md or the Board row, then `python -m fieldkit rotate handover "
-                "...` and start the successor. This call is not part of that.")
-    except Exception:  # noqa: BLE001 - no mark, unreadable mark: fail open
-        return None
+        return _BLOCK
+    except Exception:  # noqa: BLE001 - the check itself broke: fail closed
+        return _BLOCK
