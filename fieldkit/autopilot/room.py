@@ -159,13 +159,16 @@ def classify(call):
     return None
 
 
+LOCK_CAP_S = 0.5      # F3.4: a hook never waits longer than this for the room lock; a held lock skips the write
+
+
 class _Lock:
     """A short exclusive lock on ROOM.lock (msvcrt on Windows, fcntl elsewhere): one whole line per writer."""
 
     def __enter__(self):
         ROOM_DIR.mkdir(parents=True, exist_ok=True)
         self.f = open(ROOM_DIR / "ROOM.lock", "a+b")
-        deadline = time.time() + 3
+        deadline = time.time() + LOCK_CAP_S
         while True:
             try:
                 if os.name == "nt":
@@ -205,9 +208,15 @@ def line_for(session_id, cwd, verb, obj, detail="", now=None):
 
 
 def append(line):
-    with _Lock():
-        with open(_log(), "a", encoding="utf-8", newline="\n") as f:
-            f.write(line.replace("\n", " ") + "\n")
+    """-> True when written, False when the lock stayed held past LOCK_CAP_S (the line is skipped: a hook must stay
+    fast, the room is a courtesy log)."""
+    try:
+        with _Lock():
+            with open(_log(), "a", encoding="utf-8", newline="\n") as f:
+                f.write(line.replace("\n", " ") + "\n")
+        return True
+    except OSError:
+        return False
 
 
 REPEAT_S = 60
