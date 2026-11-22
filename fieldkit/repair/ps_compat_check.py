@@ -1,7 +1,9 @@
 # Version: 1.0.0 - updated 26-11-20
 """Pre-CI health check: catches every class of failure that broke the release pipeline.
 
-Runs BEFORE pushing a tag or opening a PR. Detects:
+Runs in CI (tests/test_ps_compat_check.py checks this repo's own tree on every pull request) and by hand before
+a tag or PR. There is no pre-push hook. An unknown state (an unreadable file, a generator or git that failed) is
+a FAIL finding, never a pass. Detects:
 
   1. PowerShell 5.1/7 incompatibilities in .ps1 files
        Expand-Archive         - broken in pwsh 7 (removed .NET 6 overload)
@@ -137,7 +139,7 @@ def check_repair_registration(repo):
     try:
         import fieldkit.repair as repair_mod
         actions = dict(repair_mod.ACTIONS)
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError) as e:
         findings.append({"rule": "repair-actions-unloadable", "message": str(e), "fix": "fix fieldkit/repair/__init__.py"})
         return findings
 
@@ -146,14 +148,14 @@ def check_repair_registration(repo):
         import yaml
         tools_data = yaml.safe_load(tools_yaml.read_text(encoding="utf-8"))
         card_ids = {t["id"] for t in tools_data.get("tools", [])}
-    except Exception as e:
+    except (OSError, ImportError, ValueError, KeyError, TypeError, AttributeError) as e:   # ValueError: yaml.YAMLError
         findings.append({"rule": "tools-yaml-unloadable", "message": str(e), "fix": "fix fieldkit/desk/tools.yaml"})
         card_ids = set()
 
     # Load SKILL.md
     try:
         skill_text = skill_file.read_text(encoding="utf-8")
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         findings.append({"rule": "skill-unloadable", "message": str(e), "fix": f"fix {skill_file}"})
         skill_text = ""
 
@@ -217,19 +219,25 @@ def check_stale_generated(repo):
         # HEAD) refused every commit that carried a correctly regenerated file and passed a file nobody regenerated
         # (proven 2026-11-22 on feat/agent-models-guard: cmdtree stale said FRESH, the commit was refused).
         try:
-            subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
+            g = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
             r = subprocess.run(
                 ["git", "diff", "--name-only", "--", rel_path],
                 cwd=str(repo), capture_output=True, text=True, timeout=10
             )
-            if rel_path in r.stdout:
-                findings.append({
-                    "rule": "generated-file-stale",
-                    "message": f"{rel_path} differs from HEAD - regenerate before committing",
-                    "fix": f"cd {repo}; {' '.join(str(c) for c in cmd)} && git add {rel_path}",
-                })
-        except Exception as e:
-            pass  # git not available; skip
+        except (OSError, subprocess.SubprocessError) as e:      # unknown is a FAIL, never a pass (F2.7)
+            findings.append({"rule": "generated-file-unknown", "message": f"{rel_path}: could not check ({e})",
+                             "fix": f"cd {repo}; {' '.join(str(c) for c in cmd)}"})
+            continue
+        if g.returncode not in (0, 3) or r.returncode != 0:      # 3 = the generator reported findings but wrote
+            findings.append({"rule": "generated-file-unknown",
+                             "message": f"{rel_path}: generator exit {g.returncode}, git diff exit {r.returncode}",
+                             "fix": f"cd {repo}; {' '.join(str(c) for c in cmd)}"})
+        elif rel_path in r.stdout:
+            findings.append({
+                "rule": "generated-file-stale",
+                "message": f"{rel_path} differs from the index (what git would commit) - regenerate before committing",
+                "fix": f"cd {repo}; {' '.join(str(c) for c in cmd)} && git add {rel_path}",
+            })
     return findings
 
 
@@ -252,7 +260,7 @@ def check_workflow_shards(repo):
     def load(p):
         try:
             return _yaml.safe_load(p.read_text(encoding="utf-8")), None
-        except Exception as e:
+        except (OSError, ValueError) as e:                      # ValueError: yaml.YAMLError, bad encoding
             return None, str(e)
 
     tests_wf, err = load(tests_yml)
@@ -271,8 +279,8 @@ def check_workflow_shards(repo):
         try:
             batch = _yaml.safe_load(batch_yaml.read_text(encoding="utf-8"))
             expected_n = batch.get("batch", {}).get("shards", {}).get("default")
-        except Exception:
-            pass
+        except (OSError, ValueError, AttributeError) as e:
+            findings.append({"rule": "workflow-unreadable", "message": f"batch.yaml: {e}", "fix": f"fix {batch_yaml}"})
 
     # Get shard counts from tests.yml and cross-check everything
     tests_jobs = tests_wf.get("jobs", {})
@@ -364,8 +372,9 @@ def check_bom(repo):
                     "file": str(py),
                     "_path": py,
                 })
-        except OSError:
-            pass
+        except OSError as e:
+            findings.append({"rule": "python-unreadable", "message": f"{py}: {e}", "fix": "fix permissions or remove the file",
+                             "file": str(py)})
     return findings
 
 
@@ -413,13 +422,14 @@ def main(argv=None):
             r = subprocess.run(["git", "ls-files", "*.ps1", "**/*.ps1"],
                                cwd=str(repo), capture_output=True, text=True, timeout=10)
             ps1_files = [repo / f.strip() for f in r.stdout.splitlines() if f.strip()]
-        except Exception:
+        except (OSError, subprocess.SubprocessError):          # git missing: fall back to a walk of the tree
             ps1_files = [f for f in repo.rglob("*.ps1")
                          if not any(p in f.parts for p in (".git", ".venv", "__pycache__", "local", "toolbox", "state"))]
     for ps1 in ps1_files:
         findings, err = check_ps1_file(ps1)
         if err:
             print(f"ERROR reading {ps1}: {err}", file=sys.stderr)
+            all_findings.append({"rule": "ps1-unreadable", "message": f"{ps1}: {err}", "fix": f"fix {ps1}", "file": str(ps1)})
             continue
         all_findings.extend(findings)
 
