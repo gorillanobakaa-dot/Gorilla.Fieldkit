@@ -304,9 +304,11 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
     if "required_status_checks" not in rules:
         why = (f"PR #{pr['number']} ({pr['url']}): {base} requires no status check here, so GitHub would merge it "
                f"before CI ends. Auto-merge NOT enabled; the PR stays open.")
-        inbox(f"No required CI check on {base}: PR #{pr['number']} left open", why + " Fix: a ruleset on " + base +
-              " requiring the CI checks, and 'Allow auto-merge' on (as Gorilla.Fieldkit has; `fieldkit github`).",
-              f"gh pr view {pr['number']} --web")
+        try:                                            # F2.4: a Board line, not an inbox item; the PR stays open
+            from ..lifecycle import board
+            board.note(f"No required CI check on {base}: PR #{pr['number']} left open", why)
+        except Exception:  # noqa: BLE001
+            pass
         return dict(rep, ok=False, state="no-required-checks", error=why,
                     next="the PR stays open; it merges once the base branch requires CI (owner: repository settings)")
     ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)

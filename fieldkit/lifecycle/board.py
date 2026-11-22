@@ -132,6 +132,23 @@ def check(since, until=None, plan=None, **kw):
                                                                                   missing else "")}
 
 
+def note(what, why="", plan=None):
+    """F2.4: one Board table line for a thing that used to be an inbox item (a finished goal, a PR left open).
+    Never raises and never makes PLAN.md: no Board here -> False."""
+    try:
+        plan = Path(plan or plan_file())
+        if not plan.is_file():
+            return False
+        cell = lambda t: " ".join(str(t).split()).replace("|", "/")[:300]  # noqa: E731
+        line = f"| {cell(what)} | NOTE (no inbox item) | {cell(why)} | - | - | {time.strftime('%Y-%m-%d %H:%M')} |"
+        with open(plan, "a", encoding="utf-8") as f:
+            f.write(line + "
+")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def row(facts, tag=None):
     """The Board row, from the transcript only (6 cells, the shape of the handover tables)."""
     from ..peers import machine
