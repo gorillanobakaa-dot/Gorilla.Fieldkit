@@ -8,6 +8,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 0"       # weekly whole-suite run on main: keeps the ci-durations artifact complete and fresh (C1)
 permissions:
   contents: read
   actions: read
@@ -64,6 +66,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e .
+      - name: Fetch the recorded test durations (artifact ci-durations of main; none yet = degraded split, said loudly)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m fieldkit ci durations fetch --out "$RUNNER_TEMP/durations.json" --repo "${{ github.repository }}"
       - name: Select the tests once for this checkout
         id: plan
         shell: bash
@@ -76,7 +83,7 @@ jobs:
             push) base="$BEFORE" ;;
             *) base=full ;;
           esac
-          python .github/ci_tests.py "$base" --write-selection "$RUNNER_TEMP/fieldkit-selection.json"
+          python .github/ci_tests.py "$base" --write-selection "$RUNNER_TEMP/fieldkit-selection.json" --durations "$RUNNER_TEMP/durations.json"
           python .github/ci_e2e.py "$base"
       - uses: actions/upload-artifact@v4
         with:
@@ -150,6 +157,14 @@ jobs:
           path: .ci-proof/proof.json
           include-hidden-files: true
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: junit-${{ runner.os }}-${{ matrix.shard }}
+          path: .ci-proof/junit.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
 
   shard-ubuntu-latest:
     needs: selection
@@ -215,6 +230,58 @@ jobs:
           path: .ci-proof/proof.json
           include-hidden-files: true
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: junit-${{ runner.os }}-${{ matrix.shard }}
+          path: .ci-proof/junit.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
+
+  durations:
+    # C1: every non-PR run hands each shard's junit here; the per-test seconds are merged into the ci-durations
+    # artifact (fieldkit/method/ciplan.py) that the next selection splits by. A whole-suite run makes it complete.
+    needs: [selection, shard-windows-latest, shard-ubuntu-latest]
+    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.selection.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          name: fieldkit-selection
+          path: sel
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: junit-*
+          path: junit
+      - name: Merge the shard timings into ci-durations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m fieldkit ci durations fetch --out prev.json --repo "${{ github.repository }}"
+          [ -f prev.json ] && cp prev.json durations.json
+          full=$(python -c "import json;print('--complete' if json.load(open('sel/fieldkit-selection.json'))['tests'] is None else '')")
+          for pair in Windows:windows Linux:linux; do
+            files=$(ls junit/junit-${pair%%:*}-*/junit.xml 2>/dev/null || true)
+            [ -z "$files" ] && continue
+            prev=""; [ -f durations.json ] && prev="--prev durations.json"
+            python -m fieldkit ci durations merge --os "${pair##*:}" $prev $full --run "$GITHUB_RUN_ID" --out durations.json $files
+          done
+          test -f durations.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-durations
+          path: durations.json
+          retention-days: 90
 
   test:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):

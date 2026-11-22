@@ -52,6 +52,8 @@ fieldkit testcost staged                                       names the coverin
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit ciaudit --run RUN                                    queue, active time and gaps for all attempts of one Actions run
+fieldkit ci plan --explain --selection F                       which per-test durations the CI shard split uses (run id, coverage; DEGRADED until a whole-suite run exists)
+fieldkit ci durations merge|fetch ...                          CI only: junit -> ci-durations artifact; fetch the newest from main
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND

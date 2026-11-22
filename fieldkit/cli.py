@@ -1923,6 +1923,10 @@ def build_parser():
                         help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
                              "to the whole suite (fieldkit ciaudit)")
     ca.add_argument("args", nargs=argparse.REMAINDER)
+    ci = sub.add_parser("ci", add_help=False,
+                        help="CI speed: per-test durations kept as an artifact, and what the shard split uses "
+                             "(fieldkit ci durations|plan)")
+    ci.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -3328,6 +3332,9 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ci"]:                            # CI-SPEED-PLAN C1: durations the shard split balances by
+        from .method import ciplan
+        return ciplan.main(args[1:])
     if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
         from .method import ciaudit
         return ciaudit.main(args[1:])
