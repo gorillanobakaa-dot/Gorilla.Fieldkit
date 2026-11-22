@@ -16,6 +16,24 @@ concurrency:                 # C3: a new push to a pull request cancels its old 
 
 jobs:
 
+  # F1.6: the cheap checks run first, in a 1-minute job the shards wait for, so a bad release page fails in under 2 min.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: the release page carries both tracks in full
+        if: github.ref_type == 'tag'
+        run: |
+          d="releases/notes/$TAG"
+          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: workflow and PowerShell compatibility
+        run: python -m fieldkit repair ps-compat-check --repo .
+
   # F1.1: a tag on a commit whose tests already passed on main runs 0 shards and logs the run it reused.
   reuse:
     runs-on: ubuntu-latest
@@ -36,7 +54,7 @@ jobs:
 
   # 2026-11-20: shard the release suite 16x per OS so no single runner runs all 6838 tests (causes OOM crash).
   shard-windows-latest:
-    needs: reuse
+    needs: [reuse, checks]
     if: needs.reuse.outputs.run == ''
     name: shard (windows-latest, ${{ matrix.shard }})
     strategy:
@@ -61,7 +79,7 @@ jobs:
         run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
 
   shard-ubuntu-latest:
-    needs: reuse
+    needs: [reuse, checks]
     if: needs.reuse.outputs.run == ''
     name: shard (ubuntu-latest, ${{ matrix.shard }})
     strategy:
@@ -93,7 +111,7 @@ jobs:
   test:
     # aggregate: green only when every shard of both OSes is green
     name: test (${{ matrix.os }})
-    needs: [reuse, shard-windows-latest, shard-ubuntu-latest]
+    needs: [checks, reuse, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -104,6 +122,7 @@ jobs:
       - name: every shard of this OS passed
         shell: bash
         run: |
+          test "${{ needs.checks.result }}" = "success"
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
           if [ -n "${{ needs.reuse.outputs.run }}" ]; then echo "reused green main run ${{ needs.reuse.outputs.run }}"; test "$result" = "skipped"; else test "$result" = "success"; fi
@@ -123,10 +142,6 @@ jobs:
           test "v$v" = "$TAG" || { echo "tag $TAG, package $v: not published"; exit 1; }
       - name: no quarantined (twice-hung) test ships
         run: python -m fieldkit ci quarantine --check
-      - name: the release page carries both tracks in full
-        run: |
-          d="releases/notes/$TAG"
-          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
       - name: Assemble the checked source candidate
         run: |
           mkdir candidate
