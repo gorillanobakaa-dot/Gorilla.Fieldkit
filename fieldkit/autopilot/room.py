@@ -573,6 +573,25 @@ def _workflows(call, event, ctx):
     return ctx
 
 
+def _mode(call, event, ctx):
+    """The session mode question (owner O4, 2026-11-22), asked ONCE per session on its first prompt (or start), never
+    mid-run: the five modes word for word, Economy in force until the owner answers. Writing the Economy default is
+    what makes it once: the next call finds the mode file and stays silent. Never fails the hook."""
+    if event not in ("UserPromptSubmit", "SessionStart") or os.environ.get("FIELDKIT_AUTOPILOT") == "1"             or os.environ.get("FIELDKIT_MODE_ASK") == "off":      # off: the test suite only; the tool-layer cap stays
+        return ctx
+    try:
+        from ..lifecycle import sessionmode as sm
+        sid = sm.session_id(call)
+        if sm.asked(sid):
+            return ctx
+        sm.write(sid, sm.DEFAULT)
+        text = (sm.QUESTION + " " + " | ".join(f"{k} {v}" for k, v in sm.LABELS.items())
+                + ". Economy applies until the owner answers: `python -m fieldkit route choose --session-mode CODE`.")
+        return (ctx + "\n" if ctx else "") + text
+    except Exception:
+        return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -583,6 +602,7 @@ def _context(call, event):
             ctx = upkeep.session_warning(call.get("session_id")) or ""
         except Exception:
             pass
+    ctx = _mode(call, event, ctx)
     ctx = _hog(call, event, ctx)
     ctx = _rotate(call, event, ctx)
     ctx = _agentmodels(call, event, ctx)
@@ -710,7 +730,7 @@ ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 #: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve;
 #: archive_session: Zero retires only into a new Zero, fieldkit/zero/retire.py; start_session: no own_initiative card)
 TOOL_MATCH = ("Bash|Grep|Glob|Read|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage|mcp__ccd_session_mgmt__archive_session"
-              "|mcp__ccd_session__start_session")
+              "|mcp__ccd_session__start_session|Agent|Task")
 
 
 def _console_hooks(groups):

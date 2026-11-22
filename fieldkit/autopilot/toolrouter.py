@@ -680,6 +680,18 @@ def _no_card(call):
     return None
 
 
+def _mode_spawn(call):
+    """An Agent/Task spawn is checked against the session's mode (fieldkit/lifecycle/sessionmode.py): Economy 0, Time-
+    Sensitive 6, Fast 1000; an Explore search runs on Haiku only. Fails CLOSED to Economy when the mode cannot be read:
+    an unreadable state must not open the gate (owner O4, 2026-11-22)."""
+    try:
+        from ..lifecycle import sessionmode
+        why = sessionmode.spawn_refusal(call)
+    except Exception as e:  # noqa: BLE001
+        why = f"SESSION MODE unreadable ({type(e).__name__}): sub-agents are refused until it can be read (Economy)."
+    return _deny(why) if why else None
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -714,6 +726,8 @@ def verdict(call):
         return _deny(message(SIZE_FIND_ROUTE))
     if tool in {"read", "read_file", "view_file"}:
         return _deny(message(READ_ROUTE))
+    if tool in ("agent", "task"):
+        return _mode_spawn(call)
     if tool not in ("bash", "powershell", "exec_command", "run_shell_command", "run_command"):
         return None
     ti = call.get("tool_input") or {}
