@@ -496,7 +496,8 @@
   "board": {
    "c": [
     "add",
-    "check"
+    "check",
+    "cost"
    ],
    "f": {
     "--date": 1,
