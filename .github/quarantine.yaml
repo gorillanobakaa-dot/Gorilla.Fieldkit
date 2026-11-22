@@ -1,0 +1,3 @@
+# C6: tests that hung twice in CI. Each line is deselected so main stays unblocked; a release is blocked while any is listed
+# (fieldkit ci quarantine --check). The cause is fixed, then the line is removed. Format: "node id": "why".
+tests: {}

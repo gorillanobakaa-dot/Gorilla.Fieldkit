@@ -1926,7 +1926,7 @@ def build_parser():
     ca.add_argument("args", nargs=argparse.REMAINDER)
     ci = sub.add_parser("ci", add_help=False,
                         help="CI speed: per-test durations kept as an artifact, and what the shard split uses "
-                             "(fieldkit ci durations|plan)")
+                             "(fieldkit ci durations|plan|quarantine)")
     ci.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "

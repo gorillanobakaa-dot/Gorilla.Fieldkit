@@ -112,6 +112,8 @@ jobs:
         run: |
           v=$(python -c "import fieldkit; print(fieldkit.__version__)")
           test "v$v" = "$TAG" || { echo "tag $TAG, package $v: not published"; exit 1; }
+      - name: no quarantined (twice-hung) test ships
+        run: python -m fieldkit ci quarantine --check
       - name: the release page carries both tracks in full
         run: |
           d="releases/notes/$TAG"
