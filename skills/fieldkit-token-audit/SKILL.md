@@ -8,7 +8,7 @@ compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorilla
 # Session cost, token audit and session rotation
 
 **Never estimate cost or token use by hand or re-write these tools.** Source: `fieldkit/tokens/` (moved from the
-local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
+local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`, `agent-models`.
 
 | The question | Run |
 |---|---|
@@ -18,6 +18,7 @@ local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
 | one session, per call | `fieldkit session-cost <session-id-start> --calls` |
 | watch the cost live, warn past $5 | `fieldkit session-cost --live --warn-usd 5` (Ctrl+C stops) |
 | tokens, context per call, hook text, as a table | `fieldkit token-audit --all` |
+| is Explore on Haiku? did a subagent run on Opus? | `fieldkit agent-models check`, `fieldkit agent-models audit --days 7` |
 | which sessions are monsters now? | `fieldkit rotate check` (exit 0 OK, 1 WARN, 2 ROTATE) |
 | hand this session over to a fresh one | `fieldkit rotate handover --transcript PATH --title T --done D --next N --not-verified V` |
 | find a scoped job and its pending CI | `fieldkit rotate takeover --job-id ID --json` |
@@ -65,3 +66,12 @@ local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
 
 Tests: `python -m pytest -q tests/test_tokens_session_cost.py tests/test_tokens_token_audit.py tests/test_rotate.py`;
 mutations `tests/tokens_mutations.yaml`, `tests/rotate_mutations.yaml`.
+
+## Explore subagent kept on Haiku (owner 2026-11-22)
+
+Subagents inherit the session's model unless `~/.claude/agents/explore.md` pins `model: haiku`. The room hook runs
+`fieldkit agent-models check` at every prompt (file read + sha256, no model, silent when OK) and puts the template
+back when the file is missing, switched to another model, altered or shadowed by a second Explore file; the old file
+goes to `~/Agents.Work.Trash/claude-agents/`, never deleted. A line **AGENT MODELS REPAIRED** means it happened;
+**OVERRIDE IGNORED** means an Explore run after the repair still ran on a non-Haiku model (Claude Code ignored the
+file: tell the owner). Project `.claude/agents` files and `CLAUDE_CODE_SUBAGENT_MODEL` are reported, not edited.

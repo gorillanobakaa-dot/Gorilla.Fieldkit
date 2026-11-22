@@ -396,6 +396,19 @@ def _rotate(call, event, ctx):
     return ctx
 
 
+def _agentmodels(call, event, ctx):
+    """Claude Code's Explore subagent kept on Haiku (fieldkit/tokens/agent_models.py): silent when the file is right,
+    one line when it was repaired or an override was ignored."""
+    try:
+        from ..tokens import agent_models
+        line = agent_models.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def _net(call, event, ctx):
     """The agent net rides on this hook (2026-10-26, fieldkit/zero/net.py): every session is checked in by it, shown
     its unseen net traffic, and told who Zero is; Zero is told which stations went quiet. Never fails the hook."""
@@ -560,6 +573,7 @@ def _context(call, event):
             pass
     ctx = _hog(call, event, ctx)
     ctx = _rotate(call, event, ctx)
+    ctx = _agentmodels(call, event, ctx)
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)

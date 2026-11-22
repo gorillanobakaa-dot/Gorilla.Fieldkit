@@ -6977,6 +6977,24 @@ tools:
   skill: skills/fieldkit-skills/SKILL.md
   notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. skillOverrides states (Claude Code 2.1.302): on | name-only | user-invocable-only | off; a Skill(name) deny does NOT shrink the listing (measured: 30,735 both ways). L15 Fieldkit headless first call with the data applied as --settings: 30,697 -> 25,928 tokens. Measure with fieldkit cost firstcall. Mutations: tests/o1_mutations.yaml."
 
+- id: agent-models
+  title: "Agent-model guard - Claude Code's Explore subagent kept on Haiku on every computer: ~/.claude/agents/explore.md checked byte for byte at every prompt, put back from the template when it is missing, switched to another model, altered or shadowed by a second Explore file, and an audit of the model every subagent really ran on"
+  harness: core
+  entry: [python, -m, fieldkit, agent-models]
+  path: ${FIELDKIT}/fieldkit/tokens/agent_models.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, enforce, audit, template], help: "check (default): verdict OK / MISSING / WRONG_MODEL / ALTERED / CONFLICT. enforce: template back, old file copied aside, conflicts moved aside. audit: models subagents ran on. template: print the file."}
+    - {name: days, flag: --days, type: float, required: false, help: "audit: subagent runs in the last N days (7)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "check/audit: JSON"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "OK / repaired", 1: "check: something to repair or report / audit: an Explore run ignored the override", 3: "enforce: read-back after the repair failed"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-agent-models-linux, windows: e2e-agent-models-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_models.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "1.0.0 (2026-11-22, owner: 'where explore using haiku is not enforced it will ... enforce this and implement it ... if it was changed/altered or deleted, it will automatically apply the template'). Why: subagents inherit the session's model; measured on the L15 before the file existed: Explore runs on Opus 5.5 and Sonnet 5.5 for read-only searches. The room hook (UserPromptSubmit, SessionStart) runs check at every prompt: a file read and a sha256, no model, no network, silent when OK, one context line when it repaired something; once per session it adds the reports and a 2-day audit (OVERRIDE IGNORED when an Explore run after the template's write time ran on a non-Haiku model). Never deletes: the old file is copied, a conflicting ~/.claude/agents/*.md naming Explore is moved, both to ~/Agents.Work.Trash/claude-agents/<stamp>/. Report only, never edited: a project's .claude/agents Explore file on another model, CLAUDE_CODE_SUBAGENT_MODEL not haiku, the session model in settings.json. Repairs logged in state/agent-models/repairs.jsonl. Env for tests: FIELDKIT_CLAUDE_HOME, FIELDKIT_AGENT_MODELS_DIR, FIELDKIT_AGENT_MODELS_TRASH."
 - id: rotate
   title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"
   harness: core
