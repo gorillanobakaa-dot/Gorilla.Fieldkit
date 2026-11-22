@@ -77,16 +77,25 @@ def test_cache_env_finds_mozbuild_sccache_on_windows(tmp_path):
 
 
 def test_cache_env_wires_ccache_and_respects_existing_overrides(tmp_path):
-    sym = tmp_path / "ccache-bin"
-    sym.mkdir()
     which = lambda n, path=None: f"/usr/bin/{n}" if n in ("ccache", "sccache") else None
     out = toolenv.cache_env(
         environ={"PATH": "/opt/cargo/bin:/usr/bin:/bin", "RUSTC_WRAPPER": "/custom/wrap"},
-        platform="linux", which=which, home=tmp_path, ccache_symlink_dir=str(sym),
+        platform="linux", which=which, home=tmp_path, ccache_symlink_dir="",
     )
     assert "RUSTC_WRAPPER" not in out
     assert out["CMAKE_C_COMPILER_LAUNCHER"] == "/usr/bin/ccache"
     assert out["CMAKE_CXX_COMPILER_LAUNCHER"] == "/usr/bin/ccache"
+
+
+@POSIX
+def test_cache_env_inserts_ccache_symlink_dir_ahead_of_usr_bin(tmp_path):
+    sym = tmp_path / "ccache-bin"
+    sym.mkdir()
+    which = lambda n, path=None: f"/usr/bin/{n}" if n == "ccache" else None
+    out = toolenv.cache_env(
+        environ={"PATH": "/opt/cargo/bin:/usr/bin:/bin"},
+        platform="linux", which=which, home=tmp_path, ccache_symlink_dir=str(sym),
+    )
     parts = out["PATH"].split(":")
     assert parts.index("/opt/cargo/bin") < parts.index(str(sym)) < parts.index("/usr/bin")
 
