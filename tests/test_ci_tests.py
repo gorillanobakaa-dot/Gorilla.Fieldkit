@@ -347,3 +347,13 @@ def test_release_reuses_a_green_main_run_and_has_no_probe_job():
     assert "\n  reuse:" in text and text.count("needs: reuse") == 2    # F1.1: both OS shard sets wait for the lookup
     assert text.count("if: needs.reuse.outputs.run == ''") == 2       # and run only when no green main run exists
     assert "reused green main run" in text                             # the reused run id is logged
+
+
+def test_f16_cheap_checks_run_first_and_shards_wait_for_them():
+    import re
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    checks = text.split("\n  checks:\n", 1)[1].split("\n  # F1.1", 1)[0]
+    assert "release-page check" in checks and "ps-compat-check" in checks and "timeout-minutes: 3" in checks
+    assert text.count("release-page check") == 1                      # moved, not duplicated after the shards
+    assert len(re.findall(r"needs: \[reuse, checks\]", text)) == 2    # both OS shard jobs wait for the checks
+    assert "checks" in re.search(r"needs: \[(.*shard-windows-latest.*)\]", text).group(1)
