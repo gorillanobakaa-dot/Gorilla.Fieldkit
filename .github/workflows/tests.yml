@@ -165,7 +165,7 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
-        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}
@@ -234,7 +234,7 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: the tests covering the change
         shell: bash
-        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 30 }}
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
           FIELDKIT_REUSE_CI: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}

@@ -175,3 +175,55 @@ def test_real_repo_workflows_are_consistent():
     root = Path(__file__).resolve().parents[1]
     findings = pcc.check_workflow_shards(root)
     assert findings == [], f"Workflow shard issues: {findings}"
+
+
+def test_whole_repo_tree_is_clean_in_ci():
+    """F2.7: the check runs in CI on the repo's own tree (no pre-push hook exists): any finding fails the PR."""
+    root = Path(__file__).resolve().parents[1]
+    findings = pcc.check_repair_registration(root) + pcc.check_workflow_shards(root) + pcc.check_bom(root)
+    assert findings == [], findings
+
+
+def test_unreadable_batch_yaml_is_a_fail_not_a_pass(tmp_path):
+    jobs = {}
+    for os_name in ("windows-latest", "ubuntu-latest"):
+        jobs.update(_shard_job(os_name, 20))
+    _write_wf(tmp_path, "tests", jobs)
+    _write_wf(tmp_path, "release", dict(jobs))
+    by = tmp_path / "fieldkit" / "method"
+    by.mkdir(parents=True)
+    (by / "batch.yaml").write_bytes(b"\xff\xfe not utf-8 \x80")
+    findings = pcc.check_workflow_shards(tmp_path)
+    assert any(f["rule"] == "workflow-unreadable" for f in findings), findings
+
+
+def test_git_failure_in_stale_check_is_a_fail(tmp_path, monkeypatch):
+    for rel in pcc.GENERATORS:
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x", encoding="utf-8")
+
+    def boom(*a, **k):
+        raise OSError("no git")
+    monkeypatch.setattr(pcc.subprocess, "run", boom)
+    findings = pcc.check_stale_generated(tmp_path)
+    assert findings and all(f["rule"] == "generated-file-unknown" for f in findings), findings
+
+
+def test_shard_coverage_fails_when_a_shard_set_misses_a_file():
+    files = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"]
+    assert pcc.shard_coverage(files, [["tests/test_a.py"], ["tests/test_b.py", "tests/test_c.py"]]) == ([], [])
+    missing, duplicated = pcc.shard_coverage(files, [["tests/test_a.py"], ["tests/test_b.py"]])
+    assert missing == ["tests/test_c.py"] and duplicated == []          # F1.7: a shard set missing one file fails
+    assert pcc.shard_coverage(files, [files, ["tests/test_a.py"]])[1] == ["tests/test_a.py"]
+
+
+def test_check_shard_coverage_flags_a_broken_split(tmp_path, monkeypatch):
+    (tmp_path / "tests").mkdir()
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tmp_path / "tests" / name).write_text("", encoding="utf-8")
+    assert pcc.check_shard_coverage(tmp_path, 2) == []
+    from fieldkit.method import shard
+    real = shard.balance
+    monkeypatch.setattr(shard, "balance", lambda tests, durations, n: real(tests, durations, n)[:-1] + [real(tests, durations, n)[-1][:-1]])
+    assert [f["rule"] for f in pcc.check_shard_coverage(tmp_path, 2)] == ["workflow-shard-coverage"]
