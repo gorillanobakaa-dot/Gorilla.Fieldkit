@@ -256,6 +256,15 @@ def run(do_apply=False, extra=(), fetch=True):
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
                 rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
+    try:                                              # the copy the `fieldkit` command runs (detached worktree)
+        from . import installed
+        tree = installed.locate()
+        if tree and Path(tree).resolve() != ROOT.resolve() and (Path(tree) / ".git").exists():
+            r = installed.sync(tree, fetch=fetch) if do_apply else installed.inspect(tree, fetch=fetch)
+            ok = r.get("ok", r["verdict"] == "OK") if do_apply else r["verdict"] == "OK"
+            rows.append({"repo": str(tree), "ok": ok, "verdict": "LEVEL" if ok else r["verdict"], "why": r["why"]})
+    except Exception as e:  # noqa: BLE001 - informational row, never a crash
+        rows.append({"repo": "installed copy", "ok": True, "verdict": "SKIPPED", "why": str(e)[:100]})
     try:                                              # P37: the private store of untracked instruction files
         from .. import rules_song
         stored = rules_song.store_apply(rules_song.inventory(), restore=False) if do_apply else []

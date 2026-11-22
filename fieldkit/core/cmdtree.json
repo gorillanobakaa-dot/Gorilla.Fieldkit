@@ -2295,6 +2295,45 @@
    "open": false,
    "v": {}
   },
+  "installed": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "sync": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "where": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "integration": {
    "c": [],
    "f": {

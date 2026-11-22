@@ -1872,6 +1872,7 @@ def build_parser():
                        ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
                                 "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
                        ("agent-models", "keep Claude Code's Explore subagent on Haiku: check, enforce (template back), audit (models subagents really ran on)"),
+                       ("installed", "the installed Fieldkit follows origin/main: check (PASS/FAIL), sync (fast-forward, verify), where"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
@@ -3287,6 +3288,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["installed"]:                     # the installed copy follows origin/main
+        from .core import installed
+        return installed.main(args[1:])
     if args[:1] == ["cost"]:                          # one daily cost line for the owner (fieldkit/tokens/cost_daily)
         from .tokens import cost_daily
         return cost_daily.main(args[1:])

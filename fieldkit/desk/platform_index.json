@@ -2156,6 +2156,17 @@
    "install-preflight"
   ]
  },
+ "installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "installed"
+  ]
+ },
  "integration": {
   "platforms": [
    "linux",
