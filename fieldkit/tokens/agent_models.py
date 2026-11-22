@@ -21,14 +21,17 @@ What it checks per pin (deterministic, offline, no model, no network):
      assistant message's `model`), per agent type. A pinned agent's run on another model AFTER its template was
      last written means Claude Code ignored the override -> OVERRIDE IGNORED.
 
-The room hook (fieldkit.autopilot.room) calls hook_line() at every prompt: file reads and hashes, silent when OK,
-so it costs no tokens; a repair or a finding adds one line to the session's context. The audit runs once per session.
+The room hook (fieldkit.autopilot.room) calls hook_line() ONCE, at SessionStart (never at a prompt: no file I/O per
+prompt). A mismatch is REPORTED as one line naming the repair command; ~/.claude is never rewritten by the hook. An
+error in the guard is one line too, never silence. `doctor --install` is the one door that writes: the templates, and
+the settings.json env (CLAUDE_CODE_SUBAGENT_MODEL=SUBAGENT_MODEL, the one source) merged with a backup.
 
 Usage:
   fieldkit agent-models check [--json]        exit 0 OK, 1 something to repair or report
   fieldkit agent-models enforce               repair (templates back, conflicts moved aside); exit 0, 3 read-back failed
   fieldkit agent-models audit [--days 7] [--json]   models subagents really ran on; exit 1 when an override was ignored
   fieldkit agent-models template              print the templates
+  fieldkit agent-models doctor [--install]    kit state on this machine; --install writes templates + settings env
 """
 import argparse
 import hashlib
@@ -65,6 +68,13 @@ GP_TEMPLATE = (
 FILENAME = "explore.md"
 AGENT = "Explore"
 WANT_MODEL = "haiku"
+#: the ONE source for CLAUDE_CODE_SUBAGENT_MODEL (owner fallback O2: haiku stays): the Explore pin, the installer
+#: and check() all read it. A settings.json / environment value equal to it is the kit's own and is not reported.
+SUBAGENT_MODEL = WANT_MODEL
+#: what `doctor --install` merges into settings.json env (ported from claude-quota-fix Install.ps1). Only the first is
+#: enforced; the others are written when absent and never overwritten.
+SETTINGS_ENV = {"CLAUDE_CODE_SUBAGENT_MODEL": SUBAGENT_MODEL, "MAX_THINKING_TOKENS": "8000",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"}
 BOM = b"\xef\xbb\xbf"
 
 
@@ -213,7 +223,7 @@ def check(cwd=None):
     for o in _project_overrides(cwd):
         r["reports"].append(f"project agent {o['path']} defines {o['agent']} on {o['model']} (wins inside that project)")
     env = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL") or (_settings().get("env") or {}).get("CLAUDE_CODE_SUBAGENT_MODEL")
-    if env:
+    if env and str(env).strip().lower() != SUBAGENT_MODEL:
         r["reports"].append(f"CLAUDE_CODE_SUBAGENT_MODEL={env}: may put every subagent on that model")
     r["session_model"] = _settings().get("model") or "(app default)"
     return r
@@ -317,43 +327,114 @@ def audit(days=7.0, since=None):
             if t0 is not None and started > t0:
                 ignored.append({"agent": agent, "path": str(jl), "model": model, "t": started})
     rows = [{"agent": a, "model": m, "runs": n} for (a, m), n in sorted(counts.items())]
-    return {"rows": rows, "ignored": ignored, "since": since, "days": days}
+    # F2.3: every Explore run in the window not on Haiku, whenever it started (a run before the file existed counts)
+    explore_off = [r for r in rows if r["agent"].lower() == AGENT.lower() and r["model"] != "(unknown)"
+                   and WANT_MODEL not in r["model"].lower()]
+    return {"rows": rows, "ignored": ignored, "explore_off": explore_off, "since": since, "days": days}
 
 
 def hook_line(call, event):
-    """One line for the session's context, or "". Every prompt: check, repair when needed (silent when OK). Once per
-    session: the reports and the audit for an ignored override. Never raises."""
+    """One line for the session's context, or "". ONLY at SessionStart (F2.1): any other event, UserPromptSubmit
+    included, returns "" without touching a file. A mismatch is reported with the repair command, never repaired here
+    (the hook does not rewrite ~/.claude); the audit for an ignored override is added once. An error in the guard is
+    one line, not silence."""
+    if event != "SessionStart":
+        return ""
     try:
-        if event not in ("UserPromptSubmit", "SessionStart"):
-            return ""
         out = []
         r = check(call.get("cwd"))
         if r["verdict"] != "OK":
-            code, lines = enforce(call.get("cwd"))
-            out.append(lines[0] + f". Fieldkit agent-models guard: {_pinned_summary()}."
-                       + ("" if code == 0 else " Run: fieldkit agent-models check"))
-        sid = call.get("session_id") or Path(call.get("transcript_path") or "none").stem
-        mark = state_dir() / "seen" / (sid + ".json")
-        if not mark.exists():
-            mark.parent.mkdir(parents=True, exist_ok=True)
-            mark.write_text(json.dumps({"t": time.time()}), encoding="utf-8")
-            for x in check(call.get("cwd"))["reports"]:
-                out.append("AGENT MODELS REPORT  " + x)
-            a = audit(days=2)
-            if a["ignored"]:
-                runs = sorted({f"{x['agent']} on {x['model']}" for x in a["ignored"]})
-                out.append(f"AGENT MODELS: OVERRIDE IGNORED  {len(a['ignored'])} run(s) since the templates were"
-                           f" written ran off their pin: {', '.join(runs)}. Details: fieldkit agent-models audit")
+            out.append(f"AGENT MODELS {r['verdict']}  {'; '.join(r['problems'])[:300]}. Fieldkit agent-models guard: "
+                       f"{_pinned_summary()}. Repair (the hook does not rewrite ~/.claude): fieldkit agent-models enforce")
+        for x in r["reports"]:
+            out.append("AGENT MODELS REPORT  " + x)
+        a = audit(days=2)
+        if a["ignored"]:
+            runs = sorted({f"{x['agent']} on {x['model']}" for x in a["ignored"]})
+            out.append(f"AGENT MODELS: OVERRIDE IGNORED  {len(a['ignored'])} run(s) since the templates were"
+                       f" written ran off their pin: {', '.join(runs)}. Details: fieldkit agent-models audit")
         return "\n".join(out)
-    except Exception:  # noqa: BLE001 - a courtesy line must never break the session's hook
-        return ""
+    except Exception as e:  # noqa: BLE001 - say it in one line: a silent guard is a guard nobody knows is down
+        return f"AGENT MODELS GUARD ERROR  {type(e).__name__}: {str(e)[:160]}".replace("\n", " ")
+
+
+def _merge_settings(want_env=None):
+    """Merge SETTINGS_ENV (and `model: sonnet` when absent) into settings.json: keep every other key (hooks, ...), back the
+    old file up to the trash folder, write atomically, read back. -> (ok, lines). A file that is not valid JSON is
+    left alone and said."""
+    want_env = SETTINGS_ENV if want_env is None else want_env
+    sp = claude_home() / "settings.json"
+    raw = _read(sp)
+    data = {}
+    if raw is not None:
+        try:
+            data = json.loads(raw.decode("utf-8-sig"))
+            if not isinstance(data, dict):
+                raise ValueError("top level is not an object")
+        except ValueError as e:
+            return False, [f"SETTINGS NOT MERGED  {sp} is not valid JSON ({e}); fix it, then rerun"]
+    env = data.get("env") if isinstance(data.get("env"), dict) else {}
+    changes = []
+    for k, v in want_env.items():
+        if k == "CLAUDE_CODE_SUBAGENT_MODEL":
+            if str(env.get(k, "")).strip().lower() != v:
+                changes.append(f"env.{k}: {env.get(k) or '(unset)'} -> {v}")
+                env[k] = v
+        elif k not in env:
+            changes.append(f"env.{k}: (unset) -> {v}")
+            env[k] = v
+    data["env"] = env
+    if "model" not in data:
+        changes.append("model: (unset) -> sonnet")
+        data["model"] = "sonnet"
+    if not changes:
+        return True, [f"SETTINGS OK  {sp} already carries the env"]
+    lines = []
+    if raw is not None:
+        keep = trash_dir() / time.strftime("%Y%m%d-%H%M%S")
+        keep.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(sp, keep / "settings.json")
+        lines.append(f"previous settings.json copied to {keep}")
+    sp.parent.mkdir(parents=True, exist_ok=True)
+    tmp = sp.with_name(sp.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    os.replace(tmp, sp)
+    back = (_settings().get("env") or {}).get("CLAUDE_CODE_SUBAGENT_MODEL")
+    ok = str(back or "").lower() == SUBAGENT_MODEL
+    return ok, [f"SETTINGS {'MERGED' if ok else 'MERGE FAILED'}  {'; '.join(changes)}"] + lines
+
+
+def doctor(install=False, cwd=None):
+    """-> (code, lines). Without install: the state of this machine (templates, settings env), nothing written.
+    With install: enforce() the templates, merge the settings env, read back. 0 clean, 1 something missing, 3 failed."""
+    r = check(cwd)
+    env = (_settings().get("env") or {}).get("CLAUDE_CODE_SUBAGENT_MODEL")
+    env_ok = str(env or "").strip().lower() == SUBAGENT_MODEL
+    if not install:
+        lines = [f"AGENT MODELS {x['verdict']}  {x['agent']} -> {x['want']}  {x['path']}" for x in r["pins"]]
+        lines.append(f"SETTINGS {'OK' if env_ok else 'MISSING'}  env.CLAUDE_CODE_SUBAGENT_MODEL={env or '(unset)'} "
+                     f"(want {SUBAGENT_MODEL})")
+        bad = r["verdict"] != "OK" or not env_ok
+        if bad:
+            lines.append("FIX: fieldkit agent-models doctor --install")
+        return (1 if bad else 0), lines
+    code, lines = enforce(cwd)
+    ok, more = _merge_settings()
+    return (0 if code == 0 and ok else 3), lines + more
+
+
+# Options live on the subcommands; the top-level --help names them so a card that lists them agrees with it.
+SUBCOMMAND_OPTIONS = ("\noptions by subcommand:\n"
+                      "  check  [--json]               verdict as JSON\n"
+                      "  audit  [--days N] [--json]    subagent runs in the last N days (7), as JSON\n"
+                      "  doctor [--install]            write the templates and merge settings.json env\n")
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     p = argparse.ArgumentParser(prog="fieldkit agent-models",
                                 description="Keep Claude Code's Explore subagent on Haiku and general-purpose on Sonnet.",
-                                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("Usage:")[0])
+                                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("Usage:")[0] + SUBCOMMAND_OPTIONS)
     sub = p.add_subparsers(dest="cmd")
     c = sub.add_parser("check")
     c.add_argument("--json", action="store_true")
@@ -362,6 +443,8 @@ def main(argv=None):
     a.add_argument("--days", type=float, default=7.0)
     a.add_argument("--json", action="store_true")
     sub.add_parser("template")
+    d = sub.add_parser("doctor")
+    d.add_argument("--install", action="store_true", help="write the templates and merge settings.json env")
     args = p.parse_args(argv)
     if args.cmd == "template":
         for pin in PINS:
@@ -381,13 +464,19 @@ def main(argv=None):
                 print(f"  {row['agent']:<20} {row['model']:<28} {row['runs']}")
             if not r["rows"]:
                 print("  (none)")
+            for x in r["explore_off"]:
+                print(f"FAIL  {x['runs']} {AGENT} run(s) on {x['model']}, not {WANT_MODEL}")
             if r["ignored"]:
                 print(f"OVERRIDE IGNORED  {len(r['ignored'])} pinned run(s) after the template was written, off the pin:")
                 for x in r["ignored"]:
                     print(f"  {x['agent']}  {x['model']}  {x['path']}")
-            else:
+            elif not r["explore_off"]:
                 print(f"AUDIT OK  no pinned run off its model since the templates were written ({_pinned_summary()})")
-        return 1 if r["ignored"] else 0
+        return 1 if r["ignored"] or r["explore_off"] else 0
+    if args.cmd == "doctor":
+        code, lines = doctor(install=args.install)
+        print("\n".join(lines))
+        return code
     r = check()
     if getattr(args, "json", False):
         print(json.dumps(r, indent=1))
