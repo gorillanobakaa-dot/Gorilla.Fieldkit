@@ -366,7 +366,8 @@ def _sampling(cmd):
 #    pytest` in a shell and nothing refused it (Zero ran 36 tests by hand on PR 533 the same evening). Every test runner
 #    is refused here, on every system: push, and GitHub CI runs the covering tests (`fieldkit testcost staged` names
 #    them). The one way through is the hook's own owner switch, FIELDKIT_LOCAL_TESTS=1, for a debugging session the
-#    owner asked for; `# toolrouter-ok:` does not open it.
+#    owner asked for. `# toolrouter-ok:` opens it only when no test runner is actually executed (F3.3, owner
+#    2026-11-22): a note that merely names pytest in its own text is data; a real runner stays refused.
 LOCAL_TESTS_ENV = "FIELDKIT_LOCAL_TESTS"
 TEST_RUNNERS = [
     re.compile(_AT + r"(?:pytest(?:\.exe)?[\"']?|" + _PY + r"(?:pytest|unittest))(?![\w-])", re.I | re.M),
@@ -397,6 +398,48 @@ def local_tests_refusal(command, environ=None):
     cmd = "".join("" if SEARCH.match(x) else x for x in re.split(r"(;|&&|\|\||\||\n)", cmd))
     cmd = MUTATE_RUN.sub("", cmd)          # `fieldkit mutate -- pytest ...`: the rules' own proof that a check can fail
     return LOCAL_TESTS if any(p.search(cmd) for p in TEST_RUNNERS) else None
+
+
+# -- F3.3 (owner 2026-11-22: "A la amandoua este aprobat."): clean read-only find / cat / sed -n / wc inside a git
+#    checkout are allowed. Never -exec, -delete, -fprint, a redirect, sed -i, an absolute or parent path, or a
+#    substitution; anything else in the line keeps its own rule.
+_FIND_BAD = re.compile(r"\s-(?:exec|execdir|ok|okdir|delete|fprint\w*|fls)(?![\w-])", re.I)
+_NOISE = re.compile(r"\s*\d?>\s*/dev/null|\s*\d?>&\d")
+_RO_PATH = r"""(?!/|~|\$|[A-Za-z]:|-|\.\.)[^\s<>|;&`$"']+"""
+_RO_OPT = (r"""(?:-(?:i?name|i?path|type|maxdepth|mindepth|size|mtime|newer|empty|print|prune|o|a|not)|!|\(|\)"""
+           r"""|(?!/|\\|\.\.|~|[A-Za-z]:)[\w.*?\[\]/\\+-]+|"[^"\n]*"|'[^'\n]*')""")
+_RO_FIND = re.compile(r"find(?:\s+" + _RO_PATH + r")*(?:\s+" + _RO_OPT + r")*")
+_RO_CAT = re.compile(r"cat(?:\s+-[nAbEsTv]+)?(?:\s+" + _RO_PATH + r")+")
+_RO_SED = re.compile(r"sed\s+-n\s+(['\"]?)[\d,$]+p\1(?:\s+" + _RO_PATH + r")+")
+_RO_WC = re.compile(r"wc(?:\s+-[lwcmL]+)*(?:\s+" + _RO_PATH + r")*")
+
+
+def in_git_checkout(cwd):
+    """True when `cwd` is inside a git checkout (a .git folder or file on the way up)."""
+    if not cwd:
+        return False
+    p = os.path.abspath(cwd)
+    while True:
+        if os.path.exists(os.path.join(p, ".git")):
+            return True
+        q = os.path.dirname(p)
+        if q == p:
+            return False
+        p = q
+
+
+def readonly_clean(command, cwd=""):
+    """True when every statement of `command` is a clean read-only find, cat, sed -n or wc and `cwd` is a git checkout."""
+    if not command or not in_git_checkout(cwd) or re.search(r"[`<]|\$\(", command):
+        return False
+    for _, _, st in _statements(command):
+        st = _NOISE.sub("", st).strip()
+        if not st or ">" in st or _FIND_BAD.search(" " + st):
+            return False
+        if not any(r.fullmatch(st) for r in (_RO_FIND, _RO_CAT, _RO_SED, _RO_WC)):
+            return False
+    return True
+
 
 
 PFIND_ROUTE = {"route": "text-search-in-tree", "use": "pfind for text and code references",
@@ -460,10 +503,12 @@ def route(command, cwd="", shell=""):
                        "the script, then run the file",
                 "example": "python - <<'EOF'"}
     cmd = HEREDOC.sub("<<heredoc", command or "")
-    lt = local_tests_refusal(cmd)                    # before the override: `# toolrouter-ok:` does not open it
+    lt = local_tests_refusal(cmd)                    # before the override: a note opens it only if no runner runs
     if lt:
         return lt
     if OVERRIDE.search(cmd):
+        return None
+    if readonly_clean(cmd, cwd):                      # F3.3: nothing else in the line, so no other row applies
         return None
     for name, pat, use, example in ROUTES:
         hit = _hit(name, pat, cmd) or (name == "recursive-file-search" and shell.lower() == "powershell"
@@ -692,6 +737,30 @@ def _mode_spawn(call):
     return _deny(why) if why else None
 
 
+MODEL_OK = re.compile(r"sonnet|haiku", re.I)
+MODEL_WHY = "Workers run on Sonnet (CLAUDE.md MODELS). Pass model=claude-sonnet-5-5."
+_PARKED = re.compile(r"\bparked\b", re.I)
+_REPAIR = re.compile(r"\brepair", re.I)
+_REVIEW = re.compile(r"\breview", re.I)
+
+
+def _model_guard(call):
+    """start_session and Agent/Task need an explicit Sonnet or Haiku model: an omitted model inherits the parent's, so an
+    Opus chief started Opus workers (hog-churn, 2026-11-22). Parked repairs and reviews may run stronger."""
+    tool = str(call.get("tool_name") or "").lower()
+    if not (tool.endswith("start_session") or tool in ("agent", "task")):
+        return None
+    ti = call.get("tool_input") or {}
+    if ti.get("proposal_id") and not ti.get("prompt"):      # starting a stored proposal: its model was checked when it was made
+        return None
+    if MODEL_OK.search(str(ti.get("model") or "")):
+        return None
+    text = " ".join(str(ti.get(k) or "") for k in ("prompt", "title", "description", "brief"))
+    if _REVIEW.search(text) or (_REPAIR.search(text) and _PARKED.search(text)):
+        return None
+    return MODEL_WHY
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -714,7 +783,7 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _no_card(call) or _nested(call) or _permanence(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
+    stop = _no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()

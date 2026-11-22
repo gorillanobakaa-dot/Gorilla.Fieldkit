@@ -395,3 +395,103 @@ def test_follow_is_live_and_simple_rg_rewrites_in_place():
     call = {"tool_name": "PowerShell", "tool_input": {"command": "rg needle ."}}
     decision = tr.verdict(call)["hookSpecificOutput"]
     assert decision["updatedInput"]["command"] == "python -B -m fieldkit.desk.pfind --content --regex -- needle ."
+
+
+# --- F3.3 (owner 2026-11-22): clean read-only find/cat/sed -n/wc in a git checkout; model guard on worker starts ---
+
+@pytest.fixture
+def gitdir(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "sub").mkdir()
+    return str(tmp_path / "sub")
+
+
+@pytest.mark.parametrize("cmd", [
+    "find . -name '*.py'",
+    "find fieldkit -name '*.py' -type f | wc -l",
+    "find . -name x 2>/dev/null",
+    "cat README.md",
+    "cat -n a.py b.py",
+    "sed -n '1,20p' a.py",
+    "sed -n 5p a.py",
+    "wc -l a.py",
+])
+def test_clean_read_only_commands_pass_in_a_git_checkout(cmd, gitdir):
+    assert tr.readonly_clean(cmd, gitdir)
+    assert tr.route(cmd, gitdir) is None
+
+
+@pytest.mark.parametrize("cmd", [
+    "find . -delete",
+    "find . -name x -exec rm {} ;",
+    "find . -fprint o.txt",
+    "find / -name x",
+    "find .. -name x",
+    "cat x > y",
+    "cat x | grep y",
+    "cat a; rm b",
+    "find . -name x | xargs rm",
+    "sed -i s/a/b/ f",
+    "sed -n '1,2p' f > g",
+])
+def test_dangerous_forms_are_not_clean_read_only(cmd, gitdir):
+    assert not tr.readonly_clean(cmd, gitdir)
+
+
+def test_a_find_from_the_root_is_still_routed_to_the_tool(gitdir):
+    assert tr.route("find / -name x", gitdir)["route"] == "recursive-file-search"
+
+
+def test_the_read_only_door_needs_a_git_checkout(tmp_path):
+    assert not tr.readonly_clean("find . -name x", str(tmp_path))
+    assert not tr.readonly_clean("find . -name x", "")
+    assert tr.route("find / -name vctip.exe 2>/dev/null")["route"] == "recursive-file-search"
+
+
+def test_a_note_opens_the_runner_refusal_only_when_no_runner_runs():
+    assert tr.local_tests_refusal("echo x  # toolrouter-ok: no runner here") is None
+    assert tr.local_tests_refusal("pytest tests  # toolrouter-ok: really") is not None
+    assert tr.local_tests_refusal("pytest tests") is not None
+
+
+def _start(**ti):
+    return {"tool_name": "mcp__ccd_session__start_session", "tool_input": dict({"initiation": "user_asked"}, **ti)}
+
+
+@pytest.mark.parametrize("ti", [{}, {"model": ""}, {"model": "claude-opus-5-5"}, {"model": "fable"}])
+def test_a_worker_start_without_sonnet_or_haiku_is_refused(ti):
+    assert tr._model_guard(_start(title="x", prompt="y", **ti)) == tr.MODEL_WHY
+    out = tr.verdict(_start(title="x", prompt="y", **ti))
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "claude-sonnet-5-5" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "sonnet", "claude-haiku-5-5", "haiku"])
+def test_sonnet_and_haiku_pass(model):
+    assert tr._model_guard(_start(title="x", prompt="y", model=model)) is None
+
+
+@pytest.mark.parametrize("ti", [
+    {"title": "parked repair of the router", "prompt": "fix"},
+    {"title": "review PR 12", "prompt": "look"},
+    {"title": "x", "prompt": "Parked repair: CI red twice"},
+    {"proposal_id": "task_1"},
+])
+def test_parked_repairs_reviews_and_stored_proposals_may_run_stronger(ti):
+    assert tr._model_guard(_start(model="claude-opus-5-5", **ti)) is None
+
+
+def test_a_repair_that_is_not_parked_is_not_exempt():
+    assert tr._model_guard(_start(model="opus", title="repair x", prompt="y")) == tr.MODEL_WHY
+
+
+@pytest.mark.parametrize("tool", ["Agent", "Task"])
+def test_agent_and_task_need_a_model_too(tool):
+    call = {"tool_name": tool, "tool_input": {"prompt": "x"}}
+    assert tr._model_guard(call) == tr.MODEL_WHY
+    call["tool_input"]["model"] = "sonnet"
+    assert tr._model_guard(call) is None
+
+
+def test_other_tools_are_not_subject_to_the_model_guard():
+    assert tr._model_guard({"tool_name": "Bash", "tool_input": {"command": "ls"}}) is None

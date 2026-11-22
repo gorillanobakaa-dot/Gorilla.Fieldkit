@@ -270,7 +270,7 @@ def main(argv=None, prog="fieldkit sessions"):
             cfg["idle_minutes"] = a.idle_minutes
         rows = sweep.sweep(interval=getattr(a, "interval", 1.0), cfg=cfg, keep=tuple(getattr(a, "keep", [])))
         if getattr(a, "json", False):
-            print(json.dumps({"summary": sweep.summary(rows), "rows": rows}, indent=1, ensure_ascii=False))
+            print(json.dumps({"summary": sweep.summary(rows), "opus_idle": sweep.opus_lines(rows), "rows": rows}, indent=1, ensure_ascii=False))
         else:
             for x in rows:
                 cpu = "-" if x["cpu_pct"] is None else f"{x['cpu_pct']:.0f}%"
@@ -279,6 +279,8 @@ def main(argv=None, prog="fieldkit sessions"):
                       + (f"\n          no Board row: fieldkit board add {x['cli']}" if x.get("board") == "missing"
                          else ""))
             print(sweep.summary(rows))
+            for ln in sweep.opus_lines(rows):
+                print(ln)
         return 1 if sweep.totals(rows)["finished"] else 0
     if cmd == "protocol":
         print(protocol.done_protocol(a.task, a.headless), end="")
