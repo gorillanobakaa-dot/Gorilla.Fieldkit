@@ -264,9 +264,9 @@ def test_a_reader_with_nothing_new_writes_nothing(_room_dir):
     assert cur.stat().st_mtime_ns == t - 10**9
 
 
-def test_a_session_whose_ear_is_not_running_is_told_the_line_every_time(monkeypatch, capsys, tmp_path):
+def test_a_session_whose_ear_is_not_running_is_told_the_line_once(monkeypatch, capsys, tmp_path):
     """I-27 (owner, 2026-11-10: "that is not real-time communication"): the one relay died with its session and 97
-    notes sat unheard. Every session is told to start its own ear, again after it ended (not deduped), never on the
+    notes sat unheard. Every session is told once (F3.1, through only_new) to start its own ear, never on the
     call that starts it, never headless, never without a household."""
     from fieldkit.peers import link, link_relay
     monkeypatch.setattr(room, "_ear", REAL_EAR)                      # conftest turns it off for every other test
@@ -290,9 +290,8 @@ def test_a_session_whose_ear_is_not_running_is_told_the_line_every_time(monkeypa
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
     first = said()
     assert first.startswith("EAR NOT RUNNING") and "relay listen --as claude:r1@" in first and "--since 7" in first
-    second = said()
-    assert second.startswith("EAR NOT RUNNING")                      # every prompt while it is down: still told ...
-    assert second != first and len(second) < len(first) // 3          # ... P37: in full once, then the short reminder
+    assert said() == ""                                             # F3.1: the second prompt carries no EAR line
+    assert said(event="PreToolUse") == ""                             # nor does a tool call
     assert said(cmd="fk peers link relay listen --as x") == ""        # the call that starts it
     alive["pid"] = 4242
     assert said(sid="r3") == ""                                      # its ear runs: nothing to say

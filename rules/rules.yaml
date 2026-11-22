@@ -171,8 +171,7 @@ core:
   - fieldkit/lifecycle/sessionmode.py
   owner: 2026-11-22
   text: |-
-    SUB-AGENTS. Economy default: zero sub-agents; search via pfind or `fieldkit size find`, not Grep, Glob,
-    Explore.
+    SUB-AGENTS. Economy: zero; search via pfind or `fieldkit size find`, never Grep/Glob/Explore (Haiku, owner opt-in).
 - id: DONE
   subject: ending a job
   audience: all
