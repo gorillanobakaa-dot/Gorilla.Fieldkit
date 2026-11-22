@@ -498,7 +498,7 @@ def test_a_question_takes_its_default_never_the_owner_inbox_and_work_goes_on(tmp
     assert st["jobs"]["j1"]["status"] == "verified"
     assert not inbox.items()                                    # owner, 2026-11-01: never ask him
     assert st["answers"]["q1"]["answer"] == "MIT" and "default" in st["answers"]["q1"]["by"]
-    assert ledger()[-1]["kind"] == "decision" and "MIT" in ledger()[-1]["why"]
+    assert ledger() == []                                       # F2.4: the decision is in goal state + REPORT.md only
     assert st["jobs"]["j2"]["status"] in ("verified", "running") or goal.runnable(st) == "j2"
 
 
