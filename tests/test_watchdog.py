@@ -183,3 +183,49 @@ def test_an_ssid_of_shell_metacharacters_never_reaches_a_shell():
 def test_unescape_leaves_an_ordinary_name_alone():
     assert net.unescape_nmcli("5G-Hub-MH3S") == "5G-Hub-MH3S"
     assert net.unescape_nmcli("plain\\\\back") == "plain\\back"
+
+
+# 2026-11-22: the network name was read on every 5 s pass (on Windows a netsh child and a console host each time:
+# 720 an hour). It is read on the first online pass, on every return from offline, and once per SSID_EVERY_S.
+def _run_passes(monkeypatch, states, step=5.0):
+    reads, clock = [], {"t": 1000.0}
+    seq = iter(states)
+    monkeypatch.setattr(watchdog, "online", lambda *a, **k: next(seq))
+    monkeypatch.setattr(watchdog, "current_ssid", lambda *a, **k: reads.append(clock["t"]) or "Hotspot")
+    monkeypatch.setattr(watchdog, "log", lambda *a, **k: None)
+    monkeypatch.setattr(watchdog, "speak", lambda *a, **k: None)
+    monkeypatch.setattr(watchdog, "paused", lambda *a, **k: False)
+    monkeypatch.setattr(watchdog, "reconnect", lambda *a, **k: None)
+
+    def tick(_):
+        clock["t"] += step
+        if clock["t"] >= 1000.0 + step * len(states):
+            raise StopIteration
+    with pytest.raises(StopIteration):
+        watchdog.loop(_now=lambda: clock["t"], _sleep=tick)
+    return reads
+
+
+def test_an_online_hour_reads_the_network_name_twelve_times_not_720(monkeypatch):
+    reads = _run_passes(monkeypatch, [True] * 720)          # one hour at the 5 s interval
+    assert len(reads) == 3600 // watchdog.SSID_EVERY_S
+
+
+def test_the_network_name_is_read_again_on_return_from_offline(monkeypatch):
+    reads = _run_passes(monkeypatch, [True, True, False, False, True, True])
+    assert reads == [1000.0, 1020.0], "first pass and the first pass back online, nothing between"
+
+
+def test_a_fixed_ssid_never_runs_netsh(monkeypatch):
+    seq = iter([True])
+    monkeypatch.setattr(watchdog, "online", lambda *a, **k: next(seq))
+    monkeypatch.setattr(watchdog, "current_ssid", lambda *a, **k: pytest.fail("ssid given: no read"))
+    monkeypatch.setattr(watchdog, "log", lambda *a, **k: None)
+    assert watchdog.loop(forever=False, ssid="Fixed")["remembered"] == "Fixed"
+
+
+def test_ssid_due():
+    assert watchdog.ssid_due(None, 0, False)
+    assert watchdog.ssid_due(100, 101, True)
+    assert not watchdog.ssid_due(100, 399, False)
+    assert watchdog.ssid_due(100, 400, False)
