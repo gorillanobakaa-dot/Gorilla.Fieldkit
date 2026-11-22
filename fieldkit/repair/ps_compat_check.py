@@ -241,6 +241,34 @@ def check_stale_generated(repo):
     return findings
 
 
+def shard_coverage(files, shards):
+    """F1.7: -> (missing, duplicated): test files in no shard, and test files run by more than one."""
+    seen = {}
+    for shard in shards:
+        for f in shard:
+            seen[f] = seen.get(f, 0) + 1
+    wanted = {f.replace("\\", "/") for f in files}
+    return sorted(wanted - set(seen)), sorted(f for f, c in seen.items() if c > 1)
+
+
+def check_shard_coverage(repo, n):
+    """F1.7: the shard split of every test file under tests/ must cover each file exactly once, not only count N."""
+    from fieldkit.method import shard as _shard
+    files = sorted(p.relative_to(repo).as_posix() for p in (repo / "tests").rglob("test_*.py"))
+    if not files or not n:
+        return []
+    split = _shard.balance(files, _shard.load(str(repo / _shard.DURATIONS)), n)
+    missing, duplicated = shard_coverage(files, split)
+    findings = []
+    if missing or duplicated:
+        findings.append({
+            "rule": "workflow-shard-coverage",
+            "message": f"the {n}-way shard split misses {len(missing)} test file(s) {missing[:3]} and repeats {len(duplicated)} {duplicated[:3]}",
+            "fix": "fix fieldkit/method/shard.py balance so each test file lands in exactly one shard",
+        })
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Workflow shard consistency check
 # ---------------------------------------------------------------------------
@@ -336,6 +364,9 @@ def check_workflow_shards(repo):
                 "message": f"{os_name}: tests.yml has {tests_n} shards, release.yml has {release_n} - they must match",
                 "fix": f"Set shard matrix in release.yml shard-{os_name} to match tests.yml: {tests_shards}",
             })
+
+    if expected_n:
+        findings.extend(check_shard_coverage(repo, expected_n))
 
     # Check release.yml does NOT have a plain `python -m pytest` step in a non-sharded test job
     release_jobs = release_wf.get("jobs", {})

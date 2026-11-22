@@ -357,3 +357,10 @@ def test_f16_cheap_checks_run_first_and_shards_wait_for_them():
     assert text.count("release-page check") == 1                      # moved, not duplicated after the shards
     assert len(re.findall(r"needs: \[reuse, checks\]", text)) == 2    # both OS shard jobs wait for the checks
     assert "checks" in re.search(r"needs: \[(.*shard-windows-latest.*)\]", text).group(1)
+
+
+def test_f18_pr_shards_time_out_at_10_minutes():
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    lines = [ln for ln in text.splitlines() if "workflow_dispatch' && 90 ||" in ln]
+    assert len(lines) == 2                                   # one per OS shard step
+    assert all(ln.strip().endswith("|| 10 }}") for ln in lines)   # 10 on the pull_request path; 90 only for workflow_dispatch
