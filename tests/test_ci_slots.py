@@ -9,13 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _cfg(**slots):
-    cfg = ciplan.load_config(ROOT)
+    cfg = ciplan.load_config(ROOT / ".github" / "ci.yaml")
     cfg["slots"] = {**cfg["slots"], **slots}
     return cfg
 
 
 def test_the_shipped_budget_fits_the_account_and_the_runner_budget():
-    cfg = ciplan.load_config(ROOT)
+    cfg = ciplan.load_config(ROOT / ".github" / "ci.yaml")
     assert ciplan.slot_problems(cfg) == []
     assert cfg["slots"]["projects"]["fieldkit"] == {"windows": 16, "linux": 16}
 
@@ -26,13 +26,13 @@ def test_budgets_over_the_account_limit_fail():
 
 
 def test_a_runner_budget_over_the_projects_slots_fails():
-    cfg = ciplan.load_config(ROOT)
+    cfg = ciplan.load_config(ROOT / ".github" / "ci.yaml")
     cfg["budget"] = {"windows": 20, "linux": 16}
     assert any("windows 20" in p for p in ciplan.slot_problems(cfg))
 
 
 def test_a_missing_project_budget_fails():
-    assert any("no budget" in p for p in ciplan.slot_problems(ciplan.load_config(ROOT), project="ghost"))
+    assert any("no budget" in p for p in ciplan.slot_problems(ciplan.load_config(ROOT / ".github" / "ci.yaml"), project="ghost"))
 
 
 def test_check_reports_a_slot_problem():

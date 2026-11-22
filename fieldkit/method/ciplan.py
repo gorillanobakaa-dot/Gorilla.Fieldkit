@@ -139,7 +139,7 @@ def block(d, selected, new_files=(), now=None):
     return {"run": d.get("run"), "age_days": round(age, 2), "coverage": coverage, "weights": weights}, None
 
 
-DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 20, "linux": 20},
+DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
             "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": [],
             "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300},
             "slots": {"account_limit": 40, "reserve": 4,
