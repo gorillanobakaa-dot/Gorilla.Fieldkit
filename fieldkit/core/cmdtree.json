@@ -168,6 +168,55 @@
    "open": false,
    "v": {}
   },
+  "agent-models": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "audit": {
+     "c": [],
+     "f": {
+      "--days": 1,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "enforce": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "template": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "antigravity": {
    "c": [],
    "f": {

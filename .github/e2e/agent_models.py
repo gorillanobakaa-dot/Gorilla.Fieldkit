@@ -1,6 +1,7 @@
 """e2e: fieldkit agent-models through its real entry point, in a throwaway Claude home.
 
-Sabotage cases: file deleted, model switched to opus, a second Explore file. Each is found by `check` (exit 1),
+Sabotage cases: file deleted, model switched to opus, a second Explore file,
+general-purpose switched to opus. Each is found by `check` (exit 1),
 repaired by `enforce` (exit 0), and `check` passes afterwards. The old file must survive in the trash folder."""
 import os
 import subprocess
@@ -34,6 +35,11 @@ def main():
         (home / "agents" / "explore2.md").write_text("---\nname: Explore\nmodel: opus\n---\n", encoding="utf-8")
         assert run(env, "check") == 1, "second Explore file not found"
         assert run(env, "enforce") == 0 and not (home / "agents" / "explore2.md").exists()
+        assert run(env, "check") == 0
+        g = home / "agents" / "general-purpose.md"
+        g.write_text(g.read_text(encoding="utf-8").replace("model: sonnet", "model: opus"), encoding="utf-8")
+        assert run(env, "check") == 1, "general-purpose opus switch not found"
+        assert run(env, "enforce") == 0 and "model: sonnet" in g.read_text(encoding="utf-8")
         assert run(env, "check") == 0
         assert run(env, "audit", "--days", "1") == 0
     print("E2E agent-models PASS")

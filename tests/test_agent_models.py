@@ -1,4 +1,5 @@
-"""Agent-model guard (fieldkit/tokens/agent_models.py): Explore kept on Haiku; sabotage cases repaired, never deleted."""
+"""Agent-model guard (fieldkit/tokens/agent_models.py): Explore kept on Haiku, general-purpose on Sonnet;
+sabotage cases repaired, never deleted."""
 import json
 import os
 import time
@@ -17,6 +18,8 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_AGENT_MODELS_DIR", str(tmp_path / "state"))
     monkeypatch.delenv("CLAUDE_CODE_SUBAGENT_MODEL", raising=False)
     monkeypatch.chdir(tmp_path)
+    # the general-purpose pin starts correct; tests that sabotage it say so
+    (home / "agents" / "general-purpose.md").write_bytes(am.PINS[1]["template"].encode("utf-8"))
     return home
 
 
@@ -122,4 +125,32 @@ def test_cli_exit_codes(iso, capsys):
     assert am.main(["check"]) == 1
     assert am.main(["enforce"]) == 0
     assert am.main(["check"]) == 0
-    assert am.main(["template"]) == 0 and "model: haiku" in capsys.readouterr().out
+    assert am.main(["template"]) == 0
+    out = capsys.readouterr().out
+    assert "model: haiku" in out and "model: sonnet" in out
+
+
+def gp(home):
+    return home / "agents" / "general-purpose.md"
+
+
+def test_general_purpose_missing_or_on_opus_is_repaired_to_sonnet(iso, tmp_path):
+    target(iso).write_text(am.TEMPLATE, encoding="utf-8")
+    gp(iso).unlink()
+    r = am.check()
+    assert r["verdict"] == "MISSING" and r["agent"] == "general-purpose"
+    assert am.enforce()[0] == 0 and am.check()["verdict"] == "OK"
+    gp(iso).write_text(am.GP_TEMPLATE.replace("model: sonnet", "model: opus"), encoding="utf-8")
+    r = am.check()
+    assert r["verdict"] == "WRONG_MODEL" and r["model"] == "opus"
+    code, lines = am.enforce()
+    assert code == 0 and "general-purpose.md was WRONG_MODEL" in lines[0]
+    assert "model: sonnet" in gp(iso).read_text(encoding="utf-8")
+    assert any("model: opus" in k.read_text(encoding="utf-8") for k in (tmp_path / "trash").rglob("general-purpose.md"))
+
+
+def test_audit_flags_general_purpose_on_opus(iso):
+    _run(iso, "general-purpose", "claude-opus-5-5", aid="g1")
+    _run(iso, "general-purpose", "claude-sonnet-5-5", aid="g2")
+    r = am.audit(days=1, since=time.time() - 3600)
+    assert [(x["agent"], x["model"]) for x in r["ignored"]] == [("general-purpose", "claude-opus-5-5")]

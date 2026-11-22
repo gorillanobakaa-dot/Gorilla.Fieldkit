@@ -290,6 +290,17 @@
    "admit"
   ]
  },
+ "agent-models": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "agent-models"
+  ]
+ },
  "antigravity": {
   "platforms": [
    "darwin",
