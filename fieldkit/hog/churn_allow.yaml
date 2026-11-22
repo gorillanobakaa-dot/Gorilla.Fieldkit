@@ -1,0 +1,12 @@
+# fieldkit hog churn scan: process-starting calls the room hook may reach, each with the reason it is allowed.
+# Key: module:function:callee. A key with no reason is ignored. A stale key (no longer reached) is reported.
+# Add a key only when the call is gated (SessionStart only, cached, rare); otherwise make it in-process.
+allow:
+  "fieldkit.core.installed:_git:subprocess.run": >-
+    SessionStart only, and only on a cache miss: inspect_cached reads HEAD, origin/main and the index from the
+    .git files and reuses the last verdict while they are unchanged (6 h at most); measured 0 children when warm.
+  "fieldkit.core.installed:inspect:subprocess.run": >-
+    Same gate as _git: the full installed-copy check runs only when HEAD, origin/main or the index moved.
+  "fieldkit.tokens.rotate:_worktree_head:subprocess.run": >-
+    Only on ROTATE, when the hook writes the successor hand-over (budget.prepare_successor): once per session end,
+    not per prompt.

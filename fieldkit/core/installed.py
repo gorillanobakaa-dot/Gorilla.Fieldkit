@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-11-22-17-00
+# Version: 1.1.0 · updated 26-11-22-21-00
 """fieldkit installed: the copy of Fieldkit the `fieldkit` command runs follows origin/main, deterministically.
 
 Measured 2026-11-22: the `fieldkit` on PATH imported from Fieldkit-installed, a git worktree left on a detached HEAD
@@ -20,6 +20,11 @@ equal origin/main and the installed `fieldkit --version` must load, else FAIL.
 
 Finding the installed tree: FIELDKIT_INSTALLED_DIR, else where a fresh `python -I` imports `fieldkit` from (the
 editable install), else nothing: NOT-FOUND (a machine that runs from a checkout has no separate installed copy).
+
+The SessionStart line starts no process when nothing moved (measured 2026-11-22 with `fieldkit hog churn hooks`:
+6 git + 1 python children, 2.27 s, on every session start). The tree found is cached for a day; HEAD and
+origin/main are read straight from the .git files (HEAD, refs, packed-refs); the last full verdict is reused while
+HEAD, origin/main and the index are unchanged and it is under 6 hours old. Anything else runs the full check.
 """
 import argparse
 import json
@@ -55,6 +60,133 @@ def locate(env=None, run=subprocess.run):
     return root if (root / ".git").exists() else None
 
 
+LOCATE_TTL = 24 * 3600
+VERDICT_TTL = 6 * 3600
+
+
+def _cache_path(env=None):
+    env = os.environ if env is None else env
+    if env.get("FIELDKIT_INSTALLED_CACHE"):
+        return Path(env["FIELDKIT_INSTALLED_CACHE"])
+    from . import settings
+    return settings.state_root() / "state" / "installed-cache.json"
+
+
+def _cache_read(env=None):
+    try:
+        return json.loads(_cache_path(env).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _cache_write(data, env=None):
+    try:
+        p = _cache_path(env)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+def locate_cached(env=None, now=None, run=subprocess.run):
+    """locate(), remembered for a day per Python: the editable install moves only when a person re-runs pip."""
+    env = os.environ if env is None else env
+    if env.get("FIELDKIT_INSTALLED_DIR"):
+        return locate(env, run)
+    now = time.time() if now is None else now
+    c = _cache_read(env)
+    hit = c.get("locate") or {}
+    if hit.get("exe") == sys.executable and now - hit.get("ts", 0) < LOCATE_TTL:
+        tree = hit.get("tree")
+        if not tree:
+            return None
+        if (Path(tree) / ".git").exists():
+            return Path(tree)
+    tree = locate(env, run)
+    c["locate"] = {"exe": sys.executable, "ts": now, "tree": str(tree) if tree else ""}
+    _cache_write(c, env)
+    return tree
+
+
+def _gitdirs(tree):
+    """-> (gitdir, commondir) read from the files, or (None, None). A worktree's .git is a file naming its gitdir."""
+    dot = Path(tree) / ".git"
+    try:
+        if dot.is_dir():
+            gd = dot
+        else:
+            txt = dot.read_text(encoding="utf-8").strip()
+            if not txt.startswith("gitdir:"):
+                return None, None
+            gd = Path(txt[7:].strip())
+            gd = gd if gd.is_absolute() else (Path(tree) / gd)
+        cd = gd
+        if (gd / "commondir").exists():
+            c = Path((gd / "commondir").read_text(encoding="utf-8").strip())
+            cd = c if c.is_absolute() else gd / c
+        return gd, cd
+    except OSError:
+        return None, None
+
+
+def _ref(gitdir, commondir, ref):
+    """-> the sha a ref names (loose file in the gitdir or common dir, else packed-refs), or None."""
+    for d in (gitdir, commondir):
+        try:
+            v = (d / ref).read_text(encoding="utf-8").strip()
+            if v.startswith("ref:"):
+                return _ref(gitdir, commondir, v[4:].strip())
+            return v or None
+        except OSError:
+            continue
+    try:
+        for row in (commondir / "packed-refs").read_text(encoding="utf-8").splitlines():
+            parts = row.split()
+            if len(parts) == 2 and parts[1] == ref and not row.startswith(("#", "^")):
+                return parts[0]
+    except OSError:
+        pass
+    return None
+
+
+def read_heads(tree):
+    """In-process, no git: -> (head, origin/main, index mtime_ns) or None when the files cannot be read."""
+    gd, cd = _gitdirs(tree)
+    if not gd:
+        return None
+    try:
+        h = (gd / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    head = _ref(gd, cd, h[4:].strip()) if h.startswith("ref:") else h
+    main = _ref(gd, cd, f"refs/remotes/origin/{BRANCH}")
+    try:
+        idx = (gd / "index").stat().st_mtime_ns
+    except OSError:
+        idx = 0
+    return (head, main, idx) if head and main else None
+
+
+def inspect_cached(tree, env=None, now=None):
+    """inspect(tree) without a process while HEAD, origin/main and the index are unchanged (and under 6 h)."""
+    if not tree or not (Path(tree) / ".git").exists():
+        return inspect(tree)
+    now = time.time() if now is None else now
+    key = read_heads(tree)
+    c = _cache_read(env)
+    hit = (c.get("verdict") or {})
+    if key and hit.get("tree") == str(tree) and hit.get("key") == list(key) and now - hit.get("ts", 0) < VERDICT_TTL:
+        return dict(hit["row"], cached=True)
+    row = inspect(tree)
+    after = read_heads(tree)                # git status may refresh the index: key on the state it left
+    if after and row["verdict"] not in ("ERROR",):
+        c["verdict"] = {"tree": str(tree), "key": list(after), "ts": now, "row": row}
+        _cache_write(c, env)
+    return row
+
+
 def inspect(tree, fetch=False):
     """-> a dict: tree, head, main (origin/main sha), behind, ahead, dirty, ff, fetched (True / False / None when not
     asked), age_h (hours since the last fetch), verdict OK / BEHIND / DIVERGED / DIRTY / NOT-FOUND / ERROR."""
@@ -67,8 +199,12 @@ def inspect(tree, fetch=False):
         row["fetched"] = code == 0
         if code:
             row["fetch_error"] = err[:160]
-    code, head, err = _git(tree, "rev-parse", "HEAD")
-    code2, main, _ = _git(tree, "rev-parse", f"refs/remotes/origin/{BRANCH}")
+    heads = read_heads(tree)                # the .git files first: no process
+    if heads:
+        (head, main, _), code, code2, err = heads, 0, 0, ""
+    else:
+        code, head, err = _git(tree, "rev-parse", "HEAD")
+        code2, main, _ = _git(tree, "rev-parse", f"refs/remotes/origin/{BRANCH}")
     if code or code2:
         row.update(verdict="ERROR", why=f"cannot read HEAD or origin/{BRANCH}: {err or 'no origin/' + BRANCH}"[:200])
         return row
@@ -77,9 +213,11 @@ def inspect(tree, fetch=False):
     ahead, behind = (int(x) for x in cnt.split())
     row.update(ahead=ahead, behind=behind, ff=ahead == 0,
                dirty=bool(_git(tree, "status", "--porcelain", "--untracked-files=no")[1]))
-    fh = Path(subprocess.run(["git", "-C", str(tree), "rev-parse", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
-              or ".")
-    fh = fh if fh.is_absolute() else Path(tree) / fh
+    fh = _gitdirs(tree)[1]
+    if fh is None:
+        fh = Path(subprocess.run(["git", "-C", str(tree), "rev-parse", "--git-common-dir"], capture_output=True,
+                                 text=True).stdout.strip() or ".")
+        fh = fh if fh.is_absolute() else Path(tree) / fh
     try:
         row["age_h"] = round((time.time() - (fh / "FETCH_HEAD").stat().st_mtime) / 3600, 1)
     except OSError:
@@ -177,7 +315,7 @@ def hook_line(call, event):
     try:
         if event != "SessionStart":
             return ""
-        row = inspect(locate(), fetch=False)
+        row = inspect_cached(locate_cached())
         if row["verdict"] in ("OK", "NOT-FOUND"):
             return ""
         return "FIELDKIT INSTALLED COPY " + line(row) + ". Fix: fieldkit installed sync"

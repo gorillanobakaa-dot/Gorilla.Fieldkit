@@ -388,6 +388,8 @@ def main(argv=None, prog="fieldkit hog"):
     lk.add_argument("--check", action="store_true",
                     help="exit 1 on any empty console host, hosts over the warn line or a spare singleton "
                          "(with --act: after the stop)")
+    from . import churn as _churn
+    _churn.add_parser(sub)
     sub.add_parser("preflight")
     r = sub.add_parser("register")
     r.add_argument("pid", type=int)
@@ -455,6 +457,9 @@ def main(argv=None, prog="fieldkit hog"):
             if bad:
                 return 1
         return 3 if res["findings"] else 0
+    if cmd == "churn":
+        from . import churn
+        return churn.main(ns, config())
     if cmd == "preflight":
         from ..core import preflight
         return preflight.RANK[preflight.run("fieldkit hog preflight", steps=preflight.STEPS)["status"]]

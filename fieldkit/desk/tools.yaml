@@ -6452,6 +6452,27 @@ tools:
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Rule pileup (2026-10-26, adopted from the scratch conhost-census.ps1): the owner saw 61 Console Window Host rows in Task Manager; 33 were held by ONE Claude Desktop NodeService utility process (alive since 2026-10-25 14:44), a vendor leak of one console per shell never closed. Groups the whole process table (psutil ppid, the same field ps shows on Linux/macOS) by (parent, class: pileup_classes); > pileup_max_children (20) of one class, or >= pileup_stale_min (10) started > pileup_stale_h (12) h before the parent's newest one, is a WARN naming the parent (name, pid, start, its own parent), the count, their working set and the fix (pileup_fixes). A dead parent or a reused PID (parent younger than the child) holds nothing. Report only, never stopped. Mutations: tests/hog_mutations.yaml."
 
+- id: hog-churn
+  title: "Process churn - how many processes each room-hook event starts (budget: 0, SessionStart 8), who starts new consoles/shells machine-wide with an hourly rate, and a static gate on every process-starting call the room hook can reach"
+  harness: desk
+  entry: [python, -m, fieldkit, hog, churn]
+  path: ${FIELDKIT}/fieldkit/hog/churn.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [hooks, trace, scan], help: "LEAVE EMPTY for hooks (run the hook once per event, count its children). trace: catch new conhost/powershell/git/gh/netsh/typeperf for --secs; scan: static, no process started"}
+    - {name: event, flag: --event, type: str, required: false, choices: [SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop], help: "hooks: one event only"}
+    - {name: secs, flag: --secs, type: float, required: false, help: "trace: seconds to watch (default 60)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes]
+  safety: safe
+  headline: "{summary}"
+  output: own
+  exits: {1: "hooks: an event over its budget; scan: a NEW process-starting call reachable from the room hook", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  platforms_why: "psutil and ast on every system; the console-host cost it guards against is Windows-only, so the zero-children hook test runs on Windows CI only. Not run on a Mac."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hog_churn.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Born 2026-11-22: the laptop held 60,000 console hosts, 1,000+ new per hour, because the room hook shelled out (PowerShell for the trust-store ACL, netsh every 5 s, git per prompt; fixed in PRs 669-671). hooks probes python -m fieldkit.autopilot.room --hook per event with a temp FIELDKIT_ROOM_DIR, polling children every 10 ms; budgets in fieldkit/hog/thresholds.json churn_budget. scan: function-level AST call graph from room:hook and room:main (imports run module top levels; Thread/map/submit targets followed; __main__ blocks and name lists ignored), allow-list fieldkit/hog/churn_allow.yaml where every entry needs a reason; tests/test_hog_churn.py fails on a new hit. Read-only: it stops nothing."
+
 - id: procs
   title: "Every process tree Fieldkit started - zombies, orphans, CPU share, age, one verdict each (OK, ZOMBIES, ORPHAN, HOG); reap stops only Fieldkit's own orphans by PID + creation time"
   harness: desk
