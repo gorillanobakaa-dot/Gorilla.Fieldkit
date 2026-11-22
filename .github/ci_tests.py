@@ -257,6 +257,7 @@ def main(argv):
             status = run_tests(cmd, tests, shard)
             if report.is_file():                      # C1: every shard hands its junit to the durations job
                 import shutil
+                Path(proof).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(report, Path(proof).parent / "junit.xml")
             if status == 0:
                 write_receipt(Path(proof), report, tests, identity)
