@@ -77,6 +77,21 @@ PS_PATTERNS = [
 ]
 
 
+
+def _plan_budget(repo, os_name, expected_n, findings):
+    """The per-OS runner budget of the dynamic matrix: .github/ci.yaml must exist and not exceed batch.yaml."""
+    import yaml as _yaml
+    key = "windows" if os_name.startswith("windows") else "linux"
+    try:
+        cfg = _yaml.safe_load((repo / ".github" / "ci.yaml").read_text(encoding="utf-8")) or {}
+        n = int((cfg.get("budget") or {}).get(key))
+    except Exception:
+        findings.append({"rule": "workflow-shard-count-vs-policy",
+                         "message": f"tests.yml shard-{os_name} is a dynamic matrix but .github/ci.yaml has no budget.{key}",
+                         "fix": "set budget in .github/ci.yaml"})
+        return expected_n or 0
+    return n
+
 def check_ps1_file(path):
     """-> list of findings, or (None, error_str) on read failure."""
     try:
@@ -280,7 +295,12 @@ def check_workflow_shards(repo):
             })
             continue
         tests_shards = tests_job.get("strategy", {}).get("matrix", {}).get("shard", [])
-        tests_n = len(tests_shards)
+        if isinstance(tests_shards, str):
+            # dynamic matrix (fromJSON of `fieldkit ci plan`): N is chosen per run, at most the budget;
+            # it must be a plan-driven matrix and the budget in .github/ci.yaml must equal the policy
+            tests_n = _plan_budget(repo, os_name, expected_n, findings) if "fromJSON" in tests_shards else 0
+        else:
+            tests_n = len(tests_shards)
 
         # Check tests.yml matches batch.yaml
         if expected_n is not None and tests_n != expected_n:

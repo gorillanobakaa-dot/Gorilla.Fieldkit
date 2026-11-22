@@ -1,0 +1,17 @@
+# CI plan config (C2 in CI-SPEED-PLAN.md): the runner count follows the work. Read by `fieldkit ci plan`.
+# Same selection + same durations + this file = the same plan. Edit numbers here, never in the workflow.
+target_seconds: 180          # one shard should take about this long (owner decision O-CI2, fallback 180)
+setup_seconds:               # job start to first test, per OS (measured by C1; refine when C7 records it)
+  windows: 40
+  linux: 20
+budget:                      # most runners one run may take per OS (slot budget; C3 splits the account limit)
+  windows: 20
+  linux: 20
+degraded_file_seconds: 10    # a file with no recorded duration weighs this much when no durations exist yet
+max_spread: 1.25             # check: heaviest shard / lightest shard, once more than one shard runs
+keep_together: []            # files that must not share a shard split with others (reserved for C2 test-level split)
+hang:                        # C6: one test may run factor x p90 of the recorded file times, clamped; no durations = default
+  factor: 10
+  floor: 120                 # seconds
+  cap: 900
+  default: 300

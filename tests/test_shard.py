@@ -55,8 +55,11 @@ def test_the_workflow_shard_lists_match_the_policy_and_the_required_names_stay()
     n = yaml.safe_load((ROOT / "fieldkit" / "method" / "batch.yaml").read_text(encoding="utf-8"))["batch"]["shards"]["default"]
     for osn in ("windows-latest", "ubuntu-latest"):
         job = WF["jobs"][f"shard-{osn}"]
-        assert job["strategy"]["matrix"]["shard"] == list(range(1, n + 1))
-        assert f'/{n}"' in "".join(s.get("run", "") for s in job["steps"])
+        key = "windows" if osn.startswith("windows") else "ubuntu"
+        assert "fromJSON(needs.selection.outputs.matrix_" in job["strategy"]["matrix"]["shard"]       # N is planned per run
+        assert f"/${{{{ needs.selection.outputs.n_{key} }}}}\"" in "".join(s.get("run", "") for s in job["steps"])
+        cfg = yaml.safe_load((ROOT / ".github" / "ci.yaml").read_text(encoding="utf-8"))
+        assert cfg["budget"]["windows" if key == "windows" else "linux"] <= n      # the budget never exceeds the policy
     agg = WF["jobs"]["test"]
     assert agg["name"] == "test (${{ matrix.os }})" and agg["strategy"]["matrix"]["os"] == ["windows-latest", "ubuntu-latest"]
     assert agg["if"] == "always()"                                  # a skipped shard must turn the aggregate red, not skip it

@@ -1022,6 +1022,49 @@
    "open": false,
    "v": {}
   },
+  "ci": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "durations": {
+     "c": [
+      "fetch",
+      "merge"
+     ],
+     "f": {
+      "--complete": 0,
+      "--help": 0,
+      "--os": 1,
+      "--out": 1,
+      "--prev": 1,
+      "--repo": 1,
+      "--run": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "plan": {
+     "c": [],
+     "f": {
+      "--check": 0,
+      "--config": 1,
+      "--explain": 0,
+      "--github-output": 0,
+      "--help": 0,
+      "--min": 1,
+      "--selection": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "ci-steps": {
    "c": [],
    "f": {
