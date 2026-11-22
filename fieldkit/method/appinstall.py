@@ -393,6 +393,48 @@ def _trash_move_linux(path: Path, trash_dir: Path) -> str:
     return str(dest)
 
 
+PURGE_GRACE_SECS = 10.0
+
+
+def _pid_alive(pid: int, kill=os.kill) -> bool:
+    try:
+        kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True      # exists but not ours to signal
+    return True
+
+
+def stop_processes(procs, ops_done, errors, grace=PURGE_GRACE_SECS, kill=os.kill, sleep=time.sleep,
+                   clock=time.monotonic):
+    """SIGTERM every process, wait for it to exit (up to `grace` s: an app may save its state), SIGKILL only the
+    survivors. Every step is a row in ops_done: stop, exited (with the seconds waited), kill."""
+    pending = {}
+    for proc in procs:
+        pid = proc["pid"]
+        try:
+            kill(pid, signal.SIGTERM)
+            ops_done.append({"op": "stop", "pid": pid, "exe": proc["exe"]})
+            pending[pid] = proc
+        except OSError as e:
+            errors.append(f"stop pid {pid}: {e}")
+    started = clock()
+    while pending:
+        for pid in [p for p in pending if not _pid_alive(p, kill)]:
+            ops_done.append({"op": "exited", "pid": pid, "exe": pending.pop(pid)["exe"],
+                             "waited_s": round(clock() - started, 2)})
+        if not pending or clock() - started >= grace:
+            break
+        sleep(0.2)
+    for pid, proc in pending.items():
+        try:
+            kill(pid, getattr(signal, "SIGKILL", 9))
+            ops_done.append({"op": "kill", "pid": pid, "exe": proc["exe"], "after_s": round(clock() - started, 2)})
+        except OSError as e:
+            errors.append(f"kill pid {pid}: {e}")
+
+
 def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, home: Path | None = None) -> dict:
     """Purge an application on Linux: stop processes, disable user systemd unit, move files to ~/Agents.Work.Trash,
     and update hicolor icon cache + desktop database."""
@@ -467,22 +509,7 @@ def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, 
     errors = []
 
     if apply:
-        for proc in procs:
-            pid = proc["pid"]
-            try:
-                os.kill(pid, signal.SIGTERM)
-                ops_done.append({"op": "stop", "pid": pid, "exe": proc["exe"]})
-            except OSError as e:
-                errors.append(f"stop pid {pid}: {e}")
-        if procs:
-            time.sleep(0.3)
-            for proc in procs:
-                pid = proc["pid"]
-                try:
-                    os.kill(pid, 0)
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+        stop_processes(procs, ops_done, errors)
 
         for u in systemd_units:
             subprocess.run(["systemctl", "--user", "disable", "--now", u.name], capture_output=True)

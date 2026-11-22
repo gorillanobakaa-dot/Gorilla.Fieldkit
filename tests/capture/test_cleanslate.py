@@ -138,3 +138,15 @@ def test_scratch_roots_data_names_no_documents_or_repos():
     txt = (C.HERE / "keep.yaml").read_text(encoding="utf-8").lower()
     roots = txt.split("scratch_roots:")[1]
     assert "documents" not in roots and "scripts" not in roots and ".config" not in roots
+
+
+def test_recycle_passes_a_timeout_and_reports_a_hang(tmp_path):
+    """F4.1: the recycle subprocess had no timeout; a hang stalled the unattended start forever."""
+    import subprocess
+    seen = {}
+
+    def hang(argv, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+    r = C.recycle(tmp_path, run=hang, timeout=7)
+    assert seen["timeout"] == 7 and r["ok"] is False and r["exit"] == 124 and "timed out" in r["error"]

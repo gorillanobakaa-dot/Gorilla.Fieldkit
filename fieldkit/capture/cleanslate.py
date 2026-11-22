@@ -318,10 +318,16 @@ def archive(project, store_dir=None, out_dir=None, history=None):
     return {"path": str(bundle), "manifest": str(manifest), "sha256": digest, "files": len(chain), "head": prev}
 
 
-def recycle(path, run=subprocess.run):
-    r = run([sys.executable, "-m", "fieldkit", "size", "recycle", str(path), "--whole-folder", "--json",
-             "--plan-files", "100000000", "--plan-bytes", "100T"],
-            capture_output=True, text=True)
+RECYCLE_TIMEOUT = 1800     # seconds: a hung recycle must fail loudly, not stall the unattended start
+
+
+def recycle(path, run=subprocess.run, timeout=RECYCLE_TIMEOUT):
+    try:
+        r = run([sys.executable, "-m", "fieldkit", "size", "recycle", str(path), "--whole-folder", "--json",
+                 "--plan-files", "100000000", "--plan-bytes", "100T"],
+                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "exit": 124, "output": "", "error": f"size recycle timed out after {timeout} s: {path}"}
     return {"ok": r.returncode == 0 and not os.path.lexists(path), "exit": r.returncode,
             "output": r.stdout.strip(), "error": r.stderr.strip()}
 
