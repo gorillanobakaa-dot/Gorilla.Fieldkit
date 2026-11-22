@@ -262,8 +262,10 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         rec.update(accept=accept, accept_cwd=str(Path(cwd or os.getcwd()).resolve()), failures=0)
     if on:
         from ..peers import link
+        from . import sessionmode
         r = (call or link.call)({"verb": "ask", "agent": chosen_agent, "brief": brief, "model": model,
-                                 "thinking": thinking}, timeout=30, device=on)
+                                 "thinking": thinking, "session_mode": sessionmode.current(sessionmode.session_id({}))},
+                                timeout=30, device=on)
         ok = bool(r.get("ok") and r.get("started"))
         rec.update(how="link ask", answer=r.get("why") or r.get("error") or "",
                    status="started" if ok else "not-started")

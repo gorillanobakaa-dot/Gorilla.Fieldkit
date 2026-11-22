@@ -14,6 +14,19 @@ accept_valid_days: 1
 ladder: [haiku, sonnet, opus, fable]
 worker_top: sonnet            # opus is the reviewer's rung (roles.yaml); a worker never starts there on its own
 park_at: fable                # a job whose risk needs this rung is parked in the owner inbox, never started
+# The SESSION mode (owner decision O4, 2026-11-22; sabotage-why-the-harness-failed.md lines 18-39, word for word):
+#   "How would you like this session to be run?"
+#   1 Economy: single agent, single model, zero sub-agents.   2 Time-Sensitive: max 6 total (3 agents and 3 sub-agents).
+#   3 Fast: max 1000 agents, sub-agents and swarms.            4 Single Player (local device only): 4a Economy,
+#   4b Time-Sensitive (max 6 total), 4c Fast (max 1000).       5 Multiplayer (2 to 100 computers via a Zero coordinator):
+#   5a Economy (zero sub-agents per node), 5b Time-Sensitive (max 6 per node), 5c Fast (max 1000).
+# Economy is the default (no answer = Economy), enforced by the PreToolUse hook before the model's first turn.
+# `fieldkit route choose --session-mode CODE` writes state/mode/<session>.json with these caps; the hook reads that file.
+session_modes:
+  default: "1"
+  caps: {economy: 0, time-sensitive: 6, fast: 1000}
+  per_node: ["5a", "5b", "5c"]
+# Legacy job routing (solo/multi, how many `task start` jobs run at once) below is kept for the supervisor's gate.
 parallel:
   solo: 1
   multi: 3

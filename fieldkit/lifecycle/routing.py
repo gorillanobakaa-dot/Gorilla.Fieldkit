@@ -357,6 +357,20 @@ def plan_round(text, requested=None, failures=0, pin=False, plan=None, data=None
     return dict(r, why=r["why"] + "; the ceiling is reached: the reviewer role repairs it")
 
 
+def session_caps(data=None):
+    """-> {speed: total cap} from routing.yaml session_modes (the owner's numbers: 0, 6, 1000)."""
+    d = data or load()
+    return dict((d.get("session_modes") or {}).get("caps") or {})
+
+
+def set_session_mode(code, session, data=None):
+    """The owner's answer to 'How would you like this session to be run?': writes state/mode/<session>.json. -> the record."""
+    from . import sessionmode
+    rec = sessionmode.write(session, code, session_caps(data))
+    log({"action": "session-mode", "session": session, "mode": rec["mode"], "cap": rec["cap"]})
+    return rec
+
+
 def hook_line(call, event, data=None, ch=None):
     """The room hook's line on a prompt when today's accept is missing: the session asks the owner, once, in its first
     reply. Never inside a headless job. Also keeps window.json fresh. Never raises."""
@@ -370,12 +384,10 @@ def hook_line(call, event, data=None, ch=None):
         ch = ch or choice(d)
         out = []
         if not ch["fresh"]:
-            out.append(f"ROUTE: the owner has not confirmed today's mode (the last choice, {ch['mode']} + {ch['ceiling']}, "
-                       "stays in force). Ask them ONCE, first thing in your reply, in plain words: 'Solo (one job at a time, cheapest) or Multiplayer (several jobs, other "
-                       "devices)? And the strongest model a job may use: Fable, Opus, Sonnet or Haiku?' Then run "
-                       "`fieldkit route choose --mode solo|multi --model NAME`. Until they answer: "
-                       f"{ch['mode']} + {ch['ceiling']}. Jobs are routed to the cheapest model that fits, never above that choice; a "
-                       "job that needs Fable is parked for them.")
+            # O4 (2026-11-22): the session asks the owner's five-mode question (room._mode, once per session); this
+            # line no longer asks "Solo or Multiplayer". The job ceiling stays in force until the owner changes it.
+            out.append(f"ROUTE: the job ceiling ({ch['ceiling']}) stays in force; jobs are routed to the cheapest model "
+                       "that fits, never above it, and a job that needs Fable is parked for the owner.")
         if w and w["fraction"] >= d["window"]["warn_fraction"]:
             out.append(f"ROUTE: the {d['window']['hours']}-hour window is {w['fraction']:.0%} spent (${w['usd']:.2f}); "
                        "start no job unless it is needed, and keep this session's replies short.")
@@ -413,6 +425,24 @@ def main(argv=None):
         print("NEXT: jobs squeeze to the cheapest model at "
               f"{d['window']['squeeze_fraction']:.0%} and stop at {d['window']['stop_fraction']:.0%}")
         return 0
+    if cmd == "choose" and "--session-mode" in argv:
+        it = iter(argv[1:])
+        code = sid = None
+        for a in it:
+            if a == "--session-mode":
+                code = next(it, None)
+            elif a == "--session":
+                sid = next(it, None)
+        from . import sessionmode
+        sid = sid or sessionmode.session_id({})
+        try:
+            rec = set_session_mode(code or "", sid, d)
+        except ValueError as e:
+            print(f"ERROR  {e}")
+            return 2
+        print(f"SESSION MODE  {rec['mode']} ({rec['speed']}), at most {rec['cap']} sub-agents, session {sid}")
+        print("NEXT: the tool router now enforces this cap on every Agent call; a rotated or peer session inherits it")
+        return 0
     if cmd == "choose":
         mode = ceil = ag = th = None
         it = iter(argv[1:])
@@ -447,6 +477,10 @@ def main(argv=None):
         print(f"MODE  {ch['mode']}  strongest {ch['ceiling']}  accept {ch['accepted'] or 'none (cheap defaults)'}"
               f"{'' if ch['fresh'] else '  (not confirmed today; stays in force)'}")
         print(f"ROOM  {why}")
+        from . import sessionmode
+        sm = sessionmode.current(sessionmode.session_id({}))
+        print(f"SESSION MODE  {sm['mode']} ({sm['speed']}), sub-agent cap {sm['cap']}"
+              f"{'  (default: nobody answered)' if sm.get('default') else ''}")
         from . import models
         for line in models.unavailable_lines() or ["MODELS  every model is available"]:
             print(line)
