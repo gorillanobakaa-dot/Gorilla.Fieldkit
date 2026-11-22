@@ -1817,8 +1817,10 @@
     "churn": {
      "c": [],
      "f": {
+      "--event": 1,
       "--help": 0,
       "--json": 0,
+      "--secs": 1,
       "-h": 0
      },
      "open": false,

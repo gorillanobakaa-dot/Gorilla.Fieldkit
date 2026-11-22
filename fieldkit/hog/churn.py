@@ -18,6 +18,7 @@ conhost.exe. Three tools, no model:
 Windows and Linux: hooks and trace use psutil on both; scan is pure Python.
 """
 import ast
+import argparse
 import json
 import os
 import re
@@ -559,14 +560,16 @@ def add_parser(sub):
     ch = sub.add_parser("churn", help="process churn: hook children per event, who starts consoles, a static gate")
     cs = ch.add_subparsers(dest="churn_cmd")
     h = cs.add_parser("hooks", help="run the hook per event and count the processes it starts")
-    h.add_argument("--event", choices=EVENTS)
+    h.add_argument("--event", choices=EVENTS, default=argparse.SUPPRESS)
     h.add_argument("--module", default="fieldkit.autopilot.room", help="the hook module (default: the room hook)")
     h.add_argument("--hook-arg", action="append", help="argument(s) to the module (default: --hook)")
     h.add_argument("--json", action="store_true")
     t = cs.add_parser("trace", help="catch new conhost/powershell/git/gh/netsh/typeperf machine-wide")
-    t.add_argument("--secs", type=float, default=60)
+    t.add_argument("--secs", type=float, default=argparse.SUPPRESS)
     t.add_argument("--json", action="store_true")
     s = cs.add_parser("scan", help="static: process-starting calls reachable from the room hook")
     s.add_argument("--json", action="store_true")
+    ch.add_argument("--event", choices=EVENTS, help="hooks: one event only (default: all five)")
+    ch.add_argument("--secs", type=float, default=60, help="trace: seconds to watch (default 60)")
     ch.add_argument("--json", action="store_true")
     return ch
