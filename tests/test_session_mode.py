@@ -16,7 +16,7 @@ def _dirs(tmp_path, monkeypatch):
 
 
 def _agent(sid="s1", **ti):
-    return {"session_id": sid, "tool_name": "Agent", "tool_input": dict({"prompt": "x"}, **ti)}
+    return {"session_id": sid, "tool_name": "Agent", "tool_input": dict({"prompt": "x", "model": "sonnet"}, **ti)}
 
 
 def _denied(out):

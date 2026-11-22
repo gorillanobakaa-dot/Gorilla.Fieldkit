@@ -92,7 +92,7 @@ def classify(sessions, procs, now=None, cfg=None, me=None, keep=(), zero=None):
                    else f"archive_session {s['id']}")
         elif state == "idle":
             fix = "keep until its PR merges (auto-archive on PR close), or ask it why it is idle"
-        rows.append({"id": s["id"], "cli": s.get("cli") or "", "title": s["title"], "state": state, "why": why, "idle_min": idle,
+        rows.append({"id": s["id"], "cli": s.get("cli") or "", "title": s["title"], "model": s.get("model") or "", "state": state, "why": why, "idle_min": idle,
                      "rss": p.get("rss", 0), "cpu_pct": p.get("cpu_pct"), "pids": p.get("pids", []),
                      "prs": s["prs"], "remote": s["remote"], "fix": fix})
     order = {"finished": 0, "idle": 1, "held": 2, "active": 3}
@@ -136,6 +136,17 @@ def summary(rows):
         return f"lifecycle: no finished or idle agent sessions ({len(rows)} live)"
     return (f"lifecycle: idle agent sessions holding {t['rss'] / 2**30:.1f} GB "
             f"({t['finished']} finished: archive; {t['idle']} idle with an open PR)")
+
+
+def opus_idle(rows):
+    """-> the rows of sessions on an Opus model that are idle past the line (finished or idle): a worker that inherited its
+    chief's Opus (hog-churn, 2026-11-22) and now sits waiting. Zero archives them. The command post is held, never listed."""
+    return [r for r in rows if "opus" in (r.get("model") or "").lower() and r["state"] in ("finished", "idle")]
+
+
+def opus_lines(rows):
+    return [f"OPUS-IDLE {r['id'][:14]}  {r.get('model')}  idle {r['idle_min']} min  {r['title'][:50]}: archive_session {r['id']}"
+            for r in opus_idle(rows)]
 
 
 def hog_findings(cfg=None, rows=None):
