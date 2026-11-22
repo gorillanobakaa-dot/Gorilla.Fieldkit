@@ -70,3 +70,62 @@ def resolve(spec, environ=None, platform=None, free=None, can_exec=None):
             fb.mkdir(parents=True, exist_ok=True)
             out["TMPDIR"] = str(fb)
     return out
+
+
+def _find_cache_tool(name, path, home, platform, which):
+    """Locate a compiler cache binary (`ccache` or `sccache`) on PATH or in standard local tool folders."""
+    found = which(name, path=path)
+    if found:
+        return found
+    exe = f"{name}.exe" if platform == "win32" else name
+    home_p = Path(home)
+    candidates = [
+        home_p / ".mozbuild" / name / exe,
+        home_p / ".cargo" / "bin" / exe,
+        home_p / ".local" / "bin" / exe,
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def cache_env(environ=None, platform=None, which=None, home=None, ccache_symlink_dir="/usr/lib/ccache"):
+    """Compiler-cache environment for non-repro emerge stages (Linux, macOS, and Windows).
+
+    Every Fieldkit project built through `fieldkit emerge` automatically uses installed compiler caches:
+    - Rust: sets RUSTC_WRAPPER=<sccache> when sccache is installed.
+    - C/C++ (CMake/Ninja/Make): sets CMAKE_C_COMPILER_LAUNCHER and CMAKE_CXX_COMPILER_LAUNCHER to ccache (or sccache),
+      and on POSIX inserts /usr/lib/ccache onto PATH ahead of system compilers when present.
+    - Go: preserves Go's native persistent GOCACHE (no C compiler involved when CGO_ENABLED=0).
+    Explicit user/stage settings in `environ` are never overwritten.
+    """
+    plat = platform or sys.platform
+    env = os.environ if environ is None else environ
+    path = env.get("PATH", os.defpath)
+    which_fn = which or shutil.which
+    home_dir = home if home is not None else os.path.expanduser("~")
+
+    sccache = _find_cache_tool("sccache", path, home_dir, plat, which_fn)
+    ccache = _find_cache_tool("ccache", path, home_dir, plat, which_fn)
+    out = {}
+
+    if sccache and not env.get("RUSTC_WRAPPER"):
+        out["RUSTC_WRAPPER"] = sccache
+
+    c_launcher = ccache or sccache
+    if c_launcher:
+        if not env.get("CMAKE_C_COMPILER_LAUNCHER"):
+            out["CMAKE_C_COMPILER_LAUNCHER"] = c_launcher
+        if not env.get("CMAKE_CXX_COMPILER_LAUNCHER"):
+            out["CMAKE_CXX_COMPILER_LAUNCHER"] = c_launcher
+
+    if plat != "win32" and ccache and ccache_symlink_dir and os.path.isdir(ccache_symlink_dir):
+        parts = [p for p in path.split(os.pathsep) if p]
+        if ccache_symlink_dir not in parts:
+            # Keep user tool dirs (~/.cargo/bin, etc.) ahead of /usr/lib/ccache while placing ccache ahead of /usr/bin.
+            idx = next((i for i, p in enumerate(parts) if p in ("/usr/bin", "/bin", "/usr/local/bin")), len(parts))
+            parts.insert(idx, ccache_symlink_dir)
+            out["PATH"] = os.pathsep.join(parts)
+
+    return out

@@ -418,3 +418,13 @@ def test_repro_refuses_without_a_finished_build(tmp_path):
     ctx = SimpleNamespace(vars={"src": str(tmp_path / "linux-7.2.9"), "version": "7.2.9", "workdir": str(tmp_path)},
                           host={"cpus": 1}, runner=None)
     assert "run the build stage first" in kernel.stage_repro(ctx)["detail"]
+
+
+def test_ccache_make_args_prefers_ccache_then_sccache_then_empty():
+    assert kernel._ccache_make_args(which=lambda n: "/usr/bin/ccache" if n == "ccache" else None) == [
+        "CC=ccache gcc", "HOSTCC=ccache gcc",
+    ]
+    assert kernel._ccache_make_args(which=lambda n: "/usr/bin/sccache" if n == "sccache" else None) == [
+        "CC=sccache gcc", "HOSTCC=sccache gcc",
+    ]
+    assert kernel._ccache_make_args(which=lambda n: None) == []
