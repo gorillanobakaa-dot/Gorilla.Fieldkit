@@ -172,11 +172,11 @@ jobs:
         timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
-          FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
-          FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          FIELDKIT_REUSE_CI: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}
+          FIELDKIT_CI_READ_TOKEN: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.token || '' }}
         run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/${{ needs.selection.outputs.n_windows }}"
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         with:
           name: test-pass-${{ runner.os }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: .ci-proof/proof.json
@@ -241,8 +241,8 @@ jobs:
         timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 10 }}
         env:
           FIELDKIT_TEST_EVIDENCE: .ci-proof/proof.json
-          FIELDKIT_REUSE_CI: ${{ github.event_name == 'push' && '1' || '0' }}
-          FIELDKIT_CI_READ_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          FIELDKIT_REUSE_CI: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '0' }}
+          FIELDKIT_CI_READ_TOKEN: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.token || '' }}
         run: python .github/ci_tests.py --read-selection "$RUNNER_TEMP/fieldkit-selection.json" --shard "${{ matrix.shard }}/${{ needs.selection.outputs.n_ubuntu }}"
       - name: Record the exact PR checkout
         if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -258,7 +258,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         with:
           name: test-pass-${{ runner.os }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: .ci-proof/proof.json
