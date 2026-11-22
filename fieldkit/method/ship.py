@@ -720,7 +720,16 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
         return dict(rep, ok=False, state="not-landed", error=f"{commit[:10]} is not on origin/{base} after the merge",
                     next="look at the pull request or the remote")
     _mandate_log(mpath, "merge_main", why, branch=branch, commit=commit, how=how)
-    return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
+    out = dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
+    try:                                               # the copy `fieldkit` runs follows main (core/installed.py)
+        from ..core import installed
+        line = installed.after_merge(repo, base) if base == "main" else ""
+        if line:
+            out["installed_copy"] = line
+            print(line, file=sys.stderr)
+    except Exception:  # noqa: BLE001 - a courtesy sync never fails a landed merge
+        pass
+    return out
 
 
 TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
