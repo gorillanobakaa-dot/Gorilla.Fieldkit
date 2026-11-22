@@ -2007,6 +2007,17 @@
    "hog"
   ]
  },
+ "hog churn": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "psutil and ast on every system; the console-host cost it guards against is Windows-only, so the zero-children hook test runs on Windows CI only. Not run on a Mac.",
+  "ids": [
+   "hog-churn"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",

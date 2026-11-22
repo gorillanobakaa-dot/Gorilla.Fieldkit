@@ -117,3 +117,59 @@ def test_cli_exit_codes(repos, monkeypatch, capsys):
     advance(); git(tree, "fetch", "-q", "origin", "main")
     assert inst.main(["check"]) == 3 and "FAIL" in capsys.readouterr().out
     assert inst.main([]) == 2
+
+
+# ---- in-process reads and caches (hog churn: SessionStart started 12 processes, 2026-11-22) ------------------------
+def _revparse(tree):
+    return git(tree, "rev-parse", "HEAD"), git(tree, "rev-parse", "origin/main")
+
+
+def test_read_heads_matches_git(repos):
+    _, _, tree, advance = repos
+    advance()
+    git(tree, "fetch", "-q")
+    head, main, _ = inst.read_heads(tree)
+    assert (head, main) == _revparse(tree)
+
+
+def test_read_heads_reads_packed_refs_and_worktrees(repos, tmp_path):
+    _, _, tree, advance = repos
+    advance()
+    git(tree, "fetch", "-q")
+    git(tree, "pack-refs", "--all")
+    assert inst.read_heads(tree)[:2] == _revparse(tree)
+    wt = tmp_path / "wt"
+    git(tree, "worktree", "add", "-q", "--detach", str(wt), "origin/main")
+    assert inst.read_heads(wt)[:2] == _revparse(wt)
+
+
+def test_inspect_cached_reuses_the_row_until_head_moves(repos, tmp_path, monkeypatch):
+    _, _, tree, advance = repos
+    env = {"FIELDKIT_INSTALLED_CACHE": str(tmp_path / "cache.json")}
+    calls = []
+    real = inst.inspect
+    monkeypatch.setattr(inst, "inspect", lambda t, fetch=False: calls.append(t) or real(t))
+    first = inst.inspect_cached(tree, env, now=1000)
+    again = inst.inspect_cached(tree, env, now=1001)
+    assert len(calls) == 1 and again.get("cached") and again["verdict"] == first["verdict"]
+    advance()
+    git(tree, "fetch", "-q")
+    inst.inspect_cached(tree, env, now=1002)
+    assert len(calls) == 2
+    inst.inspect_cached(tree, env, now=1002 + inst.VERDICT_TTL + 1)
+    assert len(calls) == 3
+
+
+def test_locate_cached_runs_python_once_a_day(repos, tmp_path):
+    _, _, tree, _ = repos
+    env = {"FIELDKIT_INSTALLED_CACHE": str(tmp_path / "cache.json")}
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, str(tree / "fieldkit" / "__init__.py") + "\n", "")
+    assert inst.locate_cached(env, now=1000, run=run) == tree.resolve()
+    assert inst.locate_cached(env, now=2000, run=run) == tree.resolve()
+    assert len(calls) == 1
+    inst.locate_cached(env, now=1000 + inst.LOCATE_TTL + 1, run=run)
+    assert len(calls) == 2

@@ -1814,6 +1814,53 @@
      "open": false,
      "v": {}
     },
+    "churn": {
+     "c": [],
+     "f": {
+      "--event": 1,
+      "--help": 0,
+      "--json": 0,
+      "--secs": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {
+      "hooks": {
+       "c": [],
+       "f": {
+        "--event": 1,
+        "--help": 0,
+        "--hook-arg": 1,
+        "--json": 0,
+        "--module": 1,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      },
+      "scan": {
+       "c": [],
+       "f": {
+        "--help": 0,
+        "--json": 0,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      },
+      "trace": {
+       "c": [],
+       "f": {
+        "--help": 0,
+        "--json": 0,
+        "--secs": 1,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      }
+     }
+    },
     "doctor": {
      "c": [],
      "f": {

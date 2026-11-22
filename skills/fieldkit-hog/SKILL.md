@@ -37,6 +37,24 @@ log, so every session sees it, and the prompt hook shows one line when the last 
 
 Do not unload or kill by hand when the hog covers it: `fieldkit hog act`.
 
+## Process churn: who keeps starting consoles (fieldkit hog churn)
+
+Born 2026-11-22: 60,000 console hosts, 1,000+ new per hour, because the room hook shelled out on every prompt.
+Every console program a Windows hook starts gets its own conhost; a hook that runs per prompt or per tool call must
+start nothing.
+
+```
+fieldkit hog churn hooks [--event E]   run the room hook once per event, count the processes it starts; exit 1 over budget
+fieldkit hog churn trace [--secs 60]   new conhost/powershell/git/gh/netsh/typeperf machine-wide, grouped by starter, per hour
+fieldkit hog churn scan                static: every process-starting call the room hook can reach; exit 1 on a NEW one
+```
+
+Budget (`churn_budget` in thresholds.json): 0 children per event, SessionStart up to 8. A NEW scan hit is fixed by
+an in-process read (a file, ctypes, a cache); only a call gated to run rarely (SessionStart, cache miss) goes into
+`fieldkit/hog/churn_allow.yaml`, with the reason. The test `tests/test_hog_churn.py` fails on a new hit, so a
+regression cannot merge. When Task Manager fills with "Console Window Host" again: `churn trace` names the starter,
+`churn hooks` says whether it is a hook, `churn scan` names the line.
+
 ## The machine thermal governor is never down (fieldkit thermal ensure)
 
 `fieldkit thermal ensure` says GOVERNOR UP / STARTED / DOWN and whether its keeper is installed; it starts the

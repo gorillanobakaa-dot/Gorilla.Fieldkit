@@ -36,8 +36,16 @@
     "cmd": "^cmd(\\.exe)?$"
   },
   "pileup_fixes": [
-    ["^claude(\\.exe)?$", "Claude", "restart Claude Desktop (or end that claude session) when no session is working"],
-    ["^(systemd|init|launchd)$", "init (their own parent died)", "find who started them (pgrep -alP {pid}) and close what nobody uses"]
+    [
+      "^claude(\\.exe)?$",
+      "Claude",
+      "restart Claude Desktop (or end that claude session) when no session is working"
+    ],
+    [
+      "^(systemd|init|launchd)$",
+      "init (their own parent died)",
+      "find who started them (pgrep -alP {pid}) and close what nobody uses"
+    ]
   ],
   "orphan_classes": {
     "pytest": "\\bpytest\\b",
@@ -54,5 +62,13 @@
     "link-listener": "fieldkit peers link restart (keep-alive: fieldkit peers link keepalive install)",
     "thermal-governor": "fieldkit thermal ensure (the keeper restarts it every 5 min)",
     "link-relay": "fieldkit peers link relay doctor, then start fieldkit peers link relay listen as the relay session's background command"
+  },
+  "_churn_budget": "fieldkit hog churn hooks: the most processes the room hook may start per event (2026-11-22: 60,000 console hosts from a hook that shelled out on every event). 0 on every per-prompt and per-tool event.",
+  "churn_budget": {
+    "SessionStart": 8,
+    "UserPromptSubmit": 0,
+    "PreToolUse": 0,
+    "PostToolUse": 0,
+    "Stop": 0
   }
 }
