@@ -92,3 +92,10 @@ def test_a_real_failure_is_never_rerun(actions, monkeypatch):
     calls = []
     monkeypatch.setattr(ci, "run_tests", lambda *a: (calls.append(1), actions.write_text("tests/test_a.py::t FAILED\n"), 1)[2])
     assert ci.run_checked(["pytest"], [], "1/2") == 1 and len(calls) == 1
+
+
+def test_xdist_worker_crash_names_the_hung_test():
+    log = ("+++++++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++++++\n"
+           "[gw2] node down: Not properly terminated\n"
+           "worker 'gw2' crashed while running 'tests/test_b.py::test_slow'\n")
+    assert cihang.hung_node(log) == "tests/test_b.py::test_slow"
