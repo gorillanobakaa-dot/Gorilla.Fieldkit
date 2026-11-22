@@ -6978,23 +6978,41 @@ tools:
   notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. skillOverrides states (Claude Code 2.1.302): on | name-only | user-invocable-only | off; a Skill(name) deny does NOT shrink the listing (measured: 30,735 both ways). L15 Fieldkit headless first call with the data applied as --settings: 30,697 -> 25,928 tokens. Measure with fieldkit cost firstcall. Mutations: tests/o1_mutations.yaml."
 
 - id: agent-models
-  title: "Agent-model guard - Claude Code's Explore subagent kept on Haiku and general-purpose on Sonnet on every computer: ~/.claude/agents/explore.md and general-purpose.md checked byte for byte at every prompt, put back from the template when it is missing, switched to another model, altered or shadowed by a second definition, and an audit of the model every subagent really ran on"
+  title: "Agent-model guard - Claude Code's Explore subagent kept on Haiku and general-purpose on Sonnet on every computer: ~/.claude/agents/explore.md and general-purpose.md checked byte for byte once at SessionStart (reported, never rewritten by the hook), put back from the template by doctor --install when it is missing, switched to another model, altered or shadowed by a second definition, and an audit of the model every subagent really ran on"
   harness: core
   entry: [python, -m, fieldkit, agent-models]
   path: ${FIELDKIT}/fieldkit/tokens/agent_models.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [check, enforce, audit, template], help: "check (default): verdict OK / MISSING / WRONG_MODEL / ALTERED / CONFLICT. enforce: template back, old file copied aside, conflicts moved aside. audit: models subagents ran on. template: print the file."}
+    - {name: action, flag: null, type: str, required: false, choices: [check, enforce, doctor, audit, template], help: "check (default): verdict OK / MISSING / WRONG_MODEL / ALTERED / CONFLICT. enforce: template back, old file copied aside, conflicts moved aside. doctor: read-only status of the pins and settings.json; with --install it also writes them (the one installer). audit: model counts per agent, FAIL for an Explore not on Haiku. template: print the file."}
     - {name: days, flag: --days, type: float, required: false, help: "audit: subagent runs in the last N days (7)"}
+    - {name: install, flag: --install, type: flag, required: false, help: "doctor: write the Explore and general-purpose pins and merge CLAUDE_CODE_SUBAGENT_MODEL=haiku into ~/.claude/settings.json (other keys kept, old file backed up)"}
     - {name: json, flag: --json, type: flag, required: false, help: "check/audit: JSON"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
-  exits: {0: "OK / repaired", 1: "check: something to repair or report / audit: an Explore run ignored the override", 3: "enforce: read-back after the repair failed"}
+  exits: {0: "OK / repaired / installed", 1: "check, doctor: something to repair or report / audit: an Explore run not on Haiku or ignoring the override", 3: "enforce, doctor --install: read-back failed or settings.json not mergeable"}
   platforms: [windows, linux, darwin]
   e2e: {linux: e2e-agent-models-linux, windows: e2e-agent-models-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_agent_models.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
-  notes: "1.1.0 (2026-11-22, owner: 'If not, pin general-purpose agents to sonnet too'): general-purpose.md pinned to model: sonnet the same way (multi-step research and searches; measured 30 days on the L15: 2 runs on Opus, 9 on Sonnet); design-heavy work stays in the main session. 1.0.0 (2026-11-22, owner: 'where explore using haiku is not enforced it will ... enforce this and implement it ... if it was changed/altered or deleted, it will automatically apply the template'). Why: subagents inherit the session's model; measured on the L15 before the file existed: Explore runs on Opus 5.5 and Sonnet 5.5 for read-only searches. The room hook (UserPromptSubmit, SessionStart) runs check at every prompt: a file read and a sha256, no model, no network, silent when OK, one context line when it repaired something; once per session it adds the reports and a 2-day audit (OVERRIDE IGNORED when an Explore run after the template's write time ran on a non-Haiku model). Never deletes: the old file is copied, a conflicting ~/.claude/agents/*.md naming Explore is moved, both to ~/Agents.Work.Trash/claude-agents/<stamp>/. Report only, never edited: a project's .claude/agents Explore file on another model, CLAUDE_CODE_SUBAGENT_MODEL not haiku, the session model in settings.json. Repairs logged in state/agent-models/repairs.jsonl. Env for tests: FIELDKIT_CLAUDE_HOME, FIELDKIT_AGENT_MODELS_DIR, FIELDKIT_AGENT_MODELS_TRASH."
+  notes: "1.2.0 (2026-11-22): hook_line runs once at SessionStart and only reports (names `fieldkit agent-models enforce`), UserPromptSubmit does no file I/O, a hook error prints AGENT MODELS GUARD ERROR instead of silence; one source of truth for CLAUDE_CODE_SUBAGENT_MODEL (haiku, same as claude-quota-fix Install.ps1: check() passes there); doctor --install ports that installer (pins + settings.json env merge); audit prints a FAIL line for any Explore not on Haiku. 1.1.0 (2026-11-22, owner: 'If not, pin general-purpose agents to sonnet too'): general-purpose.md pinned to model: sonnet the same way (multi-step research and searches; measured 30 days on the L15: 2 runs on Opus, 9 on Sonnet); design-heavy work stays in the main session. 1.0.0 (2026-11-22, owner: 'where explore using haiku is not enforced it will ... enforce this and implement it ... if it was changed/altered or deleted, it will automatically apply the template'). Why: subagents inherit the session's model; measured on the L15 before the file existed: Explore runs on Opus 5.5 and Sonnet 5.5 for read-only searches. The room hook (UserPromptSubmit, SessionStart) runs check at every prompt: a file read and a sha256, no model, no network, silent when OK, one context line when it repaired something; once per session it adds the reports and a 2-day audit (OVERRIDE IGNORED when an Explore run after the template's write time ran on a non-Haiku model). Never deletes: the old file is copied, a conflicting ~/.claude/agents/*.md naming Explore is moved, both to ~/Agents.Work.Trash/claude-agents/<stamp>/. Report only, never edited: a project's .claude/agents Explore file on another model, CLAUDE_CODE_SUBAGENT_MODEL not haiku, the session model in settings.json. Repairs logged in state/agent-models/repairs.jsonl. Env for tests: FIELDKIT_CLAUDE_HOME, FIELDKIT_AGENT_MODELS_DIR, FIELDKIT_AGENT_MODELS_TRASH."
+- id: installed
+  title: "Installed-copy sync - the Fieldkit the `fieldkit` command runs (Fieldkit-installed, a detached worktree) kept level with origin/main: check says PASS or FAIL, sync fast-forwards it (never a dirty tree, never reset or delete), re-runs pip install -e only when pyproject.toml changed, and verifies HEAD = origin/main and that fieldkit loads"
+  harness: core
+  entry: [python, -m, fieldkit, installed]
+  path: ${FIELDKIT}/fieldkit/core/installed.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, sync, where], help: "check: PASS / FAIL against the last fetched origin/main. sync: fetch, fast-forward, verify, one line. where: the installed tree."}
+    - {name: json, flag: --json, type: flag, required: false, help: "check/sync: JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {0: "level / synced", 2: "bad usage", 3: "behind, dirty, diverged, not found or the sync was refused or failed"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-installed-linux, windows: e2e-installed-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installed.py"]
+  skill: skills/fieldkit-installed/SKILL.md
+  notes: "2026-11-22 (Fix.Fieldkit repair). Measured: the command on PATH imported from Fieldkit-installed, detached at v0.10.6, 30 commits behind main, so merged fixes stayed inactive (agent-models audit: invalid choice). fieldkit sync follows tracked branches and cannot see a detached worktree; install.ps1 installs once. Moves only to origin/main (main moves only by a PR merged on green CI) by git checkout --detach after an ancestor check; refuses dirty trees, diverged history, a tree checkout_hold says a build reads. The room hook (SessionStart) only reports, never fetches; fieldkit sync shows an installed-copy row (moves it under --apply); fieldkit ship merge syncs it after a merge into main lands. Env: FIELDKIT_INSTALLED_DIR."
 - id: rotate
   title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"
   harness: core

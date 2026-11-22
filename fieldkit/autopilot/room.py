@@ -418,6 +418,18 @@ def _agentmodels(call, event, ctx):
     return ctx
 
 
+def _installed(call, event, ctx):
+    """The installed Fieldkit behind origin/main (fieldkit/core/installed.py): SessionStart, report only, silent when level."""
+    try:
+        from ..core import installed
+        line = installed.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def _net(call, event, ctx):
     """The agent net rides on this hook (2026-10-26, fieldkit/zero/net.py): every session is checked in by it, shown
     its unseen net traffic, and told who Zero is; Zero is told which stations went quiet. Never fails the hook."""
@@ -603,6 +615,7 @@ def _context(call, event):
     ctx = _hog(call, event, ctx)
     ctx = _rotate(call, event, ctx)
     ctx = _agentmodels(call, event, ctx)
+    ctx = _installed(call, event, ctx)
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)

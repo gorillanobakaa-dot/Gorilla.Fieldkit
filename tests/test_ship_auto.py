@@ -145,7 +145,7 @@ def test_no_auto_merge_where_the_base_branch_requires_no_check():
     gh = Gh(prs=[{"number": 7, "url": URL}], rules=())
     r, notes = go(gh)
     assert not r["ok"] and r["state"] == "no-required-checks" and not gh.did("pr merge")
-    assert notes and "left open" in notes[0][0]
+    assert notes == []                                           # F2.4: the PR stays open, the inbox gets nothing
     assert [c[2] for c in gh.calls if c[1] == "api"] == ["repos/{owner}/{repo}/rules/branches/main"]
 
 
