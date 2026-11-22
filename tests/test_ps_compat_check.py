@@ -192,7 +192,7 @@ def test_unreadable_batch_yaml_is_a_fail_not_a_pass(tmp_path):
     _write_wf(tmp_path, "release", dict(jobs))
     by = tmp_path / "fieldkit" / "method"
     by.mkdir(parents=True)
-    (by / "batch.yaml").write_bytes(b"ÿþ not utf-8 ")
+    (by / "batch.yaml").write_bytes(b"\xff\xfe not utf-8 \x80")
     findings = pcc.check_workflow_shards(tmp_path)
     assert any(f["rule"] == "workflow-unreadable" for f in findings), findings
 
