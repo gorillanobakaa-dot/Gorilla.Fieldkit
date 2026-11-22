@@ -170,3 +170,13 @@ def test_the_workflow_sizes_its_shard_matrix_from_the_plan():
         assert f"n_{key} != '0'" in job["if"]
         assert f"outputs.n_{key}" in "".join(s.get("run", "") for s in job["steps"])
     assert any("ci plan" in s.get("run", "") and "--check" in s.get("run", "") for s in wf["jobs"]["selection"]["steps"])
+
+
+def test_a_gap_within_one_files_weight_is_not_a_lopsided_split():
+    cfg = ciplan.load_config(str(ROOT / ".github" / "ci.yaml"))
+    files = [f"tests/test_{i}.py" for i in range(5)]
+    pl = {"linux": {"n": 2, "heaviest": 90.0, "lightest": 60.0, "single": False, "granule": 30.0,
+                    "shards": [files[:3], files[3:]]}}
+    assert ciplan.check(files, pl, cfg) == []                                   # 3 vs 2 equal files: unavoidable
+    pl["linux"]["granule"] = 10.0
+    assert "1.50x" in ciplan.check(files, pl, cfg)[0]                           # a real imbalance still fails

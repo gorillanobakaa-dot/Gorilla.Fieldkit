@@ -163,7 +163,7 @@ def every_test_file(root="."):
 
 
 def plan(files, blk, cfg, floor=1, root="."):
-    """-> {os: {"n", "work", "heaviest", "lightest", "shards", "single"}}: N follows the work, the split is the one
+    """-> {os: {"n", "work", "heaviest", "lightest", "shards", "single", "granule"}}: N follows the work, the split is the one
     `ci_tests.py --shard I/N` makes (same weights, same balance), so the plan is what the shards will run.
     N = clamp(ceil(work / max(target - setup, 30)), floor, min(budget, files)); no files = 0. Floor 1 keeps shard 1,
     which carries the PR-level gates, alive on every run that has files."""
@@ -183,13 +183,14 @@ def plan(files, blk, cfg, floor=1, root="."):
         top = loads.index(max(loads)) if loads else 0
         out[o] = {"n": n, "work": round(work, 1), "heaviest": round(max(loads), 1) if loads else 0.0,
                   "lightest": round(min(loads), 1) if loads else 0.0, "shards": shards,
-                  "single": bool(shards) and len(shards[top]) == 1}
+                  "single": bool(shards) and len(shards[top]) == 1,
+                  "granule": round(max((float(w.get(f, unit)) for f in files), default=0.0), 1)}
     return out
 
 
 def check(files, pl, cfg):
     """-> list of problems: a dropped or duplicated file, or a spread over max_spread (once N > 1; a heaviest shard
-    that is one indivisible file is exempt: nothing finer can be done at file level)."""
+    that is one indivisible file, or a gap within one file's weight, is exempt: nothing finer can be done at file level)."""
     problems = []
     want = sorted(set(files))
     for o, p in pl.items():
@@ -199,7 +200,8 @@ def check(files, pl, cfg):
         if sorted(set(got)) != want:
             problems.append(f"{o}: shards do not cover the selection (missing {sorted(set(want) - set(got))[:3]}, "
                             f"extra {sorted(set(got) - set(want))[:3]})")
-        if p["n"] > 1 and p["lightest"] > 0 and not p["single"]:
+        # moving the smallest file of the heaviest shard cannot help once the gap is within one file's weight
+        if p["n"] > 1 and p["lightest"] > 0 and not p["single"] and p["heaviest"] - p["lightest"] > p.get("granule", 0):
             ratio = p["heaviest"] / p["lightest"]
             if ratio > float(cfg["max_spread"]):
                 problems.append(f"{o}: heaviest shard is {ratio:.2f}x the lightest (limit {cfg['max_spread']})")

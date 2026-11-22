@@ -35,3 +35,8 @@
   - '        if sorted(set(got)) != want:'
   - '        if False:'
   why: a dropped test must fail the plan check
+- file: fieldkit/method/ciplan.py
+  swap:
+  - 'p["heaviest"] - p["lightest"] > p.get("granule", 0):'
+  - 'p["heaviest"] - p["lightest"] > -1:'
+  why: a gap beyond one file's weight must still fail the spread check
