@@ -15,6 +15,10 @@ permissions:
   actions: read
   checks: read
   pull-requests: read
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   merge-proof:
     if: github.event_name == 'push'
