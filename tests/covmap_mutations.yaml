@@ -1,0 +1,27 @@
+# fieldkit ci covmap: every rule must be CAUGHT.
+#   fieldkit mutate --plan tests/covmap_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_covmap.py
+- file: fieldkit/method/covmap.py
+  swap:
+  - '        if not b:'
+  - '        if False:'
+  why: a missing covered file must never give a receipt key
+- file: fieldkit/method/covmap.py
+  swap:
+  - '    if not files:
+        return None
+    parts = []'
+  - '    files = files or {}
+    parts = []'
+  why: a test the map does not know must never get a receipt key
+- file: fieldkit/method/covmap.py
+  swap:
+  - '        if not rel:
+            continue'
+  - '        if False:
+            continue'
+  why: a file outside the repository must not enter the map
+- file: fieldkit/method/covmap.py
+  swap:
+  - '        if out and n == out[-1][1] + 1:'
+  - '        if out and n == out[-1][1] + 2:'
+  why: neighbouring lines must join into one range

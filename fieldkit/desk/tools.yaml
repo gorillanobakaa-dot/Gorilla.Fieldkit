@@ -59,7 +59,7 @@ tools:
     - {name: json, flag: --json, type: flag, required: false, help: "machine-readable output"}
   effects: [reads-files]
   safety: read-only
-  notes: "GitHub Actions windows-latest upgraded to PowerShell 7 (pwsh.exe). Expand-Archive in PS7 hits a removed .NET 6 ExtractToDirectory overload (MethodCountCouldNotFindBest). Get-FileHash fails when powershell.exe is started from pwsh.exe due to inherited module path. This tool detects these patterns and auto-fixes Expand-Archive with [IO.Compression.ZipFile]::ExtractToDirectory. Run before every CI push to catch regressions. Exit 0 clean, 3 findings."
+  notes: "GitHub Actions windows-latest upgraded to PowerShell 7 (pwsh.exe). Expand-Archive in PS7 hits a removed .NET 6 ExtractToDirectory overload (MethodCountCouldNotFindBest). Get-FileHash fails when powershell.exe is started from pwsh.exe due to inherited module path. This tool detects these patterns and auto-fixes Expand-Archive with [IO.Compression.ZipFile]::ExtractToDirectory. CI runs it on this repo's own tree (tests/test_ps_compat_check.py); there is no pre-push hook. An unknown state (unreadable file, failed git) is a FAIL. Exit 0 clean, 3 findings."
   platforms: [windows, linux]
   platforms_why: "check runs on any OS; the .ps1 files are Windows scripts but the check is pure Python"
   changes: false
