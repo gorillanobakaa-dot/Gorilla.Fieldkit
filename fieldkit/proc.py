@@ -16,9 +16,24 @@ import sys
 
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_CONSOLE = 0x00000010
+CREATE_NO_WINDOW = 0x08000000
+_SHELLS = {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_SCRIPTS = (".bat", ".cmd", ".ps1")
 
 
-def _prepare(kw: dict) -> dict:
+def _needs_console(args, kw) -> bool:
+    """A shell (cmd, PowerShell, a .bat/.cmd/.ps1) started with no console at all loses its children's output (CI
+    2026-11-22): it gets CREATE_NO_WINDOW (a hidden console) instead of DETACHED_PROCESS."""
+    if kw.get("shell"):
+        return True
+    a = args[0] if args else kw.get("args")
+    if isinstance(a, (list, tuple)):
+        a = a[0] if a else ""
+    name = str(a or "").strip().strip('"').replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name in _SHELLS or name.endswith(_SCRIPTS)
+
+
+def _prepare(kw: dict, args=()) -> dict:
     """kw plus the no-console flags on Windows; unchanged elsewhere or when the streams are inherited."""
     if sys.platform != "win32":
         return kw
@@ -29,25 +44,25 @@ def _prepare(kw: dict) -> dict:
     if flags & CREATE_NEW_CONSOLE:
         return kw
     kw = dict(kw)
-    kw["creationflags"] = flags | DETACHED_PROCESS
+    kw["creationflags"] = flags | (CREATE_NO_WINDOW if _needs_console(args, kw) else DETACHED_PROCESS)
     if kw.get("stdin") is None and "input" not in kw:
         kw["stdin"] = subprocess.DEVNULL
     return kw
 
 
 def run(*a, **kw):
-    return subprocess.run(*a, **_prepare(kw))
+    return subprocess.run(*a, **_prepare(kw, a))
 
 
 def Popen(*a, **kw):  # noqa: N802 - mirrors subprocess.Popen
-    return subprocess.Popen(*a, **_prepare(kw))
+    return subprocess.Popen(*a, **_prepare(kw, a))
 
 
 def check_output(*a, **kw):
     kw.pop("stdout", None)
     if sys.platform == "win32" and kw.get("stderr") is None and not _has_console():
         kw["stderr"] = subprocess.DEVNULL  # nobody can read an inherited stderr here anyway
-    return subprocess.run(*a, **_prepare({**kw, "stdout": subprocess.PIPE}), check=True).stdout
+    return subprocess.run(*a, **_prepare({**kw, "stdout": subprocess.PIPE}, a), check=True).stdout
 
 
 def _has_console() -> bool:
@@ -59,8 +74,8 @@ def _has_console() -> bool:
 
 
 def check_call(*a, **kw):
-    return subprocess.check_call(*a, **_prepare(kw))
+    return subprocess.check_call(*a, **_prepare(kw, a))
 
 
 def call(*a, **kw):
-    return subprocess.call(*a, **_prepare(kw))
+    return subprocess.call(*a, **_prepare(kw, a))

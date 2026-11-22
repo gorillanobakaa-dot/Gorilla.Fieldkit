@@ -168,14 +168,14 @@ def test_windows_network_snapshot_does_not_produce_proof_on_query_error(monkeypa
 
     snapshot = dict(addresses=[{"IPAddress": "192.0.2.2"}], routes=[], dns=["fixture"], dnsLog=True,
                     profiles=[], firewall=[], firewallRules={}, proxy=[], packets=["fixture status"])
-    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: json.dumps(snapshot).encode())
+    monkeypatch.setattr(restart.fkproc, "check_output", lambda *args, **kw: json.dumps(snapshot).encode())
     first = restart.windows_network()
     assert first == restart.digest(snapshot)
     snapshot["dns"] = ["other"]
     assert first != restart.windows_network()
     snapshot.pop("packets")
     assert restart.windows_network() is None
-    monkeypatch.setattr(restart.subprocess, "check_output", lambda *args, **kw: b"unreadable")
+    monkeypatch.setattr(restart.fkproc, "check_output", lambda *args, **kw: b"unreadable")
     assert restart.windows_network() is None
 
 

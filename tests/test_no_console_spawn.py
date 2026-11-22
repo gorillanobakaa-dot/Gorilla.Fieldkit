@@ -110,6 +110,11 @@ def test_proc_flags(monkeypatch):
     assert proc._prepare(inherit) is inherit                       # streaming keeps its console
     assert proc._prepare({"capture_output": True, "creationflags": proc.CREATE_NEW_CONSOLE}).get("creationflags") \
         == proc.CREATE_NEW_CONSOLE                                  # asked for its own console: untouched
+    for shell in (["powershell", "-c", "x"], ["C:/Windows/System32/cmd.exe", "/c", "x"], ["C:\\t\\run.bat"], "x.ps1"):
+        f = proc._prepare({"capture_output": True}, (shell,))["creationflags"]
+        assert f == proc.CREATE_NO_WINDOW, shell                    # a shell needs a console of its own, hidden
+    assert proc._prepare({"capture_output": True, "shell": True}, ("dir",))["creationflags"] == proc.CREATE_NO_WINDOW
+    assert proc._prepare({"capture_output": True}, (["git", "status"],))["creationflags"] == proc.DETACHED_PROCESS
     monkeypatch.setattr(proc.sys, "platform", "linux")
     kw = {"capture_output": True}
     assert proc._prepare(kw) is kw
