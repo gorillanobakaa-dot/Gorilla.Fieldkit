@@ -11,6 +11,7 @@ from fieldkit.lifecycle import sessionmode as sm
 def _dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_MODE_DIR", str(tmp_path / "mode"))
     monkeypatch.delenv("FIELDKIT_AUDIT_ONLY", raising=False)
+    monkeypatch.delenv("FIELDKIT_MODE_ASK", raising=False)
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
 
 
