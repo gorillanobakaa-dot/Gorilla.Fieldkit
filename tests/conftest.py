@@ -58,6 +58,7 @@ for _k in [k for k in _os.environ if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFI
 _os.environ["GIT_CONFIG_GLOBAL"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-gitconfig-"), "empty")
 open(_os.environ["GIT_CONFIG_GLOBAL"], "w").close()
 _os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+_os.environ["FIELDKIT_MODE_ASK"] = "off"   # the once-per-session mode question would prefix every room-hook text; its own tests turn it on
 # 2026-10-26: tests that run the real pre-commit hook on a temporary repo must not write their pass/refused rows
 # into the real state/testcost log (fieldkit testcost report would count fake refusals as caught bugs).
 _os.environ["FIELDKIT_TESTCOST_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-testcost-")
