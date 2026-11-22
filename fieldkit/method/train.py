@@ -982,11 +982,15 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
             _log(repo, st, n, "update-local", state=r.get("state"), proof=r.get("proof"), error=r.get("error"))
             if not r.get("ok"):
                 return {"pr": n, "why": f"update here: {r.get('state')}: {r.get('error') or r.get('paths') or ''}"}
-        pr = gh.pr(n)
+        pr = gh.pr(n)                                  # the head is read again after the update (F2.5)
         if pr["headRefOid"] != head:
             made.append(pr["headRefOid"])
             head = pr["headRefOid"]
             save_state(repo, st)
+        elif need == "update-api":                     # accepted, but the merge commit did not land within the
+            _log(repo, st, n, "update-lag", head=head[:10], polls=UPDATE_POLLS)    # poll budget: CI on the old head
+            return {"pr": n, "why": "update-branch was accepted but the head did not move within "      # proves
+                    f"{UPDATE_POLLS * UPDATE_POLL_S}s: refusing to test the old head; next pass retries"}   # nothing
     state, why = wait_green(gh, n, head, max_wait_s, sleep)
     _log(repo, st, n, "ci", state=state, why=why)
     if state != "green":

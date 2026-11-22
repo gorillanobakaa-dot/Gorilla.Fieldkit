@@ -359,6 +359,22 @@ def test_an_asynchronous_update_branch_is_the_trains_own_head_and_merges(world):
     assert train.load_state(zero)["made"]["1"], "the updated head was not recorded as the train's own"
 
 
+def test_update_branch_lag_above_the_poll_budget_is_refused_not_tested_on_the_old_head(world):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    other = w["clone"]("other")
+    (other / "notes.txt").write_text("n\n", encoding="utf-8")
+    git(other, "add", "notes.txt")
+    git(other, "commit", "-q", "--no-verify", "-m", "notes")
+    git(other, "push", "-q", "origin", "main")
+    gh.lag = train.UPDATE_POLLS + 50                   # GitHub merges long after the train stops polling
+    zero = w["clone"]("zero")
+    r = run_train(w, zero)
+    assert gh.merges == [], r
+    assert "did not move" in str(r), r
+
+
 def test_fake_gh_refuses_a_head_mismatch(world):
     w, gh = world, world["gh"]
     session_pr(w, 1, "feat/a", "b.txt")

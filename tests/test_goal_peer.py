@@ -193,3 +193,65 @@ def test_stalled_is_false_while_a_job_ran_or_waits_and_true_only_with_nothing_go
     assert goal.stall_check(g, mkst({"j": {"status": "queued"}}, 0, 5)) == ""          # one waits
     assert goal.stall_check(g, mkst({"j": {"status": "running"}}, 0, 5)) == ""         # one runs
     assert "stalled" in goal.stall_check(g, mkst({"j": {"status": "verified"}}, 0, 5))
+
+
+# ---- F2.8: a hung round raises the alarm within 2 rounds; the lock heartbeat cannot mask it -----------------------
+def test_a_hung_round_raises_the_alarm_after_two_rounds_not_three(tmp_path, monkeypatch):
+    monkeypatch.setitem(goal_peer._STAMP, "path", None)
+    f, room = tmp_path / "P.md", []
+    t0 = 500000.0
+    goal_peer.beat("round 7", lambda: t0)                        # the main loop's last progress, then it hangs
+    assert goal_peer.STALL_ROUNDS == 2
+    assert goal_peer.check_alarms([], lambda: t0 + 1.5 * goal_peer.ROUND_NOMINAL, f, lambda *a: room.append(a)) == []
+    out = goal_peer.check_alarms([], lambda: t0 + 2 * goal_peer.ROUND_NOMINAL + 1, f, lambda *a: room.append(a))
+    assert len(out) == 1 and "silent" in out[0] and "last: round 7" in out[0]
+
+
+def test_the_progress_stamp_is_a_file_only_the_main_loop_writes(tmp_path, monkeypatch):
+    p = tmp_path / ".progress.json"
+    monkeypatch.setitem(goal_peer._STAMP, "path", str(p))
+    assert goal_peer.stamp_age(p) is None                        # no stamp yet
+    goal_peer.beat("planner g1", lambda: 1000.0)
+    assert goal_peer.stamp_age(p, lambda: 1000.0 + 90) == 90
+    goal.heartbeat(lambda: 1000.0 + 500)                         # the lock heartbeat leaves the stamp alone
+    assert goal_peer.stamp_age(p, lambda: 1000.0 + 500) == 500
+
+
+def test_the_lock_heartbeat_gives_up_on_a_blocked_io_lock_instead_of_freezing(monkeypatch):
+    monkeypatch.setattr(goal, "IO_WAIT", 0.2)
+    with goal._IO:                                               # a worker blocked inside inbox_add holds the lock
+        t = threading.Thread(target=goal.heartbeat, args=(time.time,))
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive()                                  # the old code waited here forever
+
+
+def test_the_alarm_check_runs_even_when_the_lock_heartbeat_fails(monkeypatch):
+    seen = threading.Event()
+    monkeypatch.setattr(goal_peer, "check_alarms", lambda goals, now: seen.set() or [])
+    monkeypatch.setattr(goal, "heartbeat", lambda now: (_ for _ in ()).throw(OSError("blocked")))
+    monkeypatch.setattr(goal, "unfinished", lambda: ["g1"])
+    stop = goal._heartbeat_thread(time.time, every=0.01)
+    try:
+        assert seen.wait(timeout=5)
+    finally:
+        stop.set()
+
+
+# ---- F2.9: a round that is mostly idle prints the idle alarm -----------------------------------------------------
+def test_a_round_with_60_percent_idle_prints_the_alarm_and_40_does_not():
+    said = []
+    out = goal_peer.round_idle("g1", 36, 60, said.append)
+    assert out.startswith("IDLE ALARM g1") and "60%" in out and said == [out]
+    assert goal_peer.round_idle("g1", 24, 60, said.append) == "" and len(said) == 1
+    assert goal_peer.round_idle("g1", 0.5, 0.9, said.append) == ""    # under 1 s is no sample
+
+
+def test_the_goal_report_lists_the_idle_alarms(tmp_path):
+    mk(tmp_path)
+    _, st = goal.load("g1")
+    st["idle_alarms"] = ["2026-11-22 14:00 IDLE ALARM g1: idle 60% of a 60 s round (limit 50%) with no job running"]
+    goal.save_state("g1", st)
+    goal.report("g1")
+    body = (goal.gdir("g1") / "REPORT.md").read_text(encoding="utf-8")
+    assert "Idle alarms" in body and "IDLE ALARM g1" in body
