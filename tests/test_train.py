@@ -364,8 +364,7 @@ def test_update_branch_lag_above_the_poll_budget_is_refused_not_tested_on_the_ol
     d = session_pr(w, 1, "feat/a", "b.txt")
     train.ready(d, 1, gh)
     other = w["clone"]("other")
-    (other / "notes.txt").write_text("n
-", encoding="utf-8")
+    (other / "notes.txt").write_text("n\n", encoding="utf-8")
     git(other, "add", "notes.txt")
     git(other, "commit", "-q", "--no-verify", "-m", "notes")
     git(other, "push", "-q", "origin", "main")

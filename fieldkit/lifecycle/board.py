@@ -142,8 +142,7 @@ def note(what, why="", plan=None):
         cell = lambda t: " ".join(str(t).split()).replace("|", "/")[:300]  # noqa: E731
         line = f"| {cell(what)} | NOTE (no inbox item) | {cell(why)} | - | - | {time.strftime('%Y-%m-%d %H:%M')} |"
         with open(plan, "a", encoding="utf-8") as f:
-            f.write(line + "
-")
+            f.write(line + "\n")
         return True
     except (OSError, ValueError):
         return False
