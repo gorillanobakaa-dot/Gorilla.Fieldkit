@@ -539,7 +539,9 @@ def test_stop_lets_the_handover_through(tmp_path):
 def test_stop_only_at_rotate_and_never_inside_a_job(tmp_path, monkeypatch):
     for level in ("OK", "WARN"):
         assert rotate.stop_refusal(pre(_said(tmp_path, level), "Bash", command="make")) is None
-    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="make")) is None   # no mark
+    none = pre(str(tmp_path / "none.jsonl"), "Bash", command="make")
+    assert "unknown state" in rotate.stop_refusal(none)                                              # no mark: fails closed
+    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="python -m fieldkit rotate check")) is None
     tp = _said(tmp_path, "ROTATE")
     monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path))
     assert rotate.stop_refusal(pre(tp, "Bash", command="make")) is None
