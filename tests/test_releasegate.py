@@ -198,3 +198,20 @@ def test_gh_recent_skips_draft_and_zero_timestamps_and_uses_utc(monkeypatch):
     got = rg._gh_recent("o/r")
     want_ts = calendar.timegm(time.strptime("2026-11-10T07:25:29", "%Y-%m-%dT%H:%M:%S"))
     assert got == [("v0.9.4", want_ts)]
+
+
+def test_unreadable_config_fails_closed(monkeypatch, tmp_path):
+    """F4.4: a broken releasegate.yaml must refuse the release, never fall back to defaults."""
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg.Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("denied")))
+    r = rg.guard("o/r", "v2", last=("v1", NOW - 25 * H), now=NOW)
+    assert not r["ok"] and r["state"] == "gate-config-unreadable"
+    with pytest.raises(rg.ConfigUnreadable):
+        rg.min_hours()
+
+
+def test_non_mapping_config_fails_closed(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg.yaml, "safe_load", lambda text: ["not", "a", "mapping"])
+    r = rg.guard("o/r", "v2", last=("v1", NOW - 25 * H), now=NOW)
+    assert not r["ok"] and r["state"] == "gate-config-unreadable"

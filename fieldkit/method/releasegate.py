@@ -54,16 +54,25 @@ def windows_installer_blocker(tag, asset_names):
     )
 
 
+class ConfigUnreadable(ValueError):
+    """releasegate.yaml cannot be read or is not a mapping: the gate fails closed."""
+
+
 def _cfg():
+    path = Path(__file__).with_name("releasegate.yaml")
     try:
-        return yaml.safe_load((Path(__file__).with_name("releasegate.yaml")).read_text(encoding="utf-8")) or {}
-    except Exception:  # noqa: BLE001 - an unreadable config keeps the defaults, never opens the gate
-        return {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise ConfigUnreadable(f"{path.name} is unreadable: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigUnreadable(f"{path.name} is not a mapping")
+    return data
 
 
 def min_hours():
+    cfg = _cfg()
     try:
-        return float(_cfg().get("min_hours", DEFAULT_HOURS))
+        return float(cfg.get("min_hours", DEFAULT_HOURS))
     except (TypeError, ValueError):
         return DEFAULT_HOURS
 
@@ -235,7 +244,12 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms
     them, or None for tests; otherwise gh is asked. Only a release for the SAME system counts. A gh failure fails
     closed."""
     now = time.time() if now is None else now
-    hours = min_hours() if hours is None else hours
+    try:
+        hours = min_hours() if hours is None else hours
+        aliases = _cfg().get("systems") or {}
+    except ConfigUnreadable as exc:
+        return {"ok": False, "state": "gate-config-unreadable", "tag": tag, "error": str(exc),
+                "next": "fail closed: restore fieldkit/method/releasegate.yaml, then retry"}
     hotfix = hotfix or os.environ.get("FIELDKIT_HOTFIX", "")
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", slug or ""):      # a local or non-GitHub remote has no GitHub releases to count
         return {"ok": True, "state": "gate-not-github", "tag": tag}
@@ -248,7 +262,6 @@ def guard(slug, tag="", hotfix="", last=None, now=None, hours=None, *, platforms
     rows = [last] if isinstance(last, tuple) else list(last or [])
     if any(r[0] == tag for r in rows):                       # the release itself: more files for it
         return {"ok": True, "state": "gate-open", "tag": tag}
-    aliases = _cfg().get("systems") or {}
     requested = {aliases.get(platform.casefold(), platform.casefold()) for platform in platforms}
     systems = requested or {system_of(tag, aliases)}
     known_systems = set(aliases.values()) | requested
