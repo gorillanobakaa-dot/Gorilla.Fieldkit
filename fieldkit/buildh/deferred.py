@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def _grep(wd, needle):
     dirs = [d for d in ("browser", "toolkit", "modules") if (Path(wd) / d).is_dir()]      # a missing folder must not fail the whole search
     if not dirs:
         raise task.Refused(f"cannot search {wd}: none of browser/toolkit/modules exists, so 'not used anywhere' would be a guess")
-    r = subprocess.run(["git", "-C", str(wd), "grep", "-lF", "-e", needle, "--", *dirs], capture_output=True, text=True, errors="replace")
+    r = fkproc.run(["git", "-C", str(wd), "grep", "-lF", "-e", needle, "--", *dirs], capture_output=True, text=True, errors="replace")
     if r.returncode not in (0, 1):
         raise task.Refused(f"the search for {needle} failed ({r.stderr.strip()[:120]}), so nothing is concluded from it")
     return [l for l in r.stdout.splitlines() if l and "/test" not in l and "/tests/" not in l]

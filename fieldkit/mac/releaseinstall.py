@@ -126,7 +126,8 @@ def main(o, mac, address, ssh_argv, take_shot, now=None):
         print(text)
         return 0
     import subprocess
-    rc = subprocess.run(ssh_argv(mac, address, "bash -s"), input=text, text=True).returncode
+    from fieldkit import proc as fkproc
+    rc = fkproc.run(ssh_argv(mac, address, "bash -s"), input=text, text=True).returncode
     if rc == 0 and o.launch:
         import time
         time.sleep(15)   # the launcher sizes the window and asks for the work folder

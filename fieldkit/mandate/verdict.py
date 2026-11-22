@@ -21,6 +21,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -36,7 +37,7 @@ CONTROL = re.compile(r"(^|/)(conftest\.py|pytest\.ini|tox\.ini|noxfile\.py|\.cov
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
 
 
 def find_repo(name, repos=None):
@@ -108,7 +109,7 @@ def guarded_run(env, cap):
         if sys.platform == "win32":
             cmd = [sys.executable, "-m", "fieldkit", "guard", "--"] + list(cmd)
         kw["timeout"] = min(int(kw.get("timeout") or cap), cap)
-        return subprocess.run(cmd, env=env, **kw)
+        return fkproc.run(cmd, env=env, **kw)
     return run
 
 

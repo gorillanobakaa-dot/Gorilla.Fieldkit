@@ -11,6 +11,7 @@ took and what the last check printed. Exit 0 when the condition held, 3 at the d
 import argparse
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from . import emit, split_command
 
 def check(argv, matches=None, expect_exit=0, timeout=60):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     out = (r.stdout + r.stderr).strip()

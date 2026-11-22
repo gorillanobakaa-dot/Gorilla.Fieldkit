@@ -201,7 +201,8 @@ def thermal(sensor, minutes=10.0, target=CAP_C, interval=2.0, load=None, clock=t
 def cpu_name():
     if sys.platform == "win32":
         import subprocess
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_Processor).Name"],
+        from fieldkit import proc as fkproc
+        r = fkproc.run(["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_Processor).Name"],
                            capture_output=True, text=True)
         return r.stdout.strip() or platform.processor()
     try:

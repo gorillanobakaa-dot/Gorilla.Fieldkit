@@ -17,6 +17,7 @@ import importlib.machinery
 import importlib.util
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def _read(p):
 
 def _daemon():
     try:
-        return subprocess.run(["systemctl", "is-active", "thermal-profile-daemon"], capture_output=True, text=True,
+        return fkproc.run(["systemctl", "is-active", "thermal-profile-daemon"], capture_output=True, text=True,
                               timeout=5).stdout.strip() or None
     except (OSError, subprocess.TimeoutExpired):
         return None

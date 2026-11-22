@@ -44,6 +44,7 @@ System Events keystrokes over SSH worked on 10.13 without an Accessibility promp
 import re
 import shlex
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -134,7 +135,7 @@ def remote(ssh_argv_fn, line, stdin=None, tries=5, wait=6, timeout=60, runner=No
             rc, out = runner(ssh_argv_fn(line), stdin)
         else:
             try:
-                r = subprocess.run(ssh_argv_fn(line), input=stdin, capture_output=True, text=True, timeout=timeout)
+                r = fkproc.run(ssh_argv_fn(line), input=stdin, capture_output=True, text=True, timeout=timeout)
                 rc, out = r.returncode, (r.stdout + r.stderr).strip()
             except subprocess.TimeoutExpired:
                 rc, out = 255, "Operation timed out (local timeout)"

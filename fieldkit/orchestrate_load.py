@@ -31,6 +31,7 @@ import os
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -172,7 +173,7 @@ def export_tree(repo, out_dir=None):
     key = testcost.tree_key(repo)
     d = Path(out_dir or tempfile.mkdtemp(prefix="fk-place-")) / f"tree-{key[:12]}"
     d.mkdir(parents=True)
-    tar = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", key], capture_output=True)
+    tar = fkproc.run(["git", "-C", str(repo), "archive", "--format=tar", key], capture_output=True)
     if tar.returncode:
         raise RuntimeError(f"git archive {key[:12]}: {tar.stderr.decode('utf-8', 'replace')[:200]}")
     import io

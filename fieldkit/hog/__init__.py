@@ -390,6 +390,9 @@ def main(argv=None, prog="fieldkit hog"):
                          "(with --act: after the stop)")
     from . import churn as _churn
     _churn.add_parser(sub)
+    co = sub.add_parser("consoles", help="console hosts by the process that owns them; exit 1 if a fieldkit process owns one")
+    co.add_argument("--reap", action="store_true", help="stop the empty (dead or parentless) console hosts, by PID")
+    co.add_argument("--json", action="store_true")
     sub.add_parser("preflight")
     r = sub.add_parser("register")
     r.add_argument("pid", type=int)
@@ -457,6 +460,9 @@ def main(argv=None, prog="fieldkit hog"):
             if bad:
                 return 1
         return 3 if res["findings"] else 0
+    if cmd == "consoles":
+        from . import consoles
+        return consoles.main(ns)
     if cmd == "churn":
         from . import churn
         return churn.main(ns, config())

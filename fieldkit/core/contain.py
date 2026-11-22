@@ -30,6 +30,7 @@ Stops by PID and creation time, never by name: nothing outside the container is 
 import os
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -371,14 +372,14 @@ class Container:
             flags = kw.pop("creationflags", 0)
             if self.job:
                 flags |= _Job.CREATE_SUSPENDED
-            p = subprocess.Popen(cmd, creationflags=flags, **kw)
+            p = fkproc.Popen(cmd, creationflags=flags, **kw)
             if self.job:
                 if not self.job.assign(p._handle):
                     self.contained, self.why = False, "AssignProcessToJobObject refused; tree kill only"
                 self.job.resume(p._handle)
         else:
             kw.setdefault("start_new_session", True)
-            p = subprocess.Popen(cmd, **kw)
+            p = fkproc.Popen(cmd, **kw)
         self.root = p.pid
         self.root_ct = _start_time(p.pid)          # our own child: its creation time even if it already exited
         self.tracked[p.pid] = self.root_ct

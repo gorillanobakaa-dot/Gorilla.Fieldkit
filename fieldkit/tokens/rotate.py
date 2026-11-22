@@ -65,6 +65,7 @@ import os
 import re
 import sqlite3
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from datetime import datetime, timezone
@@ -566,7 +567,7 @@ def _worktree_head(folder):
     if not Path(folder).is_dir():
         return None
     try:
-        result = subprocess.run(["git", "-C", folder, "rev-parse", "--verify", "HEAD"], capture_output=True,
+        result = fkproc.run(["git", "-C", folder, "rev-parse", "--verify", "HEAD"], capture_output=True,
                                 text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None

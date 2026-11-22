@@ -27,6 +27,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -363,8 +364,8 @@ def _elevate(script):
             stamp = time.strftime("%Y%m%d-%H%M%S")
             sp, log = res / f"setup-{stamp}.ps1", res / f"setup-{stamp}.log"
             sp.write_text(script, encoding="utf-8-sig")
-            subprocess.run([sys.executable, str(kit), "run", str(sp), "--log", str(log), "--close"], capture_output=True)
-            w = subprocess.run([sys.executable, str(kit), "wait", str(log), "--marker", "ELEVATE: script finished",
+            fkproc.run([sys.executable, str(kit), "run", str(sp), "--log", str(log), "--close"], capture_output=True)
+            w = fkproc.run([sys.executable, str(kit), "wait", str(log), "--marker", "ELEVATE: script finished",
                                 "--timeout", "10"], capture_output=True, text=True)
             return w.returncode, log.read_text(encoding="utf-8", errors="replace") if log.is_file() else w.stdout
     return 3, "the elevate kit is not on this computer (local/kits/Elevate)"

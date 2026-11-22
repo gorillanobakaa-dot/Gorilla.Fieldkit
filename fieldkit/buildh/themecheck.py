@@ -16,6 +16,7 @@ uses the same background everywhere. That should be done before we reupload." Th
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -151,11 +152,11 @@ def static(tree, spec=None, files_glob=("*.css",)):
     tree's first commit, the pristine release) that are not in the spec."""
     spec = spec or load()
     tree = Path(tree)
-    root = subprocess.run(["git", "-C", str(tree), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
+    root = fkproc.run(["git", "-C", str(tree), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
                           text=True).stdout.split()
     if not root:
         return {"ok": False, "found": [], "why": "the tree has no pristine root commit"}
-    diff = subprocess.run(["git", "-C", str(tree), "diff", "-U0", "--no-color", root[0], "--", *files_glob],
+    diff = fkproc.run(["git", "-C", str(tree), "diff", "-U0", "--no-color", root[0], "--", *files_glob],
                           capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     found, cur, n, skip = [], None, 0, False
     for line in diff.splitlines():

@@ -23,6 +23,7 @@ The next export of the work tree carries the recovered halves into the shared pa
 import re
 import os
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 PREFIX = re.compile(r"^\s*[\d:.]+\s+[EW]\s+")          # mach's "51:31.26 E " in front of every compiler line
@@ -110,7 +111,7 @@ IDENT = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@
          "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
 
 def _git(w, *args, input=None, env=None):
-    r = subprocess.run(["git", "-C", str(w), *args], capture_output=True, input=input,
+    r = fkproc.run(["git", "-C", str(w), *args], capture_output=True, input=input,
                        env={**os.environ, **env} if env else None)
     return r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace")
 

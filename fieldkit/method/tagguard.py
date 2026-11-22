@@ -15,6 +15,7 @@ Git, gh and the page check are injected, so the tests touch no network. Exit 0 r
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import zipfile
@@ -26,7 +27,7 @@ VERSION_FILES = ("pyproject.toml", "Cargo.toml", "Cargo.lock", "package.json", "
 
 
 def _git(repo, *a, timeout=120):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
 
 
 def _show(repo, commit, path):
@@ -59,7 +60,7 @@ def page_check(repo, commit, tag, py=sys.executable):
                 return False, f"releases/notes/{tag}/{n}.md is not at {commit[:10]}"
             files[n] = Path(td) / f"{n}.md"
             files[n].write_text(text, encoding="utf-8", newline="\n")
-        r = subprocess.run([py, "-m", "fieldkit", "release-page", "check", str(files["page"]), "--layman",
+        r = fkproc.run([py, "-m", "fieldkit", "release-page", "check", str(files["page"]), "--layman",
                             str(files["layman"]), "--developer", str(files["developer"])],
                            capture_output=True, text=True, cwd=str(repo))
         say = (r.stdout or r.stderr).strip()[-200:]

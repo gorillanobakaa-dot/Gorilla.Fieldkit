@@ -54,14 +54,15 @@ def tree_state(path):
     """git HEAD plus a hash of `git status --porcelain` and `git diff HEAD` for a source tree; 'no-git' when it has none
     (then nothing is ever up to date by mistake: the text differs from any recorded fingerprint)."""
     import subprocess
+    from fieldkit import proc as fkproc
     try:
-        head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
+        head = fkproc.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
                               timeout=60)
         if head.returncode != 0:
             return f"no-git {time.time()}"
-        dirty = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--untracked-files=no"],
+        dirty = fkproc.run(["git", "-C", str(path), "status", "--porcelain", "--untracked-files=no"],
                                capture_output=True, timeout=600).stdout
-        diff = subprocess.run(["git", "-C", str(path), "diff", "HEAD"], capture_output=True, timeout=600).stdout \
+        diff = fkproc.run(["git", "-C", str(path), "diff", "HEAD"], capture_output=True, timeout=600).stdout \
             if dirty.strip() else b""
     except (OSError, subprocess.TimeoutExpired):
         return f"no-git {time.time()}"

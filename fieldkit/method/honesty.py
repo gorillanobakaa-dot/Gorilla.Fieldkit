@@ -30,6 +30,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -96,13 +97,13 @@ def _is_claude(p):
 
 
 def _gh_state(n):
-    r = subprocess.run(["gh", "pr", "view", str(n), "--json", "state", "-q", ".state"], capture_output=True,
+    r = fkproc.run(["gh", "pr", "view", str(n), "--json", "state", "-q", ".state"], capture_output=True,
                        text=True, timeout=60)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _pushed(sha):
-    r = subprocess.run(["git", "branch", "-r", "--contains", sha], capture_output=True, text=True, timeout=60)
+    r = fkproc.run(["git", "branch", "-r", "--contains", sha], capture_output=True, text=True, timeout=60)
     return r.returncode == 0 and bool(r.stdout.strip())
 
 

@@ -18,6 +18,7 @@ Deterministic: regex in, regex out, no model; a file is rewritten only by a row 
 import re
 import os
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ..core import settings
@@ -41,7 +42,7 @@ IDENT = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@
          "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
 
 def _git(src, *args, env=None):
-    r = subprocess.run(["git", "-C", str(src), *args], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(src), *args], capture_output=True, text=True,
                        env={**os.environ, **env} if env else None)
     return r.returncode, r.stdout + (r.stderr if r.returncode else "")
 

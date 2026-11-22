@@ -13,6 +13,7 @@ Exit 0 with the pages written, 2 for bad input, 4 when LibreOffice is needed and
 """
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def to_pdf(src, out_dir, timeout=180):
     work = out_dir / src.name
     shutil.copy2(src, work)
     with tempfile.TemporaryDirectory() as profile:
-        r = subprocess.run([soffice, f"-env:UserInstallation={Path(profile).as_uri()}", "--headless",
+        r = fkproc.run([soffice, f"-env:UserInstallation={Path(profile).as_uri()}", "--headless",
                             "--convert-to", "pdf", "--outdir", str(out_dir), str(work)],
                            capture_output=True, text=True, timeout=timeout)
     pdf = out_dir / (src.stem + ".pdf")

@@ -15,12 +15,13 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
 
 def _git(repo, *a, timeout=120):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
 
 
 def where(repo_path):

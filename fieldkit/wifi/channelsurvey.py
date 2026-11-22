@@ -39,6 +39,7 @@ import platform
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from dataclasses import dataclass, field, asdict, replace
 
@@ -193,7 +194,7 @@ class Network:
 # --------------------------------------------------------------------------
 def _run(args, timeout=45):
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout
     except Exception:
         return 1, ""

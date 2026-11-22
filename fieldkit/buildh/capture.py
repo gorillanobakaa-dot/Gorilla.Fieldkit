@@ -26,6 +26,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -74,7 +75,7 @@ def is_admin():
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             return True
         try:
-            return subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=10).returncode == 0
+            return fkproc.run(["sudo", "-n", "true"], capture_output=True, timeout=10).returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             return False
     try:
@@ -106,7 +107,7 @@ def _unpack_linux(pack, dest):
     if pack.suffix == ".deb":
         tmp = Path(tempfile.mkdtemp(prefix="gcap-deb-", dir=str(dest.parent)))
         try:
-            subprocess.run(["dpkg-deb", "-x", str(pack), str(tmp)], capture_output=True, check=True)
+            fkproc.run(["dpkg-deb", "-x", str(pack), str(tmp)], capture_output=True, check=True)
             lib = next((p for p in sorted((tmp / "usr" / "lib").glob("*"))
                         if p.is_dir() and any((p / n).exists() for n in LINUX_BINARIES)), None)
             if lib is None:
@@ -162,7 +163,7 @@ def _tree_pids(root_pid):
             return {root_pid} | {c.pid for c in psutil.Process(root_pid).children(recursive=True)}
         except psutil.Error:
             return {root_pid}
-    ps = subprocess.run(["powershell", "-NoProfile", "-Command",
+    ps = fkproc.run(["powershell", "-NoProfile", "-Command",
                          "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"],
                         capture_output=True, text=True).stdout.split("\n")
     kids = {}
@@ -195,7 +196,7 @@ def _sockets(pids):
                 continue
         return out
     ids = ",".join(str(p) for p in pids)
-    ps = subprocess.run(["powershell", "-NoProfile", "-Command",
+    ps = fkproc.run(["powershell", "-NoProfile", "-Command",
                          f"$ids=@({ids}); Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object {{ $ids -contains $_.OwningProcess }} | "
                          "ForEach-Object { \"tcp $($_.LocalPort) $($_.RemoteAddress):$($_.RemotePort)\" }; "
                          "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | "
@@ -206,7 +207,7 @@ def _sockets(pids):
 def _stop_tree(pid):
     """Stop exactly the process this run started and its children (taskkill /T on Windows; psutil by PID elsewhere)."""
     if WIN:
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
         return
     import psutil
     try:
@@ -235,7 +236,7 @@ def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True, prof=Non
     if own:
         prof = _profile()
     env = dict(os.environ, **(env_extra or {}))
-    proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
+    proc = fkproc.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     socks = set()
     t0 = time.time()
@@ -289,7 +290,7 @@ def mitm_run(zip_path, workdir, scenarios=SCENARIOS, say=print):
         out = work / f"mitm-{name}.jsonl"
         out.unlink(missing_ok=True)
         env = dict(os.environ, GORILLA_MITM_OUT=str(out))
-        m = subprocess.Popen([mitmdump, "--listen-host", "127.0.0.1", "--listen-port", str(port), "--set", f"confdir={confdir}",
+        m = fkproc.Popen([mitmdump, "--listen-host", "127.0.0.1", "--listen-port", str(port), "--set", f"confdir={confdir}",
                               "-s", str(addon), "-q"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         ca = confdir / "mitmproxy-ca-cert.pem"
         t0 = time.time()
@@ -424,14 +425,14 @@ def _packet_run_linux(exe, work, scenarios, say):
     for name, url, secs in scenarios:
         pcap = work / f"pkt-{name}.pcap"
         pcap.unlink(missing_ok=True)
-        cap = subprocess.Popen(sudo + ["tcpdump", "-i", "any", "-s", "0", "-U", "-n", "-w", str(pcap)],
+        cap = fkproc.Popen(sudo + ["tcpdump", "-i", "any", "-s", "0", "-U", "-n", "-w", str(pcap)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(1)
         say(f"  packets {name}: {url} for {secs} s")
         _, socks = run_browser(exe, url, secs)
         time.sleep(1)
         try:                                       # a sudo child cannot be killed by us: ask tcpdump to finish itself
-            subprocess.run(sudo + ["kill", "-INT", str(_child_pid(cap.pid) or cap.pid)], capture_output=True, timeout=10)
+            fkproc.run(sudo + ["kill", "-INT", str(_child_pid(cap.pid) or cap.pid)], capture_output=True, timeout=10)
             cap.wait(timeout=15)
         except (subprocess.TimeoutExpired, OSError):
             cap.kill()
@@ -465,12 +466,12 @@ def packet_run(exe, workdir, scenarios=SCENARIOS, say=print):
         etl, pcap = work / f"pkt-{name}.etl", work / f"pkt-{name}.pcapng"
         for p in (etl, pcap):
             p.unlink(missing_ok=True)
-        subprocess.run(["pktmon", "stop"], capture_output=True)
-        subprocess.run(["pktmon", "start", "--capture", "--pkt-size", "0", "--file-name", str(etl)], capture_output=True)
+        fkproc.run(["pktmon", "stop"], capture_output=True)
+        fkproc.run(["pktmon", "start", "--capture", "--pkt-size", "0", "--file-name", str(etl)], capture_output=True)
         say(f"  packets {name}: {url} for {secs} s")
         _, socks = run_browser(exe, url, secs)
-        subprocess.run(["pktmon", "stop"], capture_output=True)
-        subprocess.run(["pktmon", "etl2pcap", str(etl), "--out", str(pcap)], capture_output=True)
+        fkproc.run(["pktmon", "stop"], capture_output=True)
+        fkproc.run(["pktmon", "etl2pcap", str(etl), "--out", str(pcap)], capture_output=True)
         ports = {int(s[1]) for s in socks if s[1].isdigit()}
         results[name] = {"url": url, **{k: sorted(v) for k, v in parse_pcapng(pcap, ports).items()}, "ports": len(ports)}
     return results

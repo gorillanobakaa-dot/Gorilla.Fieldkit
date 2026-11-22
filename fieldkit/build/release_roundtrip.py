@@ -23,6 +23,7 @@ Linux only (a .deb); on Windows the row says so.
 import hashlib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import urllib.request
 from pathlib import Path
@@ -32,7 +33,7 @@ PKG = "gorilla-unleashed"
 
 
 def _run(cmd, timeout=600):
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    r = fkproc.run(cmd, capture_output=True, text=True, timeout=timeout)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 

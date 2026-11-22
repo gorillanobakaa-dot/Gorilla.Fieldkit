@@ -16,6 +16,7 @@ Exit 0 when every card holds, 3 when one does not, 2 for bad input.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from . import cards as cardmod
 def _help_text(entry, timeout=60):
     argv = [sys.executable if a in ("python", "python3") else a for a in entry]
     try:
-        r = subprocess.run(argv + ["--help"], capture_output=True, text=True, timeout=timeout,
+        r = fkproc.run(argv + ["--help"], capture_output=True, text=True, timeout=timeout,
                            cwd=str(settings.ROOT))
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)

@@ -11,6 +11,7 @@ the way they judge every other hand port), with the reason in the title and the 
 carries the files and the reason; the checkpoint carries the change.
 """
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -29,7 +30,7 @@ def check_kind(kind):
 
 def diff_hunks(workdir, rel):
     """The working tree's diff of `rel` against HEAD, parsed into hunks (firefox.parse_patch)."""
-    r = subprocess.run(["git", "-C", str(workdir), "diff", "--no-color", "--", rel], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(workdir), "diff", "--no-color", "--", rel], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     parsed = firefox.parse_patch(r.stdout) if r.stdout.strip() else []
     return parsed[0]["hunks"] if parsed else []
@@ -47,13 +48,13 @@ def binary_hunks(workdir, rel, commit=None):
     logo). -> [{"binary": True, "sha256": ...}] when `rel` is binary in the commit (or the working tree's diff), else []."""
     import hashlib
     args = ["show", "--numstat", "--format=", commit, "--", rel] if commit else ["diff", "--numstat", "--", rel]
-    r = subprocess.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = fkproc.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not any(l.startswith("-\t-\t") for l in r.stdout.splitlines()):
         return []
     # a binary the edit DELETES (2026-10-04: macOS-only Mozilla art removed from the branding) has no bytes to hash:
     # its step records the deletion, and the verifier checks that the file is gone
     if commit:
-        r = subprocess.run(["git", "-C", str(workdir), "show", f"{commit}:{rel}"], capture_output=True)
+        r = fkproc.run(["git", "-C", str(workdir), "show", f"{commit}:{rel}"], capture_output=True)
         data = r.stdout if r.returncode == 0 else None
     else:
         p = Path(workdir) / rel
@@ -65,7 +66,7 @@ def binary_hunks(workdir, rel, commit=None):
 
 def commit_hunks(workdir, commit, rel):
     """The hunks a checkpoint commit made to `rel` (recovery: a record whose steps another process overwrote)."""
-    r = subprocess.run(["git", "-C", str(workdir), "show", "--no-color", "--format=", commit, "--", rel], capture_output=True,
+    r = fkproc.run(["git", "-C", str(workdir), "show", "--no-color", "--format=", commit, "--", rel], capture_output=True,
                        text=True, encoding="utf-8", errors="replace")
     parsed = firefox.parse_patch(r.stdout) if r.stdout.strip() else []
     return parsed[0]["hunks"] if parsed else []
@@ -147,7 +148,7 @@ def eol_flipped(workdir, rel):
     p = Path(workdir) / rel
     if not p.is_file():
         return False
-    r = subprocess.run(["git", "-C", str(workdir), "show", f"HEAD:{rel}"], capture_output=True)
+    r = fkproc.run(["git", "-C", str(workdir), "show", f"HEAD:{rel}"], capture_output=True)
     if r.returncode != 0 or not r.stdout:
         return False
     return _crlf(r.stdout) != _crlf(p.read_bytes())
@@ -174,15 +175,15 @@ def record(task_id, files, why, group="hand", kind=None):
     for rel in files:
         # 2026-10-03: a NEW file is untracked, so `git diff` showed nothing and it got no step (silently), while the
         # checkpoint still committed it. Intent-to-add makes its whole content a diff like any other edit.
-        r = subprocess.run(["git", "-C", str(w), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
+        r = fkproc.run(["git", "-C", str(w), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
         if r.returncode != 0:
-            in_head = subprocess.run(["git", "-C", str(w), "cat-file", "-e", f"HEAD:{rel}"], capture_output=True).returncode == 0
+            in_head = fkproc.run(["git", "-C", str(w), "cat-file", "-e", f"HEAD:{rel}"], capture_output=True).returncode == 0
             if in_head and not (w / rel).exists():
                 # 2026-10-07: removed with `git rm` (staged): back into the index, so the deletion is a working-tree
                 # change like any other (it was taken for a new file and `git add -N` failed on the missing path)
-                subprocess.run(["git", "-C", str(w), "reset", "-q", "--", rel], capture_output=True, check=True)
+                fkproc.run(["git", "-C", str(w), "reset", "-q", "--", rel], capture_output=True, check=True)
             else:
-                subprocess.run(["git", "-C", str(w), "add", "-N", "--", rel], capture_output=True, check=True)
+                fkproc.run(["git", "-C", str(w), "add", "-N", "--", rel], capture_output=True, check=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     have = {s["id"] for s in t["steps"]}
     added = []

@@ -24,6 +24,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -199,7 +200,7 @@ def _detached(argv, env=None, log=None, cwd=None):
         kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000       # DETACHED | NEW_GROUP | NO_WINDOW
     else:
         kw["start_new_session"] = True
-    return subprocess.Popen(argv, **kw)
+    return fkproc.Popen(argv, **kw)
 
 
 def _ct(pid):
@@ -286,7 +287,7 @@ def recycle(app, root=None):
     wd = workdir(app, root)
     if not wd.exists():
         return {"ok": True, "note": "nothing to recycle"}
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "size", "recycle", str(wd), "--whole-folder", "--json"],
+    r = fkproc.run([sys.executable, "-m", "fieldkit", "size", "recycle", str(wd), "--whole-folder", "--json"],
                        capture_output=True, text=True)
     if r.returncode == 0:
         return {"ok": True, "note": f"recycled {wd}"}
@@ -304,7 +305,7 @@ def read_flows(flows):
     _, py = mitm_tools()
     if not py:
         raise RuntimeError("mitmproxy interpreter not found")
-    r = subprocess.run([py, "-I", str(HERE / "dump_flows.py"), str(flows)], capture_output=True, text=True)
+    r = fkproc.run([py, "-I", str(HERE / "dump_flows.py"), str(flows)], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip()[-300:])
     return [json.loads(line) for line in r.stdout.splitlines() if line.strip()]

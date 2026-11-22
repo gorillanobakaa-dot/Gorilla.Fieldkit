@@ -21,6 +21,7 @@ system only the sources that exist on it, so a Linux run never reaches a Windows
 import csv
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -141,7 +142,7 @@ def _ps(cmd, timeout=60):
 
 
 def _run_ps(cmd, timeout):
-    return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
+    return fkproc.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
 
 
@@ -273,7 +274,7 @@ def perf_percent(read=None):
 
 
 def _load(n):
-    return [subprocess.Popen([sys.executable, "-m", "fieldkit.thermal.burn"]) for _ in range(n)]
+    return [fkproc.Popen([sys.executable, "-m", "fieldkit.thermal.burn"]) for _ in range(n)]
 
 
 def _stop_load(procs):

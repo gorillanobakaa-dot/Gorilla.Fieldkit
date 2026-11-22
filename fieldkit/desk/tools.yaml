@@ -6473,6 +6473,25 @@ tools:
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Born 2026-11-22: the laptop held 60,000 console hosts, 1,000+ new per hour, because the room hook shelled out (PowerShell for the trust-store ACL, netsh every 5 s, git per prompt; fixed in PRs 669-671). hooks probes python -m fieldkit.autopilot.room --hook per event with a temp FIELDKIT_ROOM_DIR, polling children every 10 ms; budgets in fieldkit/hog/thresholds.json churn_budget. scan: function-level AST call graph from room:hook and room:main (imports run module top levels; Thread/map/submit targets followed; __main__ blocks and name lists ignored), allow-list fieldkit/hog/churn_allow.yaml where every entry needs a reason; tests/test_hog_churn.py fails on a new hit. Read-only: it stops nothing."
 
+- id: hog-consoles
+  title: "Console hosts by owner - which program owns each conhost/OpenConsole, exit 1 when a fieldkit process owns one, --reap stops the empty ones by PID; the live half of the no-console-spawn rule (every child process goes through fieldkit.proc)"
+  harness: desk
+  entry: [python, -m, fieldkit, hog, consoles]
+  path: ${FIELDKIT}/fieldkit/hog/consoles.py
+  inputs:
+    - {name: reap, flag: --reap, type: flag, required: false, help: "stop the empty console hosts (no child, creator gone, older than 10 min), by PID"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes]
+  safety: safe
+  headline: "{summary}"
+  output: own
+  exits: {1: "a fieldkit process owns a console host", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  platforms_why: "conhost.exe exists only on Windows; elsewhere it reports 0 hosts and PASS. Not run on a Mac."
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_no_console_spawn.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Born 2026-11-22 with fieldkit/proc.py: every subprocess call under fieldkit/ goes through fkproc (DETACHED_PROCESS plus redirected streams on Windows, never CREATE_NO_WINDOW which still makes a hidden conhost). tests/test_no_console_spawn.py is the static gate (AST, allowlist fieldkit/proc_allow.yaml with a reason per entry); this command is the live audit. Owner test: python or fieldkit.exe running the package."
+
 - id: procs
   title: "Every process tree Fieldkit started - zombies, orphans, CPU share, age, one verdict each (OK, ZOMBIES, ORPHAN, HOG); reap stops only Fieldkit's own orphans by PID + creation time"
   harness: desk

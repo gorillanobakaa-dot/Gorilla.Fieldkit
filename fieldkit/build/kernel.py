@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -185,7 +186,7 @@ def stage_deps(ctx, packages=None):
         return {"ok": False, "detail": "dpkg-query not found: this stage needs Debian/Ubuntu"}
     missing = []
     for p in packages:
-        r = subprocess.run(["dpkg-query", "-W", "-f=${Status}", p], capture_output=True, text=True)
+        r = fkproc.run(["dpkg-query", "-W", "-f=${Status}", p], capture_output=True, text=True)
         if "install ok installed" not in r.stdout:
             missing.append(p)
     return {"ok": not missing, "missing": missing,
@@ -279,7 +280,7 @@ def stage_fetch(ctx, mirror="", opener=None, vault_base=None):
 def _fetch_mirror(ctx, mirror, version, work, why):
     """git fetch --depth 1 <mirror> tag v<version>; git archive into <workdir>/linux-<version>."""
     repo, tag, src = work / "mirror.git", f"v{version}", work / f"linux-{version}"
-    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", *a], capture_output=True, text=True)
+    git = lambda *a: fkproc.run(["git", "-c", "core.autocrlf=false", *a], capture_output=True, text=True)
     if not (repo / "HEAD").is_file():
         r = git("init", "-q", "--bare", str(repo))
         if r.returncode:
@@ -290,7 +291,7 @@ def _fetch_mirror(ctx, mirror, version, work, why):
     commit = git("-C", str(repo), "rev-parse", f"{tag}^{{commit}}").stdout.strip()
     if not (src / "Makefile").is_file():
         src.mkdir(parents=True, exist_ok=True)
-        arc = subprocess.run(["git", "-C", str(repo), "archive", tag], capture_output=True)
+        arc = fkproc.run(["git", "-C", str(repo), "archive", tag], capture_output=True)
         if arc.returncode:
             return {"ok": False, "detail": f"git archive {tag} failed: {arc.stderr.decode('utf-8', 'replace')[:200]}"}
         import io

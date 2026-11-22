@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -33,7 +34,7 @@ class Box:
         return e
 
     def fk(self, *args, stdin=None, **env):
-        r = subprocess.run([sys.executable, "-m", "fieldkit", *args], input=stdin, capture_output=True, text=True,
+        r = fkproc.run([sys.executable, "-m", "fieldkit", *args], input=stdin, capture_output=True, text=True,
                            timeout=300, cwd=FK, env=self.env(**env))
         return r.returncode, (r.stdout or "") + (r.stderr or "")
 
@@ -199,7 +200,7 @@ def crash():
     b.cap.mkdir(parents=True)
     script = b.dir / "child.py"
     script.write_text(CHILD, encoding="utf-8")
-    p = subprocess.Popen([sys.executable, str(script), "5"], stdout=subprocess.PIPE, text=True, env=b.env(), cwd=FK)
+    p = fkproc.Popen([sys.executable, str(script), "5"], stdout=subprocess.PIPE, text=True, env=b.env(), cwd=FK)
     acked = []
     for line in p.stdout:
         line = line.strip()

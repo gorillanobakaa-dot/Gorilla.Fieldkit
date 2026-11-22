@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -42,7 +43,7 @@ PROBE = ("import json,sys\nout={'python':sys.version.split()[0]}\nfor m in %r:\n
 # ---- toolset ------------------------------------------------------------------------------------------------------
 def _run(argv, **kw):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=kw.pop("timeout", 30), **kw)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=kw.pop("timeout", 30), **kw)
         return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, "", str(e)

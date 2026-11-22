@@ -68,6 +68,7 @@ import argparse
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -76,7 +77,7 @@ from . import emit
 
 
 def git(repo, *args, check=False, timeout=600, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=timeout, env=env)   # git output is UTF-8; cp1252 crashed --all (2026-11-09)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {(r.stderr or r.stdout).strip()[-300:]}")
@@ -402,7 +403,7 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
         return rg
     from . import tagguard
     # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
-    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
+    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: fkproc.run(
         *a, **{**k, "env": ship_env()}))))(repo, tag)
     if not g["ok"]:
         bad = [x for x in g["rows"] if not x["ok"]]

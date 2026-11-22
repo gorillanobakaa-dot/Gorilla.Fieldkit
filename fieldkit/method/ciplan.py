@@ -17,6 +17,7 @@ import json
 import math
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -249,13 +250,13 @@ def explain(b):
 def fetch(out, repo=None):
     """Download the newest `ci-durations` artifact of main with gh; writes OUT. False when there is none yet."""
     base = ["gh", "api", f"repos/{repo or '{owner}/{repo}'}/actions/artifacts?name={ARTIFACT}&per_page=20"]
-    items = json.loads(subprocess.check_output(base, text=True)).get("artifacts", [])
+    items = json.loads(fkproc.check_output(base, text=True)).get("artifacts", [])
     for item in items:
         run = item.get("workflow_run") or {}
         if item.get("expired") or run.get("head_branch") != "main":
             continue
         with tempfile.TemporaryDirectory(prefix="fieldkit-durations-") as tmp:
-            subprocess.check_call(["gh", "run", "download", str(run["id"]), "-n", ARTIFACT, "-D", tmp])
+            fkproc.check_call(["gh", "run", "download", str(run["id"]), "-n", ARTIFACT, "-D", tmp])
             src = next(Path(tmp).rglob("durations.json"), None)
             if src:
                 Path(out).write_text(src.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")

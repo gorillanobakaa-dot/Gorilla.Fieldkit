@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ..buildh import proof
@@ -93,7 +94,7 @@ class Rev:
 
     def files(self):
         if self._files is None:
-            r = subprocess.run(["git", "-C", self.repo, "ls-tree", "-r", "--name-only", self.commit], capture_output=True,
+            r = fkproc.run(["git", "-C", self.repo, "ls-tree", "-r", "--name-only", self.commit], capture_output=True,
                                text=True, encoding="utf-8", errors="replace", env={**__import__("os").environ, "GIT_OPTIONAL_LOCKS": "0"})
             if r.returncode != 0:
                 raise RuntimeError(f"git ls-tree {self.commit[:12]} in {self.repo}: {r.stderr.strip()[:200]}")
@@ -104,7 +105,7 @@ class Rev:
         if rel in self._cache:
             return self._cache[rel]
         if self._cat is None:
-            self._cat = subprocess.Popen(["git", "-C", self.repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
+            self._cat = fkproc.Popen(["git", "-C", self.repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
                                          stdout=subprocess.PIPE)
         self._cat.stdin.write(f"{self.commit}:{rel}\n".encode("utf-8"))
         self._cat.stdin.flush()

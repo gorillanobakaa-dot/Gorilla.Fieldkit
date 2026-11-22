@@ -1,0 +1,8 @@
+# Raw process-starting calls allowed outside fieldkit/proc.py (tests/test_no_console_spawn.py).
+# Key: path/relative/to/repo.py:function:callee. A key with no reason is ignored; a stale key fails the test.
+# Add a key only for a program a person runs at a console, or a call that cannot reach Windows. Otherwise use
+# `from fieldkit import proc as fkproc` and call fkproc.run / Popen / check_output.
+allow:
+  "fieldkit/emerge/toolenv.py:_can_exec:os.system": >-
+    Probes a /bin/sh script for a noexec mount; the script is POSIX-only and the call returns False on Windows
+    before any console exists. fkproc has no shell-string form, and Windows never reaches this branch.

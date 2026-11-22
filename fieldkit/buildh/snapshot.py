@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ..core import childrun
@@ -37,7 +38,7 @@ SNAP = "20.SNAPSHOT.DELTA"
 
 
 def _git(repo, *args, binary=False):
-    r = subprocess.run(["git", "--no-optional-locks", "-C", str(repo), *args], capture_output=True)
+    r = fkproc.run(["git", "--no-optional-locks", "-C", str(repo), *args], capture_output=True)
     if r.returncode not in (0, 1):
         raise task.Refused(f"git {' '.join(args[:3])} failed in {repo}: {r.stderr.decode('utf-8', 'replace')[:200]}")
     return r.stdout if binary else r.stdout.decode("utf-8", "replace")
@@ -183,7 +184,7 @@ def capture(harness_root, version, out_root, vault_base=None):
     link = h / "src"
     if not link.exists():
         if os.name == "nt":
-            r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(src)], capture_output=True)
+            r = fkproc.run(["cmd", "/c", "mklink", "/J", str(link), str(src)], capture_output=True)
             err = r.stderr.decode("utf-8", "replace")[:120]
         else:                                     # no junctions off Windows: a directory symlink does the same job
             try:

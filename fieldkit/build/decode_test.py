@@ -33,6 +33,7 @@ import re
 import shutil
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from pathlib import Path
@@ -44,7 +45,7 @@ CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100   # Windows ha
 def make_clip(path, seconds=60, fps=30):
     if Path(path).is_file():
         return True, "clip exists"
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+    r = fkproc.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
                         f"testsrc2=size=1920x1080:rate={fps}:duration={seconds}", "-c:v", "libx264", "-profile:v",
                         "high", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-b:v", "8M", "-movflags",
                         "+faststart", str(path)], capture_output=True, text=True, timeout=900)
@@ -157,7 +158,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
                                      'user_pref("widget.windows.window_occlusion_tracking.enabled", false);\n'
                                      + "".join(f'user_pref("{k}", {json.dumps(v)});\n' for k, v in (extra_prefs or {}).items()),
                                      encoding="utf-8")
-    if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+    if fkproc.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         return {"ok": False, "detail": "intel_gpu_top needs root and sudo asks for a password: a person runs this"}
     if not isolate:
         return _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app, moz_log, [], [], fps)
@@ -189,11 +190,11 @@ def _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app,
     # The engines block is the whole GPU; per-client figures are not trustworthy on Ivy Bridge (2026-10-15: one idle
     # program "used" 2259% of the video engine). So the video engine is measured BEFORE the browser starts: anything
     # else decoding (the person's own YouTube, 2026-10-15) makes the run INCONCLUSIVE instead of a false pass.
-    pre = subprocess.run(["sudo", "-n", "timeout", "--signal=INT", "5", "intel_gpu_top", "-J", "-s", "1000"],
+    pre = fkproc.run(["sudo", "-n", "timeout", "--signal=INT", "5", "intel_gpu_top", "-J", "-s", "1000"],
                          capture_output=True, text=True)
     pv = [x[k] for x in parse_gpu_top(pre.stdout) for k in x if k.lower().split("/")[0] == "video"]
     before = round(sum(pv) / len(pv), 2) if pv else None
-    br = subprocess.Popen([str(app), "--name", "gorilla-unleashed", "--no-remote", "--profile", str(profile), url],
+    br = fkproc.Popen([str(app), "--name", "gorilla-unleashed", "--no-remote", "--profile", str(profile), url],
                           stdout=blog, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     try:
         time.sleep(warmup)
@@ -203,7 +204,7 @@ def _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app,
         names_start = _names(pids)
         mark = len(reports)
         c0, t0 = _cpu_ticks(pids), time.monotonic()
-        g = subprocess.run(["sudo", "-n", "timeout", "--signal=INT", str(seconds), "intel_gpu_top", "-J", "-s",
+        g = fkproc.run(["sudo", "-n", "timeout", "--signal=INT", str(seconds), "intel_gpu_top", "-J", "-s",
                             "1000"], capture_output=True, text=True)
         pids = _tree_pids(br.pid)
         c1, t1 = _cpu_ticks(pids), time.monotonic()

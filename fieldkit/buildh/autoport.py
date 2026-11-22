@@ -22,6 +22,7 @@ Every decision is in the task journal (event auto-accept / auto-refuse) and the 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -102,9 +103,9 @@ def _adapted(t, s, pol):
     checks.append(("the proposal's diff is on disk", ok, "" if ok else str(diff)))
     applied = False
     if ok:
-        r = subprocess.run(["git", "-C", wd, "apply", str(diff)], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", wd, "apply", str(diff)], capture_output=True, text=True)
         if r.returncode != 0:
-            r = subprocess.run(["git", "-C", wd, "apply", "--3way", str(diff)], capture_output=True, text=True)
+            r = fkproc.run(["git", "-C", wd, "apply", "--3way", str(diff)], capture_output=True, text=True)
         applied = r.returncode == 0
         checks.append(("the diff applies to the tree now", applied, (r.stderr or "").strip()[:200]))
     try:
@@ -238,9 +239,9 @@ def upstream_change(t, s):
 
 
 def _apply_diff(t, diff):
-    r = subprocess.run(["git", "-C", t["workdir"], "apply", str(diff)], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", t["workdir"], "apply", str(diff)], capture_output=True, text=True)
     if r.returncode != 0:
-        r = subprocess.run(["git", "-C", t["workdir"], "apply", "--3way", str(diff)], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", t["workdir"], "apply", "--3way", str(diff)], capture_output=True, text=True)
     return r.returncode == 0, (r.stderr or "").strip()[:200]
 
 

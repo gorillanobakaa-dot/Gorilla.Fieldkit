@@ -11,6 +11,7 @@ import json
 import re
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -165,7 +166,7 @@ class Toolbox:
             return f"ERROR: find needs pfind, which is not gathered here - run: fieldkit gather --only pfind"
         args = [sys.executable, str(PFIND), "-", str(self.root), "--json", "--limit", "5", "--max", "3", "--no-color"]
         args += (["-x"] if snippet else []) + (["-r"] if regex else []) + (["--content"] if content_only else [])
-        r = subprocess.run(args, input=query, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        r = fkproc.run(args, input=query, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=120, env=dict(os.environ))
         try:
             return json.loads(r.stdout)

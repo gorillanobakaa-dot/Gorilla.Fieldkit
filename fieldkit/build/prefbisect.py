@@ -16,6 +16,7 @@ troubleshoot". Troubleshooting by bisection, never by guessing which pref looks 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 # The graphics and presentation prefs Gorilla changes, the default suspects for a frame-drop bisection (2026-10-15).
@@ -32,11 +33,11 @@ STATIC = "modules/libpref/init/StaticPrefList.yaml"
 
 
 def _pristine(src, path):
-    root = subprocess.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
+    root = fkproc.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
                           text=True).stdout.split()
     if not root:
         return ""
-    r = subprocess.run(["git", "-C", str(src), "show", f"{root[0]}:{path}"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(src), "show", f"{root[0]}:{path}"], capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else ""
 
 

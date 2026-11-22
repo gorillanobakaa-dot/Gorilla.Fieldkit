@@ -16,6 +16,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -55,7 +56,7 @@ def _sha(p):
 
 def _cmd(args):
     try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=60).stdout.strip().splitlines()[0]
+        return fkproc.run(args, capture_output=True, text=True, timeout=60).stdout.strip().splitlines()[0]
     except Exception as e:
         return f"unavailable ({type(e).__name__})"
 
@@ -107,7 +108,7 @@ def stop_started(p, wait=10):
     if p.poll() is not None:
         return
     if sys.platform == "win32":
-        subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
         return
     p.terminate()
     try:
@@ -124,7 +125,7 @@ def ensure_ca(work):
     if not ca.exists():
         mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe" if sys.platform == "win32"
                                                    else Path(sys.executable).parent / "mitmdump")
-        p = subprocess.Popen([mitmdump, "--listen-port", str(se.free_port()), "--set", f"confdir={conf}", "-q"],
+        p = fkproc.Popen([mitmdump, "--listen-port", str(se.free_port()), "--set", f"confdir={conf}", "-q"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         t0 = time.time()
         while not ca.exists() and time.time() - t0 < 30:
@@ -600,11 +601,11 @@ def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
         if not p or not p.is_dir():
             continue
         if (p / ".git").exists():
-            r = subprocess.run(["git", "-C", str(p), "rev-list", "--max-parents=0", "HEAD"],
+            r = fkproc.run(["git", "-C", str(p), "rev-list", "--max-parents=0", "HEAD"],
                                capture_output=True, text=True, timeout=30)
             root = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
             if root:
-                r2 = subprocess.run(["git", "-C", str(p), "show", f"{root}:Cargo.lock"],
+                r2 = fkproc.run(["git", "-C", str(p), "show", f"{root}:Cargo.lock"],
                                     capture_output=True, text=True, timeout=30)
                 if r2.returncode == 0 and r2.stdout:
                     return r2.stdout
@@ -1117,7 +1118,7 @@ def rejudge(run_dir, owner_root, why="", dependency_baseline=None, rerun=None):
         # owner 2026-10-19 (proposal D): the crates are compared with a NAMED earlier build's Cargo.lock (a git ref in
         # the ported tree), the run's own evidence otherwise unchanged
         tree, ref = dependency_baseline
-        r = subprocess.run(["git", "-C", str(tree), "show", f"{ref}:Cargo.lock"], capture_output=True, text=True,
+        r = fkproc.run(["git", "-C", str(tree), "show", f"{ref}:Cargo.lock"], capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=60)
         if r.returncode != 0 or not r.stdout:
             raise ValueError(f"no Cargo.lock at {ref} in {tree}: {r.stderr.strip()[:200]}")

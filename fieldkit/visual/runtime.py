@@ -51,6 +51,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from pathlib import Path
@@ -266,14 +267,14 @@ def stop_leftovers(copy):
         return []
     ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | "
           "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
     pids = []
     for line in out.splitlines():
         pid, _, exe = line.partition("|")
         if exe.strip().lower().startswith(copy + os.sep) and pid.strip().isdigit():
             pids.append(int(pid))
     for pid in pids:
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
     return pids
 
 

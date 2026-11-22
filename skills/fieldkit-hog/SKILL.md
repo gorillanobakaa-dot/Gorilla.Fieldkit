@@ -110,3 +110,17 @@ The rules, so you can explain a verdict: a cut below 50 C or below 40 % load is 
 powercfg.exe is a suspect; a driver or firmware installed since the first cut minus 7 days is a suspect; TPFanControl
 running at a cut is a suspect (it writes the embedded controller); hardware (charger, cable, board) is what is left.
 Exit 3 means a cut is still unexplained.
+
+## Who owns the consoles (fieldkit hog consoles, fieldkit.proc)
+
+Rule since 2026-11-22: fieldkit starts no child process except through `fieldkit.proc` (`from fieldkit import proc as
+fkproc`; `fkproc.run/Popen/check_output`). On Windows it adds DETACHED_PROCESS when the streams are redirected, so a
+hook or watcher no longer gets a conhost per child. `tests/test_no_console_spawn.py` fails CI on a raw `subprocess`
+call; `fieldkit/proc_allow.yaml` lists the rare exception with a reason.
+
+```
+fieldkit hog consoles           console hosts grouped by owner; exit 1 if a fieldkit process owns one
+fieldkit hog consoles --reap    also stop the empty hosts (dead creator, no child, 10 min old), by PID
+```
+
+Hosts owned by claude.exe, bash.exe or Windows services are not ours and are not a failure.

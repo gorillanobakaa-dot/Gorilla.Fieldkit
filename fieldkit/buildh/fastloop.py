@@ -17,6 +17,7 @@ A failing row fails the gate, before an hour of compiling. No earlier build or n
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
@@ -25,7 +26,7 @@ PREFIX = "fast loop (the change tried on the last build's unpacked dist/bin, bef
 
 
 def changed(workdir, since, until="HEAD"):
-    out = subprocess.run(["git", "-C", str(workdir), "diff", "--name-only", "--no-renames", since, until],
+    out = fkproc.run(["git", "-C", str(workdir), "diff", "--name-only", "--no-renames", since, until],
                          capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.split()
     return [p for p in out if p.lower().endswith(CHROME)]
 

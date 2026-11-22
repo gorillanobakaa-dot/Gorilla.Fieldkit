@@ -12,17 +12,18 @@ Reads 1,500+ files through `git show`, so it is a command (`truthbound`), not a 
 import difflib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import task
 
 
 def _root(repo):
-    return subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
+    return fkproc.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
 
 
 def _show(repo, commit, rel):
-    r = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{rel}"], capture_output=True)
+    r = fkproc.run(["git", "-C", str(repo), "show", f"{commit}:{rel}"], capture_output=True)
     return r.stdout.decode("utf-8", "replace").splitlines() if r.returncode == 0 else None
 
 
@@ -72,7 +73,7 @@ def run(task_id, truth_repo_155, truth_tree_155, say=print):
     t = task.load(task_id)
     w = Path(t["workdir"])
     root_now, root_155 = _root(w), _root(truth_repo_155)
-    changed = subprocess.run(["git", "-C", str(w), "diff", "--name-only", root_now, "HEAD"], capture_output=True, text=True).stdout.split()
+    changed = fkproc.run(["git", "-C", str(w), "diff", "--name-only", root_now, "HEAD"], capture_output=True, text=True).stdout.split()
     stepped = {s.get("args", {}).get("file") for s in t["steps"]}
     out = []
     for i, rel in enumerate(changed, 1):

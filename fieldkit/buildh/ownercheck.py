@@ -8,6 +8,7 @@ the build gate stays closed until each is done or dropped on purpose.
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def run_preflight(owner_root, python=None):
     script = Path(owner_root) / "harness" / "gorilla_build.py"
     if not script.is_file():
         return None, f"no owner preflight at {script}"
-    r = subprocess.run([python or sys.executable, str(script), "preflight"], cwd=str(owner_root), capture_output=True,
+    r = fkproc.run([python or sys.executable, str(script), "preflight"], cwd=str(owner_root), capture_output=True,
                        text=True, encoding="utf-8", errors="replace", timeout=1800)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 

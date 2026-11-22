@@ -122,7 +122,8 @@ def _in_upstream_headers(pristine_repo, pristine, name, _cache={}):
     key = (str(pristine_repo), pristine, name)
     if key not in _cache:
         import subprocess
-        r = subprocess.run(["git", "-C", str(pristine_repo), "grep", "-q", "-w", "-F", name, pristine, "--", "*.h"],
+        from fieldkit import proc as fkproc
+        r = fkproc.run(["git", "-C", str(pristine_repo), "grep", "-q", "-w", "-F", name, pristine, "--", "*.h"],
                            capture_output=True)
         _cache[key] = r.returncode == 0
     return _cache[key]

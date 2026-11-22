@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -209,7 +210,7 @@ def install(zip_path, name="macair"):
     m, mac, address = mac_target(name)
     want = sha256(zip_path)
     remote = f"/Users/{mac['user']}/Downloads/{zip_path.name}"
-    r = subprocess.run(m.scp_argv(mac, address, remote, "x")[:-2] + [str(zip_path), f"{mac['user']}@{address}:{remote}"])
+    r = fkproc.run(m.scp_argv(mac, address, remote, "x")[:-2] + [str(zip_path), f"{mac['user']}@{address}:{remote}"])
     if r.returncode != 0:
         return 1, "copy failed"
     line = (f'set -e; [ "$(shasum -a 256 "{remote}" | cut -d" " -f1)" = "{want}" ] || {{ echo "CHECKSUM MISMATCH"; exit 3; }}; '
@@ -447,8 +448,8 @@ def status():
     zips = sorted(WORK.glob("gorilla-air-*.zip"))
     lines.append(f"latest build: {zips[-1]}" if zips else "latest build: none in " + str(WORK))
     if (TREE / ".git").exists():
-        head = subprocess.run(["git", "-C", str(TREE), "log", "--oneline", "-1"], capture_output=True, text=True).stdout.strip()
-        n = subprocess.run(["git", "-C", str(TREE), "rev-list", "--count", f"{BASE}..HEAD"], capture_output=True, text=True).stdout.strip()
+        head = fkproc.run(["git", "-C", str(TREE), "log", "--oneline", "-1"], capture_output=True, text=True).stdout.strip()
+        n = fkproc.run(["git", "-C", str(TREE), "rev-list", "--count", f"{BASE}..HEAD"], capture_output=True, text=True).stdout.strip()
         lines.append(f"Mac tree {TREE}: {n} commits on Momiji, HEAD {head[:90]}")
     pub = MACOS / "PATCHES.sha256"
     lines.append(f"published series: {len(pub.read_text().splitlines())} patches listed in {pub}" if pub.exists()
@@ -509,7 +510,7 @@ def main(argv=None, prog="fieldkit macair"):
         print(f"{n} patches -> {out} ({out.stat().st_size // 1024} KB); checksums in {MACOS}")
         return 0
     if o.cmd == "recreate":
-        return subprocess.run(["bash", str(MACOS / "recreate-mac.sh"), o.stage, "--route", o.route]).returncode
+        return fkproc.run(["bash", str(MACOS / "recreate-mac.sh"), o.stage, "--route", o.route]).returncode
     if o.cmd == "app-check":
         bad = app_check(o.zip)
         for did, path in bad[:40]:

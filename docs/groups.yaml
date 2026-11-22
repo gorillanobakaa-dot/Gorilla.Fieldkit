@@ -158,6 +158,7 @@ groups:
       - parity.py
       - parity_goal.py
       - plan.py
+      - proc.py
       - review_verdict.py
       - rules.py
       - rules_lint.py

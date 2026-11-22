@@ -34,6 +34,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -171,7 +172,7 @@ def run_here(piece, tree, timeout=3600):
     cmd = admission.suite_cmd(piece["files"])
     with admission.admitted("test", f"split {piece['id']} ({len(piece['files'])} files)"):
         try:
-            p = subprocess.run(cmd, cwd=str(tree), capture_output=True, text=True, encoding="utf-8",
+            p = fkproc.run(cmd, cwd=str(tree), capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=timeout)
             out = p.stdout + p.stderr
         except subprocess.TimeoutExpired as e:

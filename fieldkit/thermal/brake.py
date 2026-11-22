@@ -28,6 +28,7 @@ rise. A stale flag (a crash) only keeps the fan fast; the next guard or the mach
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -63,7 +64,7 @@ def fan_flag(on, label=""):
 
 
 def _powercfg(*args):
-    r = subprocess.run(["powercfg", *args], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True, errors="replace")
+    r = fkproc.run(["powercfg", *args], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True, errors="replace")
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 

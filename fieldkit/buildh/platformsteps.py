@@ -11,6 +11,7 @@ document. The session-start brief prints the lines that need an action.
     fieldkit build-harness platform-steps <task>          this machine's steps, then the other system's for contrast
 """
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import firefox, task
@@ -42,7 +43,7 @@ BUILD = {
 
 
 def _hook_installed(repo):
-    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-path", "hooks/pre-push"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), "rev-parse", "--git-path", "hooks/pre-push"], capture_output=True, text=True)
     if r.returncode != 0:
         return None
     p = Path(r.stdout.strip())

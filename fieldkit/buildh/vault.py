@@ -29,6 +29,7 @@ import os
 import shutil
 import stat
 import subprocess
+from fieldkit import proc as fkproc
 import tarfile
 import time
 import urllib.request
@@ -50,7 +51,7 @@ def root():
 
 
 def _git(*args, cwd=None, timeout=7200):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:3])}...: {(r.stderr or r.stdout).strip()[:300]}")

@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -39,7 +40,7 @@ BRANCH = "main"
 
 
 def _git(repo, *a, timeout=60):
-    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
+    r = fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=timeout)
     return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
 
 
@@ -215,7 +216,7 @@ def inspect(tree, fetch=False):
                dirty=bool(_git(tree, "status", "--porcelain", "--untracked-files=no")[1]))
     fh = _gitdirs(tree)[1]
     if fh is None:
-        fh = Path(subprocess.run(["git", "-C", str(tree), "rev-parse", "--git-common-dir"], capture_output=True,
+        fh = Path(fkproc.run(["git", "-C", str(tree), "rev-parse", "--git-common-dir"], capture_output=True,
                                  text=True).stdout.strip() or ".")
         fh = fh if fh.is_absolute() else Path(tree) / fh
     try:

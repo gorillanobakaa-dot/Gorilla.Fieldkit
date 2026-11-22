@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -240,7 +241,7 @@ def parse_ss(text):
 
 def snapshot_all_sockets(ns):
     """-> every TCP and UDP socket in the namespace `ns` with its owning pid (ss -tunapH, run inside it)."""
-    p = subprocess.run(["ip", "netns", "exec", ns, "ss", "-tunapH"], capture_output=True, text=True, errors="replace")
+    p = fkproc.run(["ip", "netns", "exec", ns, "ss", "-tunapH"], capture_output=True, text=True, errors="replace")
     return parse_ss(p.stdout)
 
 

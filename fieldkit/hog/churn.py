@@ -23,6 +23,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -45,6 +46,7 @@ SINK_CALLS = {
            "posix_spawn", "posix_spawnp"},
     "asyncio": {"create_subprocess_exec", "create_subprocess_shell"},
 }
+PROC_MODULE = "fieldkit.proc"
 SINK_WORDS = re.compile(r"\b(powershell|pwsh|netsh|typeperf|wmic)(\.exe)?\b", re.I)
 FK_MODULE = re.compile(r"-m\s+(fieldkit(?:\.[\w]+)*)(?:\s+([a-z][\w-]*))?")
 
@@ -92,7 +94,7 @@ def run_hook(event, module="fieldkit.autopilot.room", args=("--hook",), python=N
                PYTHONPATH=str(PKG_ROOT.parent) + os.pathsep + os.environ.get("PYTHONPATH", ""))
     flags = 0x00000008 if sys.platform == "win32" else 0            # DETACHED_PROCESS: no console, like pythonw
     t0 = time.monotonic()
-    p = subprocess.Popen([python or sys.executable, "-m", module, *args], stdin=subprocess.PIPE,
+    p = fkproc.Popen([python or sys.executable, "-m", module, *args], stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd), env=env, creationflags=flags)
     seen, stop = {}, threading.Event()
     w = threading.Thread(target=_watch, args=(p.pid, seen, stop), daemon=True)
@@ -348,12 +350,15 @@ class Graph:
         if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
             a = aliases.get(f.value.id)
             mod = a[1] if a and a[0] == "mod" else f.value.id
+            mod = "subprocess" if mod == PROC_MODULE else mod      # fieldkit.proc wraps subprocess: same sink, same keys
             if f.attr in SINK_CALLS.get(mod, ()):
                 return f"{mod}.{f.attr}"
         if isinstance(f, ast.Name):
             a = aliases.get(f.id)
-            if a and a[0] == "attr" and a[2] in SINK_CALLS.get(a[1], ()):
-                return f"{a[1]}.{a[2]}"
+            if a and a[0] == "attr":
+                mod = "subprocess" if a[1] == PROC_MODULE else a[1]
+                if a[2] in SINK_CALLS.get(mod, ()):
+                    return f"{mod}.{a[2]}"
         return None
 
     def _imported_mods(self, aliases_new):
@@ -373,6 +378,8 @@ class Graph:
             if (mn, fn) in done or mn not in self.mods:
                 continue
             done.add((mn, fn))
+            if mn == PROC_MODULE:                           # the wrapper is the sink itself, not a place to look inside
+                continue
             m = self.mods[mn]
             if fn == "<module>":
                 body = ast.Module(body=m.top, type_ignores=[])

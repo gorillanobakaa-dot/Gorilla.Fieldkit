@@ -14,6 +14,7 @@ runs the privacy checks, and pushes / creates the release only after the owner t
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -169,7 +170,7 @@ def lines(its):
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
 
 
 def publish_plan(repo, release=None, notes=None, assets=()):

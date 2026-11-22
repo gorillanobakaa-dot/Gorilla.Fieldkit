@@ -6,6 +6,7 @@ import select
 import shutil
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -185,7 +186,7 @@ def trace(pid, seconds):
         return {"error": "strace is not installed", "events": []}
     out = tempfile.mkstemp(prefix="observe-strace-")
     os.close(out[0])
-    p = subprocess.Popen(["strace", "-f", "-qq", "-e", "trace=openat,execve", "-o", out[1], "-p", str(int(pid))],
+    p = fkproc.Popen(["strace", "-f", "-qq", "-e", "trace=openat,execve", "-o", out[1], "-p", str(int(pid))],
                          stderr=subprocess.PIPE, text=True)
     try:
         try:
@@ -246,7 +247,7 @@ def events(words, limit=2000):
         return None
     if not shutil.which("journalctl"):
         return {"error": "journalctl is not installed", "lines": []}
-    r = subprocess.run(["journalctl", "--no-pager", "-q", "-n", str(limit), "-o", "short-iso"],
+    r = fkproc.run(["journalctl", "--no-pager", "-q", "-n", str(limit), "-o", "short-iso"],
                        capture_output=True, text=True, timeout=60)
     want = [w.lower() for w in words]
     lines = [l for l in r.stdout.splitlines() if all(w in l.lower() for w in want)]

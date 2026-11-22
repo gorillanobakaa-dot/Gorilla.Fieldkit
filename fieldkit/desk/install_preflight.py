@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 
@@ -143,7 +144,7 @@ def _run_terminal_command_windows(cmd: str, args: list[str], cwd: Path) -> dict:
             "next_step": "Route through the existing install workflow (`fieldkit size integrate --from-dir RELEASE_DIR`).",
         }
     try:
-        proc = subprocess.run(
+        proc = fkproc.run(
             [resolved, *args],
             cwd=str(cwd),
             env=env,
@@ -187,7 +188,7 @@ def _run_terminal_command_posix(cmd: str, args: list[str], cwd: Path) -> dict:
     shell_flag = "-lc" if Path(sh).name == "bash" else "-c"
     script = 'resolved=$(command -v "$1" 2>/dev/null || true); if [ -z "$resolved" ]; then exit 127; fi; printf "%s\\n" "$resolved"; shift; exec "$resolved" "$@"'
     try:
-        proc = subprocess.run(
+        proc = fkproc.run(
             [sh, shell_flag, script, "fieldkit-preflight", cmd, *args],
             cwd=str(cwd),
             capture_output=True,
@@ -282,7 +283,7 @@ def _service_env_from_systemd(unit_name: str = "fieldkit-link.service") -> tuple
     if systemctl:
         for scope_args, scope_label in ((["--user"], "systemd --user"), ([], "systemd")):
             try:
-                proc = subprocess.run(
+                proc = fkproc.run(
                     [systemctl, *scope_args, "show", unit_name, "--property=LoadState,ActiveState,MainPID,User,Environment"],
                     capture_output=True,
                     text=True,
@@ -314,7 +315,7 @@ def _service_env_from_systemd(unit_name: str = "fieldkit-link.service") -> tuple
                     if token.startswith("PATH="):
                         return token[5:].strip('"'), unit_user, f"{scope_label} {unit_name}", None
                 if scope_args and props.get("LoadState") == "loaded":
-                    mgr = subprocess.run(
+                    mgr = fkproc.run(
                         [systemctl, "--user", "show-environment"],
                         capture_output=True,
                         text=True,
@@ -388,7 +389,7 @@ def _default_service_runner(
             ),
         }
     try:
-        proc = subprocess.run(
+        proc = fkproc.run(
             [resolved, *args],
             cwd=str(cwd),
             env=env,

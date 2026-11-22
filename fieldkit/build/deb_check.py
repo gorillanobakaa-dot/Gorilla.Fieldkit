@@ -24,6 +24,7 @@ import re
 import shutil
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import tarfile
 import io
 from pathlib import Path
@@ -76,13 +77,13 @@ def png_size(data):
 
 
 def _members(deb):
-    raw = subprocess.run(["dpkg-deb", "--fsys-tarfile", str(deb)], capture_output=True, check=True).stdout
+    raw = fkproc.run(["dpkg-deb", "--fsys-tarfile", str(deb)], capture_output=True, check=True).stdout
     tf = tarfile.open(fileobj=io.BytesIO(raw))
     return {m.name.lstrip("."): (m, tf) for m in tf.getmembers()}
 
 
 def _control(deb, name):
-    r = subprocess.run(["dpkg-deb", "--ctrl-tarfile", str(deb)], capture_output=True, check=True).stdout
+    r = fkproc.run(["dpkg-deb", "--ctrl-tarfile", str(deb)], capture_output=True, check=True).stdout
     tf = tarfile.open(fileobj=io.BytesIO(r))
     for m in tf.getmembers():
         if m.name.lstrip("./") == name:
@@ -100,7 +101,7 @@ def check(deb, branding):
     desktops = [p for p in files if p.startswith("/usr/share/applications/") and p.endswith(".desktop")]
     if not desktops:
         problems.append("name: no .desktop file under /usr/share/applications: the browser has no menu entry")
-    version = subprocess.run(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True).stdout.strip()
+    version = fkproc.run(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True).stdout.strip()
     want = expected_name(branding, version)
     icon = None
     for d in desktops:

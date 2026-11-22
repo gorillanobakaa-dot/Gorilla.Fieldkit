@@ -46,6 +46,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -1358,7 +1359,7 @@ def _stream_thread(c, req, pre):
 def code_head(root=None):
     """The commit of the checkout this listener runs from, or "" when git cannot say."""
     try:
-        r = subprocess.run(["git", "-C", str(root or LINK_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+        r = fkproc.run(["git", "-C", str(root or LINK_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
                            timeout=10)
     except (OSError, subprocess.SubprocessError):
         return ""

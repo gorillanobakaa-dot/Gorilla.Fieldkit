@@ -15,6 +15,7 @@ assume one platform again:
 A jar that is neither an archive nor a folder of loose files raises FileNotFoundError: never "nothing found".
 """
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import zipfile
 from pathlib import Path
@@ -64,7 +65,7 @@ def start(argv, **kw):
     """Popen in a new process group (Linux), so stop() can end the browser's children too."""
     if sys.platform != "win32":
         kw.setdefault("start_new_session", True)
-    return subprocess.Popen([str(a) for a in argv], **kw)
+    return fkproc.Popen([str(a) for a in argv], **kw)
 
 
 def stop(proc):

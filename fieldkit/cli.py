@@ -685,19 +685,20 @@ def _pipeline_in_screen(a):
     and the last line says the pipeline's exit status, so silence never looks like success."""
     import shutil
     import subprocess
+    from fieldkit import proc as fkproc
     import time
     if not shutil.which("screen"):
         print("fieldkit pipeline: GNU screen is not installed (sudo apt install screen); nothing was started")
         return 2
     name = a.screen
-    if subprocess.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
+    if fkproc.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
         print(f"fieldkit pipeline: a screen session named {name} is already running; nothing was started")
         return 2
     logs = settings.state_root() / "state" / "pipelines"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"{a.name}-{name}-{time.strftime('%y-%m-%d-%H-%M')}.log"
     cmd = screen_command(a, log)
-    subprocess.run(["screen", "-dmS", name, "bash", "-c", cmd], check=True)
+    fkproc.run(["screen", "-dmS", name, "bash", "-c", cmd], check=True)
     print(f"started in screen session {name}\n  log:    {log}\n  watch:  tail -f {log}\n"
           f"  attach: screen -r {name}   (detach again with Ctrl-a d)\n  done when the log's last line is 'pipeline exit N'")
     return 0

@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -140,7 +141,7 @@ def default_fixer(prompt, cwd=None):
 
 def _git(path, *a):
     try:
-        r = subprocess.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=120,
+        r = fkproc.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=120,
                            encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None

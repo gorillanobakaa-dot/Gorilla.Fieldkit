@@ -40,6 +40,7 @@ import importlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -219,8 +220,8 @@ def check_stale_generated(repo):
         # HEAD) refused every commit that carried a correctly regenerated file and passed a file nobody regenerated
         # (proven 2026-11-22 on feat/agent-models-guard: cmdtree stale said FRESH, the commit was refused).
         try:
-            g = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
-            r = subprocess.run(
+            g = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
+            r = fkproc.run(
                 ["git", "diff", "--name-only", "--", rel_path],
                 cwd=str(repo), capture_output=True, text=True, timeout=10
             )
@@ -450,7 +451,7 @@ def main(argv=None):
         ps1_files = [Path(f) for f in a.ps1]
     else:
         try:
-            r = subprocess.run(["git", "ls-files", "*.ps1", "**/*.ps1"],
+            r = fkproc.run(["git", "ls-files", "*.ps1", "**/*.ps1"],
                                cwd=str(repo), capture_output=True, text=True, timeout=10)
             ps1_files = [repo / f.strip() for f in r.stdout.splitlines() if f.strip()]
         except (OSError, subprocess.SubprocessError):          # git missing: fall back to a walk of the tree
@@ -502,7 +503,7 @@ def main(argv=None):
         for f in stale:
             for rel, cmd in GENERATORS.items():
                 if rel in f.get("fix", ""):
-                    r = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True)
+                    r = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True)
                     if r.returncode == 0:
                         fixed += 1
 

@@ -42,6 +42,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -146,7 +147,7 @@ class Ports:
         for h in (settings.state_root() / "state" / "jobs" / t["id"] / "work" / "HANDOFF.md", Path(wt) / "HANDOFF.md"):
             if h.is_file():
                 return f"HANDOFF {h}"
-        r = subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True, timeout=60)
+        r = fkproc.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True, timeout=60)
         return "uncommitted work in the worktree" if r.returncode == 0 and r.stdout.strip() else ""
 
     def handoff_of(self, t):

@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -152,7 +153,7 @@ PY_PLACES = ["/usr/local/bin/python3*", "/Library/Frameworks/Python.framework/Ve
 
 def _run(argv, timeout=20):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)

@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -34,7 +35,7 @@ FIXABLE = ("no-pytest", "env-tests", "platform-index")
 
 
 def _state(repo):
-    top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
+    top = fkproc.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
                          text=True).stdout.strip() or str(repo)
     d = Path(top) / "state" / "ship-commit"
     d.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,7 @@ def _state(repo):
 
 def venv_for(repo):
     """The .venv of this checkout, or of the main checkout when this is a worktree."""
-    common = subprocess.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    common = fkproc.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
                             capture_output=True, text=True).stdout.strip()
     for root in (Path(repo), Path(common).parent if common else None):
         if root and (root / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")).is_dir():

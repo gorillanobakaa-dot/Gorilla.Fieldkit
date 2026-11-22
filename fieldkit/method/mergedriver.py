@@ -26,6 +26,7 @@ exactly as without the driver. Fail closed: the driver never guesses between two
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -164,7 +165,7 @@ def _read(p):
 
 def _line_merge(o, a, b):
     """git's own merge with conflict markers, into a; -> number of conflicts (0 clean, <0 error)."""
-    return subprocess.run(["git", "merge-file", "-L", "ours", "-L", "base", "-L", "theirs", a, o, b],
+    return fkproc.run(["git", "merge-file", "-L", "ours", "-L", "base", "-L", "theirs", a, o, b],
                           capture_output=True).returncode
 
 
@@ -211,7 +212,7 @@ def command(copy, py=None):
 
 
 def _git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    return fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
 def common_dir(repo):

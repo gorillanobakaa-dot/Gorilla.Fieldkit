@@ -48,6 +48,7 @@ import os
 import shutil
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -79,7 +80,7 @@ def windows_only(what):
 # --------------------------------------------------------------------------
 def powershell(script: str) -> str:
     windows_only("PowerShell")
-    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+    r = fkproc.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or f"powershell exit {r.returncode}")
@@ -450,7 +451,7 @@ def cmd_set_icon(a):
         old.setdefault(str(p), r["old"])      # first backup wins: that is the original
         print(f"  {p.name}: icon -> {ico.name}   target unchanged: {r['targetKept']}")
     backup.write_text(json.dumps(old, indent=2), encoding="utf-8")
-    subprocess.run(["ie4uinit.exe", "-show"])
+    fkproc.run(["ie4uinit.exe", "-show"])
     print(f"backup: {backup}")
     print(f'NEXT: to undo: fieldkit icons restore "{backup}"')
     return 0
@@ -465,7 +466,7 @@ def cmd_restore(a):
         esc = lambda s: str(s).replace("'", "''")
         powershell(f"$l=(New-Object -ComObject WScript.Shell).CreateShortcut('{esc(full)}'); $l.IconLocation='{esc(icon)}'; $l.Save()")
         print(f"  {Path(full).name}: icon -> {icon or '(from the target)'}")
-    subprocess.run(["ie4uinit.exe", "-show"])
+    fkproc.run(["ie4uinit.exe", "-show"])
     return 0
 
 
@@ -632,7 +633,7 @@ def _cache_linux(a):
             (backup / t.name).mkdir(exist_ok=True)
             cache.replace(backup / t.name / cache.name)
         if tool and (t / "index.theme").is_file():
-            r = subprocess.run([tool, "-f", "-t", str(t)], capture_output=True, text=True)
+            r = fkproc.run([tool, "-f", "-t", str(t)], capture_output=True, text=True)
             if r.returncode:
                 problems.append(f"{t.name}: {r.stderr.strip()[:120]}")
     for f in c["kde"]:
@@ -684,7 +685,7 @@ def cmd_cache(a):
     _countdown(a.countdown)
     before = powershell("@(Get-Process explorer -ErrorAction SilentlyContinue | ForEach-Object Id) -join ','").strip()
     print(f"stopping Explorer (pid {before or 'none'})")
-    subprocess.run(["taskkill", "/F", "/IM", "explorer.exe"], capture_output=True)
+    fkproc.run(["taskkill", "/F", "/IM", "explorer.exe"], capture_output=True)
     time.sleep(2)
     backup.mkdir(parents=True, exist_ok=True)
     moved, locked = [], []
@@ -701,7 +702,7 @@ def cmd_cache(a):
     powershell("Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
                f"-Arguments @{{CommandLine='{explorer}'}} | Out-Null")
     time.sleep(4)
-    subprocess.run(["ie4uinit.exe", "-show"], capture_output=True)
+    fkproc.run(["ie4uinit.exe", "-show"], capture_output=True)
     after = powershell("@(Get-Process explorer -ErrorAction SilentlyContinue | ForEach-Object Id) -join ','").strip()
     print(f"moved {len(moved)} cache file(s) to {backup}")
     for x in locked:
@@ -745,7 +746,7 @@ def fix_registry_command(cmd=None) -> str:
 
 
 def _reg(*args):
-    r = subprocess.run(["reg", *args], capture_output=True, text=True)
+    r = fkproc.run(["reg", *args], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip())
 
@@ -778,7 +779,7 @@ def cmd_uninstall_fix_button(a):
     lnk = Path(desktop) / f"{FIX_NAME}.lnk"
     if lnk.exists():
         lnk.unlink()
-    subprocess.run(["reg", "delete", FIX_KEY, "/f"], capture_output=True)
+    fkproc.run(["reg", "delete", FIX_KEY, "/f"], capture_output=True)
     print(f"removed the shortcut and the right-click entry (the launcher {FIX_CMD} stays; delete it if you like)")
     return 0
 

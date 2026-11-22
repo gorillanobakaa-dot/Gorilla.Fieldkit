@@ -19,6 +19,7 @@ import argparse
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -121,7 +122,7 @@ def sources(root):
 def binary_version(exe):
     """-> (version or None, why): what the built program answers to --version."""
     try:
-        r = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=30)
+        r = fkproc.run([str(exe), "--version"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
         return None, str(e)
     m = SEMVER.search(r.stdout + r.stderr)

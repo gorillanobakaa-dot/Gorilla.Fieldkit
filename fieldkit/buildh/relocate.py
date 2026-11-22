@@ -15,6 +15,7 @@ file), so the harness decides them; the owner only sees a file that truly has no
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import firefox
@@ -48,7 +49,7 @@ def moved_file(workdir, old_file, hunks):
     top = old_file.split("/")[0] if "/" in old_file else "."
     out = ""
     for scope in ([top, "."] if top != "." else ["."]):
-        r = subprocess.run(args + ["--", scope], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = fkproc.run(args + ["--", scope], capture_output=True, text=True, encoding="utf-8", errors="replace")
         out = r.stdout
         if out.strip():
             break

@@ -3,6 +3,7 @@ import json
 import os
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from collections import Counter
 from pathlib import Path
@@ -23,7 +24,7 @@ def _measure(paths):
     if not exe:
         return {}, "Gorilla Size is unavailable"
     try:
-        proc = subprocess.run(
+        proc = fkproc.run(
             [str(exe), "--json", "--strict", "--depth", "0", "--number", "0", *paths],
             capture_output=True, encoding="utf-8", timeout=SIZE_SECONDS,
         )
@@ -189,7 +190,7 @@ def _ssh_audit(device, previous_host):
         if user:
             argv.extend(["-l", user])
         argv.extend(["--", address, "python3", "-B", "-m", "fieldkit.capture.audit"])
-        proc = subprocess.run(argv, input=json.dumps(previous_host) + "\n", capture_output=True,
+        proc = fkproc.run(argv, input=json.dumps(previous_host) + "\n", capture_output=True,
                               encoding="utf-8", timeout=25)
         if proc.returncode:
             return {"error": (proc.stderr.strip() or f"SSH exited {proc.returncode}")[:256]}

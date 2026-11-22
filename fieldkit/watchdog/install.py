@@ -7,6 +7,7 @@ was to leave Windows alone. This reports that rather than changing anything.
 """
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -31,7 +32,7 @@ WantedBy=default.target
 
 def _run(args, timeout=60):
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
         return 1, str(e)

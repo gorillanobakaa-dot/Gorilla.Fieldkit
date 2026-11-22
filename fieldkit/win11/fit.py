@@ -7,6 +7,7 @@ not changed: the ThinkPad keeps its profiles; another computer gets told what to
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -19,7 +20,7 @@ ORDER = ["light", "moderate", "super"]
 def _ps(command, timeout=60):
     """One read-only PowerShell query -> stdout text, or None when it could not run."""
     try:
-        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        r = fkproc.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
                            capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None

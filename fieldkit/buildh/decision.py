@@ -9,6 +9,7 @@ owner in one typed line; a ONE-WAY door is held, the build gate stays closed, an
 import hashlib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from . import task
 
 
 def _git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace").stdout
+    return fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace").stdout
 
 
 def _journal_near(ts, window=900):
@@ -130,7 +131,7 @@ def apply(brief, option, typed, out_dir):
         raise task.Refused("the file changed again since the explanation was written; run `brief` again")
     out = Path(out_dir) / f"{Path(brief['path']).name}.{time.strftime('%Y%m%d-%H%M%S')}.diff"
     out.write_text(brief["diff"], encoding="utf-8")
-    subprocess.run(["git", "-C", brief["repo"], "checkout", "--", brief["path"]], check=True)
+    fkproc.run(["git", "-C", brief["repo"], "checkout", "--", brief["path"]], check=True)
     _log("reverted", brief, saved=str(out))
     return f"restored; the change is saved in {out} (git apply puts it back)"
 

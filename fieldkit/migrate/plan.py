@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -103,7 +104,7 @@ def journal_events(task_id):
 
 
 def _git(wd, *args):
-    r = subprocess.run(["git", "-C", str(wd), *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+    r = fkproc.run(["git", "-C", str(wd), *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
                        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
     return r.stdout.strip() if r.returncode == 0 else None
 

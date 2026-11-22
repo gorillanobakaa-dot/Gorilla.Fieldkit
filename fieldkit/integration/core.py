@@ -4,6 +4,7 @@ calls (git is the only program it may start, and only for --changed)."""
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -40,7 +41,7 @@ class Repo:
         return sorted(p.relative_to(self.root).as_posix() for p in self.root.glob(pattern) if p.is_file())
 
     def git(self, *args):
-        r = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True,
+        r = fkproc.run(["git", "-C", str(self.root), *args], capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         return r.returncode, r.stdout
 

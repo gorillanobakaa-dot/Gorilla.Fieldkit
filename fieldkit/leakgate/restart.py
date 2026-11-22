@@ -6,6 +6,7 @@ import platform
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -45,7 +46,7 @@ def digest(data):
 
 def windows_network():
     try:
-        raw = subprocess.check_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        raw = fkproc.check_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                                        WINDOWS_NETWORK], stderr=subprocess.PIPE, timeout=45)
         data = json.loads(raw)
         required = {"addresses", "routes", "dns", "dnsLog", "profiles", "firewall", "firewallRules", "proxy", "packets"}

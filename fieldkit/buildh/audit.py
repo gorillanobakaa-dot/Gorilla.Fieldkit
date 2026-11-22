@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -36,7 +37,7 @@ SRC = DOCS / "Gorilla.firefox" / "src"
 
 
 def _git(repo, *args, timeout=1800):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=timeout)
     return r.stdout.strip()
 
@@ -57,7 +58,7 @@ def _markers():
 
 
 def _test_counts():
-    r = subprocess.run(["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=settings.ROOT,
+    r = fkproc.run(["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=settings.ROOT,
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
     last = (r.stdout.strip().splitlines() or [""])[-1]
     get = lambda w: int(m.group(1)) if (m := re.search(rf"(\d+) {w}", last)) else 0
