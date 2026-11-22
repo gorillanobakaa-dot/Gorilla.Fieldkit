@@ -339,3 +339,39 @@ def test_present_drops_a_deleted_test_file(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_a.py").write_text("")
     assert ci.present(["tests/test_a.py", "tests/test_gone.py"], root=tmp_path) == ["tests/test_a.py"]
+
+
+def _file_proof():
+    spec = importlib.util.spec_from_file_location("ci_file_proof_c5", Path(__file__).resolve().parents[1] / ".github" / "ci_file_proof.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _receipt(head, nodes, context):
+    return {"schema": 3, "context": context, "nodes": nodes, "_head": head}
+
+
+def test_c5_repair_skips_passed_nodes_outside_the_new_diff():
+    proof = _file_proof()
+    context = {"image": "x", "python": "3.12", "tree": "t1"}
+    nodes = ["tests/test_a.py::test_one", "tests/test_b.py::test_two"]
+    skip = proof.skippable_nodes(["tests/test_a.py", "tests/test_b.py"], {**context, "tree": "t2"},
+                                 [_receipt("h1", nodes, context)], {"h1": {"tests/test_b.py"}})
+    assert skip == {"tests/test_a.py::test_one"}      # b is covered by the new diff, so it runs again
+
+
+def test_c5_no_reuse_when_the_delta_is_unknown_or_the_environment_differs():
+    proof = _file_proof()
+    context = {"image": "x", "python": "3.12", "tree": "t1"}
+    receipt = _receipt("h1", ["tests/test_a.py::test_one"], context)
+    assert proof.skippable_nodes(["tests/test_a.py"], context, [receipt], {}) == set()          # delta failed
+    assert proof.skippable_nodes(["tests/test_a.py"], {**context, "python": "3.13"}, [receipt], {"h1": set()}) == set()
+    # a receipt that lacks node ids (schema 2) never skips a single test
+    assert proof.skippable_nodes(["tests/test_a.py"], context, [{"schema": 2, "context": context, "_head": "h1"}], {"h1": set()}) == set()
+
+
+def test_c5_summary_quotes_reused_and_ran(tmp_path, capsys):
+    ci.summary(40, 3, 2, str(tmp_path / "proof.json"))
+    assert "ci-tests: reused 40 / ran 3 tests" in capsys.readouterr().out
+    assert json.loads((tmp_path / "reuse.json").read_text()) == {"reused": 40, "ran": 3}

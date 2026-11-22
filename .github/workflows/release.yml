@@ -51,6 +51,9 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: run shard
         shell: bash
+        env:
+          FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
+          FIELDKIT_REUSE_CI: '1'
         run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
 
   shard-ubuntu-latest:
