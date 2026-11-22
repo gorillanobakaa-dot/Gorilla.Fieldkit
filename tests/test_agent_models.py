@@ -104,21 +104,94 @@ def test_audit_flags_explore_off_haiku_after_template(iso):
     assert am.audit(days=1, since=time.time() + 3600)["ignored"] == []
 
 
-def test_hook_silent_when_ok_and_repairs_when_deleted(iso):
+def test_hook_silent_when_ok_and_reports_without_rewriting_when_deleted(iso):
+    """F2.1: SessionStart reports a mismatch and names the repair; it never rewrites ~/.claude."""
     target(iso).write_text(am.TEMPLATE, encoding="utf-8")
     call = {"session_id": "s9", "cwd": str(iso)}
-    assert am.hook_line(call, "UserPromptSubmit") == ""
-    assert am.hook_line(call, "UserPromptSubmit") == ""
+    assert am.hook_line(call, "SessionStart") == ""
     target(iso).unlink()
-    line = am.hook_line(call, "UserPromptSubmit")
-    assert "REPAIRED" in line and "MISSING" in line
-    assert target(iso).is_file()
+    line = am.hook_line(call, "SessionStart")
+    assert "MISSING" in line and "fieldkit agent-models enforce" in line
+    assert not target(iso).exists()                       # reported, NOT repaired by the hook
     assert am.hook_line(call, "PreToolUse") == ""
 
 
-def test_hook_never_raises(iso, monkeypatch):
+def test_user_prompt_submit_does_no_file_io(iso, monkeypatch):
+    """F2.1: the old hook ran check() (file reads and hashes) at every prompt."""
+    touched = []
+    for name in ("check", "enforce", "audit", "state_dir", "_read", "_settings"):
+        monkeypatch.setattr(am, name, lambda *a, _n=name, **k: touched.append(_n) or {})
+    assert am.hook_line({"session_id": "x", "cwd": str(iso)}, "UserPromptSubmit") == ""
+    assert touched == []
+
+
+def test_hook_error_is_one_line_not_silence(iso, monkeypatch):
     monkeypatch.setattr(am, "check", lambda *a, **k: 1 / 0)
-    assert am.hook_line({"session_id": "x"}, "UserPromptSubmit") == ""
+    line = am.hook_line({"session_id": "x"}, "SessionStart")
+    assert line.startswith("AGENT MODELS GUARD ERROR") and "ZeroDivisionError" in line and "\n" not in line
+
+
+def settings_like_quota_fix(home):
+    """What claude-quota-fix Install.ps1 leaves in ~/.claude/settings.json."""
+    (home / "settings.json").write_text(json.dumps({
+        "model": "sonnet", "hooks": {"Stop": [{"hooks": []}]},
+        "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "MAX_THINKING_TOKENS": "8000",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"}}), encoding="utf-8")
+
+
+def test_check_passes_on_a_machine_set_up_by_quota_fix_install(iso):
+    """F2.2: one source of truth; the kit's own env value is not reported as a hazard."""
+    target(iso).write_text(am.TEMPLATE, encoding="utf-8")
+    settings_like_quota_fix(iso)
+    r = am.check()
+    assert r["verdict"] == "OK" and r["reports"] == []
+    assert am.SUBAGENT_MODEL == am.WANT_MODEL == "haiku"
+
+
+def test_another_subagent_model_is_still_reported(iso, monkeypatch):
+    target(iso).write_text(am.TEMPLATE, encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_CODE_SUBAGENT_MODEL", "opus")
+    assert any("CLAUDE_CODE_SUBAGENT_MODEL=opus" in x for x in am.check()["reports"])
+
+
+def test_doctor_reports_then_install_writes_templates_and_merges_settings(iso, tmp_path):
+    (iso / "settings.json").write_text(json.dumps({"hooks": {"Stop": [1]}, "env": {"KEEP": "1",
+                                                   "CLAUDE_CODE_SUBAGENT_MODEL": "opus"}}), encoding="utf-8")
+    code, lines = am.doctor()
+    assert code == 1 and any("MISSING" in x for x in lines) and not target(iso).exists()
+    code, lines = am.doctor(install=True)
+    assert code == 0, lines
+    data = json.loads((iso / "settings.json").read_text(encoding="utf-8"))
+    assert data["hooks"] == {"Stop": [1]} and data["env"]["KEEP"] == "1"           # nothing else clobbered
+    assert data["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku" and data["model"] == "sonnet"
+    assert data["env"]["MAX_THINKING_TOKENS"] == "8000"
+    assert target(iso).read_bytes() == am.TEMPLATE.encode("utf-8")
+    assert "opus" in next((tmp_path / "trash").rglob("settings.json")).read_text(encoding="utf-8")
+    assert am.doctor()[0] == 0 and am.check()["reports"] == []
+
+
+def test_doctor_install_leaves_an_invalid_settings_file_alone(iso):
+    (iso / "settings.json").write_text("{not json", encoding="utf-8")
+    code, lines = am.doctor(install=True)
+    assert code == 3 and any("NOT MERGED" in x for x in lines)
+    assert (iso / "settings.json").read_text(encoding="utf-8") == "{not json"
+
+
+def test_audit_prints_counts_and_a_fail_line_for_explore_not_on_haiku(iso, capsys):
+    """F2.3: model counts per agent; any Explore not on Haiku is a FAIL line, whenever it started."""
+    _run(iso, "Explore", "claude-haiku-5-5", aid="a1")
+    _run(iso, "Explore", "claude-opus-5-5", aid="a2")
+    assert am.main(["audit", "--days", "1"]) == 1
+    out = capsys.readouterr().out
+    assert "claude-haiku-5-5" in out and "FAIL  1 Explore run(s) on claude-opus-5-5, not haiku" in out
+    assert "AUDIT OK" not in out
+
+
+def test_audit_clean_when_every_explore_is_on_haiku(iso, capsys):
+    _run(iso, "Explore", "claude-haiku-5-5", aid="a1")
+    assert am.main(["audit", "--days", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "AUDIT OK" in out and "FAIL" not in out
 
 
 def test_cli_exit_codes(iso, capsys):

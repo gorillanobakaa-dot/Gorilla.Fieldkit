@@ -42,6 +42,15 @@ def main():
         assert run(env, "enforce") == 0 and "model: sonnet" in g.read_text(encoding="utf-8")
         assert run(env, "check") == 0
         assert run(env, "audit", "--days", "1") == 0
+        # F2.3: doctor --install writes the pins and merges settings.json (haiku subagent env), keeping other keys
+        (home / "settings.json").write_text('{"hooks": {"Stop": []}, "env": {"KEEP": "1"}}', encoding="utf-8")
+        f.unlink()
+        assert run(env, "doctor") == 1, "doctor did not see the missing file"
+        assert run(env, "doctor", "--install") == 0 and f.is_file()
+        import json
+        s = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+        assert s["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku" and s["env"]["KEEP"] == "1" and "hooks" in s
+        assert run(env, "doctor") == 0 and run(env, "check") == 0
     print("E2E agent-models PASS")
 
 
