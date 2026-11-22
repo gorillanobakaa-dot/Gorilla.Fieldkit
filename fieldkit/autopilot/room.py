@@ -461,10 +461,9 @@ def _plan(call, event, ctx):
 def _ear(call, event):
     """I-27 (owner, 2026-11-10: "that is not real-time communication"): every session runs its own ear, `relay listen
     --as STATION` as a background command (fieldkit/peers/link_relay.py): it ends when net traffic for the station
-    arrives, which wakes the session even when idle. A session whose ear is not running is told the exact line on
-    every prompt and at most every EAR_NAG_S on tool calls: NOT through only_new, because an ear that ended after a
-    note must be restarted every time (the old one-relay-per-computer line was said once and the relay died with its
-    session, 97 notes unheard). Not in a headless run (it ends too soon to listen), not on the call that starts the
+    arrives, which wakes the session even when idle. A session whose ear is not running is told the exact line ONCE
+    per session (F3.1: through only_new; the 97-unheard-notes history is why the line exists, the repeat cost a line on
+    every prompt). Not in a headless run (it ends too soon to listen), not on the call that starts the
     ear, not when this computer has no household. Never fails the hook."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1" or not call.get("session_id"):
         return ""
@@ -499,12 +498,9 @@ def _ear(call, event):
             full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
                     f"call. Start your ear with the Monitor tool (each line it prints wakes you; --follow never ends): "
                     f"{link_relay.ear_line(me)} ; no Monitor tool: run it as a background Bash command instead")
-        # P37 (hook text on a budget): every injected line stays in the conversation, so the 450-byte line is said in
-        # full once per session; the nag after it is the short one (same frequency, the line is already in context)
-        if only_new(call["session_id"] + ".ear", full):
-            return full
-        from .. import rules_song
-        return rules_song.policy()["hooks"]["ear_short"]
+        # F3.1 (FIX-PLAN, 2026-11-22): the EAR line is said once per session, through only_new; every later prompt
+        # and tool call carries nothing (the short reminder after it still cost a line on every prompt)
+        return full if only_new(call["session_id"] + ".ear", full) else ""
     except Exception:
         return ""
 

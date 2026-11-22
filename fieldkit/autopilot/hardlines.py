@@ -67,6 +67,10 @@ PUBLISH = [
     (r"\bgh\b[^\n]*\b(release|pr|repo|gist|secret|ssh-key|gpg-key|workflow|label|issue)\s+"
      r"(create|edit|delete|upload|merge|close|reopen|comment|run|enable|disable|rename|archive|fork|set|add|remove|transfer)\b",
      "publishing through gh"),
+    # FIX-PLAN F0.4 (finding 3.1, a Qwen run): re-running or cancelling CI, moving or deleting a tag, an admin merge
+    (r"\bgh\b[^\n]*\brun\s+(rerun|cancel|delete)\b", "re-running or cancelling CI through gh"),
+    (r"\bgit\b[^\n]*\btag\b[^\n]*\s(-f|--force|-d|--delete)\b", "moving or deleting a tag"),
+    (r"\bgh\b[^\n]*\bpr\s+merge\b[^\n]*--admin\b", "an admin merge"),
     (r"\bgh\b[^\n]*\bapi\b[^\n]*(-X|--method)\s*(POST|PUT|PATCH|DELETE)\b", "a gh api write"),
     (r"\bgh\b[^\n]*\bapi\b[^\n]*\s(-f|-F|--field|--raw-field|--input)\b", "a gh api write (fields imply POST)"),
     (r"\b(twine|npm|pnpm|yarn|cargo|poetry|flit)\b[^\n]*\bpublish\b|\btwine\b[^\n]*\bupload\b", "publishing a package"),
