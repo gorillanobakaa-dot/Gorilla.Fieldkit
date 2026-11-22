@@ -217,7 +217,28 @@ def _no_real_modelauth(request, monkeypatch):
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_modelauth: run the real claude login check on an injected runner")
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
+    config.addinivalue_line("markers", "serial: touches a machine-wide resource (port, registry, real repo); under xdist "
+                                       "every serial test runs on one worker")
     config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
+
+
+_SERIAL_SIGNS = ("serve_forever", "HTTPServer", "socket.socket", "winreg", ".bind((", "create_server")
+
+
+def pytest_collection_modifyitems(config, items):
+    """C7: under xdist (-n, --dist loadgroup) tests marked `serial`, and modules that open ports or touch the registry,
+    share one xdist group, so they run one after another on one worker. Without xdist this changes nothing."""
+    cache = {}
+    for item in items:
+        path = str(item.fspath)
+        if path not in cache:
+            try:
+                text = open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                text = ""
+            cache[path] = any(sign in text for sign in _SERIAL_SIGNS)
+        if cache[path] or item.get_closest_marker("serial"):
+            item.add_marker(pytest.mark.xdist_group("serial"))
 
 
 # ============================================================================

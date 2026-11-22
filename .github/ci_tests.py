@@ -294,6 +294,8 @@ def main(argv):
         limit = cihang.timeout_for(hang_weights, hang)
         # thread method: the only one that works on Windows; it ends the process, and run_checked re-runs the shard once
         cmd.extend(["-o", "faulthandler_timeout=300", "-vv", f"--timeout={limit}", "--timeout-method=thread"])
+        # C7: the runner has several cores; `serial` tests share one xdist group (tests/conftest.py)
+        cmd.extend(["-n", os.getenv("FIELDKIT_XDIST", "auto"), "--dist", "loadgroup"])
         if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
             cmd.append("-x")
         print(f"ci-tests: per-test timeout {limit}s (hang config {hang})", flush=True)
