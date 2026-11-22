@@ -4,9 +4,15 @@ target_seconds: 180          # one shard should take about this long (owner deci
 setup_seconds:               # job start to first test, per OS (measured by C1; refine when C7 records it)
   windows: 40
   linux: 20
-budget:                      # most runners one run may take per OS (slot budget; C3 splits the account limit)
-  windows: 20
-  linux: 20
+budget:                      # most runners one run may take per OS (must fit slots.projects.fieldkit below)
+  windows: 16
+  linux: 16
+slots:                       # C3: GitHub counts jobs at once across the whole account, so projects share a fixed budget
+  account_limit: 40          # O-CI1 fallback: Pro plan (verify once in Settings > Billing)
+  reserve: 4                 # kept free for small jobs
+  projects:                  # slots per OS; the sum with the reserve must stay within account_limit
+    fieldkit: {windows: 16, linux: 16}
+    rest: {windows: 2, linux: 2}   # Gorilla.Opencode, Firefox, Kernel: on demand (16+16+2+2+4 reserve = 40)
 degraded_file_seconds: 10    # a file with no recorded duration weighs this much when no durations exist yet
 max_spread: 1.25             # check: heaviest shard / lightest shard, once more than one shard runs
 keep_together: []            # files that must not share a shard split with others (reserved for C2 test-level split)
