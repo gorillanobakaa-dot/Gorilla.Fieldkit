@@ -4,7 +4,8 @@ cable listener ran). Windows and Linux. Pure classification (`classify`) over a 
 with fake tables; `snapshot` reads the real one; `sweep` stops only what is PROVABLY spare:
 
   console-hosts   (Windows) conhost/OpenConsole: count; EMPTY = no child, creator gone (or a newer process reusing its
-                  PID), older than leak_min_age_s. Empty ones are stopped.
+                  PID), older than leak_dead_host_min_age_s (60 s; 2026-11-22: at 600 s and a sweep every 5 min a
+                  churn of ~1,200 hosts an hour kept hundreds alive). Empty ones are stopped.
   duplicates      a singleton (leak_singletons: the cable listener, its rescue door, the thermal watch) running more
                   than once. One is kept: the one holding a listening socket, else the oldest; the others, older than
                   leak_dup_min_age_s, are stopped. A launcher and its own child (venv pythonw) count as one.
@@ -29,6 +30,7 @@ DEFAULTS = {
     "leak_zombies_warn": 5,
     "leak_min_age_s": 600,
     "leak_dup_min_age_s": 60,
+    "leak_dead_host_min_age_s": 60,
     "leak_singletons": {
         "link-listener": r"\bfieldkit\b.*\bpeers\s+link\s+serve\b",
         "link-rescue": r"\bfieldkit\b.*\b(link_rescue|link\s+rescue)\b.*\bserve\b",
@@ -57,7 +59,7 @@ def classify(rows, now, cfg=None, listening=()):
     by_pid = {r["pid"]: r for r in rows}
     parents = {r["ppid"] for r in rows}
     hosts = [r for r in rows if (r["name"] or "").lower() in CONSOLE_HOSTS]
-    empty = [r["pid"] for r in hosts if r["pid"] not in parents and now - r["created"] >= c["leak_min_age_s"]
+    empty = [r["pid"] for r in hosts if r["pid"] not in parents and now - r["created"] >= c["leak_dead_host_min_age_s"]
              and ((r["name"] or "").lower() == "openconsole.exe" or _creator_gone(r, by_pid))]
     dups = {}
     listening = set(listening)
@@ -200,3 +202,19 @@ def line(res):
             by[x["class"]] = by.get(x["class"], 0) + 1
         s += "; stopped " + ", ".join(f"{v} {k}" for k, v in sorted(by.items()))
     return s
+
+
+def check_failed(res, cfg=None):
+    """`hog leaks --check`: the enforcing check (2026-11-22). -> reasons (empty = pass): any empty console host, the
+    host count over leak_console_hosts_warn, any spare singleton (pure)."""
+    c = _cfg(cfg)
+    k, out = res["k"], []
+    h = k["console_hosts"]
+    if h["empty"]:
+        out.append(f"{len(h['empty'])} empty console host(s) alive: {h['empty'][:10]}")
+    if h["count"] > c["leak_console_hosts_warn"]:
+        out.append(f"{h['count']} console hosts > leak_console_hosts_warn {c['leak_console_hosts_warn']}")
+    for cls, d in k["duplicates"].items():
+        if d["spare"]:
+            out.append(f"{cls} runs {d['count']} times, spare {d['spare']}")
+    return out
