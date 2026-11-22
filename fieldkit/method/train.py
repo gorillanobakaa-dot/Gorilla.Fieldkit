@@ -631,6 +631,12 @@ def _local_update(repo, branch, base, gens, ci, push):
     return dict(r, head=mp.rev(work, "HEAD"))
 
 
+# 2026-11-22: 60 s chunks re-spawned ci_state (2 gh) + pr (1 gh) + checks (1 gh) every ~90 s per waiting PR; with
+# several sessions waiting that was ~40 console hosts per 2 min. `gh pr checks --watch` polls inside ONE process and
+# exits as soon as the checks finish, so a long chunk costs nothing in latency and cuts the starts ~4x.
+WATCH_CHUNK_S = 300
+
+
 def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
     end = clock() + max_wait_s
     waited = False
@@ -646,7 +652,7 @@ def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
         remaining = end - clock()
         if remaining <= 0:
             return state, why
-        gh.wait_checks(n, timeout=min(60, remaining))
+        gh.wait_checks(n, timeout=min(WATCH_CHUNK_S, remaining))
         waited = True
 
 

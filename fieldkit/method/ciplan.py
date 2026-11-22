@@ -139,9 +139,11 @@ def block(d, selected, new_files=(), now=None):
     return {"run": d.get("run"), "age_days": round(age, 2), "coverage": coverage, "weights": weights}, None
 
 
-DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 20, "linux": 20},
+DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
             "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": [],
-            "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300}}
+            "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300},
+            "slots": {"account_limit": 40, "reserve": 4,
+                      "projects": {"fieldkit": {"windows": 16, "linux": 16}, "rest": {"windows": 2, "linux": 2}}}}
 
 
 def load_config(path=".github/ci.yaml"):
@@ -157,6 +159,26 @@ def load_config(path=".github/ci.yaml"):
                 raise ValueError(f"{path}: unknown key {k!r}")
             cfg[k] = {**cfg[k], **v} if isinstance(cfg[k], dict) else v
     return cfg
+
+
+def slot_problems(cfg, project="fieldkit"):
+    """C3: the account runs at most `account_limit` jobs at once across every repository, so the per-project budgets
+    (both OSes) plus the reserve for small jobs must fit, and this project's runner budget must fit its own slots."""
+    s = cfg.get("slots")
+    if not s:
+        return []
+    problems = []
+    total = int(s["reserve"]) + sum(int(n) for p in s["projects"].values() for n in p.values())
+    if total > int(s["account_limit"]):
+        problems.append(f"slots: budgets {total} (incl. reserve {s['reserve']}) exceed the account limit {s['account_limit']}")
+    mine = s["projects"].get(project)
+    if mine is None:
+        problems.append(f"slots: no budget for project {project!r}")
+    else:
+        for o in ("windows", "linux"):
+            if int(cfg["budget"][o]) > int(mine.get(o, 0)):
+                problems.append(f"slots: runner budget {o} {cfg['budget'][o]} is over this project's {mine.get(o, 0)} slots")
+    return problems
 
 
 def every_test_file(root="."):
@@ -192,7 +214,7 @@ def plan(files, blk, cfg, floor=1, root="."):
 def check(files, pl, cfg):
     """-> list of problems: a dropped or duplicated file, or a spread over max_spread (once N > 1; a heaviest shard
     that is one indivisible file, or a gap within one file's weight, is exempt: nothing finer can be done at file level)."""
-    problems = []
+    problems = slot_problems(cfg)
     want = sorted(set(files))
     for o, p in pl.items():
         got = [f for s in p["shards"] for f in s]

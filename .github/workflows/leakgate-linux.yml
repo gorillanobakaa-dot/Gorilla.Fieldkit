@@ -19,6 +19,10 @@ on:
         default: "gorilla-unleashed_160.0-2_amd64.deb"
 permissions:
   contents: write            # a draft release is invisible below write access; this job changes nothing in the repository
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gate:
     runs-on: ubuntu-24.04

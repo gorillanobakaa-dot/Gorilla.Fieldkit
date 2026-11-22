@@ -15,6 +15,10 @@ permissions:
   pull-requests: read
   checks: read
   actions: read
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: e2e-l15-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e-installer-test-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-installer-test-linux')

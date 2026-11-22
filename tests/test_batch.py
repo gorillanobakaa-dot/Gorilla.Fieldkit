@@ -379,7 +379,7 @@ def test_policy_file_is_data_with_the_generated_files_the_owner_named():
     assert {"fieldkit/desk/platform_index.json", "fieldkit/desk/tools.yaml", "docs/groups.yaml",
             "docs/PLATFORMS.md"} <= set(paths)
     assert pol["branch"].startswith("night/")                           # inside the mandate's push patterns
-    assert pol["shards"]["default"] == 20
+    assert pol["shards"]["default"] == 16
 
 
 def test_body_lists_every_member_and_what_was_left_out():

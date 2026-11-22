@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-26-02-00
+# Version: 1.3.0 · updated 26-11-22-12-00
 """The mandate's trust store and stop list, where the agent's own OS user cannot write.
 
 The Windows review of M1.1 (2026-10-23): the hard lines read COMMAND TEXT, and a model runs code as the same OS user,
@@ -151,7 +151,105 @@ def _windows_powershell_home():
     return Path(directory.value) / "WindowsPowerShell" / "v1.0"
 
 
-def _read_acl(p, run=subprocess.run):
+# FileSystemRights bit -> the .NET name Get-Acl prints (acl_verdict matches WRITE_RIGHTS by name). Generic bits are
+# named so that they count as write too: Get-Acl printed GENERIC_ALL as a bare number, which no name matched.
+_RIGHT_BITS = ((0x00000001, "ReadData"), (0x00000002, "CreateFiles"), (0x00000004, "AppendData"),
+               (0x00000008, "ReadExtendedAttributes"), (0x00000010, "WriteExtendedAttributes"),
+               (0x00000020, "ExecuteFile"), (0x00000040, "DeleteSubdirectoriesAndFiles"),
+               (0x00000080, "ReadAttributes"), (0x00000100, "WriteAttributes"), (0x00010000, "Delete"),
+               (0x00020000, "ReadPermissions"), (0x00040000, "ChangePermissions"), (0x00080000, "TakeOwnership"),
+               (0x00100000, "Synchronize"), (0x02000000, "MaximumAllowed, FullControl"),
+               (0x10000000, "GenericAll, FullControl"), (0x20000000, "GenericExecute"),
+               (0x40000000, "GenericWrite"), (0x80000000, "GenericRead"))
+_ACE_KIND = {0: "Allow", 1: "Deny", 9: "Allow", 10: "Deny"}   # ACCESS_{ALLOWED,DENIED}[_CALLBACK]_ACE_TYPE
+
+
+def rights_names(mask):
+    names = [n for bit, n in _RIGHT_BITS if mask & bit]
+    if mask & 0x001F01FF == 0x001F01FF:
+        names.insert(0, "FullControl")
+    return ", ".join(names) or str(mask)
+
+
+def _read_acl(p, run=None):
+    """The owner and DACL of p, read in this process with the Win32 security API (advapi32), in the shape Get-Acl gave:
+    {"owner": SID, "access": ["IDENTITY|RIGHTS|Allow or Deny", ...]}, each ACE once by account name and once by SID.
+    2026-11-22: the PowerShell reader below started one powershell.exe + one conhost per path, 12 per prompt from the
+    room hook in every session (3.5 s each prompt, hundreds of console hosts an hour). Fails closed: any API error, a
+    NULL DACL (everyone may write) or an ACE type it does not know raises or reads as write for Everyone."""
+    if run is not None:                                   # a test of the old reader's failure handling
+        return _read_acl_powershell(p, run=run)
+    import ctypes
+    from ctypes import wintypes as W
+
+    adv, k32 = ctypes.WinDLL("advapi32", use_last_error=True), ctypes.WinDLL("kernel32", use_last_error=True)
+    adv.GetNamedSecurityInfoW.argtypes = [W.LPCWSTR, ctypes.c_int, W.DWORD, ctypes.POINTER(ctypes.c_void_p),
+                                          ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p),
+                                          ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]
+    adv.GetNamedSecurityInfoW.restype = W.DWORD
+    adv.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(W.LPWSTR)]
+    adv.ConvertSidToStringSidW.restype = W.BOOL
+    adv.LookupAccountSidW.argtypes = [W.LPCWSTR, ctypes.c_void_p, W.LPWSTR, ctypes.POINTER(W.DWORD), W.LPWSTR,
+                                      ctypes.POINTER(W.DWORD), ctypes.POINTER(ctypes.c_int)]
+    adv.LookupAccountSidW.restype = W.BOOL
+    adv.GetAce.argtypes = [ctypes.c_void_p, W.DWORD, ctypes.POINTER(ctypes.c_void_p)]
+    adv.GetAce.restype = W.BOOL
+    adv.IsValidSid.argtypes = [ctypes.c_void_p]
+    adv.IsValidSid.restype = W.BOOL
+    k32.LocalFree.argtypes = [ctypes.c_void_p]
+    k32.LocalFree.restype = ctypes.c_void_p
+
+    def sid_text(sid):
+        if not sid or not adv.IsValidSid(sid):
+            raise OSError("invalid SID in the security descriptor")
+        out = W.LPWSTR()
+        if not adv.ConvertSidToStringSidW(sid, ctypes.byref(out)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return out.value
+        finally:
+            k32.LocalFree(out)
+
+    def account(sid):
+        name, dom = ctypes.create_unicode_buffer(256), ctypes.create_unicode_buffer(256)
+        n, d, use = W.DWORD(256), W.DWORD(256), ctypes.c_int()
+        if not adv.LookupAccountSidW(None, sid, name, ctypes.byref(n), dom, ctypes.byref(d), ctypes.byref(use)):
+            return None                                   # an orphaned SID: the SID entry still judges it
+        return f"{dom.value}\\{name.value}" if dom.value else name.value
+
+    owner, dacl, sd = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
+    # SE_FILE_OBJECT = 1; OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION = 1 | 4
+    err = adv.GetNamedSecurityInfoW(str(p), 1, 1 | 4, ctypes.byref(owner), None, ctypes.byref(dacl), None,
+                                    ctypes.byref(sd))
+    if err:
+        raise ctypes.WinError(err)
+    try:
+        acl = {"owner": sid_text(owner), "access": []}
+        if not dacl.value:                                # NULL DACL: full access for everyone
+            acl["access"].append("S-1-1-0|FullControl|Allow")
+            return acl
+        count = ctypes.c_uint16.from_address(dacl.value + 4).value      # ACL: rev, sbz1, size(2), AceCount(2)
+        for i in range(count):
+            ace = ctypes.c_void_p()
+            if not adv.GetAce(dacl, i, ctypes.byref(ace)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            kind = _ACE_KIND.get(ctypes.c_ubyte.from_address(ace.value).value)
+            if kind is None:
+                raise OSError(f"ACE type {ctypes.c_ubyte.from_address(ace.value).value} not understood")
+            mask = ctypes.c_uint32.from_address(ace.value + 4).value
+            sid = ctypes.c_void_p(ace.value + 8)
+            rights = rights_names(mask)
+            for ident in (account(sid), sid_text(sid)):
+                if ident:
+                    acl["access"].append(f"{ident}|{rights}|{kind}")
+        return acl
+    finally:
+        k32.LocalFree(sd)
+
+
+def _read_acl_powershell(p, run=subprocess.run):
+    """The first reader (Get-Acl in Windows PowerShell 5). Kept for the parity test on the Windows CI only: it starts
+    a powershell.exe and a console host per call, so nothing on a hook path may use it."""
     shell = _windows_powershell_home()
     ps = ("$ErrorActionPreference = 'Stop'; "
           "$a = Microsoft.PowerShell.Security\\Get-Acl -LiteralPath $env:FK_PATH; "
