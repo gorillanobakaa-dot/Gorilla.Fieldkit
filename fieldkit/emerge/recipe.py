@@ -281,10 +281,18 @@ class Recipe:
         # the template text of each stage, before any machine path is filled in: the portable part of the key
         self.templates = {s["id"]: json.dumps(s, sort_keys=True) for s in raw_stages}
         self.toolenv = toolenv.resolve(spec.get("toolenv"))     # PATH / TMPDIR this machine needs (Linux, macOS)
-        if self.toolenv:
-            for s in raw_stages:
-                if "cmd" in (s.get("run") or {}):
-                    s["run"] = {**s["run"], "env": {**self.toolenv, **(s["run"].get("env") or {})}}
+        # Compiler caches (ccache/sccache) apply to every non-repro command stage automatically; repro stages stay
+        # clean-cache so they still prove reproducibility.
+        merged_base_env = {**os.environ, **self.toolenv} if self.toolenv else dict(os.environ)
+        self.cache_env = toolenv.cache_env(environ=merged_base_env)
+        for s in raw_stages:
+            if "cmd" not in (s.get("run") or {}):
+                continue
+            stage_base = dict(self.toolenv)
+            if s.get("id") != "repro" and self.cache_env:
+                stage_base = {**stage_base, **self.cache_env}
+            if stage_base:
+                s["run"] = {**s["run"], "env": {**stage_base, **(s["run"].get("env") or {})}}
         self.pipe = Pipeline({"name": self.name, "vars": vars_, "stages": raw_stages}, source=self.source,
                              state_dir=self.state_dir / "pipeline", overrides=self.overrides, strict=strict)
         self.vars = self.pipe.vars

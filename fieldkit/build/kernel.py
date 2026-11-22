@@ -452,12 +452,21 @@ def build_env(src, kcflags="-O3 -pipe", now=None):
     return env
 
 
+def _ccache_make_args(which=None):
+    """Return kernel `make` compiler-cache overrides (`CC`/`HOSTCC`) when ccache or sccache is installed."""
+    w = which or shutil.which
+    for tool in ("ccache", "sccache"):
+        if w(tool):
+            return [f"CC={tool} gcc", f"HOSTCC={tool} gcc"]
+    return []
+
+
 def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
     src, version = Path(_v(ctx, "src")), _v(ctx, "version")
     name = localversion(version, list(tags))
     (src / BUILD_STAMP).unlink(missing_ok=True)                  # a new build gets a new stamp
     cmd = ["make", "-C", str(src), f"LOCALVERSION={name['localversion']}", f"-j{jobs or ctx.host['cpus']}",
-           "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
+           *_ccache_make_args(), "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
     r = ctx.runner.run(cmd, env=build_env(src, kcflags), name="bindeb-pkg")
     return {"ok": r.ok, "uname": name["uname"], "log": r.log, "detail": f"uname {name['uname']} ({name['length']}/64)"}
 
@@ -478,7 +487,7 @@ def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
     if not release.startswith(version):
         return {"ok": False, "detail": f"the built tree is {release}, not {version}"}
     cmd = ["make", "-C", str(src), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
-           "binrpm-pkg"]
+           *_ccache_make_args(), "binrpm-pkg"]
     env = build_env(src, kcflags)
     # binrpm-pkg re-links with KBUILD_BUILD_VERSION = .version + 1 (scripts/build-version), overriding the build's
     # own number: set the counter so the RPM's kernel carries the .deb's number (2026-10-10: #1 vs #3)
