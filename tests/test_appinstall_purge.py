@@ -240,3 +240,30 @@ def test_windows_update_goes_into_the_existing_folder_with_a_space(tmp_path: Pat
     other = dict(row, path=str(existing_dir / "other.exe"))
     (existing_dir / "other.exe").write_bytes(b"x")
     assert appinstall.find_existing_windows("Gorilla OpenCode", "gorilla-opencode.exe", finder=lambda q: [other]) is None
+
+
+def test_purge_waits_for_exit_and_kills_only_survivors():
+    """F4.2: the old code sent SIGKILL 0.3 s after SIGTERM whatever the process was doing."""
+    import signal
+    sigkill = getattr(signal, "SIGKILL", 9)
+    now = {"t": 0.0}
+    alive = {1: 3.0, 2: 1e9}          # pid -> time it exits after SIGTERM (2 never does)
+    sent = []
+
+    def kill(pid, sig):
+        sent.append((pid, sig))
+        if sig == 0 and now["t"] >= alive[pid]:
+            raise ProcessLookupError()
+        if sig == sigkill:
+            alive[pid] = 0
+
+    def sleep(s):
+        now["t"] += s
+    ops, errs = [], []
+    procs = [{"pid": 1, "exe": "/opt/a/app"}, {"pid": 2, "exe": "/opt/a/stuck"}]
+    appinstall.stop_processes(procs, ops, errs, grace=10, kill=kill, sleep=sleep, clock=lambda: now["t"])
+    assert not errs
+    kinds = [(o["op"], o["pid"]) for o in ops]
+    assert ("exited", 1) in kinds and ("kill", 2) in kinds and ("kill", 1) not in kinds
+    assert now["t"] >= 10                      # waited the whole grace period for the stuck one
+    assert (1, sigkill) not in sent     # the process that exited in time was never killed
