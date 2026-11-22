@@ -55,8 +55,7 @@ USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a scrip
 `fieldkit size`. No new tool unless needed. A script you write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it.
 
-SUB-AGENTS. Economy default: zero sub-agents; search via pfind or `fieldkit size find`, not Grep, Glob,
-Explore.
+SUB-AGENTS. Economy: zero; search via pfind or `fieldkit size find`, never Grep/Glob/Explore (Haiku, owner opt-in).
 
 DONE. Follow the DONE PROTOCOL (fieldkit-lifecycle block). Briefs, sitreps, audits and
 hand-overs stay in state/ (git-ignored); a document a plan row names goes to git in that row's PR, after

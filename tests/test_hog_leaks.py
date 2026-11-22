@@ -154,3 +154,27 @@ def test_awake_holder_is_created_detached_with_no_window():
     ps = seen[1][0][-1]
     assert "ProcessStartupInformation=$si" in ps and "CreateFlags=[uint32]134217736" in ps
     assert all(kw.get("creationflags") == 0x08000000 for _a, kw in seen)
+
+
+def test_a_dead_console_host_is_reaped_after_a_minute_not_ten():
+    """2026-11-22: at 600 s a churn of ~1,200 hosts an hour kept hundreds alive between sweeps."""
+    rows = [row(1, 0, "System", age=99999), row(10, 999, "conhost.exe", age=90),     # creator gone, 90 s: empty
+            row(11, 999, "conhost.exe", age=59),                                       # under a minute: not yet
+            row(12, 1, "conhost.exe", age=90)]                                         # creator alive: never
+    assert leaks.classify(rows, NOW)["console_hosts"]["empty"] == [10]
+    assert leaks.DEFAULTS["leak_dead_host_min_age_s"] <= 60
+
+
+def test_leaks_check_fails_on_an_empty_host_too_many_hosts_or_a_spare_singleton():
+    clean = [row(1, 0, "System", age=99999), row(11, 1, "conhost.exe")]
+    assert leaks.check_failed({"k": leaks.classify(clean, NOW)}) == []
+    assert leaks.check_failed({"k": leaks.classify(_snap()[0], NOW, listening={21})})          # host 10 + listener 20
+    many = [row(1, 0, "System", age=99999)] + [row(100 + i, 1, "conhost.exe") for i in range(41)]
+    bad = leaks.check_failed({"k": leaks.classify(many, NOW)})
+    assert len(bad) == 1 and "41 console hosts" in bad[0]
+
+
+def test_hog_leaks_check_exits_one_on_a_leak(monkeypatch, capsys):
+    monkeypatch.setattr(leaks, "sweep", lambda act=False, cfg=None, **k: _res())
+    assert hog.main(["leaks", "--check"]) == 1
+    assert "leaks check: FAIL" in capsys.readouterr().out

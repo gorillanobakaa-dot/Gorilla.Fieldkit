@@ -7,10 +7,11 @@ from fieldkit.method import covmap
 
 
 def test_context_names_become_node_ids():
-    assert covmap.parse_context("tests.test_x.test_y") == "tests/test_x.py::test_y"
-    assert covmap.parse_context("tests.test_x.TestA.test_y") == "tests/test_x.py::TestA::test_y"
+    assert covmap.parse_context("tests/test_x.py::test_y|run") == "tests/test_x.py::test_y"
+    assert covmap.parse_context("tests/test_x.py::TestA::test_y[a-1]|setup") == "tests/test_x.py::TestA::test_y[a-1]"
     assert covmap.parse_context("") == ""
     assert covmap.parse_context("helpers.setup") == ""
+    assert covmap.parse_context(r"tests\test_x.py::test_y|run") == "tests/test_x.py::test_y"
 
 
 def test_ranges_join_neighbours_only():
@@ -19,8 +20,8 @@ def test_ranges_join_neighbours_only():
 
 def test_from_lines_drops_files_outside_the_repo_and_lines_outside_a_test(tmp_path):
     inside, outside = tmp_path / "pkg" / "a.py", tmp_path.parent / "elsewhere.py"
-    cm = covmap.from_lines({str(inside): {1: ["tests.test_a.test_one"], 2: ["tests.test_a.test_one", ""]},
-                            str(outside): {1: ["tests.test_a.test_one"]}}, tmp_path)
+    cm = covmap.from_lines({str(inside): {1: ["tests/test_a.py::test_one|run"], 2: ["tests/test_a.py::test_one|run", ""]},
+                            str(outside): {1: ["tests/test_a.py::test_one|run"]}}, tmp_path)
     assert cm["tests"] == {"tests/test_a.py::test_one": {"pkg/a.py": [[1, 2]]}}
 
 
@@ -53,7 +54,7 @@ def test_build_reads_a_real_coverage_database(tmp_path):
     db = tmp_path / ".coverage"
     data = coverage.CoverageData(basename=str(db))
     data.add_lines({str(src): [1]})
-    data.set_context("tests.test_a.test_one")
+    data.set_context("tests/test_a.py::test_one|run")
     data.add_lines({str(src): [1]})
     data.write()
     cm = covmap.build(db, tmp_path)

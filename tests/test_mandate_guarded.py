@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-18-38
+# Version: 1.1.0 · updated 26-11-22-12-00
 """The mandate's guarded store (fieldkit/mandate/guarded.py): trust and stops live where the agent's OS user cannot
 write (M1.2, the Windows review of M1.1: a regex on command text cannot stop a write by indirection; the OS can)."""
 import os
@@ -141,3 +141,30 @@ def test_the_elevate_kit_is_found_where_it_was_adopted(tmp_path):
     adopted.write_text("")
     assert G._elevate_kit([adopted, old]) == adopted
     assert any("local" in str(k) and "kits" in str(k) for k in G._elevate_kits())
+
+
+def test_generic_rights_count_as_write():
+    # Get-Acl printed GENERIC_ALL / GENERIC_WRITE as bare numbers, which no write name matched
+    for mask in (0x10000000, 0x40000000, 0x001F01FF, 0x2, 0x4, 0x40000):
+        acl = dict(GOOD, access=GOOD["access"] + [f"S-1-5-32-545|{G.rights_names(mask)}|Allow"])
+        assert not G.acl_verdict(acl, None)[0], hex(mask)
+    acl = dict(GOOD, access=GOOD["access"] + [f"S-1-5-32-545|{G.rights_names(0x001200A9)}|Allow"])   # ReadAndExecute
+    assert G.acl_verdict(acl, None)[0]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="uses the native Windows ACL reader")
+def test_the_native_acl_reader_starts_no_process(tmp_path, monkeypatch):
+    # 2026-11-22: one powershell.exe + one conhost per path, 12 per prompt in every session; the reader is in-process now
+    def no(*a, **k):
+        raise AssertionError("the ACL reader started a process")
+    monkeypatch.setattr(subprocess, "run", no)
+    monkeypatch.setattr(subprocess, "Popen", no)
+    acl = G._read_acl(tmp_path)
+    assert acl["owner"].startswith("S-1-") and acl["access"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="compares the native reader with Get-Acl")
+def test_the_native_reader_judges_like_get_acl(tmp_path):
+    me = f"{os.environ.get('USERDOMAIN', '')}\\{os.environ.get('USERNAME', '')}".strip("\\")
+    for q in [tmp_path] + ([G.root()] if G.root().exists() else []):
+        assert G.acl_verdict(G._read_acl(q), me)[0] is G.acl_verdict(G._read_acl_powershell(q), me)[0], q

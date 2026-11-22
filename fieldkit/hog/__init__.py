@@ -385,6 +385,9 @@ def main(argv=None, prog="fieldkit hog"):
     lk = sub.add_parser("leaks", help="process leaks: console hosts, duplicate singletons, orphans, zombies")
     lk.add_argument("--act", action="store_true", help="stop the empty console hosts and the spare singletons")
     lk.add_argument("--json", action="store_true")
+    lk.add_argument("--check", action="store_true",
+                    help="exit 1 on any empty console host, hosts over the warn line or a spare singleton "
+                         "(with --act: after the stop)")
     sub.add_parser("preflight")
     r = sub.add_parser("register")
     r.add_argument("pid", type=int)
@@ -443,6 +446,14 @@ def main(argv=None, prog="fieldkit hog"):
             print("NEXT: " + ("fieldkit hog leaks --act stops the empty console hosts and the spare singletons"
                               if stoppable and not ns.act else "orphans and zombies are named, never stopped: "
                               "find their starter" if res["findings"] else "nothing to do"))
+        if getattr(ns, "check", False):
+            snap = res
+            if ns.act and res["stopped"]:
+                snap = leaks.sweep(act=False, cfg=config())
+            bad = leaks.check_failed(snap, config())
+            print("leaks check: " + ("FAIL - " + "; ".join(bad) if bad else "PASS"))
+            if bad:
+                return 1
         return 3 if res["findings"] else 0
     if cmd == "preflight":
         from ..core import preflight

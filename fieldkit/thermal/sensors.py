@@ -10,7 +10,7 @@ Sources, best first:
                   the Status edit control is read with WM_GETTEXT, no elevation, live every call.
   tpfan_csv     - TPFanControl_csv.txt when Log2csv=1 in its ini (admin to enable).
   hwinfo        - HWiNFO's "reporting to Gadget" values in the registry (CPU Package), on any laptop running it.
-  thermalzone   - the 'Thermal Zone Information' performance counter (chassis zones).
+  thermalzone   - the 'Thermal Zone Information' performance counter (chassis zones), via pdh.dll.
   msacpi        - MSAcpi_ThermalZoneTemperature (static on this ThinkPad).
 
 Linux (2026-10-20): the die sensor the kernel already exposes, no PowerShell anywhere. `providers()` gives each
@@ -24,6 +24,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from . import pdh
 
 STATUS = re.compile(r"Switch:\s*(-?\d+)\s*.?\s*C\s*\(([^)]*)\)")
 DUMMY_SENSOR = 140.0          # the EC publishes 148 on an unpopulated register; TPFanControl ignores it, so do we
@@ -143,13 +145,11 @@ def _run_ps(cmd, timeout):
                        encoding="utf-8", errors="replace", timeout=timeout)
 
 
-def thermalzone():
-    try:
-        return float(_ps("(Get-Counter '\\Thermal Zone Information(*)\\Temperature' -ErrorAction Stop).CounterSamples | "
-                         "ForEach-Object { $_.CookedValue - 273.15 } | Measure-Object -Maximum | "
-                         "ForEach-Object { [math]::Round($_.Maximum,2) }"))
-    except ValueError:
-        return None
+def thermalzone(read=None):
+    """In-process through pdh.dll (2026-11-22): the PowerShell Get-Counter it replaced started ~600 console hosts an
+    hour from `thermal watch --forever`. No PowerShell fallback: a failed read is a missing reading."""
+    vals = (read or pdh.values)("\\Thermal Zone Information(*)\\Temperature")
+    return round(max(vals) - 273.15, 2) if vals else None
 
 
 def msacpi():
@@ -266,12 +266,10 @@ def providers(platform=None):
     return ()
 
 
-def perf_percent():
-    try:
-        return float(_ps("(Get-Counter '\\Processor Information(_Total)\\% Processor Performance' -ErrorAction Stop)"
-                         ".CounterSamples[0].CookedValue"))
-    except ValueError:
-        return None
+def perf_percent(read=None):
+    """In-process through pdh.dll, two samples 1 s apart as Get-Counter takes them; no PowerShell, no console host."""
+    vals = (read or pdh.values)("\\Processor Information(_Total)\\% Processor Performance", rate=True)
+    return float(vals[0]) if vals else None
 
 
 def _load(n):
