@@ -25,3 +25,13 @@
   - '        weights[o] = {f: round(files.get(f, guess), 3) for f in selected}'
   - '        weights[o] = {f: round(files.get(f, 0.0), 3) for f in selected}'
   why: an unknown test must weigh the p90
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        n = math.ceil(work / per) if files else 0'
+  - '        n = int(cfg["budget"][o]) if files else 0'
+  why: N must follow the work, not always take the whole budget
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        if sorted(set(got)) != want:'
+  - '        if False:'
+  why: a dropped test must fail the plan check

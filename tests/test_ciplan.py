@@ -129,3 +129,44 @@ def test_the_workflow_feeds_and_reads_the_durations_artifact():
     assert "durations merge" in text and '"ci-durations"' in text and "retention-days" in text
     for osn in ("windows-latest", "ubuntu-latest"):
         assert "junit-" in json.dumps(wf["jobs"][f"shard-{osn}"])
+
+
+def _blk(files, weight):
+    return {"run": "1", "coverage": {o: 1.0 for o in ciplan.OSES}, "weights": {o: {f: weight(f) for f in files} for o in ciplan.OSES}}
+
+
+def test_a_five_file_pr_starts_at_most_two_runners_per_os():
+    cfg = ciplan.load_config(str(ROOT / ".github" / "ci.yaml"))
+    files = [f"tests/test_{i}.py" for i in range(5)]
+    pl = ciplan.plan(files, _blk(files, lambda f: 30.0), cfg)
+    assert all(1 <= p["n"] <= 2 for p in pl.values()), ciplan.describe(pl)
+    assert ciplan.check(files, pl, cfg) == []
+
+
+def test_a_255_file_pr_fills_the_budget_with_a_spread_within_limit():
+    cfg = ciplan.load_config(str(ROOT / ".github" / "ci.yaml"))
+    files = [f"tests/test_{i}.py" for i in range(255)]
+    pl = ciplan.plan(files, _blk(files, lambda f: 5.0 + (int(f[11:-3]) * 7) % 40), cfg)
+    for o, p in pl.items():
+        assert p["n"] == cfg["budget"][o], ciplan.describe(pl)
+        assert p["heaviest"] / p["lightest"] <= 1.25
+    assert ciplan.check(files, pl, cfg) == []
+
+
+def test_nothing_selected_means_no_runner_and_the_check_catches_a_dropped_file():
+    cfg = ciplan.load_config(str(ROOT / ".github" / "ci.yaml"))
+    assert all(p["n"] == 0 for p in ciplan.plan([], None, cfg).values())
+    files = [f"tests/test_{i}.py" for i in range(4)]
+    pl = ciplan.plan(files, _blk(files, lambda f: 30.0), cfg)
+    pl["linux"]["shards"][0] = pl["linux"]["shards"][0][1:]          # drop one file from a shard
+    assert any("do not cover" in x for x in ciplan.check(files, pl, cfg))
+
+
+def test_the_workflow_sizes_its_shard_matrix_from_the_plan():
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8"))
+    for key, osn in (("windows", "windows-latest"), ("ubuntu", "ubuntu-latest")):
+        job = wf["jobs"][f"shard-{osn}"]
+        assert f"matrix_{key}" in job["strategy"]["matrix"]["shard"] and "fromJSON" in job["strategy"]["matrix"]["shard"]
+        assert f"n_{key} != '0'" in job["if"]
+        assert f"outputs.n_{key}" in "".join(s.get("run", "") for s in job["steps"])
+    assert any("ci plan" in s.get("run", "") and "--check" in s.get("run", "") for s in wf["jobs"]["selection"]["steps"])

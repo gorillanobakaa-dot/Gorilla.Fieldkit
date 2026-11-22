@@ -28,4 +28,12 @@ with tempfile.TemporaryDirectory() as tmp:
     sel.write_text(json.dumps({"durations": block}), encoding="utf-8")
     line = run("plan", "--explain", "--selection", str(sel))
     assert "durations: run 1, coverage 100%" in line, line
+    (tmp / "tests").mkdir()
+    for i in range(3):
+        (tmp / "tests" / f"test_{i}.py").write_text("", encoding="utf-8")
+    sel.write_text(json.dumps({"durations": block, "tests": [f"tests/test_{i}.py" for i in range(3)]}), encoding="utf-8")
+    plan_out = subprocess.run([sys.executable, "-m", "fieldkit", "ci", "plan", "--selection", str(sel), "--check"],
+                              capture_output=True, text=True, cwd=tmp, env={**__import__("os").environ, "PYTHONPATH": str(Path.cwd())})
+    print(plan_out.stdout, plan_out.stderr)
+    assert plan_out.returncode == 0 and "plan check ok" in plan_out.stdout, plan_out.returncode
 print("ci e2e ok")

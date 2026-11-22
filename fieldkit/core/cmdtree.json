@@ -1050,8 +1050,12 @@
     "plan": {
      "c": [],
      "f": {
+      "--check": 0,
+      "--config": 1,
       "--explain": 0,
+      "--github-output": 0,
       "--help": 0,
+      "--min": 1,
       "--selection": 1,
       "-h": 0
      },

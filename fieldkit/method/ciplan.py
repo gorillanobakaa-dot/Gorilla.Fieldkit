@@ -15,6 +15,7 @@ import argparse
 import datetime
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -138,6 +139,79 @@ def block(d, selected, new_files=(), now=None):
     return {"run": d.get("run"), "age_days": round(age, 2), "coverage": coverage, "weights": weights}, None
 
 
+DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 20, "linux": 20},
+            "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": []}
+
+
+def load_config(path=".github/ci.yaml"):
+    """-> the plan config: .github/ci.yaml over DEFAULTS (a missing file is the defaults; a bad value fails loud)."""
+    cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in DEFAULTS.items()}
+    p = Path(path)
+    if p.exists():
+        import yaml
+
+        got = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        for k, v in got.items():
+            if k not in DEFAULTS:
+                raise ValueError(f"{path}: unknown key {k!r}")
+            cfg[k] = {**cfg[k], **v} if isinstance(cfg[k], dict) else v
+    return cfg
+
+
+def every_test_file(root="."):
+    return sorted(p.relative_to(root).as_posix() for p in Path(root, "tests").rglob("test_*.py"))
+
+
+def plan(files, blk, cfg, floor=1, root="."):
+    """-> {os: {"n", "work", "heaviest", "lightest", "shards", "single"}}: N follows the work, the split is the one
+    `ci_tests.py --shard I/N` makes (same weights, same balance), so the plan is what the shards will run.
+    N = clamp(ceil(work / max(target - setup, 30)), floor, min(budget, files)); no files = 0. Floor 1 keeps shard 1,
+    which carries the PR-level gates, alive on every run that has files."""
+    from fieldkit.method import shard as sh
+
+    files = sorted(set(files))
+    out = {}
+    for o in OSES:
+        w = ((blk or {}).get("weights") or {}).get(o) or sh.load()
+        unit = float(cfg["degraded_file_seconds"])
+        work = sum(float(w.get(f, unit)) for f in files)
+        per = max(float(cfg["target_seconds"]) - float(cfg["setup_seconds"][o]), 30.0)
+        n = math.ceil(work / per) if files else 0
+        n = min(max(n, floor), max(int(cfg["budget"][o]), floor), max(len(files), floor)) if files else 0
+        shards = sh.balance(files, w, n) if n else []
+        loads = [sum(float(w.get(f, unit)) for f in s) for s in shards]
+        top = loads.index(max(loads)) if loads else 0
+        out[o] = {"n": n, "work": round(work, 1), "heaviest": round(max(loads), 1) if loads else 0.0,
+                  "lightest": round(min(loads), 1) if loads else 0.0, "shards": shards,
+                  "single": bool(shards) and len(shards[top]) == 1}
+    return out
+
+
+def check(files, pl, cfg):
+    """-> list of problems: a dropped or duplicated file, or a spread over max_spread (once N > 1; a heaviest shard
+    that is one indivisible file is exempt: nothing finer can be done at file level)."""
+    problems = []
+    want = sorted(set(files))
+    for o, p in pl.items():
+        got = [f for s in p["shards"] for f in s]
+        if len(got) != len(set(got)):
+            problems.append(f"{o}: a file is in two shards: {sorted({f for f in got if got.count(f) > 1})[:3]}")
+        if sorted(set(got)) != want:
+            problems.append(f"{o}: shards do not cover the selection (missing {sorted(set(want) - set(got))[:3]}, "
+                            f"extra {sorted(set(got) - set(want))[:3]})")
+        if p["n"] > 1 and p["lightest"] > 0 and not p["single"]:
+            ratio = p["heaviest"] / p["lightest"]
+            if ratio > float(cfg["max_spread"]):
+                problems.append(f"{o}: heaviest shard is {ratio:.2f}x the lightest (limit {cfg['max_spread']})")
+    return problems
+
+
+def describe(pl):
+    return "\n".join(f"ci: {o}: N={p['n']} work={p['work']}s heaviest={p['heaviest']}s lightest={p['lightest']}s"
+                     for o, p in pl.items())
+
+
+
 def explain(b):
     if not b:
         return "durations: none recorded in this selection"
@@ -176,16 +250,42 @@ def main(argv=None):
     dur.add_argument("--run", default=None)
     dur.add_argument("--complete", action="store_true")
     dur.add_argument("--repo", default=None)
-    plan = sub.add_parser("plan")
-    plan.add_argument("--explain", action="store_true")
-    plan.add_argument("--selection")
+    pp = sub.add_parser("plan")
+    pp.add_argument("--explain", action="store_true")
+    pp.add_argument("--selection")
+    pp.add_argument("--config", default=".github/ci.yaml")
+    pp.add_argument("--check", action="store_true")
+    pp.add_argument("--min", type=int, default=1, dest="floor")
+    pp.add_argument("--github-output", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "plan":
         if not a.selection:
-            print("ci plan --explain needs --selection FILE (the selection JSON CI wrote)")
+            print("ci plan needs --selection FILE (the selection JSON CI wrote)")
             return 2
         data = json.loads(Path(a.selection).read_text(encoding="utf-8"))
-        print("ci:", explain(data.get("durations")))
+        if a.explain:
+            print("ci:", explain(data.get("durations")))
+        files = data.get("tests")
+        if files is None:
+            files = every_test_file()
+        files = [f for f in files if Path(f).exists()]
+        cfg = load_config(a.config)
+        pl = plan(files, data.get("durations"), cfg, floor=a.floor)
+        print(describe(pl))
+        if a.github_output:
+            lines = []
+            for o, key in (("windows", "windows"), ("linux", "ubuntu")):
+                lines.append(f"n_{key}={pl[o]['n']}")
+                lines.append(f"matrix_{key}={json.dumps(list(range(1, max(pl[o]['n'], 1) + 1)))}")   # [1] at N=0: the job is skipped, a matrix may not be empty
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8", newline="\n") as fh:
+                fh.write("\n".join(lines) + "\n")
+        if a.check:
+            bad = check(files, pl, cfg)
+            for line in bad:
+                print("ci: PLAN CHECK FAILED:", line)
+            if bad:
+                return 3
+            print("ci: plan check ok: every selected file is in exactly one shard, spread within limit")
         return 0
     if a.verb == "fetch":
         got = fetch(a.out, a.repo)
