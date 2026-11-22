@@ -667,6 +667,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/cmd_check.py
+      - run: python .github/e2e/platform_drift.py
   e2e-cmd-check-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-cmd-check-windows')
     name: e2e-cmd-check-windows
@@ -679,3 +680,4 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/cmd_check.py
+      - run: python .github/e2e/platform_drift.py
