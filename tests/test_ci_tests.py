@@ -152,6 +152,7 @@ def test_merge_runs_only_selected_files_without_matching_evidence(monkeypatch):
     monkeypatch.setenv("FIELDKIT_REUSE_CI", "1")
     monkeypatch.setenv("FIELDKIT_CI_READ_TOKEN", "fixture")
     monkeypatch.delenv("FIELDKIT_TEST_EVIDENCE", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)   # hermetic: on a runner the code would really start pytest
 
     def reuse(files, token):
         assert files == selected and token == "fixture"
