@@ -120,15 +120,23 @@ def check(journal, key, sig):
     return {"done": False, "key": key, "sig": sig, "why": why}
 
 
-def run(journal, key, sig, argv, runner=subprocess.run, clock=time.time):
-    """Run argv unless it already succeeded. -> (result line dict, exit code)."""
+DEFAULT_TIMEOUT = 4 * 3600      # seconds: a hung command is killed and journalled, never left "running" forever
+TIMEOUT_EXIT = 124              # the exit code `timeout(1)` uses
+
+
+def run(journal, key, sig, argv, runner=subprocess.run, clock=time.time, timeout=DEFAULT_TIMEOUT):
+    """Run argv unless it already succeeded. -> (result line dict, exit code). A command still running after
+    `timeout` seconds is killed and recorded as exit 124 (a failure: the next run runs again)."""
     c = check(journal, key, sig)
     if c["done"]:
         c["skipped"] = True
         return c, 0
     t0 = clock()
     try:
-        rc = runner(list(argv)).returncode
+        rc = runner(list(argv), timeout=timeout).returncode
+    except subprocess.TimeoutExpired:
+        rc = TIMEOUT_EXIT
+        print(f"once: {argv[0]} still running after {timeout} s: killed, recorded as exit {rc}", file=sys.stderr)
     except OSError as e:
         rc = 127
         print(f"once: cannot start {argv[0]}: {e}", file=sys.stderr)
@@ -182,6 +190,8 @@ def main(argv=None):
     ap.add_argument("--key", help="the idempotency key (default: sha256 of the command and the folder)")
     ap.add_argument("--state", action="append", default=[], help="an input path whose change voids a success")
     ap.add_argument("--file", help="watch: read the watcher's output from this file instead of stdin")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+                    help="run: kill the command after this many seconds (default 14400); recorded as exit 124")
     ap.add_argument("--journal", help="the journal (default state/once/journal.jsonl)")
     ap.add_argument("--json", action="store_true", help="only the JSON line (it is always printed last)")
     a = ap.parse_args(argv)
@@ -198,7 +208,7 @@ def main(argv=None):
             res, rc = check(journal, key, sig), None
             rc = 0 if res["done"] else 3
         else:
-            res, rc = run(journal, key, sig, cmd)
+            res, rc = run(journal, key, sig, cmd, timeout=a.timeout)
     elif a.action == "watch":
         if not a.key:
             ap.error("watch needs --key")

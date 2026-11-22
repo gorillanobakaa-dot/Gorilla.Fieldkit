@@ -62,6 +62,10 @@ def tracked(path):
         r = subprocess.run(["git", "-C", top.stdout.strip(), "ls-files", "--error-unmatch", str(p.resolve())],
                            capture_output=True, text=True, timeout=10)
         return r.returncode == 0
+    except subprocess.TimeoutExpired as exc:
+        print(f"rules_song: git {exc.cmd[3] if len(exc.cmd) > 3 else ''} timed out after {exc.timeout} s for {p}: "
+              "tracked status unknown", file=sys.stderr)
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
 
