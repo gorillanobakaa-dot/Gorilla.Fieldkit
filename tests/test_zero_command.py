@@ -653,3 +653,14 @@ def test_p24_a_rotated_station_with_no_relief_is_an_orphan_once(tmp_path, monkey
     net.checkin(f"claude:ffffffff@{HOST}", relieve=W1, now=T0 + 5 + 23 * 60, env={"CLAUDE_CODE_SESSION_ID": "ffffffff-1"})
     r = command.sweep(net.load_net(), T0 + 5 + 90 * 60, **kw)
     assert not [f for f in r["findings"] if f["kind"] == "ORPHAN"]
+
+
+def test_an_order_carries_the_session_mode(tmp_path, monkeypatch):
+    """F0.6: every Zero order records the mode of Zero's session and tells the station to take the same cap."""
+    from fieldkit.lifecycle import sessionmode
+    monkeypatch.setattr(sessionmode, "current", lambda sid: {"mode": "2", "speed": "time-sensitive", "cap": 6})
+    opened()
+    ch_ = FakeChannel()
+    r = command.task(ZERO, W1, "build the thing", [W(tmp_path, "a")], "PR green", now=T0 + 2, git=nogit, channels=[ch_])
+    assert r["order"]["session_mode"]["mode"] == "2" and r["order"]["session_mode"]["cap"] == 6
+    assert "--session-mode 2" in json.dumps(r["sent"]) or any("--session-mode 2" in str(e) for e in ch_.sent)

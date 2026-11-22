@@ -157,6 +157,8 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
                  "idle_min": float(idle_min or net.get("idle_min") or IDLE_MIN)}
         if (done_cmd or "").strip():
             order["done_cmd"] = done_cmd.strip()
+        from ..lifecycle import sessionmode           # F0.6: the order carries the mode (and so the cap) of Zero's session
+        order["session_mode"] = sessionmode.current(sessionmode.session_id({}))
         if old:
             order["replaces"] = old["id"]
         rec["order"] = order
@@ -167,7 +169,9 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
              data={"order": {k: order[k] for k in ("id", "objective", "area", "done")}}, now=now)
     sent = _send(net, me, station, f"ORDER {order['id']} from Zero: {order['objective']}. Your ground: "
                  f"{', '.join(paths)} (writes outside it are refused). Done when: {order['done']}. Report with "
-                 "fieldkit zero checkin.", channels, now)
+                 "fieldkit zero checkin. Session mode " + f"{order['session_mode']['mode']} (cap {order['session_mode'].get('cap')}"
+                 ", no sub-agents past it): `python -m fieldkit route choose --session-mode "
+                 f"{order['session_mode']['mode']}`.", channels, now)
     return {"order": order, "station": station, "sent": sent}
 
 
