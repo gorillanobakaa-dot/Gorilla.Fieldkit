@@ -59,7 +59,7 @@ tools:
     - {name: json, flag: --json, type: flag, required: false, help: "machine-readable output"}
   effects: [reads-files]
   safety: read-only
-  notes: "GitHub Actions windows-latest upgraded to PowerShell 7 (pwsh.exe). Expand-Archive in PS7 hits a removed .NET 6 ExtractToDirectory overload (MethodCountCouldNotFindBest). Get-FileHash fails when powershell.exe is started from pwsh.exe due to inherited module path. This tool detects these patterns and auto-fixes Expand-Archive with [IO.Compression.ZipFile]::ExtractToDirectory. Run before every CI push to catch regressions. Exit 0 clean, 3 findings."
+  notes: "GitHub Actions windows-latest upgraded to PowerShell 7 (pwsh.exe). Expand-Archive in PS7 hits a removed .NET 6 ExtractToDirectory overload (MethodCountCouldNotFindBest). Get-FileHash fails when powershell.exe is started from pwsh.exe due to inherited module path. This tool detects these patterns and auto-fixes Expand-Archive with [IO.Compression.ZipFile]::ExtractToDirectory. CI runs it on this repo's own tree (tests/test_ps_compat_check.py); there is no pre-push hook. An unknown state (unreadable file, failed git) is a FAIL. Exit 0 clean, 3 findings."
   platforms: [windows, linux]
   platforms_why: "check runs on any OS; the .ps1 files are Windows scripts but the check is pure Python"
   changes: false
@@ -6599,6 +6599,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciaudit.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Reads workflow selection logs or run attempt timestamps from GitHub. Pairs with testcost unmapped --all and tests/testmap.yaml."
+
+- id: ci
+  title: Keep per-test CI durations as an artifact and show which durations the shard split uses
+  harness: method
+  entry: [python, -m, fieldkit, ci]
+  path: ${FIELDKIT}/fieldkit/method/ciplan.py
+  inputs:
+    - {name: verb, flag: durations, type: str, required: false, help: "durations merge|fetch, or plan --selection FILE [--check] [--github-output] [--explain]"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {1: "no durations artifact could be read", 2: "bad usage"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-ci-linux, windows: e2e-ci-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciplan.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "CI-SPEED-PLAN C1 (2026-11-22). Every main run merges each shard's junit into the ci-durations artifact; the selection step fetches it and fails closed when it is older than 7 days or covers under 90% of the selected files (ci_tests.py --durations). No artifact yet or no whole-suite run yet = degraded split by file count, said loudly. Weekly full run in tests.yml keeps it complete. C2: `ci plan --check --github-output` sizes the shard matrix per OS from the selected work (N=0 starts no runner; budget in .github/ci.yaml); file-level split, node-level is later."
 
 - id: rules
   title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
