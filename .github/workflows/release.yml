@@ -10,32 +10,57 @@ permissions:
   actions: read
 env:
   TAG: ${{ github.ref_name }}
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
 
-  # 2026-11-20: probe runner hardware before the suite so OOM crashes can be diagnosed.
-  probe:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  # F1.6: the cheap checks run first, in a 1-minute job the shards wait for, so a bad release page fails in under 2 min.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
-      - name: runner hardware spec
-        shell: bash
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: the release page carries both tracks in full
+        if: github.ref_type == 'tag'
         run: |
-          echo "=== Runner: ${{ runner.os }} / ${{ runner.arch }} ==="
-          echo "=== CPU ===" && nproc 2>/dev/null || powershell -NoProfile -Command "(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors" 2>/dev/null || true
-          echo "=== RAM (GB) ===" && awk '/MemTotal/{printf "%.1f\n",$2/1024/1024}' /proc/meminfo 2>/dev/null || powershell -NoProfile -Command "[math]::Round((Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory/1GB,1)" 2>/dev/null || true
-          echo "=== DISK ===" && df -h / 2>/dev/null || powershell -NoProfile -Command "Get-PSDrive C | Select-Object Used,Free | Format-List" 2>/dev/null || true
-          echo "=== SWAP ===" && swapon --show 2>/dev/null || echo "n/a"
+          d="releases/notes/$TAG"
+          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: workflow and PowerShell compatibility
+        run: python -m fieldkit repair ps-compat-check --repo .
 
-  # 2026-11-20: shard the release suite 20x per OS so no single runner runs all 6838 tests (causes OOM crash).
+  # F1.1: a tag on a commit whose tests already passed on main runs 0 shards and logs the run it reused.
+  reuse:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/${{ github.repository }}/actions/workflows/tests.yml/runs?head_sha=${{ github.sha }}&event=push&status=success&per_page=5"             --jq '[.workflow_runs[] | select(.head_branch=="main" and .conclusion=="success")][0].id // empty' || true)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ -n "$run" ]; then echo "release: reused green main run $run for ${{ github.sha }}; 0 shards"; else echo "release: no green main run for ${{ github.sha }}; running the shards"; fi
+
+  # 2026-11-20: shard the release suite 16x per OS so no single runner runs all 6838 tests (causes OOM crash).
   shard-windows-latest:
+    needs: [reuse, checks]
+    if: needs.reuse.outputs.run == ''
     name: shard (windows-latest, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,14 +76,16 @@ jobs:
         run: python -m fieldkit parity os --check
       - name: run shard
         shell: bash
-        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
 
   shard-ubuntu-latest:
+    needs: [reuse, checks]
+    if: needs.reuse.outputs.run == ''
     name: shard (ubuntu-latest, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,12 +106,12 @@ jobs:
         env:
           FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
           FIELDKIT_REUSE_CI: '1'
-        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/20"
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
 
   test:
     # aggregate: green only when every shard of both OSes is green
     name: test (${{ matrix.os }})
-    needs: [shard-windows-latest, shard-ubuntu-latest]
+    needs: [checks, reuse, shard-windows-latest, shard-ubuntu-latest]
     if: always()
     strategy:
       fail-fast: false
@@ -95,9 +122,10 @@ jobs:
       - name: every shard of this OS passed
         shell: bash
         run: |
+          test "${{ needs.checks.result }}" = "success"
           result="${{ needs[format('shard-{0}', matrix.os)].result }}"
           echo "shards of ${{ matrix.os }}: $result"
-          test "$result" = "success"
+          if [ -n "${{ needs.reuse.outputs.run }}" ]; then echo "reused green main run ${{ needs.reuse.outputs.run }}"; test "$result" = "skipped"; else test "$result" = "success"; fi
   candidate:
     needs: test
     if: github.ref_type == 'tag'
@@ -112,10 +140,8 @@ jobs:
         run: |
           v=$(python -c "import fieldkit; print(fieldkit.__version__)")
           test "v$v" = "$TAG" || { echo "tag $TAG, package $v: not published"; exit 1; }
-      - name: the release page carries both tracks in full
-        run: |
-          d="releases/notes/$TAG"
-          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: no quarantined (twice-hung) test ships
+        run: python -m fieldkit ci quarantine --check
       - name: Assemble the checked source candidate
         run: |
           mkdir candidate

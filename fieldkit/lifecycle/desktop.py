@@ -85,7 +85,7 @@ def sessions(dirs=None):
                          "branch": x.get("branch") or ""} for x in d.get("prs") or [] if isinstance(x, dict)],
                 "resolved": dict(d.get("resolvedBackgroundTaskSuggestions") or {}),
                 "parent": (d.get("spawnedFrom") or {}).get("sessionId") or "",
-                "exempt": bool(d.get("autoArchiveExempt")),
+                "exempt": bool(d.get("autoArchiveExempt")), "model": str(d.get("model") or ""),
                 "cwd": d.get("cwd") or "", "file": str(p),
             })
     return out

@@ -197,6 +197,16 @@
      "open": false,
      "v": {}
     },
+    "doctor": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--install": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "enforce": {
      "c": [],
      "f": {
@@ -486,7 +496,8 @@
   "board": {
    "c": [
     "add",
-    "check"
+    "check",
+    "cost"
    ],
    "f": {
     "--date": 1,
@@ -1010,6 +1021,49 @@
    },
    "open": false,
    "v": {}
+  },
+  "ci": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "durations": {
+     "c": [
+      "fetch",
+      "merge"
+     ],
+     "f": {
+      "--complete": 0,
+      "--help": 0,
+      "--os": 1,
+      "--out": 1,
+      "--prev": 1,
+      "--repo": 1,
+      "--run": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "plan": {
+     "c": [],
+     "f": {
+      "--check": 0,
+      "--config": 1,
+      "--explain": 0,
+      "--github-output": 0,
+      "--help": 0,
+      "--min": 1,
+      "--selection": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "ci-steps": {
    "c": [],
@@ -1784,6 +1838,7 @@
      "c": [],
      "f": {
       "--act": 0,
+      "--check": 0,
       "--help": 0,
       "--json": 0,
       "-h": 0
@@ -2241,6 +2296,45 @@
    },
    "open": false,
    "v": {}
+  },
+  "installed": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "sync": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "where": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "integration": {
    "c": [],
@@ -3208,6 +3302,7 @@
     "--json": 0,
     "--key": 1,
     "--state": 1,
+    "--timeout": 1,
     "-h": 0
    },
    "open": false,

@@ -36,6 +36,7 @@ projects:
   Fieldkit:
     - fieldkit-skills
     - fieldkit-token-audit
+    - fieldkit-installed
     - fieldkit-overhead
     - fieldkit-machine-catchup
     - fieldkit-evidence

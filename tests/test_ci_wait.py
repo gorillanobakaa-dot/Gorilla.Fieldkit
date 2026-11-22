@@ -99,7 +99,7 @@ def test_wait_follows_the_latest_head_without_repairing_the_old_head(auto_merge)
             pytest.fail(f"read failure for a superseded head {sha}")
 
         def wait_checks(self, n, timeout):
-            assert timeout <= 60
+            assert timeout <= train.WATCH_CHUNK_S
             self.waits += 1
             self.head = "b" * 40
             if auto_merge:
@@ -256,3 +256,16 @@ def test_a_failed_test_next_to_a_dns_line_stays_a_strike():
     gh = InfraGH(["red"], log=APT_DNS + ["FAILED tests/test_x.py::test_y - Temporary failure resolving 'x'"])
     r = train.ci_wait(gh, 461, sleep=lambda s: None)
     assert gh.reruns == [] and r["state"] == "red" and len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 1
+
+
+def test_one_gh_watch_covers_minutes_not_a_minute():
+    """2026-11-22: 60 s chunks restarted four gh processes (four console hosts) every ~90 s per waiting PR."""
+    seen = []
+
+    class Slow(GH):
+        def wait_checks(self, n, timeout):
+            seen.append(timeout)
+            super().wait_checks(n, timeout)
+    t = iter(range(0, 100_000, 10))
+    train.ci_wait(Slow(["pending", "green"]), 166, max_wait_s=3600, sleep=lambda s: None, clock=lambda: next(t))
+    assert seen and seen[0] >= 300

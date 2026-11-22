@@ -95,7 +95,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 ## Beyond cards: pipelines, skills, workflows, hooks, modules
 
-34 records: 0 Windows-only, 0 Linux-only, 17 on both but different, 17 native-only.
+35 records: 0 Windows-only, 0 Linux-only, 17 on both but different, 18 native-only.
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
@@ -120,7 +120,8 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:983 |
 | `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
 | `module:fieldkit/peers/link.py` | windows | linux | NATIVE-ONLY | CREATE | _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windo… | M |  | fieldkit/peers/link.py:892 |
-| `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:45 |
+| `module:fieldkit/thermal/pdh.py` | windows | linux | NATIVE-ONLY | CREATE | reads Windows performance counters through pdh.dll in-process (no PowerShell, no console… | M |  | fieldkit/thermal/pdh.py:28 |
+| `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:47 |
 | `skill:fieldkit-linux-leftovers` | linux | windows | NATIVE-ONLY | CREATE | XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on… | M |  | skills/fieldkit-linux-leftovers/SKILL.md:3 |
 | `skill:fieldkit-win11` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework (registry, services, AppX) has no Linux twin | M |  | skills/fieldkit-win11/SKILL.md:3 |
 | `stage:black-gorilla-theme` | linux | windows | NATIVE-ONLY | CREATE | a GTK/libadwaita theme exists only on a Linux desktop | M |  | fieldkit/emerge/recipes/black-gorilla-theme.yaml:37 |
@@ -130,9 +131,9 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:kernel-7.0.5-release` | linux | windows | NATIVE-ONLY | CREATE | the Linux kernel is built only on Linux; Windows has no kernel to build | M |  | fieldkit/emerge/recipes/kernel-7.0.5-release.yaml:35 |
 | `stage:kernel-7.0.9-unleashed` | linux | windows | NATIVE-ONLY | CREATE | the Linux kernel is built only on Linux; Windows has no kernel to build | M |  | fieldkit/emerge/recipes/kernel-7.0.9-unleashed.yaml:37 |
 | `stage:windows-11-tweaks` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX) | M |  | fieldkit/emerge/recipes/windows-11-tweaks.yaml:40 |
-| `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:73 |
-| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:122 |
-| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:174 |
+| `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:100 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:154 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:223 |
 
 ## How each single-system command is routed (core/crossos.py)
 

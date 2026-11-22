@@ -1872,6 +1872,7 @@ def build_parser():
                        ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
                                 "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
                        ("agent-models", "keep Claude Code's Explore subagent on Haiku: check, enforce (template back), audit (models subagents really ran on)"),
+                       ("installed", "the installed Fieldkit follows origin/main: check (PASS/FAIL), sync (fast-forward, verify), where"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
@@ -1923,6 +1924,10 @@ def build_parser():
                         help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
                              "to the whole suite (fieldkit ciaudit)")
     ca.add_argument("args", nargs=argparse.REMAINDER)
+    ci = sub.add_parser("ci", add_help=False,
+                        help="CI speed: per-test durations kept as an artifact, and what the shard split uses "
+                             "(fieldkit ci durations|plan|quarantine)")
+    ci.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -3283,6 +3288,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["installed"]:                     # the installed copy follows origin/main
+        from .core import installed
+        return installed.main(args[1:])
     if args[:1] == ["cost"]:                          # one daily cost line for the owner (fieldkit/tokens/cost_daily)
         from .tokens import cost_daily
         return cost_daily.main(args[1:])
@@ -3328,6 +3336,9 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ci"]:                            # CI-SPEED-PLAN C1: durations the shard split balances by
+        from .method import ciplan
+        return ciplan.main(args[1:])
     if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
         from .method import ciaudit
         return ciaudit.main(args[1:])

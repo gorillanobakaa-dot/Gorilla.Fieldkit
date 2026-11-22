@@ -140,6 +140,9 @@ items:
     proof: tests/test_power_drift.py case with a fixture /sys tree and a fake powerprofilesctl
     status: PARTIAL
     target: power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and power-profiles daemon
+  module:fieldkit/thermal/pdh.py:
+    reason: reads Windows performance counters through pdh.dll in-process (no PowerShell, no console host); Linux reads the same temperatures and load from /sys hwmon and /proc, which start no process either
+    status: NATIVE-ONLY
   module:fieldkit/thermal/sensors.py:
     reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
     status: NATIVE-ONLY

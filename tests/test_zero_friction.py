@@ -335,6 +335,21 @@ def test_sweep_classifies_every_live_session(tmp_path):
     assert next(r for r in kept if r["id"] == "local_fin")["state"] == "held"
 
 
+def test_sweep_lists_idle_opus_sessions(tmp_path):
+    """Workers that inherited their chief's Opus (2026-11-22) and sit idle are named so Zero archives them."""
+    def m(sid, model, last=NOW - 40 * 60, **kw):
+        d = rec(sid, last=last, **kw)
+        d["model"] = model
+        return d
+    store(tmp_path, m("local_opus_idle", "claude-opus-5-5"), m("local_opus_new", "claude-opus-5-5", last=NOW - 60),
+          m("local_son_idle", "claude-sonnet-5-5"), m("local_nomodel", ""),
+          m("local_opus_zero", "claude-opus-5-5", cli="abcdef1234"))
+    rows = sweep.classify(desktop.sessions(), {}, now=NOW, cfg=dict(sweep.DEFAULTS), zero={"abcdef12"})
+    assert [r["id"] for r in sweep.opus_idle(rows)] == ["local_opus_idle"]
+    (line,) = sweep.opus_lines(rows)
+    assert line.startswith("OPUS-IDLE local_opus_idl") and "idle 40 min" in line and "archive_session local_opus_idle" in line
+
+
 def test_sweep_idle_line_is_the_threshold(tmp_path):
     cfg = dict(sweep.DEFAULTS, idle_minutes=30)
     store(tmp_path, rec("local_29", last=NOW - 29 * 60), rec("local_30", last=NOW - 30 * 60))

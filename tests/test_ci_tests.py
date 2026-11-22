@@ -339,3 +339,28 @@ def test_present_drops_a_deleted_test_file(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_a.py").write_text("")
     assert ci.present(["tests/test_a.py", "tests/test_gone.py"], root=tmp_path) == ["tests/test_a.py"]
+
+
+def test_release_reuses_a_green_main_run_and_has_no_probe_job():
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "\n  probe:" not in text                                   # F1.5: the hardware probe job is gone
+    assert "\n  reuse:" in text and text.count("needs: [reuse, checks]") == 2    # F1.1: both OS shard sets wait for the lookup
+    assert text.count("if: needs.reuse.outputs.run == ''") == 2       # and run only when no green main run exists
+    assert "reused green main run" in text                             # the reused run id is logged
+
+
+def test_f16_cheap_checks_run_first_and_shards_wait_for_them():
+    import re
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    checks = text.split("\n  checks:\n", 1)[1].split("\n  # F1.1", 1)[0]
+    assert "release-page check" in checks and "ps-compat-check" in checks and "timeout-minutes: 3" in checks
+    assert text.count("release-page check") == 1                      # moved, not duplicated after the shards
+    assert len(re.findall(r"needs: \[reuse, checks\]", text)) == 2    # both OS shard jobs wait for the checks
+    assert "checks" in re.search(r"needs: \[(.*shard-windows-latest.*)\]", text).group(1)
+
+
+def test_f18_pr_shards_time_out_at_10_minutes():
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    lines = [ln for ln in text.splitlines() if "workflow_dispatch' && 90 ||" in ln]
+    assert len(lines) == 2                                   # one per OS shard step
+    assert all(ln.strip().endswith("|| 10 }}") for ln in lines)   # 10 on the pull_request path; 90 only for workflow_dispatch

@@ -800,14 +800,43 @@ def _honesty(path, done, not_verified):
 
 # ---------------------------------------------------------------- finished side sessions
 
-def pr_state(url, run=subprocess.run):
-    """OPEN / MERGED / CLOSED from the local gh, or None when gh cannot say."""
+PR_OPEN_TTL_S = 120          # an OPEN answer is reused this long; MERGED / CLOSED never change, so they are kept for good
+PR_GH_TIMEOUT_S = 5          # F3.2: the Stop hook waits at most this long for gh (was 30 s)
+
+
+def _pr_cache_file():
+    return rotate_stop._said_dir().parent / "prstate.json"
+
+
+def pr_state(url, run=None):
+    """OPEN / MERGED / CLOSED from the local gh, or None when gh cannot say. F3.2: the answer is cached per URL
+    (MERGED / CLOSED for good, OPEN for PR_OPEN_TTL_S), so a turn with no new PR makes no network call; gh waits at most
+    PR_GH_TIMEOUT_S. A caller that passes its own `run` (tests) bypasses the cache."""
+    cache_f, cache = None, {}
+    if run is None:
+        run = subprocess.run
+        try:
+            cache_f = _pr_cache_file()
+            cache = json.loads(cache_f.read_text(encoding="utf-8"))
+            hit = cache.get(url)
+            if hit and (hit["state"] != "OPEN" or time.time() - hit["at"] < PR_OPEN_TTL_S):
+                return hit["state"]
+        except (OSError, ValueError, KeyError, TypeError):
+            cache = {}
     try:
         r = run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"], capture_output=True, text=True,
-                timeout=30)
-        return r.stdout.strip() or None if r.returncode == 0 else None
+                timeout=PR_GH_TIMEOUT_S)
+        st = r.stdout.strip() or None if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
+    if st and cache_f is not None:
+        try:
+            cache[url] = {"state": st, "at": time.time()}
+            cache_f.parent.mkdir(parents=True, exist_ok=True)
+            cache_f.write_text(json.dumps(cache), encoding="utf-8")
+        except OSError:
+            pass
+    return st
 
 
 def endcheck(transcript, state_fn=None, alive=None):

@@ -70,9 +70,13 @@ mutations `tests/tokens_mutations.yaml`, `tests/rotate_mutations.yaml`.
 ## Explore subagent kept on Haiku, general-purpose on Sonnet (owner 2026-11-22)
 
 Subagents inherit the session's model unless `~/.claude/agents/explore.md` pins `model: haiku`. The room hook runs
-`fieldkit agent-models check` at every prompt (file read + sha256, no model, silent when OK) and puts the template
-back when the file is missing, switched to another model, altered or shadowed by a second Explore file; the old file
-goes to `~/Agents.Work.Trash/claude-agents/`, never deleted. A line **AGENT MODELS REPAIRED** means it happened;
+`fieldkit agent-models check` once, at SessionStart (no model, silent when OK; UserPromptSubmit does no file I/O) and
+only REPORTS a missing, switched, altered or shadowed file, or its own error (`AGENT MODELS GUARD ERROR`). It never
+rewrites `~/.claude`. The one door that writes is `fieldkit agent-models doctor --install` (alias `enforce` for the
+pins): it puts the templates back, merges `env.CLAUDE_CODE_SUBAGENT_MODEL=haiku` (and `MAX_THINKING_TOKENS`,
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) into `settings.json` keeping every other key, and keeps the old file in
+`~/Agents.Work.Trash/claude-agents/`, never deleted. `fieldkit agent-models audit` prints model counts per agent and a
+`FAIL  N Explore run(s) on MODEL, not haiku` line for any Explore off Haiku. A line **AGENT MODELS REPAIRED** means a repair ran;
 **OVERRIDE IGNORED** means an Explore run after the repair still ran on a non-Haiku model (Claude Code ignored the
 file: tell the owner). `~/.claude/agents/general-purpose.md` is pinned to `model: sonnet` and guarded the same way
 (owner: "pin general-purpose agents to sonnet too"). Project `.claude/agents` files and `CLAUDE_CODE_SUBAGENT_MODEL` are reported, not edited.

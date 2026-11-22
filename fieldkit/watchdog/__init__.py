@@ -134,6 +134,18 @@ def status(platform=None):
             "ok": not missing}
 
 
+# How often the network name is re-read while online. 2026-11-22: it was read on EVERY 5 s pass, and on Windows
+# each read is a `netsh` child with its own console host: 720 console hosts an hour, the largest single source of
+# console-host churn on the laptop, for a value that is only used once the link drops. It is now read on the first
+# online pass, on every return from offline, and then once per SSID_EVERY_S. Reconnect and alarm are unchanged.
+SSID_EVERY_S = 300
+
+
+def ssid_due(last_read, now, just_back, every=SSID_EVERY_S):
+    """-> True when the loop should read the network name on this online pass."""
+    return last_read is None or just_back or now - last_read >= every
+
+
 def loop(interval=5, reconnect_after=20, alarm_after=90, repeat=60, ssid="",
          platform=None, forever=True, _now=time.time, _sleep=time.sleep):
     """The watchdog itself. `forever=False` runs one pass, which is what tests use."""
@@ -142,17 +154,22 @@ def loop(interval=5, reconnect_after=20, alarm_after=90, repeat=60, ssid="",
     remembered, offline_since = ssid, None
     last_try = last_alarm = 0.0
     alarmed = False
+    ssid_read = None
     while True:
         if online():
-            if offline_since is not None:
+            just_back = offline_since is not None
+            if just_back:
                 log(f"back online after {int(_now() - offline_since)} s", platform)
                 if alarmed:
                     speak(RECOVERED, platform)
             offline_since, alarmed = None, False
-            seen = current_ssid(platform)
-            if seen and not ssid and seen != remembered:
-                remembered = seen
-                log(f"online via '{seen}'", platform)
+            now = _now()
+            if not ssid and ssid_due(ssid_read, now, just_back):
+                ssid_read = now
+                seen = current_ssid(platform)
+                if seen and seen != remembered:
+                    remembered = seen
+                    log(f"online via '{seen}'", platform)
         else:
             now = _now()
             if offline_since is None:

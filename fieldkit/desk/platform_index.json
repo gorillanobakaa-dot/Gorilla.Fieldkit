@@ -1605,6 +1605,17 @@
    "harness-opencode"
   ]
  },
+ "ci": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ci"
+  ]
+ },
  "ciaudit": {
   "platforms": [
    "darwin",
@@ -2143,6 +2154,17 @@
   "why": "",
   "ids": [
    "install-preflight"
+  ]
+ },
+ "installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "installed"
   ]
  },
  "integration": {

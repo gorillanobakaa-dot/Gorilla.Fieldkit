@@ -631,6 +631,12 @@ def _local_update(repo, branch, base, gens, ci, push):
     return dict(r, head=mp.rev(work, "HEAD"))
 
 
+# 2026-11-22: 60 s chunks re-spawned ci_state (2 gh) + pr (1 gh) + checks (1 gh) every ~90 s per waiting PR; with
+# several sessions waiting that was ~40 console hosts per 2 min. `gh pr checks --watch` polls inside ONE process and
+# exits as soon as the checks finish, so a long chunk costs nothing in latency and cuts the starts ~4x.
+WATCH_CHUNK_S = 300
+
+
 def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
     end = clock() + max_wait_s
     waited = False
@@ -646,7 +652,7 @@ def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
         remaining = end - clock()
         if remaining <= 0:
             return state, why
-        gh.wait_checks(n, timeout=min(60, remaining))
+        gh.wait_checks(n, timeout=min(WATCH_CHUNK_S, remaining))
         waited = True
 
 
@@ -982,11 +988,15 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
             _log(repo, st, n, "update-local", state=r.get("state"), proof=r.get("proof"), error=r.get("error"))
             if not r.get("ok"):
                 return {"pr": n, "why": f"update here: {r.get('state')}: {r.get('error') or r.get('paths') or ''}"}
-        pr = gh.pr(n)
+        pr = gh.pr(n)                                  # the head is read again after the update (F2.5)
         if pr["headRefOid"] != head:
             made.append(pr["headRefOid"])
             head = pr["headRefOid"]
             save_state(repo, st)
+        elif need == "update-api":                     # accepted, but the merge commit did not land within the
+            _log(repo, st, n, "update-lag", head=head[:10], polls=UPDATE_POLLS)    # poll budget: CI on the old head
+            return {"pr": n, "why": "update-branch was accepted but the head did not move within "      # proves
+                    f"{UPDATE_POLLS * UPDATE_POLL_S}s: refusing to test the old head; next pass retries"}   # nothing
     state, why = wait_green(gh, n, head, max_wait_s, sleep)
     _log(repo, st, n, "ci", state=state, why=why)
     if state != "green":

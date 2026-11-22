@@ -305,11 +305,15 @@ def before_pr(repo, branches, base="main", *, clone=train.clone_for, shipper=Non
 
 
 # -- selection: what the batch's CI runs -------------------------------------------------------------------------------
+class Unmapped(ValueError):
+    """A changed file no test covers. One rule with .github/ci_tests.py: fail closed and name the file (F2.6)."""
+
+
 def tests_of(repo, paths, base=None):
     from .. import testcost
     pl = testcost.plan(repo, base=base, paths=list(paths))
-    if pl.get("unmapped"):                             # a file no test covers: the selection fails closed (full suite)
-        raise ValueError(f"unmapped files: {', '.join(pl['unmapped'][:5])}")
+    if pl.get("unmapped"):                             # a file no test covers: fail closed, name it (never the full suite)
+        raise Unmapped(f"no test covers {', '.join(pl['unmapped'][:5])}: map each in tests/testmap.yaml or give it a test")
     return set(pl["tests"])
 
 
@@ -444,11 +448,14 @@ def body_of(members, left, tests=None):
 
 
 def _selection(gh, members, repo, pol):
-    """The test files the batch CI runs (item 8), or None = the normal selection (also when anything is unmapped)."""
+    """The test files the batch CI runs (item 8), or None = the normal selection (testcost could not answer).
+    An unmapped file raises Unmapped: the batch is refused, same as ci_tests (F2.6)."""
     try:
         files = {m["pr"]: gh.files(m["pr"]) for m in members}
         regen = sorted({f for m in members for f in (m.get("regenerated") or [])})
         return select(repo, files, regen, pol)["tests"]
+    except Unmapped:
+        raise
     except Exception:
         return None
 
@@ -477,8 +484,12 @@ def run(repo=".", gh=None, base="main", pol=None, max_n=None, only=None, push=No
         if not b["ok"]:
             return dict(rep, ok=False, state=b["state"], error=b.get("error"), next=b.get("next"))
         members = b["members"]
+        try:
+            tests = _selection(gh, members, repo, pol)
+        except Unmapped as e:
+            return dict(rep, ok=False, state="unmapped", error=str(e), next=f"{e}; nothing was opened")
         n, err = gh.create_pr(b["branch"], base, f"batch {b['branch'].split('/')[-1]}: {len(members)} PRs",
-                              body_of(members, rep["left"], _selection(gh, members, repo, pol)))
+                              body_of(members, rep["left"], tests))
         if not n:
             return dict(rep, ok=False, state="pr-failed", error=err, next="the branch is pushed; open the PR by hand")
         gh.auto_merge(n, b["head"])
