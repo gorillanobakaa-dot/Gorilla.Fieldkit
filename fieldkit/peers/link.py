@@ -1296,7 +1296,16 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
             store("message", dict(req, text=req.get("text") or "a job result"))      # the session sees it too
         return res
     if verb == "ask":
+        from ..lifecycle import sessionmode
+        sm_rec = req.get("session_mode")
+        if not isinstance(sm_rec, dict) or sm_rec.get("mode") not in sessionmode.MODES:
+            return {"ok": False, "error": "a peer task start carries the session mode (rules/CORE.md SUB-AGENTS): "
+                    "no session_mode in the request, nothing started"}
         item = store("ask", req)
+        req = dict(req, brief=f"SESSION MODE {sm_rec['mode']} ({sm_rec.get('speed')}, cap {sm_rec.get('cap')}"
+                   f"{' per node' if sm_rec.get('per_node') else ''}) inherited from {req.get('from_host')}: "
+                   f"`python -m fieldkit route choose --session-mode {sm_rec['mode']}` first.\n\n"
+                   + str(req.get("brief") or ""))
         started, why = start_session(str(req.get("agent")), str(req.get("brief") or ""), req.get("from_host"),
                                      popen=popen, inbox_add=inbox_add, model=req.get("model"),
                                      thinking=req.get("thinking"))
@@ -1882,7 +1891,9 @@ def main(argv=None):
         if not a.brief:
             print("ask --agent AGENT --model MODEL --thinking LEVEL --brief FILE")
             return 2
+        from ..lifecycle import sessionmode
         r = call({"verb": "ask", "agent": chk["agent"], "model": chk["model"], "thinking": chk["thinking"],
+                  "session_mode": sessionmode.current(sessionmode.session_id({})),
                   "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3

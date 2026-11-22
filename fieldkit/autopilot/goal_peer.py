@@ -18,6 +18,7 @@ other, so the second goal never got a turn (and the first logged nothing). step 
                   row in state/coordination/ZERO-OPEN-PROBLEMS.md (never the inbox) and a ROOM line.
 """
 import json
+import os
 import re
 import threading
 import time
@@ -27,7 +28,7 @@ from pathlib import Path
 
 ROUND_WAIT = 60                 # a goal's step blocks on its workers at most this long, then the next goal gets its turn
 ROUND_NOMINAL = 600             # a round with a planner call or a verifier run may take this long
-STALL_ROUNDS = 3                # rounds of silence that make the alarm
+STALL_ROUNDS = 2                # rounds of silence that make the alarm
 IDLE_LIMIT = 0.5                # a goal idle more than this share of IDLE_WINDOW raises the alarm
 IDLE_WINDOW = 3600
 IDLE_MIN_SEEN = 1200            # ...once at least this much of the window was observed
@@ -37,6 +38,7 @@ _LOCK = threading.Lock()
 _HOLDERS = {}                   # (gid, jid) -> started: heavy jobs running on THIS computer (this process)
 _SEEN = {}                      # gid -> deque[(t, dt, idle)] samples of the last IDLE_WINDOW
 _LAST = {"t": None, "note": ""}  # the main loop's last sign of life
+_STAMP = {"path": None}         # where beat() also writes the stamp, so another process can read it (F2.8)
 
 
 # ---- the laptop's one heavy slot ------------------------------------------------------------------------------
@@ -197,8 +199,35 @@ def reattach(gid, st, workers):
 
 # ---- heartbeat and alarm --------------------------------------------------------------------------------------
 def beat(note="", now=time.time):
-    """The main loop (or a planner or verifier run inside it) is alive."""
+    """The main loop (or a planner or verifier run inside it) is alive. This is the PROGRESS stamp: only the main
+    loop writes it, never the lock's heartbeat thread, which stays fresh while the main loop hangs (F2.8)."""
     _LAST.update(t=now(), note=note)
+    p = _STAMP["path"]
+    if p:
+        try:
+            Path(p).write_text(json.dumps({"t": _LAST["t"], "note": note, "pid": os.getpid()}), encoding="utf-8")
+        except OSError:
+            pass
+
+
+def stamp_age(path=None, now=time.time):
+    """-> seconds since the main loop's last progress stamp as another process reads it from the file, or None."""
+    try:
+        return now() - float(json.loads(Path(path or _STAMP["path"]).read_text(encoding="utf-8"))["t"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def round_idle(gid, idle_s, wall, say=None):
+    """One round of a goal: idle_s of wall seconds nothing of it ran here or on the peer. -> the alarm text when the
+    idle share is over IDLE_LIMIT (the caller logs it to REPORT.md), else ''. A round shorter than 1 s is no sample."""
+    if wall < 1 or idle_s / wall <= IDLE_LIMIT:
+        return ""
+    text = (f"IDLE ALARM {gid}: idle {idle_s / wall:.0%} of a {int(wall)} s round (limit {IDLE_LIMIT:.0%}) "
+            "with no job running here or on the peer")
+    if say:
+        say(text)
+    return text
 
 
 def heartbeat_line(gid, st, workers, now=time.time):
