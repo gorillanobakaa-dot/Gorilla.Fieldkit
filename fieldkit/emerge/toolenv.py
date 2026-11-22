@@ -121,11 +121,12 @@ def cache_env(environ=None, platform=None, which=None, home=None, ccache_symlink
             out["CMAKE_CXX_COMPILER_LAUNCHER"] = c_launcher
 
     if plat != "win32" and ccache and ccache_symlink_dir and os.path.isdir(ccache_symlink_dir):
-        parts = [p for p in path.split(os.pathsep) if p]
+        sep = ":"
+        parts = [p for p in path.split(sep) if p]
         if ccache_symlink_dir not in parts:
             # Keep user tool dirs (~/.cargo/bin, etc.) ahead of /usr/lib/ccache while placing ccache ahead of /usr/bin.
             idx = next((i for i, p in enumerate(parts) if p in ("/usr/bin", "/bin", "/usr/local/bin")), len(parts))
             parts.insert(idx, ccache_symlink_dir)
-            out["PATH"] = os.pathsep.join(parts)
+            out["PATH"] = sep.join(parts)
 
     return out

@@ -87,7 +87,7 @@ def test_cache_env_wires_ccache_and_respects_existing_overrides(tmp_path):
     assert "RUSTC_WRAPPER" not in out
     assert out["CMAKE_C_COMPILER_LAUNCHER"] == "/usr/bin/ccache"
     assert out["CMAKE_CXX_COMPILER_LAUNCHER"] == "/usr/bin/ccache"
-    parts = out["PATH"].split(os.pathsep)
+    parts = out["PATH"].split(":")
     assert parts.index("/opt/cargo/bin") < parts.index(str(sym)) < parts.index("/usr/bin")
 
 
