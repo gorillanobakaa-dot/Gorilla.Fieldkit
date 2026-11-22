@@ -508,6 +508,30 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/agent_models.py
+  e2e-installed-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-installed-linux')
+    name: e2e-installed-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/installed.py
+  e2e-installed-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-installed-windows')
+    name: e2e-installed-windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/installed.py
   e2e-agy-tools-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-agy-tools-linux')
     # fieldkit antigravity (the Rust agy-tools): cargo test, the release build from source, the real entry points.
