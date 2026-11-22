@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -239,6 +241,48 @@ def pytest_collection_modifyitems(config, items):
             cache[path] = any(sign in text for sign in _SERIAL_SIGNS)
         if cache[path] or item.get_closest_marker("serial"):
             item.add_marker(pytest.mark.xdist_group("serial"))
+    _skip_reused_nodes(config, items)
+
+
+_NODES = {"passed": set(), "failed": set(), "skipped_by_receipt": 0}
+
+
+def _skip_reused_nodes(config, items):
+    """C5: FIELDKIT_SKIP_NODES names a JSON list of node ids whose pass is already recorded for the same covered files;
+    they are deselected (a file, not the command line, so thousands of ids fit on Windows)."""
+    path = os.environ.get("FIELDKIT_SKIP_NODES")
+    if not path or not os.path.isfile(path):
+        return
+    try:
+        skip = set(json.load(open(path, encoding="utf-8")))
+    except (OSError, ValueError):
+        return
+    dropped = [item for item in items if item.nodeid in skip]
+    if dropped:
+        items[:] = [item for item in items if item.nodeid not in skip]
+        config.hook.pytest_deselected(items=dropped)
+        _NODES["skipped_by_receipt"] += len(dropped)
+
+
+def pytest_runtest_logreport(report):
+    """C5: the controller process records which node ids passed and failed (workers report to it under xdist)."""
+    if report.when == "call" or (report.when == "setup" and report.outcome != "passed"):
+        if report.outcome == "passed":
+            _NODES["passed"].add(report.nodeid)
+        elif report.outcome == "failed" or report.when == "setup":
+            _NODES["failed"].add(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    out = os.environ.get("FIELDKIT_NODES_OUT")
+    if out and not hasattr(session.config, "workerinput"):
+        passed = sorted(_NODES["passed"] - _NODES["failed"])
+        try:
+            with open(out, "w", encoding="utf-8") as handle:
+                json.dump({"passed": passed, "failed": sorted(_NODES["failed"]),
+                           "skipped_by_receipt": _NODES["skipped_by_receipt"]}, handle)
+        except OSError:
+            pass
 
 
 # ============================================================================

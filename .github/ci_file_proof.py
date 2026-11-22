@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as xml
@@ -76,7 +77,8 @@ def passed_files(report):
     return passing - incomplete
 
 
-def write_receipt(output, report, selected, identity, inputs=None):
+def write_receipt(output, report, selected, identity, inputs=None, nodes=None):
+    """`nodes` (C5): node ids that passed, from the pytest hook; recorded even when the run was red."""
     junit = xml.parse(report)
     matched = sorted(set(selected) & passed_files(junit))
     timings = {}
@@ -92,17 +94,20 @@ def write_receipt(output, report, selected, identity, inputs=None):
                                  for item in case.findall("properties/property")
                                  if item.get("name", "").startswith("fieldkit_fixture_")
                                  and item.get("value", "").isdigit()}
-    if matched or timings:
+    nodes = sorted(n for n in (nodes or []) if isinstance(n, str) and n.split("::", 1)[0] in selected)
+    if matched or timings or nodes:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps({"schema": 2, "context": identity, "passed": matched,
+        output.write_text(json.dumps({"schema": 3 if nodes else 2, "context": identity, "passed": matched,
                                      "inputs": scoped_inputs(matched) if inputs is None else inputs,
+                                     "nodes": nodes,
                                      "fixture_seconds": timings, "fixture_counts": counts}), encoding="utf-8")
-    print(f"ci-tests: recorded passes for {len(matched)} of {len(selected)} test files", flush=True)
+    print(f"ci-tests: recorded passes for {len(matched)} of {len(selected)} test files, {len(nodes)} tests", flush=True)
 
 
-def trusted_run(run, repo, head):
+def trusted_run(run, repo, head, red_ok=False):
     return (run.get("head_sha") == head and (run.get("head_repository") or {}).get("full_name") == repo
-            and run.get("status") == "completed" and run.get("conclusion") == "success"
+            and run.get("status") == "completed"
+            and (run.get("conclusion") == "success" or (red_ok and run.get("conclusion") == "failure"))
             and run.get("event") in ("pull_request", "push", "workflow_dispatch")
             and run.get("path", "").split("@", 1)[0] == ".github/workflows/tests.yml")
 
@@ -112,13 +117,13 @@ def missing_files(files, identity, receipts, inputs=None):
     inputs = inputs or {}
     environment = {key: value for key, value in identity.items() if key != "tree"}
     for proof in receipts:
-        if (not isinstance(proof, dict) or proof.get("schema") not in (1, 2)
+        if (not isinstance(proof, dict) or proof.get("schema") not in (1, 2, 3)
                 or not isinstance(proof.get("passed"), list) or not all(isinstance(p, str) for p in proof["passed"])):
             continue
         prior = proof.get("context")
         if prior == identity:
             remaining.difference_update(proof["passed"])
-        elif (proof["schema"] == 2 and isinstance(prior, dict) and "tree" in prior
+        elif (proof["schema"] in (2, 3) and isinstance(prior, dict) and "tree" in prior
               and {key: value for key, value in prior.items() if key != "tree"} == environment
               and isinstance(proof.get("inputs"), dict)):
             remaining.difference_update(name for name in proof["passed"]
@@ -128,13 +133,13 @@ def missing_files(files, identity, receipts, inputs=None):
     return [name for name in files if name in remaining]
 
 
-def receipts(repo, heads, system, token=""):
+def receipts(repo, heads, system, token="", red_ok=False):
     env = dict(os.environ, GH_TOKEN=token) if token else None
     for head in heads:
         runs = json.loads(command("gh", "api", f"repos/{repo}/actions/workflows/tests.yml/runs?head_sha={head}&per_page=6",
                                   env=env))
         for run in runs["workflow_runs"]:
-            if not trusted_run(run, repo, head):
+            if not trusted_run(run, repo, head, red_ok):
                 continue
             run_id, attempt = run["id"], run["run_attempt"]
             if type(run_id) is not int or type(attempt) is not int:
@@ -146,24 +151,70 @@ def receipts(repo, heads, system, token=""):
                 except subprocess.CalledProcessError:
                     continue  # Older successful runs may have no receipts.
                 for path in Path(folder).rglob("proof.json"):
-                    yield json.loads(path.read_text(encoding="utf-8"))
+                    proof = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(proof, dict):
+                        proof["_head"] = head
+                    yield proof
 
 
-def reuse(files, token=""):
+def skippable_nodes(files, identity, receipts, deltas):
+    """C5 repair rule: a node that passed in a previous head's receipt (same image, python, packages) is skipped when
+    its file is still selected but not in the delta selection of that head (`deltas[head]` = files covering the diff
+    since it). A head with no delta (the covering map failed or is unmapped) gives no reuse."""
+    wanted = set(files)
+    environment = {key: value for key, value in identity.items() if key != "tree"}
+    skip = set()
+    for proof in receipts:
+        if not isinstance(proof, dict) or proof.get("schema") != 3 or not isinstance(proof.get("nodes"), list):
+            continue
+        prior = proof.get("context")
+        if not isinstance(prior, dict) or {k: v for k, v in prior.items() if k != "tree"} != environment:
+            continue
+        delta = deltas.get(proof.get("_head"))
+        if delta is None:
+            continue
+        skip.update(n for n in proof["nodes"] if isinstance(n, str) and n.split("::", 1)[0] in wanted
+                    and n.split("::", 1)[0] not in delta)
+    return skip
+
+
+def delta_files(head):
+    """Test files covering the change since `head`, or None when it cannot be told."""
+    try:
+        plan = json.loads(command(sys.executable, "-m", "fieldkit", "testcost", "plan", "--base", head, "--json"))
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return None
+    if plan.get("unmapped") or not isinstance(plan.get("tests"), list):
+        return None
+    return {t.replace("\\", "/") for t in plan["tests"]}
+
+
+def reuse_plan(files, token="", repair=False):
+    """(pending files, node ids to skip, count of reused test files). On a pull request `repair` also reads red runs."""
     started = time.monotonic()
     try:
         identity = context()
         repo = os.getenv("GITHUB_REPOSITORY", "")
         if not identity or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
-            return files
+            return files, set(), 0
         heads = list(dict.fromkeys(command("git", "log", "-3", "--format=%H %P").split()))
+        if repair:
+            heads = list(dict.fromkeys(heads + command("git", "log", "-5", "--format=%H", "HEAD^2").split()))
         if not heads or any(not re.fullmatch(r"[a-f0-9]{40}", head) for head in heads):
-            return files
-        evidence = receipts(repo, heads, identity["image"]["RUNNER_OS"], token=token)
+            return files, set(), 0
+        evidence = list(receipts(repo, heads, identity["image"]["RUNNER_OS"], token=token, red_ok=repair))
         pending = missing_files(files, identity, evidence, scoped_inputs(files))
-        print(f"ci-tests: reused recorded passes for {len(files) - len(pending)} of {len(files)} test files "
-              f"in {time.monotonic() - started:.2f} s", flush=True)
-        return pending
+        skip = set()
+        if repair:
+            deltas = {proof.get("_head"): delta_files(proof.get("_head")) for proof in evidence if isinstance(proof, dict)}
+            skip = skippable_nodes(pending, identity, evidence, deltas)
+        print(f"ci-tests: reused recorded passes for {len(files) - len(pending)} of {len(files)} test files, "
+              f"{len(skip)} single tests, in {time.monotonic() - started:.2f} s", flush=True)
+        return pending, skip, len(files) - len(pending)
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         print("ci-tests: previous file evidence unavailable; running all selected checks", flush=True)
-        return files
+        return files, set(), 0
+
+
+def reuse(files, token=""):
+    return reuse_plan(files, token)[0]

@@ -222,6 +222,23 @@ def run_tests(cmd, tests, shard):
     return result.rc
 
 
+def summary(reused, ran, single=0, proof=None):
+    """C5: one line the release and the PR can quote: how many tests were reused and how many ran."""
+    line = f"ci-tests: reused {reused} / ran {ran} tests ({single} single tests skipped by receipt)"
+    print(line, flush=True)
+    for path in filter(None, (os.getenv("GITHUB_STEP_SUMMARY"),)):
+        try:
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(line + chr(10))
+        except OSError:
+            pass
+    if proof:
+        try:
+            (Path(proof).parent / "reuse.json").write_text(json.dumps({"reused": reused, "ran": ran}), encoding="utf-8")
+        except OSError:
+            pass
+
+
 def main(argv):
     merged = "--merged" in argv                      # a push to main: skip a tree the pull request already tested
     argv = [x for x in argv if x != "--merged"]
@@ -272,20 +289,34 @@ def main(argv):
         return 1
     if tests == []:
         return 0
+    skip_nodes, reused_files = set(), 0
     evidence_token = os.environ.pop("FIELDKIT_CI_READ_TOKEN", "")
     if os.getenv("FIELDKIT_REUSE_CI") == "1":
-        from ci_file_proof import reuse
+        import ci_file_proof
 
         selected = tests if tests is not None else sorted({path.as_posix() for root in (Path("tests"), Path("local/tests"))
                                                           for pattern in ("test_*.py", "*_test.py")
                                                           for path in root.rglob(pattern)})
         if selected:
-            pending = reuse(selected, token=evidence_token)
+            if hasattr(ci_file_proof, "reuse_plan"):
+                pending, skip_nodes, reused_files = ci_file_proof.reuse_plan(
+                    selected, token=evidence_token, repair=os.getenv("GITHUB_EVENT_NAME") == "pull_request")
+            else:                                     # an older module: file level only
+                pending, skip_nodes, reused_files = ci_file_proof.reuse(selected, token=evidence_token), set(), 0
             if tests is not None or pending != selected:
                 tests = pending
             if tests == []:
+                summary(len(selected), 0)
                 return 0
     proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
+    nodes_out = None
+    if skip_nodes:
+        skip_file = Path(os.environ.get("RUNNER_TEMP", ".")) / "fieldkit-skip-nodes.json"
+        skip_file.write_text(json.dumps(sorted(skip_nodes)), encoding="utf-8")
+        os.environ["FIELDKIT_SKIP_NODES"] = str(skip_file)
+    if proof:
+        nodes_out = Path(os.environ.get("RUNNER_TEMP", ".")) / "fieldkit-nodes.json"
+        os.environ["FIELDKIT_NODES_OUT"] = str(nodes_out)
     cmd = [sys.executable, "-m", "pytest", "-q", "-rsf"]
     if os.getenv("GITHUB_ACTIONS") == "true":
         from fieldkit.method import cihang, ciplan
@@ -314,8 +345,16 @@ def main(argv):
                 import shutil
                 Path(proof).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(report, Path(proof).parent / "junit.xml")
-            if status == 0:
-                write_receipt(Path(proof), report, tests, identity)
+            passed_nodes, ran = [], 0
+            try:
+                record = json.loads(nodes_out.read_text(encoding="utf-8"))
+                passed_nodes = record.get("passed", [])
+                ran = len(passed_nodes) + len(record.get("failed", []))
+            except (OSError, ValueError, AttributeError):
+                pass
+            if status == 0 or passed_nodes:           # C5: a red run still records what passed
+                write_receipt(Path(proof), report, tests, identity, nodes=passed_nodes)
+            summary(reused_files + len(skip_nodes), ran, len(skip_nodes), proof)
             return status
     print("ci-tests:", " ".join(cmd), flush=True)
     return run_checked(cmd, tests, shard)
