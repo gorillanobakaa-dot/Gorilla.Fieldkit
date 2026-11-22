@@ -344,7 +344,7 @@ def test_present_drops_a_deleted_test_file(tmp_path):
 def test_release_reuses_a_green_main_run_and_has_no_probe_job():
     text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "\n  probe:" not in text                                   # F1.5: the hardware probe job is gone
-    assert "\n  reuse:" in text and text.count("needs: reuse") == 2    # F1.1: both OS shard sets wait for the lookup
+    assert "\n  reuse:" in text and text.count("needs: [reuse, checks]") == 2    # F1.1: both OS shard sets wait for the lookup
     assert text.count("if: needs.reuse.outputs.run == ''") == 2       # and run only when no green main run exists
     assert "reused green main run" in text                             # the reused run id is logged
 
