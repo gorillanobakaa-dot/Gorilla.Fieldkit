@@ -35,6 +35,21 @@
   - '        if sorted(set(got)) != want:'
   - '        if False:'
   why: a dropped test must fail the plan check
+- file: fieldkit/method/cihang.py
+  swap:
+  - '    return int(min(max(h["factor"] * p90, h["floor"]), h["cap"]))'
+  - '    return int(max(h["factor"] * p90, h["floor"]))'
+  why: a hung test must be bounded by the cap
+- file: fieldkit/method/cihang.py
+  swap:
+  - '        if _RESULT.search(m.group("rest")):'
+  - '        if False:'
+  why: a test that finished must not be named as the hung one
+- file: .github/ci_tests.py
+  swap:
+  - '    if not node or cihang.other_failures(text):'
+  - '    if not node:'
+  why: a real failure must never be re-run away
 - file: fieldkit/method/ciplan.py
   swap:
   - 'p["heaviest"] - p["lightest"] > p.get("granule", 0):'

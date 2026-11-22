@@ -140,7 +140,8 @@ def block(d, selected, new_files=(), now=None):
 
 
 DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 20, "linux": 20},
-            "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": []}
+            "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": [],
+            "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300}}
 
 
 def load_config(path=".github/ci.yaml"):
@@ -241,6 +242,10 @@ def fetch(out, repo=None):
 
 
 def main(argv=None):
+    if argv and argv[0] == "quarantine":              # C6: .github/quarantine.yaml, see cihang.py
+        from . import cihang
+
+        return cihang.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit ci", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     dur = sub.add_parser("durations")

@@ -131,8 +131,52 @@ def option(argv, name):
     return argv.pop(index)
 
 
+def shard_log(shard):
+    return Path(os.environ["RUNNER_TEMP"]) / f"fieldkit-pytest-{(shard or '1').split('/')[0]}.log"
+
+
+def tee(cmd, log):
+    """Run cmd, echo its output live and keep it in `log` (C6 reads the log to find a hung test)."""
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+    with log.open("wb") as keep, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as proc:
+        for raw in proc.stdout:
+            keep.write(raw)
+            sys.stdout.write(raw.decode("utf-8", "replace"))
+            sys.stdout.flush()
+    return proc.returncode
+
+
+def run_checked(cmd, tests, shard):
+    """C6: a hung test (pytest-timeout) gets one automatic re-run of the shard; hanging twice is quarantine."""
+    rc = run_tests(cmd, tests, shard)
+    if rc == 0 or os.getenv("GITHUB_ACTIONS") != "true":
+        return rc
+    from fieldkit.method import cihang
+
+    log = shard_log(shard)
+    text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    node = cihang.hung_node(text)
+    if not node or cihang.other_failures(text):
+        return rc
+    print(f"ci-tests: HANG 1/2 {node}: re-running this shard once", flush=True)
+    log.unlink(missing_ok=True)
+    rc2 = run_tests(cmd, tests, shard)
+    text2 = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    if rc2 == 0:
+        print(f"ci-tests: HANG-FLAKE {node} hung once and passed on the re-run", flush=True)
+        print(f"::warning::HANG-FLAKE {node} hung once and passed on the re-run", flush=True)
+        return 0
+    if cihang.hung_node(text2) == node:
+        print(f"ci-tests: HANG-QUARANTINE {node} hung twice. Add to .github/quarantine.yaml under tests:", flush=True)
+        print(cihang.quarantine_line(node, os.getenv("GITHUB_RUN_ID", "")), flush=True)
+    return rc2
+
+
 def run_tests(cmd, tests, shard):
     """Bound PR shards, stream their progress, and stop only the shard's process tree."""
+    if os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("RUNNER_TEMP") and (
+            not shard or os.getenv("GITHUB_EVENT_NAME") != "pull_request"):
+        return tee(cmd, shard_log(shard))
     if not shard or os.getenv("GITHUB_ACTIONS") != "true" or os.getenv("GITHUB_EVENT_NAME") != "pull_request":
         return subprocess.call(cmd)
 
@@ -145,7 +189,7 @@ def run_tests(cmd, tests, shard):
     budget = durations.load()
     planned = sum(budget.get(name, 30) for name in tests)
     deadline = liveness.deadline_for([planned], floor=600, cap=1680, factor=4)
-    log = Path(os.environ["RUNNER_TEMP"]) / f"fieldkit-pytest-{shard.split('/')[0]}.log"
+    log = shard_log(shard)
     start = next_heartbeat = time.monotonic()
     offset = 0
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -209,6 +253,7 @@ def main(argv):
         print(f"ci-tests: REFUSED - selection unavailable: {exc}")
         return 1
     print("ci-tests:", why)
+    hang_weights = {}
     if tests is not REFUSED and tests:
         tests = present(tests)
     if shard and tests is not REFUSED and tests != []:   # the whole suite (tests None) is every test file, split
@@ -217,6 +262,7 @@ def main(argv):
         from fieldkit.method import ciplan
 
         weights = ((block or {}).get("weights") or {}).get(ciplan.os_key()) or sh.load()
+        hang_weights = weights
         tests = sh.pick(every, weights, shard)
         print(f"ci-tests: shard {shard}: {len(tests)} file(s)")
         if not tests:
@@ -242,9 +288,16 @@ def main(argv):
     proof = os.getenv("FIELDKIT_TEST_EVIDENCE")
     cmd = [sys.executable, "-m", "pytest", "-q", "-rsf"]
     if os.getenv("GITHUB_ACTIONS") == "true":
-        cmd.extend(["-o", "faulthandler_timeout=300"])
+        from fieldkit.method import cihang, ciplan
+
+        hang = ciplan.load_config().get("hang")
+        limit = cihang.timeout_for(hang_weights, hang)
+        # thread method: the only one that works on Windows; it ends the process, and run_checked re-runs the shard once
+        cmd.extend(["-o", "faulthandler_timeout=300", "-vv", f"--timeout={limit}", "--timeout-method=thread"])
         if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
-            cmd.extend(["-vv", "-x"])
+            cmd.append("-x")
+        print(f"ci-tests: per-test timeout {limit}s (hang config {hang})", flush=True)
+        cmd.extend(cihang.deselect_args(cihang.load_quarantine(), tests))
     cmd.extend(tests or [])
     if proof and tests:
         from ci_file_proof import context, write_receipt
@@ -254,7 +307,7 @@ def main(argv):
             report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
             cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
             print("ci-tests:", " ".join(cmd), flush=True)
-            status = run_tests(cmd, tests, shard)
+            status = run_checked(cmd, tests, shard)
             if report.is_file():                      # C1: every shard hands its junit to the durations job
                 import shutil
                 Path(proof).parent.mkdir(parents=True, exist_ok=True)
@@ -263,7 +316,7 @@ def main(argv):
                 write_receipt(Path(proof), report, tests, identity)
             return status
     print("ci-tests:", " ".join(cmd), flush=True)
-    return run_tests(cmd, tests, shard)
+    return run_checked(cmd, tests, shard)
 
 
 if __name__ == "__main__":

@@ -10,3 +10,8 @@ budget:                      # most runners one run may take per OS (slot budget
 degraded_file_seconds: 10    # a file with no recorded duration weighs this much when no durations exist yet
 max_spread: 1.25             # check: heaviest shard / lightest shard, once more than one shard runs
 keep_together: []            # files that must not share a shard split with others (reserved for C2 test-level split)
+hang:                        # C6: one test may run factor x p90 of the recorded file times, clamped; no durations = default
+  factor: 10
+  floor: 120                 # seconds
+  cap: 900
+  default: 300
