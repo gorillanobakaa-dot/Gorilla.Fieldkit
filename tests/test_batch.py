@@ -147,6 +147,8 @@ def world(tmp_path, monkeypatch):
         git(work, "push", "-q", "origin", f"HEAD:refs/heads/{br}", check=False)
         return {"ok": True, "branch": br}
     w["push"] = push
+    # the fake repo has no tests/testmap.yaml: its files are not "unmapped" (F2.6 refuses those); no test covers them
+    monkeypatch.setattr(batch, "tests_of", lambda repo, paths, base=None: set())
     return w
 
 
