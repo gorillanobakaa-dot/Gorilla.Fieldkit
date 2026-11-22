@@ -147,8 +147,26 @@ def test_a_powershell_reader_that_hangs_is_a_missing_reading_not_a_dead_governor
     def hang(cmd, timeout):
         raise subprocess.TimeoutExpired(cmd, timeout)
     monkeypatch.setattr(sensors, "_run_ps", hang)
-    assert sensors.perf_percent() is None
-    assert sensors.thermalzone() is None
+    assert sensors.msacpi() is None
+
+
+def test_the_counter_readers_never_start_a_process(monkeypatch):
+    """2026-11-22: `thermal watch --forever` started two PowerShells (two console hosts) every ~6 s. The counters now
+    come from pdh.dll in-process; a failed read is a missing reading, never a PowerShell fallback."""
+    import subprocess
+    from fieldkit.thermal import pdh, sensors
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("a counter read started a process"))
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("a counter read started a process"))
+    monkeypatch.setattr(pdh, "values", lambda *a, **k: None)
+    assert sensors.perf_percent() is None and sensors.thermalzone() is None
+    assert sensors.thermalzone(read=lambda p: [326.0, 300.0]) == 52.85
+    assert sensors.perf_percent(read=lambda p, rate: [99.5]) == 99.5
+
+
+def test_pdh_is_absent_off_windows(monkeypatch):
+    from fieldkit.thermal import pdh
+    monkeypatch.setattr(pdh.sys, "platform", "linux")
+    assert pdh.values("\\Processor(_Total)\\% Processor Time") is None
 
 
 def test_the_sensor_proof_for_the_always_on_governor_never_runs_powercfg(tmp_path, monkeypatch):
@@ -190,3 +208,23 @@ def test_linux_boost_reads_intel_pstate_and_cpufreq(tmp_path):
     assert brake._linux_boost(str(tmp_path)) == 0          # no_turbo=1 means turbo OFF, and it wins
     (tmp_path / "intel_pstate" / "no_turbo").write_text("0\n")
     assert brake._linux_boost(str(tmp_path)) == 1
+
+
+def test_the_always_on_watch_path_has_no_powershell_counter_reader():
+    """Static guard (2026-11-22): the counter readers and the watch loop never shell out to Get-Counter again."""
+    import ast
+    import inspect
+    import textwrap
+    from fieldkit.thermal import pdh, sensors
+
+    def code(obj):                                              # the source without its docstrings
+        tree = ast.parse(textwrap.dedent(inspect.getsource(obj)))
+        for n in ast.walk(tree):
+            body = getattr(n, "body", None)
+            if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                    and isinstance(getattr(body[0], "value", None), ast.Constant) and isinstance(body[0].value.value, str):
+                body[0] = ast.Pass()
+        return ast.unparse(tree).lower()
+    for fn in (sensors.thermalzone, sensors.perf_percent, pdh.values):
+        assert not any(w in code(fn) for w in ("_run_ps", "subprocess", "powershell", "get-counter")), fn.__name__
+    assert not any(w in code(watch) for w in ("_run_ps", "get-counter"))
