@@ -246,6 +246,10 @@ def main(argv=None):
         from . import cihang
 
         return cihang.main(argv[1:])
+    if argv and argv[0] == "covmap":                  # C4.1: which test ran which lines, see covmap.py
+        from . import covmap
+
+        return covmap.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit ci", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     dur = sub.add_parser("durations")
