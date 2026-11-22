@@ -1,5 +1,5 @@
 name: covmap
-# C4.1: a nightly run of the whole suite under coverage with one context per test function, written as the map
+# C4.1: a nightly run of the whole suite under coverage with one context per test, written as the map
 # test -> files -> lines (fieldkit ci covmap). Non-gating: nothing reads it as a gate until the C4.4 replay shows 0 misses.
 on:
   schedule:
@@ -27,11 +27,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
-      - name: Run the suite with one coverage context per test function
+      - name: Run the suite with one coverage context per test (pytest-cov, xdist)
         shell: bash
         run: |
-          printf '[run]\nsource = fieldkit,.github\ndynamic_context = test_function\nbranch = False\n' > .covmap.rc
-          python -m coverage run --rcfile=.covmap.rc -m pytest -q -p no:cacheprovider --timeout=300 || echo "suite-red: map still written from what ran"
+          printf '[run]
+source = fieldkit,.github
+branch = False
+' > .covmap.rc
+          python -m pytest -q -p no:cacheprovider --timeout=300 -n 3 --cov --cov-config=.covmap.rc --cov-context=test || echo "suite-red: map still written from what ran"
       - name: Build the map
         shell: bash
         run: python -m fieldkit ci covmap build .coverage covmap.json --root .
