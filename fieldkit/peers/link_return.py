@@ -146,17 +146,29 @@ def _reap(cwd):
     return worktrees.reap(cwd)
 
 
+LOG_TAIL = 500
+
+
+def log_tail(jobd, n=LOG_TAIL):
+    """The last words of the job's session.log (claude's own stderr and stdout go there), one line, no secrets kept
+    apart from what the run itself printed. 2026-11-23: four cable jobs ended in 40 s and the note named only a branch."""
+    try:
+        t = (Path(jobd) / "session.log").read_text(encoding="utf-8", errors="replace")[-n:]
+    except OSError:
+        return ""
+    return " | ".join(x.strip() for x in t.strip().splitlines() if x.strip())[-n:]
+
+
 def bring_home(proc, cwd, before, jobd, brief="", run=fkproc.run, push=_ship_push, send=_send, branches=None,
                reap=_reap, alive=None):
     """Waits for the started session, then pushes its branches and tells the command post. -> the report dict, also
     written to JOB/branch-return.json. `branches`: the branches to push when there is no `before` snapshot."""
-    if hasattr(proc, "wait"):
-        proc.wait()
+    rc = proc.wait() if hasattr(proc, "wait") else None
     to_push, local = (list(branches), []) if branches is not None else moved(before, heads(cwd, run=run))
     results = [push_branch(cwd, b, run=run, push=push, jobd=jobd, alive=alive) for b in to_push]
     m = TASK_ID.search(brief or "")
     rep = {"task": m.group(1) if m else "", "at": time.strftime("%Y-%m-%d %H:%M:%S"), "pushed": results,
-           "left_local": local}
+           "left_local": local, "exit": rc, "log_tail": log_tail(jobd)}
     try:
         (Path(jobd) / "branch-return.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
     except OSError:
@@ -166,11 +178,13 @@ def bring_home(proc, cwd, before, jobd, brief="", run=fkproc.run, push=_ship_pus
     except Exception as e:  # noqa: BLE001  (a tree left behind is reaped by the next job or `fieldkit task status`)
         rep["worktrees"] = {"error": f"{type(e).__name__}: {e}"}
     news = [r for r in results if r["detail"] not in QUIET]   # already there, another run's, or empty: no news
-    if news or local:
+    failed = rc not in (None, 0)
+    if news or local or failed:
         words = "; ".join(f"{r['branch']} {'pushed' if r['pushed'] else 'NOT pushed: ' + r['detail']}"
                           for r in news)
         if local:
             words += ("; " if words else "") + "left here (not feat/ or fix/): " + ", ".join(local)
+        words += f"; run exit {rc if rc is not None else 'unknown'}; log tail: {rep['log_tail'] or '(empty)'}"
         try:
             send(f"branch return{' for ' + rep['task'] if rep['task'] else ''}: {words}")
         except Exception:  # noqa: BLE001  (the json file still holds it)
