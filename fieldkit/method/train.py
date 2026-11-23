@@ -110,6 +110,40 @@ def _now():
 
 
 # -- GitHub, through gh (a fake in the tests) --------------------------------------------------------------------------
+SNAPSHOT_ENV = "FIELDKIT_GH_SNAPSHOT"   # a folder: read-only gh answers kept once per CI run, shared between jobs
+
+
+def _snapshot_file(args):
+    """The snapshot file of a read-only gh call, or None (no folder set, or the call can change something)."""
+    folder = os.environ.get(SNAPSHOT_ENV)
+    if not folder or not args:
+        return None
+    reads = (args[0] == "pr" and len(args) > 1 and args[1] in ("list", "view")) or (
+        args[0] == "api" and not {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"} & set(args))
+    if not reads:
+        return None
+    import hashlib
+    return Path(folder) / (hashlib.sha256("\x00".join(args).encode("utf-8")).hexdigest()[:32] + ".json")
+
+
+def _snapshot_read(args):
+    f = _snapshot_file(args)
+    try:
+        return f.read_text(encoding="utf-8") if f and f.is_file() else None
+    except OSError:
+        return None
+
+
+def _snapshot_write(args, out):
+    f = _snapshot_file(args)
+    if f:
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(out, encoding="utf-8")
+        except OSError:
+            pass                                      # a snapshot that cannot be written only costs the next call
+
+
 class GH:
     FIELDS = "number,title,headRefName,baseRefName,headRefOid,labels,isDraft,updatedAt,state"
 
@@ -119,9 +153,14 @@ class GH:
         self.slug = sync._slug(repo)
 
     def _gh(self, *args, timeout=120):
+        cached = _snapshot_read(args)
+        if cached is not None:
+            return 0, cached, ""
         from .ship import ship_env                    # inside an autopilot run: ship's own credential (inbox #145)
         r = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
                      cwd=self.repo, timeout=timeout, env=ship_env())
+        if r.returncode == 0:
+            _snapshot_write(args, r.stdout or "")
         return r.returncode, (r.stdout or ""), (r.stderr or "")
 
     def _json(self, *args):
