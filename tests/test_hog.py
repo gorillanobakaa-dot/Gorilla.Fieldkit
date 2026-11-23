@@ -102,6 +102,14 @@ def test_thrash(cfg, v, sev):
     assert sevs(f, "thrash") == ([sev] if sev else [])
 
 
+def test_thrash_needs_memory_pressure(cfg):
+    # high read-back rate but pagefile 1% and RAM at 40%: file cache churn, not thrashing
+    ok = facts(limits={"paging": 29486.0, "pagefile_pct": 1.0}, ram={"used": 4 * GB, "total": 10 * GB})
+    assert sevs(rules.limits(ok, cfg), "thrash") == []
+    low = facts(limits={"paging": 29486.0, "pagefile_pct": 1.0}, ram={"used": 9 * GB, "total": 10 * GB})
+    assert sevs(rules.limits(low, cfg), "thrash") == ["act"]
+
+
 def test_limits_missing_parts_are_silent(cfg):
     # macOS, a failed probe, an old facts file: nothing measured, nothing guessed
     assert rules.limits(facts(), cfg) == []

@@ -118,6 +118,11 @@ def thrash(facts, cfg):
     sev = None if v is None else _sev(v, cfg["thrash_warn"], cfg["thrash_act"])
     if not sev:
         return []
+    r = facts.get("ram")
+    ram_pct = r["used"] * 100.0 / r["total"] if r else None
+    # a high rate alone is not thrashing (2026-11-23: 29486 pages/s at pagefile 1%, RAM fine): memory must be short too
+    if (lim.get("pagefile_pct") or 0) < cfg["thrash_pagefile_pct"] and (ram_pct is None or ram_pct < cfg["ram_warn_pct"]):
+        return []
     return [_f("thrash", sev, f"pagefile thrashing: {v:.0f} pages/s read back (pagefile {lim.get('pagefile_pct', 0):.0f}% "
                "used); top RAM: " + ", ".join(_top(facts.get("procs", []), 3)), {"pages_s": v,
                "pagefile_pct": lim.get("pagefile_pct")})]
