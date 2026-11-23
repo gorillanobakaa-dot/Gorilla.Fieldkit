@@ -123,7 +123,7 @@ def _snapshot_file(args):
     if not reads:
         return None
     import hashlib
-    return Path(folder) / (hashlib.sha256(" ".join(args).encode("utf-8")).hexdigest()[:32] + ".json")
+    return Path(folder) / (hashlib.sha256("\x00".join(args).encode("utf-8")).hexdigest()[:32] + ".json")
 
 
 def _snapshot_read(args):
