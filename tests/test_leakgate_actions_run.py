@@ -82,6 +82,10 @@ def fake_world(tmp_path, monkeypatch):
         return ev, {}
 
     fake_world_silent = {}
+    # the capture slot lives under the home folder: parallel workers on one machine must not share it
+    (tmp_path / "home").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(gate, "sys", _SysAs("win32"))
     monkeypatch.setattr(se, "is_admin", lambda: False)
     monkeypatch.setattr(se, "build_copy", lambda z, d, policies=None: d)
