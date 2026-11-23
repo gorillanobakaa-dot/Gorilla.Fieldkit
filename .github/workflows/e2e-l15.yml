@@ -229,9 +229,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_collect.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-collect-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-collect-windows')
     name: e2e-ship-batch-collect-windows
@@ -245,9 +256,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_collect.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-select-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-select-linux')
     name: e2e-ship-batch-select-linux
@@ -261,9 +283,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_select.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-select-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-select-windows')
     name: e2e-ship-batch-select-windows
@@ -277,9 +310,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_select.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-build-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-build-linux')
     name: e2e-ship-batch-build-linux
@@ -293,9 +337,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_build.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-build-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-build-windows')
     name: e2e-ship-batch-build-windows
@@ -309,9 +364,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_build.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-run-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-run-linux')
     name: e2e-ship-batch-run-linux
@@ -325,9 +391,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_run.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-ship-batch-run-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-run-windows')
     name: e2e-ship-batch-run-windows
@@ -341,6 +418,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
       - run: python .github/e2e/ship_batch_run.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
