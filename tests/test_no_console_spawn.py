@@ -49,6 +49,9 @@ def scan_source(src, rel):
                 froms[a.asname or a.name] = (n.module, a.name)
     hits = []
     call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    # `run is subprocess.run` only compares which function a caller passed; it starts nothing
+    compared = {id(o) for n in ast.walk(tree) if isinstance(n, ast.Compare)
+                and all(isinstance(op, (ast.Is, ast.IsNot)) for op in n.ops) for o in [n.left, *n.comparators]}
 
     def walk(node, fn):
         for ch in ast.iter_child_nodes(node):
@@ -65,7 +68,7 @@ def scan_source(src, rel):
                         callee = f"{m}.{a}"
                 if callee:
                     hits.append((f"{rel}:{fn}:{callee}", ch.lineno))
-            if (isinstance(ch, ast.Attribute) and id(ch) not in call_funcs and isinstance(ch.value, ast.Name)
+            if (isinstance(ch, ast.Attribute) and id(ch) not in call_funcs and id(ch) not in compared and isinstance(ch.value, ast.Name)
                     and mods.get(ch.value.id) == "subprocess" and ch.attr in SUB_FNS):
                 # `run=subprocess.run` as a default or argument starts the same raw child later (A5, 2026-11-23)
                 hits.append((f"{rel}:{fn}:subprocess.{ch.attr}", ch.lineno))

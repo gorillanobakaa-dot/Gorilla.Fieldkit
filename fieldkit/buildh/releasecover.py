@@ -28,7 +28,7 @@ HIDDEN_HEADING = "## What's new: the hidden pages"
 def _no_network_during_gate(run):
     """gh goes to the network; never while a release leak gate measures this machine (2026-10-19: two release-cover
     runs called gh mid-gate). A test's fake runner is not the network."""
-    if run is fkproc.run:
+    if run is subprocess.run:
         from ..leakgate import status as _st
         pids = _st.gate_running()
         if pids:

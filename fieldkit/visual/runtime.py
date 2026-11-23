@@ -236,7 +236,7 @@ def launch(copy, prof, dpr, timeout_s, popen=fkproc.Popen, kill=None, clock=time
     if timed_out:
         kill(proc.pid)            # still alive, so the PID is still ours; never after exit (the PID may be reused)
     sleep(1)
-    left = stop_leftovers(copy) if popen is fkproc.Popen else []
+    left = stop_leftovers(copy) if popen is subprocess.Popen else []
     return {"rc": rc, "seconds": round(clock() - t0, 1), "timed_out": timed_out, "pid": proc.pid, "stopped_leftovers": left}
 
 

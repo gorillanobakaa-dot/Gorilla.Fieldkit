@@ -30,7 +30,6 @@ Stops by PID and creation time, never by name: nothing outside the container is 
 import os
 import signal
 import subprocess
-from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -225,17 +224,17 @@ def _note_direct(pid):
 def _hook_popen():
     """Record every Popen child of this process, so the reaper never takes the exit status of a child whose owner
     (a Popen, in any thread) still waits for it. Only RE-PARENTED orphans (not started by this process) are reaped."""
-    if getattr(fkproc.Popen, "_fk_hooked", False):
+    if getattr(subprocess.Popen, "_fk_hooked", False):
         return
-    orig = fkproc.Popen.__init__
+    orig = subprocess.Popen.__init__
 
     def init(self, *a, **kw):
         orig(self, *a, **kw)
         pid = getattr(self, "pid", None)
         if pid:
             _note_direct(pid)
-    fkproc.Popen.__init__ = init
-    fkproc.Popen._fk_hooked = True
+    subprocess.Popen.__init__ = init
+    subprocess.Popen._fk_hooked = True
 
 
 def same_start(pid, ct):
@@ -577,7 +576,7 @@ class Container:
         deadline_s = deadline_s if deadline_s is not None else self.deadline_s
         if busy_s is None:
             busy_s, on_busy = busy_for(self.label)
-        if popen is not None and popen is not fkproc.Popen:
+        if popen is not None and popen is not subprocess.Popen:
             return _run_seam(popen, cmd, cwd, env, stdin_text, deadline_s)
         tmp = Path(tempfile.mkdtemp(prefix="fk-contain-"))
         out_p = Path(stdout_path) if stdout_path else tmp / "out.txt"

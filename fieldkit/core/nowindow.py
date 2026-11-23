@@ -10,7 +10,6 @@ device), so a deny printed as JSON still reaches the caller; the exit code never
 """
 import os
 import subprocess
-from fieldkit import proc as fkproc
 import sys
 from pathlib import Path, PureWindowsPath
 
@@ -53,7 +52,7 @@ def install(force=False, platform=None):
     global _installed
     if _installed or (platform or sys.platform) != "win32" or not (force or not has_console(platform)):
         return False
-    real = fkproc.Popen.__init__
+    real = subprocess.Popen.__init__
 
     def init(self, *a, **kw):
         cf = kw.get("creationflags") or 0
@@ -61,7 +60,7 @@ def install(force=False, platform=None):
             kw["creationflags"] = cf | NO_WINDOW
         real(self, *a, **kw)
 
-    fkproc.Popen.__init__ = init
+    subprocess.Popen.__init__ = init
     _installed = True
     return True
 

@@ -30,3 +30,9 @@ allow:
   "fieldkit/mandate/hooks/gorilla-opencode/hooks.py:mandate_gate:subprocess.run": >-
     A stand-alone hook copied into the Gorilla OpenCode install; it cannot import fieldkit. It runs one short
     git/gh check with its output captured, from a hook that OpenCode starts with its own console.
+  "fieldkit/core/contain.py:_hook_popen:subprocess.Popen": >-
+    Wraps the Popen class itself (patches __init__) to record every child of this process so the reaper never takes
+    its exit status; starts no child here. fkproc.Popen is a function, so the class must be named.
+  "fieldkit/core/nowindow.py:install:subprocess.Popen": >-
+    Wraps the Popen class itself (patches __init__) so a child of a console-less process starts with
+    CREATE_NO_WINDOW; starts no child here. fkproc.Popen is a function, so the class must be named.

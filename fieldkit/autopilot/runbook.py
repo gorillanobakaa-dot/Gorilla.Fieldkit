@@ -133,7 +133,7 @@ def _run_step(step, log, say, run=fkproc.Popen, env=None):
         ps = ("$global:LASTEXITCODE = 0; " + cmd + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE")
         shell = ["powershell", "-NoProfile", "-Command", ps] if os.name == "nt" else ["bash", "-lc", cmd]
-        if run is fkproc.Popen:
+        if run is subprocess.Popen:
             # in a container with a wall deadline (none given: STEP_CAP_S): the whole tree stops on expiry, and what
             # the step leaves running when it ends is stopped too (fieldkit/core/contain.py, FM-1/FM-2)
             from ..core import contain, liveness
