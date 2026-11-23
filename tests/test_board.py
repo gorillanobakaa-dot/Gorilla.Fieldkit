@@ -127,3 +127,14 @@ def test_zero_handover_leaves_the_old_zeros_row(monkeypatch):
     assert net._board_row_of("claude:abcd1234@vaio") == "written" and seen == ["abcd1234"]
     assert net._board_row_of("claude:abcd1234@laptop") == "not here"
     assert net._board_row_of("codex:x@vaio") == "not here" and seen == ["abcd1234"]
+
+
+def test_open_refusal_defects_reach_the_board_by_key(tmp_path, monkeypatch):
+    """5.7 / F7: the ledger is linked to the Board: each open defect is a row, a closed one is not."""
+    from fieldkit import refusals
+    monkeypatch.setattr(refusals, "defects", lambda root=None: {
+        "head moved": {"tool": "train", "status": "open", "count": 3},
+        "old": {"tool": "ship", "status": "closed", "count": 2}})
+    rows = board.refusal_rows()
+    assert [r["key"] for r in rows] == ["refusal:head moved"]
+    assert "train" in rows[0]["line"] and "refusals close" in rows[0]["fix"]
