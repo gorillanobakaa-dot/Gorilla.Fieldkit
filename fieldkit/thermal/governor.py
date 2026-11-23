@@ -333,4 +333,4 @@ class Governor(threading.Thread):
 
 
 def kill_tree(pid):
-    fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    fkproc.kill_tree(pid)

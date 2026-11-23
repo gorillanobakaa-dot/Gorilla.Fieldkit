@@ -102,6 +102,8 @@ def requestheaders(flow):
 
 
 def is_admin():
+    if not WIN:
+        return os.geteuid() == 0
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
@@ -162,7 +164,13 @@ $all | ConvertTo-Json -Compress -Depth 2
 """
 
 
+WIN = sys.platform == "win32"
+
+
 def snapshot_processes():
+    if not WIN:                                           # /proc: the same row shape as Win32_Process
+        from . import linux_sensors
+        return linux_sensors.snapshot_processes()
     out = fkproc.run(["powershell", "-NoProfile", "-Command", _PS_SNAPSHOT], capture_output=True, text=True, errors="replace").stdout
     try:
         rows = json.loads(out) if out.strip() else []
@@ -244,7 +252,10 @@ def browser_tree(snap, root_pid, build_dir=None):
 
 
 def snapshot_all_sockets():
-    """-> every TCP connection and UDP endpoint on the machine with its owning process (one PowerShell call)."""
+    """-> every TCP connection and UDP endpoint on the machine with its owning process (one PowerShell call on
+    Windows; `ss -tunapH` on Linux)."""
+    if not WIN:
+        return _ss_sockets()
     ps = ("Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object { \"tcp|$($_.State)|$($_.LocalAddress)|"
           "$($_.LocalPort)|$($_.RemoteAddress)|$($_.RemotePort)|$($_.OwningProcess)\" }; "
           "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object { \"udp|Bound|$($_.LocalAddress)|"
@@ -278,9 +289,22 @@ class PortOwners:
         return "other", near[0]
 
 
+def _ss_sockets():
+    """Linux: every socket of this host with its owning pid, from ss (iproute2); no ss -> none, never a crash."""
+    from . import linux_sensors
+    try:
+        p = fkproc.run(["ss", "-tunapH"], capture_output=True, text=True, errors="replace")
+    except OSError:
+        return []
+    return linux_sensors.parse_ss(p.stdout)
+
+
 def snapshot_sockets(pids):
     if not pids:
         return []
+    if not WIN:
+        want = {str(p) for p in pids}
+        return [r for r in _ss_sockets() if r[6] in want]
     ids = ",".join(str(p) for p in pids)
     ps = (f"$ids=@({ids}); "
           "Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | "
@@ -339,6 +363,24 @@ def build_pids(build_dir):
     return [r["ProcessId"] for r in snapshot_processes() if (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
+def _kill_tree(pid):
+    """Stop exactly this pid and its children (taskkill /T /F on Windows; psutil by pid elsewhere). -> 0 when sent."""
+    if WIN:
+        return fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True).returncode
+    import psutil
+    try:
+        root = psutil.Process(int(pid))
+        procs = root.children(recursive=True) + [root]
+    except psutil.Error:
+        return 0
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    return 0
+
+
 def confirm_exit(rows, wait=30, kill=None, waiter=None):
     """Owner 2026-10-19 (leak-gate proposal E): a process still listed when the watch window ends is waited on for its
     REAL exit (up to `wait` s), then killed once more and waited on again. -> rows, each with "outcome":
@@ -355,8 +397,7 @@ def confirm_exit(rows, wait=30, kill=None, waiter=None):
         except Exception as e:                            # NoSuchProcess = already gone; TimeoutExpired = alive
             return type(e).__name__ == "NoSuchProcess"
     waiter = waiter or _wait
-    kill = kill or (lambda pid: fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
-                                               text=True).returncode)
+    kill = kill or _kill_tree
     out = []
     for r in rows:
         if not r.get("why", "").startswith("still running"):
@@ -376,6 +417,10 @@ def watch_after_kill(build_dir, seconds, killed_at=None):
     started after the kill (a relaunch or a detached task). 2026-10-04 (build 26 gate): every process merely SEEN in the
     window counted, and taskkill returns before Windows has finished removing the processes it ends, so a process in
     the middle of dying read as "alive after shutdown" (8 times in one run). Each returned row says why it counts."""
+    if not WIN:
+        from . import linux_sensors
+        pre = {r["ProcessId"] for r in linux_sensors.build_rows(linux_sensors.snapshot_processes(), build_dir)}
+        return linux_sensors.watch_after_kill(build_dir, seconds, pre_pids=pre)
     bd = str(Path(build_dir)).lower()
     killed_ft = int(((killed_at or time.time()) + 11644473600) * 10_000_000)      # Windows FILETIME of the kill
     seen, last = {}, {}
@@ -406,7 +451,11 @@ DNS_CLIENT_LOG = "Microsoft-Windows-DNS-Client/Operational"
 
 
 def dnsclient_enable():
-    """Switch the DNS-client log on. -> its previous state (True/False), or None when it could not be read."""
+    """Switch the DNS-client log on. -> its previous state (True/False), or None when it could not be read.
+    Linux: N-A, there is no per-process DNS log in the OS; the Linux gate names the asker through its controlled
+    dnsmasq resolver (linux_sensors.dnsmasq_events), so this returns None."""
+    if not WIN:
+        return None
     r = fkproc.run(["wevtutil", "gl", DNS_CLIENT_LOG], capture_output=True, text=True, errors="replace")
     if r.returncode != 0:
         return None
@@ -418,12 +467,14 @@ def dnsclient_enable():
 
 def dnsclient_restore(prev):
     """Put the log back as it was (only switched off again when it was off before)."""
-    if prev is False:
+    if prev is False and WIN:
         fkproc.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:false"], capture_output=True)
 
 
 def dnsclient_queries(since_iso):
-    """-> [(iso time, pid, query name)] logged since `since_iso`."""
+    """-> [(iso time, pid, query name)] logged since `since_iso` (Linux: none, see dnsclient_enable)."""
+    if not WIN:
+        return []
     ps = ("$s=[datetime]::Parse('" + since_iso + "'); "
           "Get-WinEvent -FilterHashtable @{LogName='" + DNS_CLIENT_LOG + "'; Id=3006; StartTime=$s} -ErrorAction SilentlyContinue | "
           "ForEach-Object { \"$($_.TimeCreated.ToString('o'))|$($_.ProcessId)|$($_.Properties[0].Value)\" }")
@@ -905,15 +956,15 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     sampler.stop_flag.set()
     sampler.join(timeout=30)
     killed_at = time.time()
-    fkproc.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    _kill_tree(proc.pid)
     for pid in build_pids(build_dir):                 # a de-elevated browser is not in the launcher's tree
-        fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        _kill_tree(pid)
     after_kill = confirm_exit(watch_after_kill(build_dir, watch, killed_at=killed_at))
     after = fs_snapshot(watch_dirs())
     if packets:
         pktmon_stop(etl, pcap)
     if mitm:
-        fkproc.run(["taskkill", "/PID", str(mitm.pid), "/T", "/F"], capture_output=True)
+        _kill_tree(mitm.pid)
 
     ev = []
     base = {"scenario": name, "mode": mode}

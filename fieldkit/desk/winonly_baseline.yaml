@@ -1,0 +1,64 @@
+# Ratchet for desk/winonly.py: Windows-only calls with no OS branch that existed on 2026-11-23, each with its Linux
+# equivalent. It only shrinks: fix a site and delete its line (a stale line fails CI); a new site never enters.
+port_cards:
+- bh-build-run
+- hdmi-diag
+- hdmi-doctor
+- hdmi-fix
+- hdmi-profile-list
+- hdmi-status
+- hdmi-test-quick
+- hdmi-tv-info
+- hdmi-tv-wake
+- hdmi-tv-wifi-report
+- power-audit
+- power-drift
+- wintrace
+sites:
+  fieldkit/academic/read_sources.py::_convert_with_office::powershell: 'PORT: Word/Excel COM convert; Linux = libreoffice --headless --convert-to'
+  fieldkit/academic/shortcut.py::_target_of_lnk::powershell: 'PORT: .lnk shortcuts; Linux = .desktop files (read Exec=, write ~/.local/share/applications)'
+  fieldkit/academic/shortcut.py::make::powershell: 'PORT: .lnk shortcuts; Linux = .desktop files (read Exec=, write ~/.local/share/applications)'
+  fieldkit/app/find.py::_powershell_json::powershell: 'PORT: .lnk target lookup via COM; Linux = parse .desktop Exec= and which()'
+  fieldkit/app/find.py::real_lnk_args::powershell: 'PORT: .lnk target lookup via COM; Linux = parse .desktop Exec= and which()'
+  fieldkit/app/find.py::real_lnk_target::powershell: 'PORT: .lnk target lookup via COM; Linux = parse .desktop Exec= and which()'
+  fieldkit/buildh/install.py::clear_startup_caches::powershell: 'PORT: Windows shell startup caches; Linux = ~/.cache/mozilla startupCache removal'
+  fieldkit/buildh/releasepublish.py::send::powershell: 'PORT: sends via Windows PowerShell Send-MailMessage path; Linux = smtplib or gh'
+  fieldkit/buildh/stops.py::power_events::powershell: 'PORT: Windows event log power events; Linux = journalctl -b systemd-logind/sleep'
+  fieldkit/cli.py::build_parser::cmd: 'N-A: cmd is an argparse dest name here, not the Windows shell'
+  fieldkit/cli.py::main::cmd: 'N-A: cmd is an argparse dest name here, not the Windows shell'
+  fieldkit/core/host.py::<module>::pwsh: 'PORT: pwsh path probe at module level; Linux = shutil.which pwsh optional, not needed'
+  fieldkit/core/snapshot.py::_ps_json::powershell: 'PORT: Windows process/service snapshot via CIM; Linux = psutil plus systemctl list-units'
+  fieldkit/core/telemetry.py::_ps::powershell: 'PORT: Windows firewall task and CIM facts; Linux = nftables/ufw status and psutil'
+  fieldkit/core/telemetry.py::run_firewall_task::schtasks: 'PORT: Windows firewall task and CIM facts; Linux = nftables/ufw status and psutil'
+  fieldkit/desk/cards.py::_entry_for::cmd: 'N-A: card entry text names powershell for Windows cards; Linux cards name sh'
+  fieldkit/desk/cards.py::_entry_for::powershell: 'N-A: card entry text names powershell for Windows cards; Linux cards name sh'
+  fieldkit/desk/trashmenu.py::_ps::powershell: 'N-A: Windows 11 first right-click menu; Linux = .desktop file-manager action'
+  fieldkit/icons/iconkit.py::_reg::reg: 'N-A: HKCU registry for the Windows icon cache; Linux = GTK/KDE icon cache via gtk-update-icon-cache'
+  fieldkit/laptop/alerts.py::install_antigravity::powershell: 'N-A: Antigravity Windows installer; Linux = apt/.deb of the same app'
+  fieldkit/laptop/cpu.py::firmware_limits_since_boot::powershell: 'PORT: ThrottleStop start/stop and firmware limits; Linux = /sys/devices/system/cpu/*/thermal_throttle, cpupower'
+  fieldkit/laptop/cpu.py::start_tool::powershell: 'PORT: ThrottleStop start/stop and firmware limits; Linux = /sys/devices/system/cpu/*/thermal_throttle, cpupower'
+  fieldkit/laptop/cpu.py::stop_tool::taskkill: 'PORT: ThrottleStop start/stop and firmware limits; Linux = /sys/devices/system/cpu/*/thermal_throttle, cpupower'
+  fieldkit/laptop/cpu.py::tool_running::tasklist: 'PORT: ThrottleStop start/stop and firmware limits; Linux = /sys/devices/system/cpu/*/thermal_throttle, cpupower'
+  fieldkit/laptop/winps.py::run_ps::powershell: 'N-A: helper that exists to run Windows PowerShell; callers branch on platform'
+  fieldkit/leakgate/extras.py::firewall_block::powershell: 'PORT: Windows Firewall block rules; Linux = nft/iptables rule in the leak-gate netns'
+  fieldkit/leakgate/extras.py::firewall_unblock::powershell: 'PORT: Windows Firewall block rules; Linux = nft/iptables rule in the leak-gate netns'
+  fieldkit/leakgate/restart.py::windows_network::powershell: 'PORT: Windows network restart; Linux = nmcli networking off/on or ip link set'
+  fieldkit/mac/macssh.py::key_check::icacls: 'PORT: Windows key ACL check and network list; Linux = stat mode 0600 and ip -o addr'
+  fieldkit/mac/macssh.py::local_networks::powershell: 'PORT: Windows key ACL check and network list; Linux = stat mode 0600 and ip -o addr'
+  fieldkit/method/appinstall.py::_create_windows_shortcut::powershell: 'N-A: Windows .lnk creation; Linux = .desktop file'
+  fieldkit/observe/windows.py::_resolver_cache::powershell: 'N-A: Windows event log and DNS cache observer; Linux = journalctl and resolvectl statistics'
+  fieldkit/observe/windows.py::events::powershell: 'N-A: Windows event log and DNS cache observer; Linux = journalctl and resolvectl statistics'
+  fieldkit/parity.py::defender::powershell: 'PORT: Defender status fact; Linux = apparmor/ufw/clamav status facts'
+  fieldkit/peers/link_find.py::windows_facts::powershell: 'PORT: Windows adapter facts for the cable; Linux = ip -j addr (linux side exists in link_find)'
+  fieldkit/peers/link_keepalive.py::windows_status::schtasks: 'PORT: schtasks keepalive status; Linux = systemctl --user is-active of the keepalive timer'
+  fieldkit/peers/link_setup.py::windows_cards::powershell: 'PORT: Windows adapter and firewall rule setup; Linux = nmcli connection add plus ufw/nft rule'
+  fieldkit/peers/link_setup.py::windows_rule_exists::powershell: 'PORT: Windows adapter and firewall rule setup; Linux = nmcli connection add plus ufw/nft rule'
+  fieldkit/power/audit.py::callers::powershell: 'PORT: Windows power-request callers via powercfg; Linux = systemd-inhibit --list and journalctl'
+  fieldkit/power/drift.py::apply::powercfg: 'PORT: powercfg power plan drift; Linux = powerprofilesctl and /sys/power'
+  fieldkit/repair/pwsh_parent_chains.py::<module>::powershell: 'N-A: repairs Windows PowerShell parent process chains; Linux has no PowerShell host'
+  fieldkit/thermal/brake.py::_powercfg::powercfg: 'N-A: powercfg helper only called under win32; Linux = _linux_boost_set in the same module'
+  fieldkit/thermal/governor.py::_powercfg::powercfg: 'N-A: powercfg helper only called under win32; Linux = _linux_set_cap in the same module'
+  fieldkit/thermal/sensors.py::_run_ps::powershell: 'N-A: _run_ps returns empty off Windows; Linux sensors read /sys/class/thermal and hwmon'
+  fieldkit/win11/fit.py::_ps::powershell: 'N-A: Windows 11 fitness check; Linux = distro release and hardware facts in fieldkit hog'
+  fieldkit/win11/run.py::command::powershell: 'N-A: Windows 11 runner; Linux = shell scripts under fieldkit emerge'
+  fieldkit/win11/run.py::elevated_wrapper::powershell: 'N-A: Windows 11 runner; Linux = shell scripts under fieldkit emerge'
