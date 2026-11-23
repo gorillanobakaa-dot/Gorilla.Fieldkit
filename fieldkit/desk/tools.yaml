@@ -6303,6 +6303,22 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Reuses installer checks, resolves gorilla-size --version and gorilla-trash --help from a fresh user terminal outside the install folder before checking service consumers (such as Gorilla Size in the VAIO cable listener), stops before install on service discovery failure, and routes missing terminal tools to fieldkit size integrate."
 
+- id: trashmenu
+  title: Windows 11 first right-click menu entry "Empty with Gorilla Trash..." (signed sparse MSIX + IExplorerCommand DLL; build, trust, register, status)
+  harness: method
+  entry: [python, -m, fieldkit.desk.trashmenu]
+  path: ${FIELDKIT}/fieldkit/desk/trashmenu.py
+  args:
+    - {name: cmd, type: str, required: true, help: "build | install-admin | register | status"}
+  effects: [writes-files, registry]
+  safety: needs-approval
+  output: own
+  platforms: [windows]
+  platforms_why: "The Windows 11 modern context menu and MSIX exist only on Windows"
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_trashmenu.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Self-signed (key stays in the user store, only the public .cer is trusted via install-admin through the elevate tool). Whether the virtual Recycle Bin shows the entry is proven live, not by this card."
+
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
   harness: method

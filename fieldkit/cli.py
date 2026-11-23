@@ -1673,6 +1673,7 @@ METHODS = {
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
     "install": ("installverify", "a program is installed, purged or verified on Linux and Windows: binary, .desktop/.lnk, icons, caches, registry (verify PRODUCT | self-test | app SRC --name APP | purge APP)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
+    "trashmenu": ("trashmenu", "Windows 11 first right-click menu: Empty with Gorilla Trash... (build | install-admin | register | status)"),
 }
 
 
@@ -3415,6 +3416,9 @@ def main(argv=None):
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])
+    if args[:1] == ["trashmenu"]:                     # Windows 11 first-menu Gorilla Trash (fieldkit/desk/trashmenu.py)
+        from .desk import trashmenu
+        return trashmenu.main(args[1:])
     if args[:1] and args[0] in METHODS:              # methods as tools (docs/METHODS.md): each has its own parser
         import importlib
         mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)
