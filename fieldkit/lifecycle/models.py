@@ -271,6 +271,25 @@ def _reset_time(text, now):
     return None
 
 
+def _reason_line(text, pat, hit):
+    """The readable line around a quota match: the line holding it, JSON quotes, braces and escaped newlines taken
+    out, at most 160 characters around the match. The old reason was the output's last 100 characters, which for a
+    job is its closing status JSON (`"rc": 75, ...`), so the guard stored a scrap instead of the limit message."""
+    t = str(text).replace("\\r", "\n").replace("\\n", "\n").replace("\\t", " ")
+    m = re.search(pat, t, re.I)
+    if not m:
+        return hit
+    s = t.rfind("\n", 0, m.start()) + 1
+    e = t.find("\n", m.end())
+    line, at = t[s:e if e >= 0 else len(t)], m.start() - s
+    if len(line) > 160:
+        a = max(0, at - 80)
+        line = line[a:a + 160]
+    line = re.sub(r'"\s*(why|reason|error|message|text|status)"\s*:\s*', " ", line, flags=re.I)
+    line = re.sub(r"\s+", " ", re.sub(r'[{}\[\]"\\]+', " ", line)).strip(" ,:;")
+    return line or hit
+
+
 def classify_failure(text, returncode=0, now=None, data=None):
     """-> {"reason", "until"} when a model call's output says the model cannot answer (budget, limit, quota, rate,
     "max turns"), else None. `until` is the limit's own reset time when the message has one, else now + cooldown."""
@@ -283,7 +302,7 @@ def classify_failure(text, returncode=0, now=None, data=None):
             soon = "max turns" in m.group(0).lower()
             mins = cfg.get("no_verdict_cooldown_minutes" if soon else "cooldown_minutes") or 120
             end = _reset_time(low, now)
-            return {"reason": f"{m.group(0)} ({low.strip()[-100:].replace(chr(10), ' ')})",
+            return {"reason": _reason_line(low, pat, m.group(0))[:200],
                     "until": end if end and end > now else now + 60 * float(mins)}
     return None
 
