@@ -32,7 +32,8 @@ def test_not_this_platform(monkeypatch, capsys):
     assert "not-this-platform" in capsys.readouterr().out
 
 
-def test_default_types_reach_the_virtual_recycle_bin():
+def test_default_types_are_schema_valid():
+    # MakeAppx 10.0.26100 rejects Folder, Drive and CLSID item types: only these three parse.
+    assert set(trashmenu.RECYCLE_TYPES) <= {"*", "Directory", "Directory\\Background"}
     doc = xml.dom.minidom.parseString(trashmenu.manifest())
-    types = [n.getAttribute("Type") for n in doc.getElementsByTagName("desktop5:ItemType")]
-    assert "CLSID\{645FF040-5081-101B-9F08-00AA002F954E}" in types and "*" not in types
+    assert len(doc.getElementsByTagName("desktop5:ItemType")) == len(trashmenu.RECYCLE_TYPES)

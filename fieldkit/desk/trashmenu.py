@@ -76,7 +76,7 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-RECYCLE_TYPES = ("Folder", "CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}")  # the Recycle Bin is virtual
+RECYCLE_TYPES = ("*", "Directory", "Directory\\Background")  # MakeAppx rejects Folder and CLSID types; GetState hides the verb outside the Recycle Bin
 
 
 def manifest(types=RECYCLE_TYPES) -> str:
