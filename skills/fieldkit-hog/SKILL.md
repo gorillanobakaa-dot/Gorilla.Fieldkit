@@ -1,6 +1,6 @@
 ---
 name: fieldkit-hog
-description: Find what is eating this computer's memory, CPU, heat or disk and free it safely with fieldkit hog - RAM and commit charge with the top processes, idle local models in LM Studio or Ollama (unloaded after 15 idle minutes; they just reload), memory leaks with their growth curve, test runners, listeners and browsers our sessions left behind (stopped only when the harness registered them), a program hoarding dozens of consoles or shells it never closed, a core pinned at 100%, CPU temperature, low disk, and a laptop that shuts down or restarts by itself (fieldkit power investigate gives ranked suspects and the owner steps). Use when the laptop is slow, the fans scream, RAM is high, "what is using my memory", Task Manager shows dozens of "Console Window Host" rows, a model is loaded nobody uses, before a long build or test run, or after a session ended with things still running. Works on Windows, Linux and macOS.
+description: Find what is eating this computer's memory, CPU, heat or disk and free it safely with fieldkit hog - RAM and commit charge with the top processes, kernel limits (desktop heap, USER/GDI objects, handles, process exhaustion, pagefile thrashing), idle local models in LM Studio or Ollama (unloaded after 15 idle minutes; they just reload), memory leaks with their growth curve, test runners, listeners and browsers our sessions left behind (stopped only when registered), a program hoarding dozens of consoles or shells it never closed, a core pinned at 100%, CPU temperature, low disk, and a laptop that shuts down or restarts by itself (fieldkit power investigate gives ranked suspects and the owner steps). Use when the laptop is slow, the fans scream, RAM is high, "what is using my memory", Task Manager shows dozens of "Console Window Host" rows, a model is loaded nobody uses, before a long build or test run, or after a session ended with things still running. Works on Windows, Linux and macOS.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; no network access unless a step says so."
 ---
@@ -110,6 +110,27 @@ The rules, so you can explain a verdict: a cut below 50 C or below 40 % load is 
 powercfg.exe is a suspect; a driver or firmware installed since the first cut minus 7 days is a suspect; TPFanControl
 running at a cut is a suspect (it writes the embedded controller); hardware (charger, cable, board) is what is left.
 Exit 3 means a cut is still unexplained.
+
+## Kernel limits (rules.limits, born 2026-11-23)
+
+802 Windows Terminal windows filled the desktop heap: nothing could open a window and a screenshot took 10 minutes,
+while RAM and commit charge looked fine. `fieldkit hog check` and the watch now also measure, every round:
+
+```
+desktop_heap   visible top-level windows                       warn 300    act 600
+gui_objects    USER or GDI objects of one process (quota 10k)  warn 7000   act 9000
+handles        open handles of one process                     warn 50k    act 150k
+processes      all processes                                   warn 700    act 1200
+process_storm  copies of one program (same_name_exempt list)   warn 100    act 250
+thrash         pages read back from the pagefile per second    warn 1000   act 4000
+```
+
+Any of them at warn makes the preflight refuse heavy jobs. Thresholds live in `fieldkit/hog/thresholds.json`, a local
+override in `state/hog/thresholds.json`. Desktop heap has no public counter: the window count is the proxy. A part
+that cannot be measured (macOS has no window or GUI count) is left out, never guessed.
+
+Terminal floods: `fieldkit hog consoles` also counts each terminal's windows; a Windows Terminal holding 20+ windows for
+10 minutes is a flood (the check fails) and the watch stops it by PID.
 
 ## Who owns the consoles (fieldkit hog consoles, fieldkit.proc)
 

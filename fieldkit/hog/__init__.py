@@ -18,6 +18,10 @@ WHY (owner, 2026-10-26 01:3x)
 
 THE RULES (numbers in thresholds.json; override in state/hog/thresholds.json; see rules.py)
     ram        used >= 80% warn, >= 90% act (used = total - available); commit charge 85% / 95%; top processes
+    limits     desktop heap (visible windows 300 / 600), USER or GDI objects of one process 7000 / 9000 (quota
+               10000), handles of one process 50k / 150k, processes 700 / 1200, copies of one program 100 / 250,
+               pagefile thrashing 1000 / 4000 pages/s. Born 2026-11-23: 802 terminal windows froze the laptop
+               (desktop heap) while RAM looked fine. Any of them at warn makes the preflight refuse heavy jobs.
     model      LM Studio (lms ps) or Ollama (/api/ps on loopback) model idle > 15 min (5 min when RAM is at the act
                line) -> unload. Idle = no request in LM Studio's server log (lms's own questions do not count) /
                Ollama's expires_at unmoved across samples. No log evidence = no unload. Reversible: it reloads.
@@ -245,9 +249,10 @@ def _liveness(watch):
         return ""
     try:
         from ..core import liveness, procs
-        from . import leaks
+        from . import consoles, leaks
         return (liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
-                + " | " + leaks.line(leaks.sweep(act=True, cfg=config())) + _ear_wake())
+                + " | " + leaks.line(leaks.sweep(act=True, cfg=config()))
+                + " | " + consoles.flood_line(consoles.reap_floods(act=True)) + _ear_wake())
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
 
@@ -390,8 +395,10 @@ def main(argv=None, prog="fieldkit hog"):
                          "(with --act: after the stop)")
     from . import churn as _churn
     _churn.add_parser(sub)
-    co = sub.add_parser("consoles", help="console hosts by the process that owns them; exit 1 if a fieldkit process owns one")
-    co.add_argument("--reap", action="store_true", help="stop the empty (dead or parentless) console hosts, by PID")
+    co = sub.add_parser("consoles", help="console hosts by owner and visible terminal windows; exit 1 if a "
+                                         "fieldkit process owns one or 20+ terminal windows are open")
+    co.add_argument("--reap", action="store_true", help="stop, by PID, the empty console hosts and any terminal "
+                                                        "holding 20+ windows with no live program under it")
     co.add_argument("--json", action="store_true")
     sub.add_parser("preflight")
     r = sub.add_parser("register")
