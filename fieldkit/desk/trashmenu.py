@@ -172,6 +172,9 @@ def _unsafe_dir(path: Path) -> str:
     return ""
 
 
+KEEP_NAMES = ("desktop.ini", "thumbs.db")  # folder display name/icon files: never recycled
+
+
 def recycle_dir(path, ask=input, run=None) -> int:
     """List what is inside PATH, ask once, then move it to the Recycle Bin (a recycle, never a permanent delete)."""
     d = Path(path)
@@ -179,7 +182,9 @@ def recycle_dir(path, ask=input, run=None) -> int:
     if why:
         print("refused:", why)
         return 4
-    items = sorted(d.iterdir(), key=lambda x: x.name.lower())
+    everything = sorted(d.iterdir(), key=lambda x: x.name.lower())
+    items = [x for x in everything if x.name.lower() not in KEEP_NAMES]
+    kept = [x for x in everything if x.name.lower() in KEEP_NAMES]
     if not items:
         print("empty already:", d)
         return 0
@@ -188,15 +193,17 @@ def recycle_dir(path, ask=input, run=None) -> int:
         print("  " + it.name + ("\\" if it.is_dir() else ""))
     if len(items) > 200:
         print(f"  ... and {len(items) - 200} more")
+    for it in kept:
+        print("  " + it.name + " (kept: system file)")
     if ask("Move all of it to the Recycle Bin? [y/N] ").strip().lower() != "y":
         print("cancelled; nothing moved")
         return 4
     run = run or (lambda script: _ps(script, check=False))
     run("Add-Type -AssemblyName Microsoft.VisualBasic; "
-        f"Get-ChildItem -LiteralPath '{str(d).replace(chr(39), chr(39) * 2)}' -Force | ForEach-Object {{ "
+        f"Get-ChildItem -LiteralPath '{str(d).replace(chr(39), chr(39) * 2)}' -Force | Where-Object {{ @('desktop.ini','thumbs.db') -notcontains $_.Name.ToLower() }} | ForEach-Object {{ "
         "if ($_.PSIsContainer) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } "
         "else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } }")
-    left = len(list(d.iterdir()))
+    left = len([x for x in d.iterdir() if x.name.lower() not in KEEP_NAMES])
     print("done" if not left else f"{left} item(s) could not be moved")
     return 0 if not left else 3
 

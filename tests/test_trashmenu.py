@@ -46,3 +46,13 @@ def test_recycle_dir_lists_asks_and_never_touches_the_bin(tmp_path, monkeypatch)
     assert trashmenu.recycle_dir(tmp_path, ask=lambda _: "y", run=calls.append) in (0, 3) and len(calls) == 1
     assert trashmenu.recycle_dir("C:\\$Recycle.Bin", ask=lambda _: "y", run=calls.append) == 4
     assert len(calls) == 1
+
+
+def test_recycle_dir_keeps_desktop_ini_and_thumbs_db(tmp_path, capsys):
+    for n in ("a.txt", "Desktop.INI", "thumbs.db"):
+        (tmp_path / n).write_text("x")
+    scripts = []
+    assert trashmenu.recycle_dir(tmp_path, ask=lambda _: "y", run=scripts.append) in (0, 3)
+    out = capsys.readouterr().out
+    assert "1 item(s)" in out and "Desktop.INI (kept: system file)" in out and "thumbs.db (kept: system file)" in out
+    assert "desktop.ini" in scripts[0] and "thumbs.db" in scripts[0]
