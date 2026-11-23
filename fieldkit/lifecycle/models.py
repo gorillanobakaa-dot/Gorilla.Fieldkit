@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+from fieldkit import proc as fkproc
+
 DATA = Path(__file__).with_name("models.yaml")
 TIERS = ("cheap", "review", "premium")
 SANE = re.compile(r"[\w.\-\[\]:/]{1,80}")
@@ -668,7 +670,7 @@ def probe_account(agent: str, now=None, data=None, run=None) -> tuple[bool, str]
         if not exe:
             return False, f"account {acct} probe: {argv[0]} not found"
         argv = [exe] + argv[1:]
-        run = subprocess.run
+        run = fkproc.run
     try:
         r = run(argv, capture_output=True, text=True, timeout=float(cfg.get("probe_timeout") or 90))
     except (OSError, subprocess.TimeoutExpired) as e:
