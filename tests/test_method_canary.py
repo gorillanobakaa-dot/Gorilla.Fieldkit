@@ -95,7 +95,8 @@ def test_the_shipped_registry_proves_every_check():
     no_spec = themecheck.find_spec() is None
     bad = [(r["id"], r["verdict"]) for r in rows
            if r["verdict"] != "OK" and not (no_spec and r["id"].startswith("themecheck-") and r["verdict"] == "UNAVAILABLE")]
-    assert not bad, bad
+    detail = {r['id']: {k: r[k] for k in ('canary', 'control')} for r in rows if r['verdict'] != 'OK'}
+    assert not bad, (bad, detail)
 
 
 # a stand-in check that asks for a name: when the guard is missing it does NOT look up (exit 0, never a real query)

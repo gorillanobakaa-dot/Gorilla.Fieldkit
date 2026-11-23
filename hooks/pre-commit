@@ -165,6 +165,7 @@ if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp
   if [ -z "$FAILED" ] || ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
     echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"
     [ -n "$FAILED" ] && echo "$FAILED"
+    [ -z "$FAILED" ] && tail -n 15 "$OUT"   # no FAILED line: show why (collection error, crash) instead of nothing
     "$PY" -m fieldkit.testcost record full-suite refused "$(( $(date +%s) - T0 ))" --key "$KEY" \
       --note "caught: $(echo $FAILED | tr '\n' ' ' | cut -c1-400)" >/dev/null 2>&1 || true
     exit 1
