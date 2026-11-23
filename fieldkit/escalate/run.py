@@ -37,7 +37,10 @@ def check_argv(test_cmd=None, verify=None, ci_pr=None):
     cmd = test_cmd or verify
     if not cmd:
         raise ValueError("give one failure signal: --test CMD, --verify CMD or --ci-wait PR")
-    return cmd if isinstance(cmd, list) else shlex.split(cmd, posix=(sys.platform != "win32"))
+    if isinstance(cmd, list):
+        return cmd
+    parts = shlex.split(cmd, posix=(sys.platform != "win32"))
+    return [x[1:-1] if len(x) > 1 and x[0] == x[-1] and x[0] in "\"'" else x for x in parts]
 
 
 def run_check(argv, cwd, timeout=None):
