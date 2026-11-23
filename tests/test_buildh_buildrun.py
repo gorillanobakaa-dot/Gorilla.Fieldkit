@@ -2,6 +2,7 @@
 
 from fieldkit.buildh import buildrun, ownercheck
 import pytest
+import sys
 
 
 @pytest.fixture(autouse=True)
@@ -225,7 +226,9 @@ def test_the_power_scheme_is_put_back_when_the_stage_leaves_another(monkeypatch)
 
     assert buildrun.restore_power_scheme(("g-bal", "Balanced"), said.append)
 
-    assert calls == [["powercfg", "/setactive", "g-bal"]] and "put back to 'Balanced'" in said[0]
+    want = ["powercfg", "/setactive", "g-bal"] if sys.platform == "win32" else ["powerprofilesctl", "set", "g-bal"]
+
+    assert calls == [want] and "put back to 'Balanced'" in said[0]
 
     monkeypatch.setattr(buildrun, "active_power_scheme", lambda: ("g-bal", "Balanced"))
 

@@ -94,3 +94,22 @@ def check_call(*a, **kw):
 
 def call(*a, **kw):
     return subprocess.call(*a, **_prepare(kw, a))
+
+
+def kill_tree(pid) -> int:
+    """Stop exactly this process and its children, by PID (never by name): taskkill /T /F on Windows, psutil
+    elsewhere. -> 0 when the signal was sent (or the process was already gone)."""
+    if sys.platform == "win32":
+        return run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True).returncode
+    import psutil
+    try:
+        root = psutil.Process(int(pid))
+        procs = root.children(recursive=True) + [root]
+    except psutil.Error:
+        return 0
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    return 0
