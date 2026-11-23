@@ -1712,6 +1712,16 @@
    "emerge"
   ]
  },
+ "escalate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "escalate"
+  ]
+ },
  "eta": {
   "platforms": [
    "linux",

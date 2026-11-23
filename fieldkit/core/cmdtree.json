@@ -1319,6 +1319,55 @@
    "open": false,
    "v": {}
   },
+  "escalate": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "cache": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--settings": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ledger": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--last": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "run": {
+     "c": [],
+     "f": {
+      "--ci-wait": 1,
+      "--cwd": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-xhigh": 0,
+      "--skip-if-green": 0,
+      "--test": 1,
+      "--verify": 1,
+      "--wall": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "eta": {
    "c": [
     "build",
@@ -2407,6 +2456,17 @@
    },
    "open": false,
    "v": {
+    "cache": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--settings": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "check": {
      "c": [],
      "f": {

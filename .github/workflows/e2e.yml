@@ -709,3 +709,25 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python .github/e2e/cmd_check.py
       - run: python .github/e2e/platform_drift.py
+  e2e-escalate-linux:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-escalate-linux')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/escalate.py
+  e2e-escalate-windows:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-escalate-windows')
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python .github/e2e/escalate.py
