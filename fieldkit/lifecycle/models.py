@@ -13,7 +13,9 @@ unknown: refused unless a mandate in force names the model in `models_allowed`.
 """
 import json
 import re
+import shutil
 import socket
+import subprocess
 import time
 from pathlib import Path
 
@@ -501,6 +503,42 @@ def _read_agent_avail(data=None) -> dict:
         return {}
 
 
+def _write_agent_avail(cur: dict, data=None) -> None:
+    try:
+        agent_availability_path(data).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def account_of(agent: str, data=None) -> tuple[str, list]:
+    """(account name, member agents) for an agent. I-34 (owner 2026-11-23): the L15, the VAIO and the MacBook Air use
+    ONE Claude subscription, so a quota hold or a proof of life is about the account, not the device or the agent name.
+    Accounts live in models.yaml agent_availability.accounts; an agent in none is its own one-member account."""
+    a = (agent or "").strip().lower()
+    d = data or load()
+    for name, acc in ((d.get("agent_availability") or {}).get("accounts") or {}).items():
+        members = [str(m).strip().lower() for m in (acc or {}).get("agents") or []]
+        if a in members:
+            return str(name), members
+    return a, [a]
+
+
+def _account_cfg(agent: str, data=None) -> dict:
+    d = data or load()
+    name, _ = account_of(agent, d)
+    return ((d.get("agent_availability") or {}).get("accounts") or {}).get(name) or {}
+
+
+def _rec_ts(rec: dict) -> float:
+    """When a hold was written: at_ts, else the old text stamp `at` (records written before I-34)."""
+    try:
+        if rec.get("at_ts"):
+            return float(rec["at_ts"])
+        return time.mktime(time.strptime(str(rec.get("at") or ""), "%Y-%m-%d %H:%M:%S"))
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
 def unavailable_agents(now=None, data=None) -> dict:
     """Return {agent: {"reason", "until", "source"}} for coding agents currently blocked by quota or owner pin."""
     now = time.time() if now is None else now
@@ -513,10 +551,18 @@ def unavailable_agents(now=None, data=None) -> dict:
         end = _yaml_until(val, now)
         if end and end > now:
             out[k.lower()] = {"reason": f"pinned in models.yaml ({val})", "until": end, "source": "owner"}
-    for k, rec in _read_agent_avail(d).items():
+    cur = _read_agent_avail(d)
+    accts = cur.get("_accounts") if isinstance(cur.get("_accounts"), dict) else {}
+    for k, rec in cur.items():
+        if k.startswith("_") or not isinstance(rec, dict):
+            continue
         if rec.get("cleared"):
             out.pop(k.lower(), None)
             continue
+        if rec.get("source") != "owner":                 # the account answered after this hold was written: stale
+            last_ok = float((accts.get(account_of(k, d)[0]) or {}).get("last_ok") or 0)
+            if last_ok > _rec_ts(rec):
+                continue
         end = float(rec.get("until") or 0)
         if end > now and (k.lower() not in out or end > out[k.lower()]["until"]):
             out[k.lower()] = {
@@ -527,8 +573,11 @@ def unavailable_agents(now=None, data=None) -> dict:
     return out
 
 
-def agent_availability(agent: str, now=None, data=None) -> tuple[bool, str]:
-    """Return (available: bool, why: str) for a coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`)."""
+def agent_availability(agent: str, now=None, data=None, probe=False, run=None) -> tuple[bool, str]:
+    """Return (available: bool, why: str) for a coding agent (`antigravity`, `agy`, `codex`, `gorilla-opencode`, `claude`).
+    probe=True (callers about to START a job): a quota-guard hold is checked against the account itself with the
+    account's configured probe, so a hold written on another device, or one whose limit has already reset, does not
+    stop work. Owner pins are never probed away. status_report and menus do not probe (no model call to look)."""
     now = time.time() if now is None else now
     a = (agent or "").strip().lower()
     if not a:
@@ -536,6 +585,11 @@ def agent_availability(agent: str, now=None, data=None) -> tuple[bool, str]:
     unavail = unavailable_agents(now, data)
     if a in unavail:
         rec = unavail[a]
+        if probe and rec["source"] != "owner" and _account_cfg(a, data).get("probe"):
+            ok, why = probe_account(a, now=now, data=data, run=run)
+            if ok:
+                return True, why
+            rec = unavailable_agents(now, data).get(a) or rec
         return False, f"agent {a} is blocked {until_text(rec['until'])} ({rec['source']}: {rec['reason']})"
     return True, "available"
 
@@ -551,28 +605,84 @@ def mark_agent_unavailable(agent: str, reason: str = "quota limit", until=None, 
     end = _yaml_until(until, now) if isinstance(until, str) else (float(until) if until else now + 60 * float(acfg.get("cooldown_minutes") or 120))
     if end is None:
         end = now + 60 * float(acfg.get("cooldown_minutes") or 120)
+    acct, members = account_of(agent or "?", d)
     rec = {
         "reason": str(reason)[:200],
         "until": end,
         "source": "owner" if isinstance(until, str) else "quota-guard",
         "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "at_ts": now,
+        "account": acct,
     }
-    try:
-        cur = _read_agent_avail(d)
-        cur[(agent or "?").lower()] = rec
-        agent_availability_path(d).write_text(json.dumps(cur, indent=1), encoding="utf-8")
-    except OSError:
-        pass
+    cur = _read_agent_avail(d)
+    for m in members:                                     # one subscription: the hold covers every member agent
+        cur[m] = dict(rec)
+    _write_agent_avail(cur, d)
     return rec
 
 
 def clear_agent_unavailable(agent: str, data=None) -> None:
-    cur = _read_agent_avail(data)
-    cur[(agent or "").lower()] = {"cleared": True, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    d = data or load()
+    acct, members = account_of(agent, d)
+    cur = _read_agent_avail(d)
+    for m in members:
+        cur[m] = {"cleared": True, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    _write_agent_avail(cur, d)
+    note_agent_success(agent, data=d)
+
+
+def note_agent_success(agent: str, now=None, data=None) -> dict:
+    """Proof of life: a job on this agent finished fine (or the probe answered), so its ACCOUNT is not out of quota,
+    whichever device ran it. Every quota-guard hold on the account written before this moment stops counting."""
+    now = time.time() if now is None else now
+    d = data or load()
+    acct, _ = account_of(agent, d)
+    cur = _read_agent_avail(d)
+    accts = cur.get("_accounts") if isinstance(cur.get("_accounts"), dict) else {}
+    accts[acct] = {"last_ok": now, "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+                   "host": socket.gethostname(), "agent": (agent or "").lower()}
+    cur["_accounts"] = accts
+    _write_agent_avail(cur, d)
+    return accts[acct]
+
+
+def probe_account(agent: str, now=None, data=None, run=None) -> tuple[bool, str]:
+    """Ask the account itself whether it works: run its configured probe (models.yaml accounts.<name>.probe, a tiny
+    one-turn prompt). Answered -> note_agent_success, (True, why). A limit message -> the hold is renewed with the new
+    reset time. Program missing, timeout or any other failure -> (False, why) and the hold stays (fail closed)."""
+    now = time.time() if now is None else now
+    d = data or load()
+    acct, _ = account_of(agent, d)
+    cfg = _account_cfg(agent, d)
+    argv = [str(x) for x in cfg.get("probe") or []]
+    if not argv:
+        return False, f"account {acct} has no probe"
+    if run is None:
+        exe = shutil.which(argv[0])
+        if not exe:
+            try:
+                from ..peers import agentfind
+                exe = agentfind.find_path(argv[0])
+            except Exception:                              # noqa: BLE001 - a finder failure is "not found"
+                exe = None
+        if not exe:
+            return False, f"account {acct} probe: {argv[0]} not found"
+        argv = [exe] + argv[1:]
+        run = subprocess.run
     try:
-        agent_availability_path(data).write_text(json.dumps(cur, indent=1), encoding="utf-8")
-    except OSError:
-        pass
+        r = run(argv, capture_output=True, text=True, timeout=float(cfg.get("probe_timeout") or 90))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"account {acct} probe failed: {type(e).__name__}"
+    rc = int(getattr(r, "returncode", 1) or 0)
+    text = f"{getattr(r, 'stdout', '') or ''}\n{getattr(r, 'stderr', '') or ''}"
+    hit = classify_failure(text, rc, now=now, data=d)
+    if (rc == 0 and not hit) or (hit and "max turns" in hit["reason"].lower()):   # the API answered
+        note_agent_success(agent, now=now, data=d)
+        return True, f"available (account {acct} probe answered)"
+    if hit:
+        mark_agent_unavailable(agent, reason=hit["reason"], until=hit["until"], now=now, data=d)
+        return False, f"account {acct} probe: {hit['reason']}"
+    return False, f"account {acct} probe exit {rc}"
 
 
 def validate_agent_choice(
@@ -616,7 +726,7 @@ def validate_agent_choice(
     if a not in cat:
         return {"ok": False, "verdict": "unknown-agent", "prompt": CHOICE_PROMPT,
                 "why": f"REFUSED: unknown coding agent {a!r}; choose one of {', '.join(cat)}"}
-    avail_ok, avail_why = agent_availability(a, data=d)
+    avail_ok, avail_why = agent_availability(a, data=d, probe=True)
     if not avail_ok:
         return {"ok": False, "verdict": "agent-blocked", "agent": a, "prompt": CHOICE_PROMPT,
                 "why": f"REFUSED: {avail_why}. {CHOICE_PROMPT}"}
@@ -693,6 +803,10 @@ def main(argv=None):
         rec = mark_agent_unavailable(ag, why, until=until)
         print(f"BLOCKED {ag}: {rec['reason']} ({until_text(rec['until'])})")
         return 0
+    if argv[:1] == ["ok"] and len(argv) >= 2:            # proof of life by hand: the account works (I-34)
+        rec = note_agent_success(argv[1])
+        print(f"OK {argv[1]}: account {account_of(argv[1])[0]} answered at {rec['at']} on {rec['host']}")
+        return 0
     if argv[:1] == ["unblock"] and len(argv) >= 2:
         ag = argv[1]
         clear_agent_unavailable(ag)
@@ -712,7 +826,7 @@ def main(argv=None):
     if argv[:1] != ["report"]:
         print("models menu [--json] [--refresh] [--check] [--device NAME]: what works now, agent > provider > model > reasoning\n"
               "models remember JOB_TYPE AGENT PROVIDER MODEL REASONING: the owner's choice for headless jobs of a type\n"
-              "models block AGENT [--until YYYY-MM-DD|always] [--why REASON] | models unblock AGENT\n"
+              "models block AGENT [--until YYYY-MM-DD|always] [--why REASON] | models unblock AGENT | models ok AGENT\n"
               "models report [--json]: counts per device and day from the spend ledger\n"
               "models table [--json]: success rate per model and job type (plan P9)\n"
               "models gguf FILE|URL: before loading a local model, dense or MoE and the expected speed (P21)\n"

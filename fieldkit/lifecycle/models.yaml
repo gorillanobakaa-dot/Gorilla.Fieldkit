@@ -90,3 +90,12 @@ agent_availability:
   # choice for the user." An agent is blocked only while its quota is out (until the reset, else cooldown_minutes);
   # then the user is offered the agents that ARE available. Never "always" here for quota.
   unavailable: {}
+  # I-34 (owner 2026-11-23): "L15 and VAIO and the Mac OS laptop, they are one account." One subscription used from
+  # several devices: a quota hold covers every member agent, a finished job or an answered probe on ANY device clears
+  # older holds, and a job start probes the account before refusing. Add another account here, no code change.
+  accounts:
+    anthropic:
+      agents: [claude]
+      devices: [L15-WIN, VAIO-LNX, AIR-MAC]
+      probe: [claude, -p, "Reply with the single word OK.", --max-turns, "1"]
+      probe_timeout: 90
