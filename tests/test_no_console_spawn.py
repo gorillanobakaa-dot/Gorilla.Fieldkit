@@ -187,3 +187,18 @@ def test_terminal_floods():
     res = {"fieldkit_owned": [], "terminal_windows": 875}
     assert consoles.failures(res) == ["875 terminal windows open (limit 19)"]
     assert consoles.failures(dict(res, terminal_windows=3)) == []
+
+
+def test_scoop_shim_gets_a_hidden_console(tmp_path, monkeypatch):
+    """`gh` is a scoop shim that starts the real gh with default flags: with no console of its own that is a flashing
+    Windows Terminal window per call (owner 2026-11-23, ship ci-wait). A shim must get CREATE_NO_WINDOW."""
+    import sys
+    from fieldkit import proc
+    if sys.platform != "win32":
+        return
+    (tmp_path / "tool.exe").write_bytes(b"")
+    (tmp_path / "tool.shim").write_text("path = x", encoding="utf-8")
+    (tmp_path / "plain.exe").write_bytes(b"")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert proc._needs_console((["tool"],), {})
+    assert not proc._needs_console((["plain"],), {})

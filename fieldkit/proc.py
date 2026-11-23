@@ -11,6 +11,8 @@ unless `fieldkit/proc_allow.yaml` lists it with a reason. Audit the live machine
 """
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 
@@ -30,7 +32,17 @@ def _needs_console(args, kw) -> bool:
     if isinstance(a, (list, tuple)):
         a = a[0] if a else ""
     name = str(a or "").strip().strip('"').replace("\\", "/").rsplit("/", 1)[-1].lower()
-    return name in _SHELLS or name.endswith(_SCRIPTS)
+    return name in _SHELLS or name.endswith(_SCRIPTS) or _is_shim(a)
+
+
+def _is_shim(a) -> bool:
+    """A scoop shim (gh, cargo, cmake ...) starts the real program with default flags: with no console of its own the
+    real program gets a new one, and with Windows Terminal as the default terminal that is a flashing window (owner,
+    2026-11-23, `ship ci-wait` polling gh). A hidden console (CREATE_NO_WINDOW) is inherited by the real program."""
+    if sys.platform != "win32" or not a:
+        return False
+    exe = shutil.which(str(a).strip('"'))
+    return bool(exe) and os.path.exists(os.path.splitext(exe)[0] + ".shim")
 
 
 def _prepare(kw: dict, args=()) -> dict:
