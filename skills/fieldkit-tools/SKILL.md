@@ -72,6 +72,10 @@ Read the code of such a tool instead of running it.
 
 `fieldkit tools check --run-tests` runs only the tests listed in the registry.
 
+## Windows 11 first right-click menu (Gorilla Trash)
+
+`fieldkit trashmenu build|install-admin|register|status` builds, trusts (elevated, via the elevate tool) and registers the signed sparse package that puts "Empty with Gorilla Trash..." in the first menu. Windows only.
+
 ## Before any commit, push or release
 
 ```

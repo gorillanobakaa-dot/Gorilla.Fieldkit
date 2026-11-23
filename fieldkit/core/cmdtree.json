@@ -4820,6 +4820,23 @@
    "open": false,
    "v": {}
   },
+  "trashmenu": {
+   "c": [
+    "build",
+    "install-admin",
+    "register",
+    "status"
+   ],
+   "f": {
+    "--bindir": 1,
+    "--dll": 1,
+    "--help": 0,
+    "--types": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "triage": {
    "c": [],
    "f": {
