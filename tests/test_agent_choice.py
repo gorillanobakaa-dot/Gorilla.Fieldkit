@@ -170,3 +170,26 @@ def test_menu_and_remember_answer_help_with_every_flag_their_cards_name(capsys):
         assert flag in out
     assert choice.main(["remember", "--help"]) == 0
     assert "JOB_TYPE AGENT PROVIDER MODEL REASONING" in capsys.readouterr().out
+
+
+# 2026-11-23 (third time): a budget PAUSE ends in "exit 75" (autopilot EXIT_PAUSED); it is a decision to wait, not an
+# agent error. Its log can quote the words rate_limit / 429 and blocked Claude for two hours on a working account.
+PAUSED_RUN = """  note: the earlier attempt hit rate_limit (429 Too Many Requests) and was retried
+{
+ "ok": false,
+ "done": [],
+ "failed": [],
+ "blocked": [],
+ "paused": [
+  "work"
+ ],
+ "stopped": false
+}
+exit 75
+"""
+
+
+def test_a_budget_pause_exit_75_blocks_no_agent():
+    from fieldkit.lifecycle import tasks
+    assert tasks._agent_quota({"agent": "claude", "log": "p.log"}, read=lambda p: PAUSED_RUN) is None
+    assert models.is_agent_available("claude") is True
