@@ -587,6 +587,11 @@ def _agent_quota(t, read=None):
     except OSError:
         return None
     last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
+    if last == ["exit 0"]:                       # finished fine: the agent's account works (I-34 proof of life)
+        try:
+            models.note_agent_success(t.get("agent") or "claude")
+        except Exception:                        # noqa: BLE001 - the note is best effort, never fails a status read
+            pass
     if last in (["exit 0"], ["exit 75"]):        # finished fine, or a deliberate budget PAUSE (autopilot EXIT_PAUSED = 75):
         return None                              # neither is an agent quota error (2026-11-17 exit 0; 2026-11-23 exit 75)
     from . import choice

@@ -1186,7 +1186,7 @@ def cmd_autopilot(a):
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
         from .lifecycle import models as _models
-        ag_ok, ag_why = _models.agent_availability("claude")        # (available, why): a tuple, not a dict
+        ag_ok, ag_why = _models.agent_availability("claude", probe=True)        # (available, why): a tuple, not a dict
         if not ag_ok:
             print(json.dumps({"ok": False, "error": f"REFUSED: coding agent 'claude' is blocked ({ag_why})",
                               "choose": _models.CHOICE_PROMPT}, indent=1))

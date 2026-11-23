@@ -373,7 +373,7 @@ def antigravity(popen=fkproc.Popen, psutil=None, model=None, thinking=None, cwd=
     if psutil is None:
         import psutil
     from ..lifecycle import models
-    avail_ok, avail_why = models.agent_availability("antigravity")
+    avail_ok, avail_why = models.agent_availability("antigravity", probe=True)
     if not avail_ok:
         return {"ok": False, "refused": True, "why": avail_why}
     exe = antigravity_exe()
