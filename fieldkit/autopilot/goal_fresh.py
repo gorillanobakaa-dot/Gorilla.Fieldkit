@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-11-02-13-30
+# Version: 1.0.1 · updated 26-11-23-18-30
 """The verifier judges origin/main, never a checkout somebody left on a branch (HARNESS-PLAN R13, defect 5 of
 state/reports/2026-11-02-why-the-harness-failed.md).
 
