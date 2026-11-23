@@ -220,10 +220,10 @@ def check_stale_generated(repo):
         # HEAD) refused every commit that carried a correctly regenerated file and passed a file nobody regenerated
         # (proven 2026-11-22 on feat/agent-models-guard: cmdtree stale said FRESH, the commit was refused).
         try:
-            g = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True, timeout=300)
+            g = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
             r = fkproc.run(
                 ["git", "diff", "--name-only", "--", rel_path],
-                cwd=str(repo), capture_output=True, text=True, timeout=10
+                cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
             )
         except (OSError, subprocess.SubprocessError) as e:      # unknown is a FAIL, never a pass (F2.7)
             findings.append({"rule": "generated-file-unknown", "message": f"{rel_path}: could not check ({e})",
@@ -426,6 +426,17 @@ def apply_bom_fixes(findings):
 # Main
 # ---------------------------------------------------------------------------
 def main(argv=None):
+    """A crash is a failure that blocks the commit (exit 1), never a silent pass."""
+    try:
+        return _main(argv)
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"FAIL ps-compat-check crashed: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+
+
+def _main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit repair ps-compat-check",
                                  description=__doc__.split("\n")[0])
     ap.add_argument("--ps1", nargs="*", metavar="PATH", help=".ps1 files to check (default: all in repo)")
@@ -452,7 +463,7 @@ def main(argv=None):
     else:
         try:
             r = fkproc.run(["git", "ls-files", "*.ps1", "**/*.ps1"],
-                               cwd=str(repo), capture_output=True, text=True, timeout=10)
+                               cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
             ps1_files = [repo / f.strip() for f in r.stdout.splitlines() if f.strip()]
         except (OSError, subprocess.SubprocessError):          # git missing: fall back to a walk of the tree
             ps1_files = [f for f in repo.rglob("*.ps1")
@@ -503,7 +514,7 @@ def main(argv=None):
         for f in stale:
             for rel, cmd in GENERATORS.items():
                 if rel in f.get("fix", ""):
-                    r = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True)
+                    r = fkproc.run(cmd, cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace")
                     if r.returncode == 0:
                         fixed += 1
 
