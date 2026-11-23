@@ -20,6 +20,44 @@ concurrency:                 # C3: a new push to a pull request cancels its old 
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  snapshot:                    # the run's ONE read of GitHub for the ship-batch jobs (fieldkit/method/train.py FIELDKIT_GH_SNAPSHOT)
+    name: snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py start
+      - name: record the open-PR reads once
+        continue-on-error: true      # a failed snapshot only means the jobs read GitHub live
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIELDKIT_GH_SNAPSHOT: ${{ runner.temp }}/gh-snapshot
+        run: |
+          python .github/e2e/ship_batch_collect.py
+          python .github/e2e/ship_batch_select.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gh-snapshot
+          path: ${{ runner.temp }}/gh-snapshot
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/ci_rate.py end
   e2e-installer-test-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-installer-test-linux')
     name: e2e-installer-test-linux
@@ -219,6 +257,7 @@ jobs:
   e2e-ship-batch-collect-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-collect-linux')
     name: e2e-ship-batch-collect-linux
+    needs: snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -234,9 +273,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python .github/ci_rate.py start
+      - name: the run's one GitHub snapshot
+        continue-on-error: true      # missing = this job reads GitHub live (the fallback, never a skip)
+        uses: actions/download-artifact@v4
+        with:
+          name: gh-snapshot
+          path: ${{ runner.temp }}/gh-snapshot
       - run: python .github/e2e/ship_batch_collect.py
         env:
           GH_TOKEN: ${{ github.token }}
+          FIELDKIT_GH_SNAPSHOT: ${{ runner.temp }}/gh-snapshot
       - name: GitHub API budget (end)
         if: always()
         shell: bash
@@ -246,6 +292,7 @@ jobs:
   e2e-ship-batch-collect-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-collect-windows')
     name: e2e-ship-batch-collect-windows
+    needs: snapshot
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -261,9 +308,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python .github/ci_rate.py start
+      - name: the run's one GitHub snapshot
+        continue-on-error: true      # missing = this job reads GitHub live (the fallback, never a skip)
+        uses: actions/download-artifact@v4
+        with:
+          name: gh-snapshot
+          path: ${{ runner.temp }}/gh-snapshot
       - run: python .github/e2e/ship_batch_collect.py
         env:
           GH_TOKEN: ${{ github.token }}
+          FIELDKIT_GH_SNAPSHOT: ${{ runner.temp }}/gh-snapshot
       - name: GitHub API budget (end)
         if: always()
         shell: bash
@@ -273,6 +327,7 @@ jobs:
   e2e-ship-batch-select-linux:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-select-linux')
     name: e2e-ship-batch-select-linux
+    needs: snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -288,9 +343,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python .github/ci_rate.py start
+      - name: the run's one GitHub snapshot
+        continue-on-error: true      # missing = this job reads GitHub live (the fallback, never a skip)
+        uses: actions/download-artifact@v4
+        with:
+          name: gh-snapshot
+          path: ${{ runner.temp }}/gh-snapshot
       - run: python .github/e2e/ship_batch_select.py
         env:
           GH_TOKEN: ${{ github.token }}
+          FIELDKIT_GH_SNAPSHOT: ${{ runner.temp }}/gh-snapshot
       - name: GitHub API budget (end)
         if: always()
         shell: bash
@@ -300,6 +362,7 @@ jobs:
   e2e-ship-batch-select-windows:
     if: github.event_name == 'workflow_dispatch' || contains(fromJSON(inputs.selected), '*') || contains(fromJSON(inputs.selected), 'e2e-ship-batch-select-windows')
     name: e2e-ship-batch-select-windows
+    needs: snapshot
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -315,9 +378,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python .github/ci_rate.py start
+      - name: the run's one GitHub snapshot
+        continue-on-error: true      # missing = this job reads GitHub live (the fallback, never a skip)
+        uses: actions/download-artifact@v4
+        with:
+          name: gh-snapshot
+          path: ${{ runner.temp }}/gh-snapshot
       - run: python .github/e2e/ship_batch_select.py
         env:
           GH_TOKEN: ${{ github.token }}
+          FIELDKIT_GH_SNAPSHOT: ${{ runner.temp }}/gh-snapshot
       - name: GitHub API budget (end)
         if: always()
         shell: bash
