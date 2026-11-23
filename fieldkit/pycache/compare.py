@@ -9,7 +9,7 @@ worker pays for having no bytecode. Exit: 0 fine, 1 error.
 import argparse
 import os
 import shutil
-import subprocess
+from fieldkit import proc
 import sys
 
 from . import core
@@ -19,7 +19,7 @@ TEST = ["tests/test_zero_command.py", "-k", "loads_no_yaml", "-s", "-q", "-p", "
 
 
 def hook_line(tree):
-    r = subprocess.run([sys.executable, "-m", "pytest", *TEST], capture_output=True, text=True, cwd=str(tree), timeout=600)
+    r = proc.run([sys.executable, "-m", "pytest", *TEST], capture_output=True, text=True, cwd=str(tree), timeout=600)
     for ln in (r.stdout + r.stderr).splitlines():
         if "hook process" in ln:
             return ln.strip()
@@ -45,7 +45,7 @@ def main(argv):
         main_line, wt_line = hook_line(repo), hook_line(path)
     finally:
         main_git = worktrees.top(repo)
-        subprocess.run(["git", "-C", str(main_git), "worktree", "remove", "--force", str(path)], capture_output=True)
+        proc.run(["git", "-C", str(main_git), "worktree", "remove", "--force", str(path)], capture_output=True)
         shutil.rmtree(path, ignore_errors=True)
         try:
             os.unlink(str(path) + ".json")

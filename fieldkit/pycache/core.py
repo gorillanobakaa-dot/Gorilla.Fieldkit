@@ -10,6 +10,7 @@ import os
 import shutil
 import site
 import subprocess
+from fieldkit import proc
 import sys
 import sysconfig
 import tempfile
@@ -89,7 +90,7 @@ def closure(repo, modules, python=None):
             "files=sorted({getattr(v,'__file__',None) for k,v in list(sys.modules.items()) if k=='fieldkit' or k.startswith('fieldkit.')}-{None})\n"
             "print(json.dumps({'files':files,'bad':bad}))")
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    r = subprocess.run([python or sys.executable, "-c", code, str(repo), *modules], capture_output=True, text=True,
+    r = proc.run([python or sys.executable, "-c", code, str(repo), *modules], capture_output=True, text=True,
                        cwd=tempfile.gettempdir(), env=env, timeout=120)
     import json
     try:
@@ -156,7 +157,7 @@ def warm_background(path):
             return False
         env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
         kw = {"creationflags": 0x08000000 | 0x00000200} if os.name == "nt" else {"start_new_session": True}
-        subprocess.Popen([sys.executable, "-m", "compileall", "-q", "-j", "0", str(p / "fieldkit")], env=env,
+        proc.Popen([sys.executable, "-m", "compileall", "-q", "-j", "0", str(p / "fieldkit")], env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          cwd=str(p), **kw)
         return True
@@ -197,7 +198,7 @@ def import_ms(python, root, module, runs, env):
     best = None
     for _ in range(max(1, runs)):
         t = time.perf_counter()
-        r = subprocess.run([python, "-c", f"import sys;sys.dont_write_bytecode=True;sys.path.insert(0,{str(root)!r});import {module}"],
+        r = proc.run([python, "-c", f"import sys;sys.dont_write_bytecode=True;sys.path.insert(0,{str(root)!r});import {module}"],
                            capture_output=True, env=env, cwd=tempfile.gettempdir(), timeout=120)
         ms = (time.perf_counter() - t) * 1000
         if r.returncode != 0:
@@ -220,7 +221,7 @@ def timing(repo, modules, runs, python=None, tmp_root=None):
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         cold = {m: import_ms(python, tmp, m, runs, env) for m in modules}
         wenv = {k: v for k, v in env.items() if k != "PYTHONDONTWRITEBYTECODE"}
-        subprocess.run([python, "-m", "compileall", "-q", str(tmp / "fieldkit")], env=wenv, capture_output=True,
+        proc.run([python, "-m", "compileall", "-q", str(tmp / "fieldkit")], env=wenv, capture_output=True,
                        timeout=300)
         warm_ = {m: import_ms(python, tmp, m, runs, env) for m in modules}
         for m in modules:

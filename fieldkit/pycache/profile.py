@@ -15,7 +15,7 @@ import io
 import json
 import os
 import pstats
-import subprocess
+from fieldkit import proc
 import sys
 import tempfile
 
@@ -24,7 +24,7 @@ from .out import emit
 
 
 def import_profile(module, top):
-    r = subprocess.run([sys.executable, "-X", "importtime", "-c", f"import sys;sys.dont_write_bytecode=True;sys.path.insert(0,{str(core.REPO)!r});import {module}"],
+    r = proc.run([sys.executable, "-X", "importtime", "-c", f"import sys;sys.dont_write_bytecode=True;sys.path.insert(0,{str(core.REPO)!r});import {module}"],
                        capture_output=True, text=True, cwd=tempfile.gettempdir(), timeout=120)
     rows = []
     for ln in r.stderr.splitlines():
