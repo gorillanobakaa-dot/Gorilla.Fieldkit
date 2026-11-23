@@ -1,4 +1,4 @@
-"""The hog's measurements: RAM, commit charge, processes, loaded local models, disks, CPU temperature. Read-only.
+"""The hog's measurements: RAM, commit charge, kernel limits (desktop heap, USER/GDI objects, handles, process count, pagefile thrashing), processes, loaded local models, disks, CPU temperature. Read-only.
 
 Local only: the one network call is Ollama's /api/ps on a loopback address (any other host is refused), and it is
 made only when an Ollama process is running. `lms` is run only when an LM Studio process is running, so the watch
@@ -210,9 +210,103 @@ def temp(platform=None):
         return {"c": None, "sensor": None, "why": str(e)[:120]}
 
 
+def _gui_counts(pids):
+    """-> {pid: (gdi, user)} via GetGuiResources. Windows only. A process may hold at most 10,000 of each (Windows
+    default quota); past it that program can no longer draw a window or a menu."""
+    out = {}
+    k32, u32 = ctypes.WinDLL("kernel32"), ctypes.WinDLL("user32")
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    u32.GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    for pid in pids:
+        h = k32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            continue
+        try:
+            out[pid] = (u32.GetGuiResources(h, 0), u32.GetGuiResources(h, 1))
+        finally:
+            k32.CloseHandle(h)
+    return out
+
+
+def _paging_rate(seconds=1.0):
+    """Pages read from disk per second because RAM ran out (hard faults): Windows "\\Memory\\Pages Input/sec" (PDH),
+    Linux pswpin+pswpout from /proc/vmstat. High and sustained = pagefile thrashing. None when not readable."""
+    if sys.platform == "win32":
+        pdh = ctypes.WinDLL("pdh")
+        pdh.PdhOpenQueryW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        pdh.PdhAddEnglishCounterW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p,
+                                              ctypes.POINTER(ctypes.c_void_p)]
+        pdh.PdhCollectQueryData.argtypes = [ctypes.c_void_p]
+        pdh.PdhCloseQuery.argtypes = [ctypes.c_void_p]
+
+        class Val(ctypes.Structure):
+            _fields_ = [("status", ctypes.c_ulong), ("pad", ctypes.c_ulong), ("value", ctypes.c_double)]
+        pdh.PdhGetFormattedCounterValue.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+                                                    ctypes.POINTER(Val)]
+        q, c = ctypes.c_void_p(), ctypes.c_void_p()
+        if pdh.PdhOpenQueryW(None, None, ctypes.byref(q)):
+            return None
+        try:
+            if pdh.PdhAddEnglishCounterW(q, "\\Memory\\Pages Input/sec", None, ctypes.byref(c)):
+                return None
+            pdh.PdhCollectQueryData(q)
+            time.sleep(seconds)
+            pdh.PdhCollectQueryData(q)
+            v = Val()
+            if pdh.PdhGetFormattedCounterValue(c, 0x200, None, ctypes.byref(v)):    # PDH_FMT_DOUBLE
+                return None
+            return round(v.value, 1)
+        finally:
+            pdh.PdhCloseQuery(q)
+    if sys.platform.startswith("linux"):
+        def swapped():
+            kv = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines() if line.count(" ") == 1)
+            return int(kv.get("pswpin", 0)) + int(kv.get("pswpout", 0))
+        a = swapped()
+        time.sleep(seconds)
+        return round((swapped() - a) / seconds, 1)
+    return None
+
+
+def limits(rows=None):
+    """Kernel limits that freeze a computer while RAM still looks fine (2026-11-23: 802 terminal windows exhausted the
+    desktop heap; nothing could open a window). -> {windows, gui: [[pid, name, gdi, user]], handles: [[pid, name, n]],
+    procs, by_name: {name: n}, paging, pagefile_pct}. Every part is optional: a part that cannot be read is absent,
+    never guessed. Never raises."""
+    out = {}
+    try:
+        rows = rows if rows is not None else [{"pid": p.info["pid"], "name": p.info["name"]}
+                                              for p in psutil.process_iter(["pid", "name"])]
+        names = {r["pid"]: r["name"] or "?" for r in rows}
+        out["procs"] = len(rows)
+        by = {}
+        for n in names.values():
+            by[n.lower()] = by.get(n.lower(), 0) + 1
+        out["by_name"] = by
+        if sys.platform == "win32":
+            from .consoles import window_counts
+            out["windows"] = sum(window_counts().values())
+            gui = _gui_counts(list(names))
+            out["gui"] = sorted(([pid, names[pid], g, u] for pid, (g, u) in gui.items()), key=lambda r: -max(r[2:]))[:10]
+            hs = []
+            for pid in names:
+                try:
+                    hs.append([pid, names[pid], psutil.Process(pid).num_handles()])
+                except Exception:   # noqa: BLE001 - protected or gone
+                    pass
+            out["handles"] = sorted(hs, key=lambda r: -r[2])[:10]
+        out["pagefile_pct"] = psutil.swap_memory().percent
+        out["paging"] = _paging_rate()
+    except Exception as e:  # noqa: BLE001 - a part that fails is reported missing, the watch goes on
+        out["why"] = str(e)[:120]
+    return out
+
+
 def gather(cfg, keep=(), with_temp=True, now=None):
     procs, alive, rows = processes(cfg["sample_top"], keep)
     return {"t": now or time.time(), "host": sys.platform, "ram": ram(), "commit": commit(), "procs": procs,
             "alive": alive, "table": [[r["pid"], r["ppid"], r["ctime"], r["name"], r["rss"]] for r in rows],
             "lms": lms(rows, cfg), "ollama": ollama(rows, cfg), "disks": disks(),
+            "limits": limits([{"pid": r["pid"], "name": r["name"]} for r in rows]),
             "temp": temp() if with_temp else {"c": None, "sensor": None}}

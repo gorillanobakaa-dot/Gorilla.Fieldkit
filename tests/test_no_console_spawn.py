@@ -16,6 +16,25 @@ OS_FNS = {"system", "startfile"}
 SKIP_OS = {"startfile"}  # opens a document in its viewer; creates no console
 
 
+WT_NAMES = {"wt", "wt.exe", "windowsterminal", "windowsterminal.exe"}
+
+
+def _new_console_ref(node):
+    """True for a node that asks Windows for a visible console window of its own: the name or attribute
+    CREATE_NEW_CONSOLE (also as getattr's string), or a Windows Terminal launch (wt.exe as argv[0]). 2026-11-23: one
+    Windows Terminal held 802 windows; a window of its own is allowed only where proc_allow.yaml says why."""
+    if isinstance(node, ast.Name) and node.id == "CREATE_NEW_CONSOLE":
+        return True
+    if isinstance(node, ast.Attribute) and node.attr == "CREATE_NEW_CONSOLE":
+        return True
+    if isinstance(node, ast.Constant) and node.value == "CREATE_NEW_CONSOLE":
+        return True
+    if isinstance(node, (ast.List, ast.Tuple)) and node.elts and isinstance(node.elts[0], ast.Constant):
+        v = str(node.elts[0].value).replace("\\", "/").rsplit("/", 1)[-1].lower()
+        return v in WT_NAMES
+    return False
+
+
 def scan_source(src, rel):
     """-> [(key, lineno)] for every raw process-starting call in one module's source (pure)."""
     tree = ast.parse(src)
@@ -45,6 +64,8 @@ def scan_source(src, rel):
                         callee = f"{m}.{a}"
                 if callee:
                     hits.append((f"{rel}:{fn}:{callee}", ch.lineno))
+            if _new_console_ref(ch):
+                hits.append((f"{rel}:{fn}:CREATE_NEW_CONSOLE", ch.lineno))
             walk(ch, name)
 
     walk(tree, "<module>")
@@ -89,6 +110,12 @@ def test_scan_can_fail(tmp_path):
     new, _ = scan_tree(tmp_path, {})
     assert [n.split(" ")[0] for n in new] == ["fieldkit/a.py:f:subprocess.run", "fieldkit/a.py:f:subprocess.Popen",
                                               "fieldkit/a.py:f:os.system"]
+    (pkg / "b.py").write_text("import subprocess\ndef g():\n    x = subprocess.CREATE_NEW_CONSOLE\n"
+                              "    y = getattr(subprocess, 'CREATE_NEW_CONSOLE', 16)\n    z = ['wt.exe', '-w', '0']\n",
+                              encoding="utf-8")
+    new_b = [n.split(" ")[0] for n in scan_tree(tmp_path, {})[0] if n.startswith("fieldkit/b.py")]
+    assert new_b == ["fieldkit/b.py:g:CREATE_NEW_CONSOLE"] * 3
+    (pkg / "b.py").unlink()
     new, stale = scan_tree(tmp_path, {"fieldkit/a.py:f:subprocess.run": "r", "fieldkit/a.py:f:subprocess.Popen": "r",
                                       "fieldkit/a.py:f:os.system": "r", "fieldkit/gone.py:g:os.system": "r"})
     assert not new and stale == ["fieldkit/gone.py:g:os.system"]
@@ -136,3 +163,19 @@ def test_consoles_owners():
             {"pid": 5, "name": "conhost.exe", "ppid": 99, "cmd": ""}]
     groups, mine = consoles.owners(rows)
     assert mine == [2] and groups == {"python.exe": [2], "claude.exe": [4], "dead parent": [5]}
+
+
+def test_terminal_floods():
+    from fieldkit.hog import consoles
+    rows = [{"pid": 10, "name": "WindowsTerminal.exe", "ppid": 1, "created": 0},       # 802 dead windows
+            {"pid": 11, "name": "WindowsTerminal.exe", "ppid": 1, "created": 0},       # the owner's 3 tabs
+            {"pid": 12, "name": "WindowsTerminal.exe", "ppid": 1, "created": 0},       # 30 windows, a live shell
+            {"pid": 13, "name": "pwsh.exe", "ppid": 12, "created": 0},
+            {"pid": 14, "name": "WindowsTerminal.exe", "ppid": 1, "created": 990},     # flood, but brand new
+            {"pid": 15, "name": "explorer.exe", "ppid": 1, "created": 0}]
+    wins = {10: 802, 11: 3, 12: 30, 14: 40, 15: 99}
+    assert consoles.terminal_windows(rows, wins) == {10: 802, 11: 3, 12: 30, 14: 40}
+    assert consoles.floods(rows, wins, now=1000) == [10]
+    res = {"fieldkit_owned": [], "terminal_windows": 875}
+    assert consoles.failures(res) == ["875 terminal windows open (limit 19)"]
+    assert consoles.failures(dict(res, terminal_windows=3)) == []

@@ -55,6 +55,70 @@ def test_no_commit_on_macos(cfg):
     assert rules.commit(facts(commit=None), cfg) == []
 
 
+# ---- kernel limits (2026-11-23: 802 terminal windows exhausted the desktop heap) ------------------------------------
+def sevs(found, check):
+    return [x["severity"] for x in found if x["check"] == check]
+
+
+@pytest.mark.parametrize("n,sev", [(299, None), (300, "warn"), (599, "warn"), (600, "act"), (802, "act")])
+def test_desktop_heap(cfg, n, sev):
+    assert sevs(rules.limits(facts(limits={"windows": n}), cfg), "desktop_heap") == ([sev] if sev else [])
+
+
+@pytest.mark.parametrize("gdi,user,want", [(6999, 6999, []), (7000, 10, ["warn"]), (10, 9000, ["act"]),
+                                           (9500, 7100, ["act", "warn"])])
+def test_gui_objects(cfg, gdi, user, want):
+    f = rules.limits(facts(limits={"gui": [[42, "x.exe", gdi, user]]}), cfg)
+    assert sevs(f, "gui_objects") == want
+    assert all(x["numbers"]["pid"] == 42 for x in f)
+
+
+@pytest.mark.parametrize("n,sev", [(49999, None), (50000, "warn"), (149999, "warn"), (150000, "act")])
+def test_handles(cfg, n, sev):
+    assert sevs(rules.limits(facts(limits={"handles": [[7, "leaky.exe", n]]}), cfg), "handles") == \
+        ([sev] if sev else [])
+
+
+@pytest.mark.parametrize("n,sev", [(699, None), (700, "warn"), (1199, "warn"), (1200, "act")])
+def test_process_count(cfg, n, sev):
+    assert sevs(rules.limits(facts(limits={"procs": n}), cfg), "processes") == ([sev] if sev else [])
+
+
+@pytest.mark.parametrize("c,sev", [(99, None), (100, "warn"), (249, "warn"), (250, "act")])
+def test_process_storm(cfg, c, sev):
+    f = rules.limits(facts(limits={"by_name": {"conhost.exe": c, "svchost.exe": 60}}), cfg)
+    assert sevs(f, "process_storm") == ([sev] if sev else [])
+
+
+def test_process_storm_exempt(cfg):
+    c = dict(cfg, same_name_exempt=["svchost.exe"])
+    assert rules.limits(facts(limits={"by_name": {"svchost.exe": 900}}), c) == []
+
+
+@pytest.mark.parametrize("v,sev", [(999.0, None), (1000.0, "warn"), (3999.0, "warn"), (4000.0, "act")])
+def test_thrash(cfg, v, sev):
+    f = rules.limits(facts(limits={"paging": v, "pagefile_pct": 70.0},
+                           procs=[{"pid": 1, "ctime": 1.0, "name": "big.exe", "rss": 9 * GB}]), cfg)
+    assert sevs(f, "thrash") == ([sev] if sev else [])
+
+
+def test_limits_missing_parts_are_silent(cfg):
+    # macOS, a failed probe, an old facts file: nothing measured, nothing guessed
+    assert rules.limits(facts(), cfg) == []
+    assert rules.limits(facts(limits={"why": "boom"}), cfg) == []
+
+
+def test_limits_in_evaluate(cfg):
+    found = rules.evaluate(facts(limits={"windows": 802}), {}, {}, cfg)
+    assert "desktop_heap" in [x["check"] for x in found]
+
+
+def test_limits_probe_never_raises():
+    from fieldkit.hog import probe
+    out = probe.limits([{"pid": 999999991, "name": "ghost.exe"}])
+    assert out["procs"] == 1 and out["by_name"] == {"ghost.exe": 1}
+
+
 # ---- LM Studio ---------------------------------------------------------------------------------------------------
 LMS_JSON = json.dumps([{"type": "llm", "identifier": "qwen3.6-35b-a3b", "modelKey": "qwen/qwen3.6-35b-a3b",
                         "sizeBytes": 22 * GB, "status": "idle"}])

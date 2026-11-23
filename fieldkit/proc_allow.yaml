@@ -24,3 +24,6 @@ allow:
     Runs the built program's --version; a .cmd or console tool needs its own console (CI 2026-11-22 test_expect_and_the_built_program). Run by a person or CI, not a hook.
   "fieldkit/wifi/channelsurvey.py:_run:subprocess.run": >-
     One-file stdlib-only tool meant to be copied anywhere (tests/test_wifi_channelsurvey.py::test_stdlib_only_so_it_transplants); run by a person at a console.
+  "fieldkit/autopilot/run.py:login:CREATE_NEW_CONSOLE": >-
+    Opens Claude Code in a window of its own so the owner can type /login there, once per machine; the window is
+    the owner's and closes when they close it. Started only by a person (fieldkit autopilot login), never by a hook.

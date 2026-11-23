@@ -23,9 +23,18 @@ Counts the processes the room hook starts and catches whoever starts new console
 Read-only: nothing is stopped. Tests: `tests/test_hog_churn.py` (the scan gate runs on every CI; the zero-children
 UserPromptSubmit probe runs on Windows).
 
+## Kernel limits (probe.limits, rules.limits)
+
+`probe.limits()` measures visible windows (EnumWindows; the desktop-heap proxy), per-process USER and GDI objects
+(GetGuiResources), per-process handles (psutil), the process count and copies per name, the pagefile use and the
+paging rate (PDH `\\Memory\\Pages Input/sec` over 1 s on Windows, pswpin+pswpout from /proc/vmstat on Linux). It never
+raises; a part it cannot read is absent. `rules.limits()` turns them into desktop_heap, gui_objects, handles,
+processes, process_storm and thrash findings (thresholds in thresholds.json). Tests: `tests/test_hog.py` (kernel
+limits section), mutations in `tests/hog_mutations.yaml`.
+
 ## hog consoles (consoles.py) and fieldkit/proc.py
 
 `fieldkit hog consoles [--reap] [--json]` groups every conhost/OpenConsole by its parent process and exits 1 when a
-Python process running `fieldkit` owns one. `--reap` stops the empty ones (`empty_hosts`) by PID. The prevention is
+Python process running `fieldkit` owns one. `--reap` stops the empty ones (`empty_hosts`) by PID. It also counts each terminal's visible windows: a terminal (WindowsTerminal, OpenConsole, conhost) holding 20+ windows for 10 minutes is a flood, fails the check, and the watch stops it by PID (`reap_floods`). The prevention is
 `fieldkit/proc.py` (DETACHED_PROCESS plus redirected streams) and the CI gate `tests/test_no_console_spawn.py`
 (allowlist `fieldkit/proc_allow.yaml`, one reason per entry).

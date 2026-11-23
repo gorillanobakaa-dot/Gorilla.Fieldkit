@@ -51,6 +51,83 @@ def commit(facts, cfg):
                {"used": c["used"], "limit": c["limit"], "pct": round(pct, 1)})]
 
 
+def _lim(facts):
+    return facts.get("limits") or {}
+
+
+def _sev(v, warn, act):
+    return "act" if v >= act else "warn" if v >= warn else None
+
+
+def desktop_heap(facts, cfg):
+    """Visible top-level windows on the desktop: each one is kept in the desktop heap; when it is full no program can
+    open a window (2026-11-23: 802 windows held by one Windows Terminal; a screenshot took 10 minutes)."""
+    n = _lim(facts).get("windows")
+    sev = None if n is None else _sev(n, cfg["windows_warn"], cfg["windows_act"])
+    if not sev:
+        return []
+    return [_f("desktop_heap", sev, f"{n} windows open (desktop heap fills near {cfg['windows_act']}+): "
+               "fieldkit hog consoles --reap", {"windows": n})]
+
+
+def gui_objects(facts, cfg):
+    """USER or GDI objects of one process near the Windows quota of 10,000: past it that program draws nothing."""
+    out = []
+    for pid, name, gdi, user in _lim(facts).get("gui", []):
+        for kind, v in (("GDI", gdi), ("USER", user)):
+            sev = _sev(v, cfg["gui_warn"], cfg["gui_act"])
+            if sev:
+                out.append(_f("gui_objects", sev, f"{name} {pid} holds {v} {kind} objects (quota 10000): restart it",
+                              {"pid": pid, "name": name, "kind": kind, "count": v}))
+    return out
+
+
+def handles(facts, cfg):
+    """A process whose open handles keep climbing is leaking kernel objects (non-paged pool, then everything)."""
+    out = []
+    for pid, name, n in _lim(facts).get("handles", []):
+        sev = _sev(n, cfg["handles_warn"], cfg["handles_act"])
+        if sev:
+            out.append(_f("handles", sev, f"{name} {pid} holds {n} handles: restart it",
+                          {"pid": pid, "name": name, "handles": n}))
+    return out
+
+
+def process_count(facts, cfg):
+    """Too many processes in all, or a storm of one program (2026-11-22: 60,000 console hosts from one hook)."""
+    lim = _lim(facts)
+    out = []
+    n = lim.get("procs")
+    sev = None if n is None else _sev(n, cfg["procs_warn"], cfg["procs_act"])
+    if sev:
+        out.append(_f("processes", sev, f"{n} processes running", {"procs": n}))
+    for name, c in sorted((lim.get("by_name") or {}).items(), key=lambda x: -x[1]):
+        if name in cfg["same_name_exempt"]:
+            continue
+        sev = _sev(c, cfg["same_name_warn"], cfg["same_name_act"])
+        if sev:
+            out.append(_f("process_storm", sev, f"{c} copies of {name}: fieldkit hog churn scan",
+                          {"name": name, "count": c}))
+    return out
+
+
+def thrash(facts, cfg):
+    """Pages read back from the pagefile per second: sustained, the disk does the RAM's job and everything crawls."""
+    lim = _lim(facts)
+    v = lim.get("paging")
+    sev = None if v is None else _sev(v, cfg["thrash_warn"], cfg["thrash_act"])
+    if not sev:
+        return []
+    return [_f("thrash", sev, f"pagefile thrashing: {v:.0f} pages/s read back (pagefile {lim.get('pagefile_pct', 0):.0f}% "
+               "used); top RAM: " + ", ".join(_top(facts.get("procs", []), 3)), {"pages_s": v,
+               "pagefile_pct": lim.get("pagefile_pct")})]
+
+
+def limits(facts, cfg):
+    return desktop_heap(facts, cfg) + gui_objects(facts, cfg) + handles(facts, cfg) + process_count(facts, cfg) \
+        + thrash(facts, cfg)
+
+
 def critical(facts, cfg):
     """RAM or commit at the act line: idle models then go after model_idle_min_critical instead of model_idle_min."""
     return any(f["severity"] == "act" for f in ram(facts, cfg) + commit(facts, cfg))
@@ -293,7 +370,7 @@ def pileup(facts, cfg):
 def evaluate(facts, history, registry, cfg, now=None):
     now = facts.get("t") if now is None else now
     crit = critical(facts, cfg)
-    return (ram(facts, cfg) + commit(facts, cfg) + lms_models(facts, cfg, now, crit)
+    return (ram(facts, cfg) + commit(facts, cfg) + limits(facts, cfg) + lms_models(facts, cfg, now, crit)
             + ollama_models(facts, history, cfg, now, crit) + leaks(facts, history, cfg)
             + cpu_pinned(facts, history, cfg) + temp(facts, cfg) + disk(facts, cfg)
             + orphans(facts, registry, cfg, now) + services(facts, registry, cfg) + pileup(facts, cfg))
