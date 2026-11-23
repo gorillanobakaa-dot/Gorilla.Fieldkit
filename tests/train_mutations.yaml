@@ -113,3 +113,13 @@
   - '    c = _git(repo, *who, "commit", "-m", msg, check=False)'
   - '    c = _git(repo, "commit", "-m", msg, check=False)'
   why: R17 the train's local update commit carries its own git identity (#304)
+- file: fieldkit/method/train.py
+  swap:
+  - '            if not rc or wait is None or not RATE_LIMITED.search(err):'
+  - '            if True:'
+  why: a GitHub rate-limit answer (HTTP 403 secondary limit) is waited out and asked again, never taken as red
+- file: fieldkit/method/train.py
+  swap:
+  - '            if not rc or wait is None or not RATE_LIMITED.search(err):'
+  - '            if not rc or wait is None:'
+  why: only a rate-limit answer is retried; every other gh error fails at once
