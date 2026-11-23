@@ -18,6 +18,7 @@
   "same_name_exempt": [],
   "thrash_warn": 1000,
   "thrash_act": 4000,
+  "thrash_pagefile_pct": 50,
   "top_n": 8,
   "model_idle_min": 15,
   "model_idle_min_critical": 5,
