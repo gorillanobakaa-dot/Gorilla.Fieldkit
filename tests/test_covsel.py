@@ -41,8 +41,11 @@ def test_one_hunk_outside_a_function_sends_the_whole_file_to_the_fallback():
 
 
 def test_new_file_goes_to_the_fallback():
+    # a path the map knows but the base does not have (added since the map was built)
+    r = covsel.coverage_plan(["fieldkit/m.py"], CMAP, lambda p: [(1, 5)], lambda p: None, fb)
+    assert r["fallback"] == {"fieldkit/m.py": "new file"} and r["tests"] == ["fb:fieldkit/m.py"]
     r = covsel.coverage_plan(["fieldkit/new.py"], CMAP, lambda p: [(1, 5)], lambda p: None, fb)
-    assert r["fallback"] == {"fieldkit/new.py": "new file"} and r["tests"] == ["fb:fieldkit/new.py"]
+    assert r["fallback"] == {"fieldkit/new.py": "not in the map"} and r["tests"] == ["fb:fieldkit/new.py"]
 
 
 def test_file_not_in_the_map_yaml_and_dirty_files_go_to_the_fallback():
