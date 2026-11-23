@@ -78,7 +78,7 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None
         proc = fkproc.Popen(cmd, cwd=str(cwd), env={**_env(), **(env or {})}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
         if governor is not None:                         # the thermald: moves the cap, kills this tree on its verdict
-            governor.kill = lambda why, p=proc: fkproc.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+            governor.kill = lambda why, p=proc: fkproc.kill_tree(p.pid)
             governor.start()
         for line in proc.stdout:
             lf.write(line)
@@ -93,7 +93,7 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None
                 if why:
                     say(f"  THERMAL WATCHDOG: {why} - killing the build")
                     lines.append(f"FIELDKIT THERMAL WATCHDOG: {why}")
-                    fkproc.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+                    fkproc.kill_tree(proc.pid)
             if now - last_beat >= HEARTBEAT_S:
                 say(f"  ... {int((now - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
                 if eta is not None:                  # owner 2026-10-18: an ETA from measurements, every heartbeat
@@ -211,6 +211,13 @@ def fix_toolchain(t, root, say, lines=()):
 
 
 def active_power_scheme():
+    if sys.platform != "win32":                      # Linux: the power-profiles-daemon profile (powerprofilesctl)
+        try:
+            r = fkproc.run(["powerprofilesctl", "get"], capture_output=True, text=True, errors="replace")
+        except OSError:
+            return None, "no powerprofilesctl"
+        name = (r.stdout or "").strip()
+        return (name, name) if r.returncode == 0 and name else (None, (r.stderr or "no profile").strip()[:80])
     r = fkproc.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, errors="replace")
     m = re.search(r"GUID:\s*([0-9a-f-]{36})\s*\((.*?)\)", r.stdout or "")
     return (m.group(1), m.group(2)) if m else (None, (r.stdout or r.stderr).strip()[:80])
@@ -222,7 +229,10 @@ def restore_power_scheme(before, say):
     scheme it found back whenever the stage left another one active."""
     guid, name = active_power_scheme()
     if before[0] and guid and guid != before[0]:
-        fkproc.run(["powercfg", "/setactive", before[0]], capture_output=True)
+        if sys.platform == "win32":
+            fkproc.run(["powercfg", "/setactive", before[0]], capture_output=True)
+        else:
+            fkproc.run(["powerprofilesctl", "set", before[0]], capture_output=True)
         now = active_power_scheme()
         say(f"  power scheme was left on '{name}': put back to '{before[1]}' -> now '{now[1]}'")
         return True
