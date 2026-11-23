@@ -21,3 +21,5 @@ hang:                        # C6: one test may run factor x p90 of the recorded
   floor: 120                 # seconds
   cap: 900
   default: 300
+selection_gate: import       # C4.4: import (today's rule) | coverage | union (both). Stays import until `fieldkit ciaudit replay`
+                             # shows 0 misses; after misses the gate is union. Never flipped by a model.
