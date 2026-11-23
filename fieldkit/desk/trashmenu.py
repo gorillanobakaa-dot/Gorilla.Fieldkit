@@ -11,6 +11,7 @@ through the elevate tool, or the installer script).
     python -m fieldkit.desk.trashmenu install-admin     (elevated: trust the public certificate)
     python -m fieldkit.desk.trashmenu register          (register the package for the current user)
     python -m fieldkit.desk.trashmenu status
+    python -m fieldkit trashmenu recycle-dir --path DIR  (what the menu runs on a folder: list, ask, recycle)
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from fieldkit import proc as fkproc
 CLSID = "7C3A1F52-9D4B-4E8A-B2C6-1F0E5A9D3B71"  # the same value as CLSID_TRASH_MENU in rust/gorilla-trash-menu
 SUBJECT = "CN=Fieldkit Gorilla Trash"
 PACKAGE = "Fieldkit.GorillaTrashMenu"
-VERSION = "1.0.2.0"
+VERSION = "1.0.3.0"
 DLL_NAME = "gorilla-trash-menu.dll"
 KITS = r"C:\Program Files (x86)\Windows Kits\10\bin"
 
@@ -139,6 +140,7 @@ def build(dll: Path, types=RECYCLE_TYPES, target: Path | None = None) -> Path:
     target = Path(target or bindir())
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy2(dll, target / DLL_NAME)
+    write_folder_launcher(target)
     pkg = state_dir() / "pkg"
     shutil.rmtree(pkg, ignore_errors=True)
     pkg.mkdir(parents=True)
@@ -156,6 +158,56 @@ def build(dll: Path, types=RECYCLE_TYPES, target: Path | None = None) -> Path:
     if r.returncode:
         raise RuntimeError(r.stdout + r.stderr)
     return msix
+
+
+def _unsafe_dir(path: Path) -> str:
+    """Why a folder must never be emptied by the menu ('' when it may be)."""
+    p = os.path.normcase(os.path.abspath(path))
+    if "$recycle.bin" in p or os.path.dirname(p) == p:
+        return "that is the Recycle Bin or a drive root"
+    for var in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "USERPROFILE"):
+        v = os.environ.get(var)
+        if v and p == os.path.normcase(os.path.abspath(v)):
+            return f"{v} is a system folder"
+    return ""
+
+
+def recycle_dir(path, ask=input, run=None) -> int:
+    """List what is inside PATH, ask once, then move it to the Recycle Bin (a recycle, never a permanent delete)."""
+    d = Path(path)
+    why = _unsafe_dir(d) if d.is_dir() else "not a folder"
+    if why:
+        print("refused:", why)
+        return 4
+    items = sorted(d.iterdir(), key=lambda x: x.name.lower())
+    if not items:
+        print("empty already:", d)
+        return 0
+    print(f"{len(items)} item(s) in {d} will go to the Recycle Bin:")
+    for it in items[:200]:
+        print("  " + it.name + ("\\" if it.is_dir() else ""))
+    if len(items) > 200:
+        print(f"  ... and {len(items) - 200} more")
+    if ask("Move all of it to the Recycle Bin? [y/N] ").strip().lower() != "y":
+        print("cancelled; nothing moved")
+        return 4
+    run = run or (lambda script: _ps(script, check=False))
+    run("Add-Type -AssemblyName Microsoft.VisualBasic; "
+        f"Get-ChildItem -LiteralPath '{str(d).replace(chr(39), chr(39) * 2)}' -Force | ForEach-Object {{ "
+        "if ($_.PSIsContainer) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } "
+        "else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } }")
+    left = len(list(d.iterdir()))
+    print("done" if not left else f"{left} item(s) could not be moved")
+    return 0 if not left else 3
+
+
+def write_folder_launcher(target: Path) -> Path:
+    """gorilla-trash-folder.cmd: the DLL runs it with the folder path; it starts recycle-dir in a console."""
+    root = Path(__file__).resolve().parents[2]
+    cmd = Path(target) / "gorilla-trash-folder.cmd"
+    cmd.write_text(f'@echo off\r\ncd /d "{root}"\r\n"{sys.executable}" -m fieldkit trashmenu recycle-dir --path %1\r\n'
+                   "pause\r\n", encoding="ascii")
+    return cmd
 
 
 def trust_public_cert() -> str:
@@ -181,7 +233,8 @@ def status() -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="fieldkit trashmenu")
-    ap.add_argument("cmd", choices=["build", "install-admin", "register", "status"])
+    ap.add_argument("cmd", choices=["build", "install-admin", "register", "status", "recycle-dir"])
+    ap.add_argument("--path")
     ap.add_argument("--dll")
     ap.add_argument("--bindir")
     ap.add_argument("--types", default=",".join(RECYCLE_TYPES))
@@ -189,6 +242,8 @@ def main(argv=None) -> int:
     if sys.platform != "win32":
         print("not-this-platform: the Windows 11 menu exists only on Windows")
         return 0
+    if a.cmd == "recycle-dir":
+        return recycle_dir(a.path)
     if a.cmd == "build":
         print(build(Path(a.dll), tuple(a.types.split(",")), a.bindir))
     elif a.cmd == "install-admin":

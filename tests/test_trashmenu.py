@@ -37,3 +37,12 @@ def test_default_types_are_schema_valid():
     assert set(trashmenu.RECYCLE_TYPES) <= {"*", "Directory", "Directory\\Background"}
     doc = xml.dom.minidom.parseString(trashmenu.manifest())
     assert len(doc.getElementsByTagName("desktop5:ItemType")) == len(trashmenu.RECYCLE_TYPES)
+
+
+def test_recycle_dir_lists_asks_and_never_touches_the_bin(tmp_path, monkeypatch):
+    (tmp_path / "a.txt").write_text("x")
+    calls = []
+    assert trashmenu.recycle_dir(tmp_path, ask=lambda _: "n", run=calls.append) == 4 and not calls
+    assert trashmenu.recycle_dir(tmp_path, ask=lambda _: "y", run=calls.append) in (0, 3) and len(calls) == 1
+    assert trashmenu.recycle_dir("C:\\$Recycle.Bin", ask=lambda _: "y", run=calls.append) == 4
+    assert len(calls) == 1

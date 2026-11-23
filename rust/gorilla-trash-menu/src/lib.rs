@@ -12,7 +12,7 @@ use windows::Win32::Foundation::{CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATIO
 use windows::Win32::System::Com::{IBindCtx, IClassFactory, IClassFactory_Impl};
 use windows::Win32::UI::Shell::{
     IEnumExplorerCommand, IExplorerCommand, IExplorerCommand_Impl, IShellItemArray, SHStrDupW, ShellExecuteW,
-    ECF_DEFAULT, ECS_ENABLED, ECS_HIDDEN, SIGDN_DESKTOPABSOLUTEPARSING,
+    ECF_DEFAULT, ECS_ENABLED, ECS_HIDDEN, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -22,6 +22,32 @@ const CLSID_TRASH_MENU: GUID = GUID::from_u128(0x7c3a1f52_9d4b_4e8a_b2c6_1f0e5a9
 fn trash_exe() -> Vec<u16> {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
     format!("{base}\\Fieldkit\\bin\\gorilla-trash.exe\0").encode_utf16().collect()
+}
+
+enum Target {
+    Bin,
+    Folder(String),
+    None,
+}
+
+fn classify(items: &Ref<'_, IShellItemArray>) -> Target {
+    let item = match items.as_ref().and_then(|a| unsafe { a.GetItemAt(0).ok() }) {
+        Some(i) => i,
+        None => return Target::None,
+    };
+    let parsing = unsafe { item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING).ok() }
+        .map(|n| unsafe { n.to_string().unwrap_or_default() })
+        .unwrap_or_default();
+    if parsing.to_uppercase().contains("645FF040-5081-101B-9F08-00AA002F954E") {
+        return Target::Bin;
+    }
+    let path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH).ok() }
+        .map(|n| unsafe { n.to_string().unwrap_or_default() })
+        .unwrap_or_default();
+    if !path.is_empty() && std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false) {
+        return Target::Folder(path);
+    }
+    Target::None
 }
 
 #[implement(IExplorerCommand)]
@@ -41,7 +67,7 @@ impl IExplorerCommand_Impl for TrashCommand_Impl {
     }
 
     fn GetToolTip(&self, _items: Ref<'_, IShellItemArray>) -> Result<PWSTR> {
-        unsafe { SHStrDupW(w!("Lists what is in the Recycle Bin and asks before emptying it")) }
+        unsafe { SHStrDupW(w!("Lists what will go, then asks: the Recycle Bin is emptied for good; a folder's contents go to the Recycle Bin")) }
     }
 
     fn GetCanonicalName(&self) -> Result<GUID> {
@@ -49,20 +75,29 @@ impl IExplorerCommand_Impl for TrashCommand_Impl {
     }
 
     fn GetState(&self, items: Ref<'_, IShellItemArray>, _slow: BOOL) -> Result<u32> {
-        // Shown only on the Recycle Bin (a virtual shell object, CLSID 645FF040-...): hidden everywhere else.
-        let is_bin = items
-            .as_ref()
-            .and_then(|a| unsafe { a.GetItemAt(0).ok() })
-            .and_then(|i| unsafe { i.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING).ok() })
-            .map(|n| unsafe { n.to_string().unwrap_or_default() }.to_uppercase().contains("645FF040-5081-101B-9F08-00AA002F954E"))
-            .unwrap_or(false);
-        Ok(if is_bin { ECS_ENABLED.0 } else { ECS_HIDDEN.0 } as u32)
+        // Owner 2026-11-23: on the Recycle Bin and on every real folder (or folder background); a plain file hides it.
+        Ok(match classify(&items) {
+            Target::None => ECS_HIDDEN.0,
+            _ => ECS_ENABLED.0,
+        } as u32)
     }
 
-    fn Invoke(&self, _items: Ref<'_, IShellItemArray>, _ctx: Ref<'_, IBindCtx>) -> Result<()> {
-        let exe = trash_exe();
+    fn Invoke(&self, items: Ref<'_, IShellItemArray>, _ctx: Ref<'_, IBindCtx>) -> Result<()> {
         unsafe {
-            ShellExecuteW(None, w!("open"), PCWSTR(exe.as_ptr()), w!("empty"), PCWSTR::null(), SW_SHOWNORMAL);
+            match classify(&items) {
+                Target::Bin => {
+                    let exe = trash_exe();
+                    ShellExecuteW(None, w!("open"), PCWSTR(exe.as_ptr()), w!("empty"), PCWSTR::null(), SW_SHOWNORMAL);
+                }
+                Target::Folder(path) => {
+                    // That folder's contents go to the Recycle Bin after a list and a question; never the bin itself.
+                    let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
+                    let cmd: Vec<u16> = format!("{base}\\Fieldkit\\bin\\gorilla-trash-folder.cmd\0").encode_utf16().collect();
+                    let arg: Vec<u16> = format!("\"{path}\"\0").encode_utf16().collect();
+                    ShellExecuteW(None, w!("open"), PCWSTR(cmd.as_ptr()), PCWSTR(arg.as_ptr()), PCWSTR::null(), SW_SHOWNORMAL);
+                }
+                Target::None => {}
+            }
         }
         Ok(())
     }
