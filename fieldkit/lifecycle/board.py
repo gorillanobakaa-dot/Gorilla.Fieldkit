@@ -251,7 +251,21 @@ def friction_rows(now=None, hours=24, **kw):
     return [{"kind": "board", "key": f"board:{f['session']}",
              "line": f"session \"{_cell(_title(f), 60)}\" ({f['session'][:8]}) "
                      f"ended with no Board row in PLAN.md",
-             "fix": f"fieldkit board add {f['session']}"} for f in r["missing"]]
+             "fix": f"fieldkit board add {f['session']}"} for f in r["missing"]] + refusal_rows()
+
+
+def refusal_rows(root=None):
+    """5.7 / F7: the refusal ledger (state/refusals.jsonl -> defects) shown on the Board side: one row per OPEN defect,
+    linked by its key, so a refusal repeated by a harness tool is seen where the sessions' rows are."""
+    from .. import refusals
+    try:
+        found = refusals.defects(root)
+    except OSError:
+        return []
+    return [{"kind": "refusal", "key": f"refusal:{k}",
+             "line": f"open refusal defect {k} ({d.get('tool', '?')}, {d.get('count', 0)} times; ledger: state/refusals.jsonl)",
+             "fix": f"fieldkit refusals close {k} --test FILE::TEST"}
+            for k, d in sorted(found.items()) if d.get("status") == "open"]
 
 
 def main(argv=None):
@@ -288,6 +302,8 @@ def main(argv=None):
                 print(f"NO ROW  {f['session'][:8]}  ${f.get('usd', 0):>7.2f}  "
                       f"{_cell(_title(f), 70)}")
             print(r["line"])
+            for x in refusal_rows():
+                print(f"REFUSAL  {x['line']}")
             print("NEXT: " + ("fieldkit board add --missing" + (f" --date {a.date}" if a.date else "")
                               if r["missing"] else "nothing: every finished session has its row"))
         return 3 if r["missing"] else 0
