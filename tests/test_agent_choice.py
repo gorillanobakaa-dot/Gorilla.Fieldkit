@@ -193,3 +193,15 @@ def test_a_budget_pause_exit_75_blocks_no_agent():
     from fieldkit.lifecycle import tasks
     assert tasks._agent_quota({"agent": "claude", "log": "p.log"}, read=lambda p: PAUSED_RUN) is None
     assert models.is_agent_available("claude") is True
+
+
+def test_bare_words_in_a_log_block_no_agent():
+    # 2026-11-23: '429', 'overloaded', 'rate limit' and 'credit balance' matched as bare words (a PID, a count,
+    # a test name) and would block an agent for two hours on a failed run that hit no limit at all.
+    for line in ("started PID 429, exit 3", "tests/test_overloaded_queue.py FAILED", "test_rate_limit_backoff passed",
+                 "credit balance shown in status bar", "429 files changed"):
+        assert models.classify_failure(line, 1) is None, line
+    for err in ('API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+                "API Error: 429 rate_limit_error", "You have been rate limited", "HTTP 429",
+                "The API is overloaded, try again"):
+        assert models.classify_failure(err, 1), err
