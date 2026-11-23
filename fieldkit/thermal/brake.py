@@ -92,7 +92,24 @@ def boost_read():
     return None
 
 
+def _linux_boost_set(mode, root="/sys/devices/system/cpu"):
+    """Turbo on (mode > 0) or off (0) through intel_pstate/no_turbo or cpufreq/boost. False when not writable (needs root)."""
+    for rel, inverted in (("intel_pstate/no_turbo", True), ("cpufreq/boost", False)):
+        f = Path(root) / rel
+        if not f.exists():
+            continue
+        on = int(mode) > 0
+        try:
+            f.write_text(str(int(not on) if inverted else int(on)))
+        except OSError:
+            return False
+        return True
+    return False
+
+
 def boost_set(mode):
+    if sys.platform.startswith("linux"):
+        return _linux_boost_set(mode)
     if sys.platform != "win32":
         return False
     for rail in ("/setacvalueindex", "/setdcvalueindex"):
