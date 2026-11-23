@@ -31,11 +31,22 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+      - name: GitHub API budget (start)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci_rate.py start
       - id: proof
         env:
           GH_TOKEN: ${{ github.token }}
           FIELDKIT_BEFORE: ${{ github.event.before }}
         run: python3 .github/ci_merge_proof.py match
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci_rate.py end
 
   coverage:
     needs: merge-proof
@@ -82,7 +93,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python -m fieldkit ci durations fetch --out "$RUNNER_TEMP/durations.json" --repo "${{ github.repository }}"
+        run: |
+          python3 .github/ci_rate.py start
+          # A 403 (hourly limit used up) or any fetch error only loses the shard balance: the same tests still run.
+          python -m fieldkit ci durations fetch --out "$RUNNER_TEMP/durations.json" --repo "${{ github.repository }}"             || echo "::warning::ci-durations not fetched: plan without durations (same tests, only the shard balance changes)"
       - name: Select the tests once for this checkout
         id: plan
         shell: bash
@@ -104,9 +118,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: fieldkit-selection
-          path: ${{ runner.temp }}/fieldkit-selection.json
+          path: |
+            ${{ runner.temp }}/fieldkit-selection.json
+            ${{ runner.temp }}/durations.json
           if-no-files-found: error
           retention-days: 7
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci_rate.py end
 
   e2e:
     needs: selection
@@ -303,8 +325,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python -m fieldkit ci durations fetch --out prev.json --repo "${{ github.repository }}"
-          [ -f prev.json ] && cp prev.json durations.json
+          python3 .github/ci_rate.py start
+          # selection already fetched the previous ci-durations (once per run) and handed it over in fieldkit-selection
+          if [ -f sel/durations.json ]; then cp sel/durations.json durations.json
+          else  # selection found none (or could not fetch): ask once more, so the history is never replaced by one run
+            python -m fieldkit ci durations fetch --out prev.json --repo "${{ github.repository }}" && [ -f prev.json ] && cp prev.json durations.json
+          fi
           full=$(python -c "import json;print('--complete' if json.load(open('sel/fieldkit-selection.json'))['tests'] is None else '')")
           for pair in Windows:windows Linux:linux; do
             files=$(ls junit/junit-${pair%%:*}-*/junit.xml 2>/dev/null || true)
@@ -318,6 +344,12 @@ jobs:
           name: ci-durations
           path: durations.json
           retention-days: 90
+      - name: GitHub API budget (end)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci_rate.py end
 
   test:
     # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):

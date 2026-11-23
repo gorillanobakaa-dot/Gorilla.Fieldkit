@@ -159,9 +159,9 @@ class GH:
     def ci_state(self, sha):
         """-> ("green" | "pending" | "red" | "none", why) from GitHub's check runs for exactly `sha`."""
         try:
-            checks = self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+            checks = self._ci_pages(f"commits/{sha}/check-runs?per_page=100", "check_runs")
             # A rerun can be in progress while the previous attempt's check runs still read as finished.
-            workflows = self._ci_pages(f"actions/runs?head_sha={sha}", "workflow_runs")
+            workflows = self._ci_pages(f"actions/runs?head_sha={sha}&per_page=100", "workflow_runs")
         except (RuntimeError, ValueError) as exc:
             return "none", f"CI unreadable (gh): {str(exc)[:160]}"
         return ci_verdict(checks, sha, workflows=workflows, slug=self.slug)
@@ -244,7 +244,7 @@ class GH:
     def check_runs(self, sha):
         """-> [{name, status, conclusion}] of the check runs GitHub has registered for exactly `sha`."""
         try:
-            return self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+            return self._ci_pages(f"commits/{sha}/check-runs?per_page=100", "check_runs")
         except (RuntimeError, ValueError):
             return []
 
