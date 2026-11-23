@@ -326,7 +326,12 @@ def main(argv):
         # thread method: the only one that works on Windows; it ends the process, and run_checked re-runs the shard once
         cmd.extend(["-o", "faulthandler_timeout=300", "-vv", f"--timeout={limit}", "--timeout-method=thread"])
         # C7: the runner has several cores; `serial` tests share one xdist group (tests/conftest.py)
-        cmd.extend(["-n", os.getenv("FIELDKIT_XDIST", "auto"), "--dist", "loadgroup"])
+        from fieldkit.method import cirunner
+
+        fp = cirunner.fingerprint()
+        workers = os.getenv("FIELDKIT_XDIST") or str(cirunner.workers(fp, ciplan.load_config().get("runner")))
+        print(cirunner.describe(fp, workers), flush=True)
+        cmd.extend(["-n", workers, "--dist", "loadgroup"])
         if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
             cmd.append("-x")
         print(f"ci-tests: per-test timeout {limit}s (hang config {hang})", flush=True)
