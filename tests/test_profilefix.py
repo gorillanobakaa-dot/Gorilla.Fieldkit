@@ -16,6 +16,10 @@ import profilefix as pf  # noqa: E402
 TEST_KEY = r"HKCU\Software\FieldkitProfilefixTest"
 OLD, NEW = "pfOldTest", "pfNewTest"
 
+# The live tests share one registry key: xdist (--dist loadgroup) must keep them on one worker, or one test
+# recreates the key while another reads it.
+pytestmark = pytest.mark.xdist_group("profilefix-registry")
+
 
 def run(*args):
     r = subprocess.run([sys.executable, "-I", str(TOOL), *map(str, args)], capture_output=True, text=True,
