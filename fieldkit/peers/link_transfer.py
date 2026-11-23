@@ -37,6 +37,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import threading
 import time
@@ -420,7 +421,7 @@ def bundle_heads(path):
     if not git:
         return "not checked: no git on this computer"
     try:
-        r = subprocess.run([git, "bundle", "list-heads", str(path)], capture_output=True, text=True, timeout=120)
+        r = fkproc.run([git, "bundle", "list-heads", str(path)], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"not checked: {e}"
     if r.returncode:
@@ -434,13 +435,13 @@ def make_bundle(repo, out_dir=None):
     git = shutil.which("git")
     if not git:
         raise ValueError("no git on this computer")
-    top = subprocess.run([git, "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    top = fkproc.run([git, "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if top.returncode:
         raise ValueError(f"{repo}: not a git repository")
     name = Path(top.stdout.strip()).name
     d = Path(out_dir or tempfile.mkdtemp(prefix="fieldkit-bundle-"))
     out = d / f"{name}.bundle"
-    r = subprocess.run([git, "-C", str(repo), "bundle", "create", str(out), "--all"], capture_output=True, text=True)
+    r = fkproc.run([git, "-C", str(repo), "bundle", "create", str(out), "--all"], capture_output=True, text=True)
     if r.returncode or not out.is_file():
         raise ValueError(f"git bundle create failed: {(r.stderr or r.stdout).strip()[:300]}")
     return out

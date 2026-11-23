@@ -5,6 +5,7 @@ import importlib.util
 import socket
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -150,7 +151,7 @@ def trace(pid, seconds):
         return None
     if not ctypes.windll.shell32.IsUserAnAdmin():
         return {"error": NEEDS_ADMIN, "needs_admin": True, "events": []}
-    r = subprocess.run([sys.executable, str(WINTRACE), "opensnoop", "--seconds", str(int(float(seconds))),
+    r = fkproc.run([sys.executable, str(WINTRACE), "opensnoop", "--seconds", str(int(float(seconds))),
                         "--pid", str(int(pid)), "--yes", "--json"], capture_output=True, text=True, timeout=300)
     err = r.stderr.strip()[:200] or ("wintrace is not ready (the elevate kit is missing): run wintrace doctor"
                                       if "NOT READY" in r.stdout else None)
@@ -185,13 +186,13 @@ def events(words):
           "Get-WinEvent -LogName $_ -MaxEvents 2000 } | Where-Object { " + cond + " } | Select-Object -First 200 | "
           "ForEach-Object { '{0} {1} {2}: {3}' -f $_.TimeCreated.ToString('s'), $_.LogName, $_.ProviderName, "
           "($_.Message -split \"`n\")[0] }")
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=180)
+    r = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=180)
     return {"lines": r.stdout.splitlines()}
 
 
 def _resolver_cache():
     """Names in the Windows DNS client cache (system-wide: Windows does not say which process asked)."""
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-DnsClientCache | Select-Object -First 100 | "
+    r = fkproc.run(["powershell", "-NoProfile", "-Command", "Get-DnsClientCache | Select-Object -First 100 | "
                         "ForEach-Object { '{0} {1}' -f $_.Entry, $_.Data }"], capture_output=True, text=True, timeout=60)
     return r.stdout.splitlines()
 

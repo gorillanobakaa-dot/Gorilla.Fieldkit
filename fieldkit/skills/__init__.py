@@ -33,6 +33,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def default_roots():
 
 def staged_paths(repo=ROOT):
     """The same question fieldkit/testcost.py asks before the suite: what does this commit change?"""
-    r = subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--name-only"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), "diff", "--cached", "--name-only"], capture_output=True, text=True)
     return r.stdout.split() if r.returncode == 0 else []
 
 

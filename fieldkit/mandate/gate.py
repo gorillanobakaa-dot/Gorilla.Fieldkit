@@ -25,6 +25,7 @@ Every allowed push is written to the mandate's log.
 import argparse
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 ZERO = "0" * 40
@@ -32,7 +33,7 @@ MARKER = "FIELDKIT_SHIP_PUSH"
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=120)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=120)
 
 
 def _ancestor(repo, a, b):

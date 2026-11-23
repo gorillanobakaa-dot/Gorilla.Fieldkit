@@ -35,6 +35,7 @@ import json
 import math
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -143,7 +144,7 @@ def _regenerate(work, pol, paths):
     done = []
     for g in pol.get("generated") or []:
         if g["path"] in paths and g.get("regenerate"):
-            r = subprocess.run(_argv(g["regenerate"]), cwd=str(work), capture_output=True, text=True,
+            r = fkproc.run(_argv(g["regenerate"]), cwd=str(work), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", env=mp._gen_env(), timeout=600)
             if r.returncode:
                 raise RuntimeError(f"the generator of {g['path']} failed (exit {r.returncode}): "
@@ -422,7 +423,7 @@ def local_runner(repo, members, base, ids, pol, work=None, python=None):
         if not here:
             journal(repo, "bisect-run", subset=list(subset), green=True, note="the failing tests are not in it")
             return True
-        r = subprocess.run([python or sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *here],
+        r = fkproc.run([python or sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *here],
                            cwd=b["work"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         journal(repo, "bisect-run", subset=list(subset), green=r.returncode == 0)
         return r.returncode == 0

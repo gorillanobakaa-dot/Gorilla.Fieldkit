@@ -29,6 +29,7 @@ import re
 import shutil
 import statistics
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -61,7 +62,7 @@ def state_dir():
 
 
 def _git(repo, *args, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=env)
     if r.returncode:
         raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()[:200]}")
@@ -340,7 +341,7 @@ _NAME = re.compile(r"^[a-z][a-z0-9_-]{3,}$")
 
 def _show(repo, ref, path):
     import subprocess
-    r = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return r.stdout if r.returncode == 0 else None
 
@@ -599,7 +600,7 @@ def main(argv=None, prog="fieldkit testcost"):
                   + ", ".join(covering[:5]) + (" ..." if len(covering) > 5 else "") + "; nothing runs here unless --local",
                   file=sys.stderr)
         if a.local and sel["local"]:
-            return subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *sel["local"]], cwd=a.repo)
+            return fkproc.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *sel["local"]], cwd=a.repo)
         if not sel["local"]:
             print("testcost: " + ("every covering test already passed on this tree" if sel["skipped"] else
                   "no test directly covers the staged files") + " - nothing runs here; CI runs the covering tests",
@@ -629,7 +630,7 @@ def main(argv=None, prog="fieldkit testcost"):
             print(f"testcost: these {len(pl['tests'])} test file(s) passed on this exact tree at {hit['t']}: not run again")
             return 0
         t0 = time.time()
-        rc = subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
+        rc = fkproc.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
         record(check, "pass" if rc == 0 else "fail", time.time() - t0, key=key, note=f"{len(pl['tests'])} files")
         if rc == 0:
             record_files(key, [os.path.relpath(t, a.repo) for t in pl["tests"]], note="fast run")

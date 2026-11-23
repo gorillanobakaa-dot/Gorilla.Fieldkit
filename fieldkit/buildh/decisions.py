@@ -39,6 +39,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import zipfile
 from pathlib import Path
@@ -349,7 +350,7 @@ def _check(kind, arg, ctx):
         # non-zero with every test passed (build 28 read four decisions as VIOLATED for that alone)
         import tempfile
         base = tempfile.mkdtemp(prefix="fk-decision-test-")
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", base, arg],
+        r = fkproc.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", base, arg],
                            cwd=FIELDKIT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         tail = (r.stdout.strip().splitlines() or ["no output"])[-1]
         return r.returncode == 0, f"{arg}: {tail}"
@@ -388,7 +389,7 @@ def tree_pref_all(workdir, name, value):
     05.PREFS still wrote "Inter" into all.js, the owner's preflight flagged the clash, and the font question was
     reopened again. One decision, one value, everywhere. Upstream's own lines (present in pristine) are not judged."""
     w = Path(workdir)
-    r = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
     root = (r.stdout.split() or [None])[0]
     rx = re.compile(r'^\s*(?:pref|lockPref|sticky_pref)\(\s*"' + re.escape(name) + r'"\s*,\s*(.+?)\s*(?:,\s*(?:locked|sticky)\s*)?\)\s*;')
     want = value if isinstance(value, bool) else str(value)
@@ -399,7 +400,7 @@ def tree_pref_all(workdir, name, value):
             continue
         up = set()
         if root:
-            up = set(subprocess.run(["git", "-C", str(w), "show", f"{root}:{rel}"], capture_output=True, text=True,
+            up = set(fkproc.run(["git", "-C", str(w), "show", f"{root}:{rel}"], capture_output=True, text=True,
                                     encoding="utf-8", errors="replace").stdout.splitlines())
         for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             m = rx.match(line)

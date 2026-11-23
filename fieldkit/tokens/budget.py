@@ -211,8 +211,9 @@ def _send_zero(text, now=None):
 
 def _headless_sonnet(brief):
     import subprocess
+    from fieldkit import proc as fkproc
     import sys
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "task", "start", str(brief), "--model", "sonnet", "--pin"],
+    r = fkproc.run([sys.executable, "-m", "fieldkit", "task", "start", str(brief), "--model", "sonnet", "--pin"],
                        capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or f"exit {r.returncode}")

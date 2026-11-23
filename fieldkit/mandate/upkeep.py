@@ -32,6 +32,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from datetime import date, timedelta
@@ -108,7 +109,7 @@ def session_warning(session_id, today=None, seen_dir=None, paths=None):
 
 # ---- hooks ---------------------------------------------------------------------------------------------------------
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=60)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=60)
 
 
 def git_here(platform=None, which=shutil.which, run=subprocess.run):
@@ -280,9 +281,9 @@ def _verify_installed(repo):
         return False, "no sh to run the hook with"
     import os
     base = {k: v for k, v in os.environ.items() if k not in (FLAG, "FIELDKIT_SHIP_PUSH")}
-    a = subprocess.run([sh, str(hp), "origin", "x"], cwd=str(repo), input="", capture_output=True, text=True,
+    a = fkproc.run([sh, str(hp), "origin", "x"], cwd=str(repo), input="", capture_output=True, text=True,
                        env=base, timeout=300)
-    b = subprocess.run([sh, str(hp), "origin", "x"], cwd=str(repo), input="", capture_output=True, text=True,
+    b = fkproc.run([sh, str(hp), "origin", "x"], cwd=str(repo), input="", capture_output=True, text=True,
                        env=dict(base, FIELDKIT_SHIP_PUSH="1"), timeout=300)
     if a.returncode == 0 or FLAG not in a.stderr:
         return False, f"without the marker the hook did not refuse for the owner flag (exit {a.returncode})"

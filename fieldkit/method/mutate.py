@@ -22,6 +22,7 @@ import re
 import shutil
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def _decode(data):
 
 def run_test(test, cwd=None, timeout=1800):
     try:
-        r = subprocess.run(test, capture_output=True, timeout=timeout, cwd=cwd)
+        r = fkproc.run(test, capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
         return None, "the test timed out"
     except OSError as e:

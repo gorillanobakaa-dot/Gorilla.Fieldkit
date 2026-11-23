@@ -101,7 +101,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 |---|---|---|---|---|---|---|---|---|
 | `module:fieldkit/power/drift.py` | windows | linux | PARTIAL | PORT | power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and… | M | 2 | fieldkit/power/drift.py:32 |
 | `module:fieldkit/lifecycle/nested.py` | windows | linux | PARTIAL | ADAPT | nested.records_glob finds the Claude desktop session records on Linux | S | 3 | fieldkit/lifecycle/nested.py:51 |
-| `module:fieldkit/desk/adopt.py` | windows | linux | PARTIAL | PORT | adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux | M | 4 | fieldkit/desk/adopt.py:178 |
+| `module:fieldkit/desk/adopt.py` | windows | linux | PARTIAL | PORT | adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux | M | 4 | fieldkit/desk/adopt.py:179 |
 | `stage:gorilla-hdmi-harness` | windows | linux | PARTIAL | PORT | the hdmi-harness recipe stages run on Linux once the hdmi cards are ported | L | 4 | fieldkit/emerge/recipes/gorilla-hdmi-harness.yaml:44 |
 | `skill:fieldkit-evidence` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-evidence/SKILL.md description names Linux too (the commands already run o… | S | 7 | skills/fieldkit-evidence/SKILL.md:3 |
 | `skill:fieldkit-icons` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-icons/SKILL.md description names Linux too (the commands already run on b… | S | 7 | skills/fieldkit-icons/SKILL.md:3 |
@@ -109,19 +109,19 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `skill:fieldkit-repair` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-repair/SKILL.md description names Linux too (the commands already run on… | S | 7 | skills/fieldkit-repair/SKILL.md:3 |
 | `skill:fieldkit-scratch` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-scratch/SKILL.md description names Linux too (the commands already run on… | S | 7 | skills/fieldkit-scratch/SKILL.md:3 |
 | `skill:fieldkit-tools` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-tools/SKILL.md description names Linux too (the commands already run on b… | S | 7 | skills/fieldkit-tools/SKILL.md:3 |
-| `module:fieldkit/leakgate/sensors.py` | windows | linux | PARTIAL | ADAPT | the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgat… | L | 8 | fieldkit/leakgate/sensors.py:623 |
+| `module:fieldkit/leakgate/sensors.py` | windows | linux | PARTIAL | ADAPT | the Linux leak-gate sensors (owned by the leakgate-linux-parity job, state/briefs/leakgat… | L | 8 | fieldkit/leakgate/sensors.py:624 |
 | `hook:wait-for-hook.sh` | linux | windows | PARTIAL | DOCUMENT | git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin | M |  | hooks/wait-for-hook.sh:1 |
 | `module:fieldkit/capture/session_history.py` | windows | linux | PARTIAL | DOCUMENT | Session archival runs on both systems. POSIX additionally verifies the archive directory… | M |  | fieldkit/capture/session_history.py:379 |
 | `module:fieldkit/zero/hooks.py` | linux | windows | PARTIAL | DOCUMENT | Hook commands quote executable paths on both systems. Windows additionally rejects unsafe… | M |  | fieldkit/zero/hooks.py:61 |
 | `stage:firefox-linux` | linux | windows | INCOMPATIBLE | DOCUMENT | the firefox-windows pipeline is the Windows counterpart (same stages, Windows tools) | M |  | fieldkit/build/pipelines/firefox-linux.yaml:25 |
 | `stage:firefox-windows` | windows | linux | INCOMPATIBLE | DOCUMENT | the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools) | M |  | fieldkit/build/pipelines/firefox-windows.yaml:16 |
 | `stage:sensors-gorilla` | linux | windows | INCOMPATIBLE | DOCUMENT | gorilla-tpfancontrol and fieldkit hog read the sensors on Windows | M |  | fieldkit/emerge/recipes/sensors-gorilla.yaml:43 |
-| `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:394 |
-| `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:983 |
+| `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:395 |
+| `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:984 |
 | `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
-| `module:fieldkit/peers/link.py` | windows | linux | NATIVE-ONLY | CREATE | _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windo… | M |  | fieldkit/peers/link.py:892 |
+| `module:fieldkit/peers/link.py` | windows | linux | NATIVE-ONLY | CREATE | _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windo… | M |  | fieldkit/peers/link.py:893 |
 | `module:fieldkit/thermal/pdh.py` | windows | linux | NATIVE-ONLY | CREATE | reads Windows performance counters through pdh.dll in-process (no PowerShell, no console… | M |  | fieldkit/thermal/pdh.py:28 |
-| `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:47 |
+| `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:48 |
 | `skill:fieldkit-linux-leftovers` | linux | windows | NATIVE-ONLY | CREATE | XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on… | M |  | skills/fieldkit-linux-leftovers/SKILL.md:3 |
 | `skill:fieldkit-win11` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework (registry, services, AppX) has no Linux twin | M |  | skills/fieldkit-win11/SKILL.md:3 |
 | `stage:black-gorilla-theme` | linux | windows | NATIVE-ONLY | CREATE | a GTK/libadwaita theme exists only on a Linux desktop | M |  | fieldkit/emerge/recipes/black-gorilla-theme.yaml:37 |

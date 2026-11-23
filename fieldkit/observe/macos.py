@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -14,7 +15,7 @@ def _here():
 
 
 def _run(cmd, timeout=60):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return fkproc.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
 def _lsof(args):
@@ -102,7 +103,7 @@ def trace(pid, seconds):
         return None
     if os.geteuid() != 0:
         return {"error": NEEDS_ADMIN, "needs_admin": True, "events": []}
-    p = subprocess.Popen(["fs_usage", "-w", "-f", "filesys", str(int(pid))], stdout=subprocess.PIPE, text=True)
+    p = fkproc.Popen(["fs_usage", "-w", "-f", "filesys", str(int(pid))], stdout=subprocess.PIPE, text=True)
     time.sleep(float(seconds))
     p.terminate()
     return {"events": [l[:300] for l in p.communicate(timeout=10)[0].splitlines() if "open" in l or "exec" in l]}

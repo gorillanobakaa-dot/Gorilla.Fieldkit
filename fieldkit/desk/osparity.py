@@ -340,7 +340,8 @@ def lists(recs):
 def since(ref, recs):
     """Records whose evidence file changed between REF and HEAD (what a branch added or touched)."""
     import subprocess
-    r = subprocess.run(["git", "-C", str(ROOT), "diff", "--name-only", f"{ref}...HEAD"], capture_output=True, text=True)
+    from fieldkit import proc as fkproc
+    r = fkproc.run(["git", "-C", str(ROOT), "diff", "--name-only", f"{ref}...HEAD"], capture_output=True, text=True)
     files = set(r.stdout.split())
     return [x for x in recs if x["evidence"].rsplit(":", 1)[0] in files]
 

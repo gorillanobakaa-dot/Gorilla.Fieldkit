@@ -21,6 +21,7 @@ import json
 import py_compile
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -83,7 +84,7 @@ def _sha(path):
 def _commit(root):
     """Read-only: the short HEAD commit of a git folder, or None."""
     try:
-        r = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
     except OSError:
         return None
     return r.stdout.strip() or None if r.returncode == 0 else None
@@ -108,12 +109,12 @@ def source_root(src, offline=False):
     root = CLONES / src["name"]
     CLONES.mkdir(parents=True, exist_ok=True)
     if (root / ".git").is_dir():
-        r = subprocess.run(["git", "-C", str(root), "pull", "-q", "--ff-only"], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", str(root), "pull", "-q", "--ff-only"], capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"{src['name']}: git pull failed (exit {r.returncode}): "
                                f"{(r.stderr or r.stdout or '').strip()[:300]}; the old copy was NOT used")
     else:
-        r = subprocess.run(["gh", "repo", "clone", src["github"], str(root), "--", "--depth", "1", "-q"],
+        r = fkproc.run(["gh", "repo", "clone", src["github"], str(root), "--", "--depth", "1", "-q"],
                            capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"{src['name']}: clone failed: {r.stderr.strip()}")
@@ -200,7 +201,7 @@ def test_one(src, timeout=900):
         py = src.get("python") if src.get("python") and Path(src["python"]).is_file() else sys.executable
         cmd = [py if c in ("python", "python3") else c for c in cmd]
         try:
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            r = fkproc.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                timeout=timeout)
             ok, tail = r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[-2:]
         except subprocess.TimeoutExpired:

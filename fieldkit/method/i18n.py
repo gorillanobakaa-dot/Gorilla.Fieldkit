@@ -17,6 +17,7 @@ Exit 0 when the table holds, 3 when it does not, 2 for bad input.
 """
 import argparse
 import subprocess
+from fieldkit import proc as fkproc
 from collections import defaultdict
 from pathlib import Path
 
@@ -88,7 +89,7 @@ def main(argv=None, prog="fieldkit i18n"):
             return 2
         keys = None
         if a.keys_from:
-            r = subprocess.run(split_command(a.keys_from), capture_output=True, text=True, timeout=300)
+            r = fkproc.run(split_command(a.keys_from), capture_output=True, text=True, timeout=300)
             if r.returncode != 0:
                 print(f"REFUSED: --keys-from failed: {r.stderr.strip()[-200:]}")
                 return 2

@@ -1,0 +1,26 @@
+# Raw process-starting calls allowed outside fieldkit/proc.py (tests/test_no_console_spawn.py).
+# Key: path/relative/to/repo.py:function:callee. A key with no reason is ignored; a stale key fails the test.
+# Add a key only for a program a person runs at a console, or a call that cannot reach Windows. Otherwise use
+# `from fieldkit import proc as fkproc` and call fkproc.run / Popen / check_output.
+allow:
+  "fieldkit/emerge/toolenv.py:_can_exec:os.system": >-
+    Probes a /bin/sh script for a noexec mount; the script is POSIX-only and the call returns False on Windows
+    before any console exists. fkproc has no shell-string form, and Windows never reaches this branch.
+  "fieldkit/core/contain.py:popen:subprocess.Popen": >-
+    The container starts a step suspended inside a job object and hands its console to the step (PowerShell, a
+    build); DETACHED_PROCESS makes PowerShell lose the stdout its native children write (CI 2026-11-22). Not on a
+    hook path: only autopilot and runbook steps reach it.
+  "fieldkit/core/doctor.py:_run:subprocess.run": >-
+    doctor runs inside a freshly unpacked tree before fieldkit.proc is guaranteed (installer test: ImportError). Run by a person at a console.
+  "fieldkit/desk/install_preflight.py:_run_terminal_command_windows:subprocess.run": >-
+    The installer preflight runs before the package is installed; fieldkit.proc may not exist yet. Run by a person at a console.
+  "fieldkit/desk/install_preflight.py:_run_terminal_command_posix:subprocess.run": >-
+    Same as the Windows runner: pre-install, stdlib only; POSIX never creates a conhost.
+  "fieldkit/desk/install_preflight.py:_service_env_from_systemd:subprocess.run": >-
+    Pre-install and Linux only (systemd); no conhost on Linux.
+  "fieldkit/desk/install_preflight.py:_default_service_runner:subprocess.run": >-
+    Pre-install service probe; stdlib only; Linux/systemd or a person at a console.
+  "fieldkit/method/versionsync.py:binary_version:subprocess.run": >-
+    Runs the built program's --version; a .cmd or console tool needs its own console (CI 2026-11-22 test_expect_and_the_built_program). Run by a person or CI, not a hook.
+  "fieldkit/wifi/channelsurvey.py:_run:subprocess.run": >-
+    One-file stdlib-only tool meant to be copied anywhere (tests/test_wifi_channelsurvey.py::test_stdlib_only_so_it_transplants); run by a person at a console.

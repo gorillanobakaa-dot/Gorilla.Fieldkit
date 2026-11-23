@@ -38,6 +38,7 @@ was cut to a sliver. How it was found by hand, and what this module now does by 
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -206,7 +207,7 @@ def confirm(measure, repeats=3):
 
 def pristine_copy(workdir, tree_path, dest_dir):
     """The PRISTINE version of `tree_path` (the work tree's root commit) written to dest_dir -> Path, or None."""
-    g = lambda *a: subprocess.run(["git", "-C", str(workdir), *a], capture_output=True)
+    g = lambda *a: fkproc.run(["git", "-C", str(workdir), *a], capture_output=True)
     root = g("rev-list", "--max-parents=0", "HEAD").stdout.decode().split()
     if not root:
         return None

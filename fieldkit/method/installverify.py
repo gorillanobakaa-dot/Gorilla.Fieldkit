@@ -31,6 +31,7 @@ import os
 import shlex
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -52,7 +53,7 @@ def sha256(p):
 
 def _run(cmd, timeout=60):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return 127, "", str(e)

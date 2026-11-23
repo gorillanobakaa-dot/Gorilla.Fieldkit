@@ -10,6 +10,7 @@ is relative (no home folder ends up in a working file).
 import importlib.util
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def module():
 def run(*args, cwd=None, timeout=600):
     """-> (returncode, stdout+stderr)."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    r = subprocess.run([sys.executable, str(path()), *map(str, args)], cwd=str(cwd or settings.ROOT),
+    r = fkproc.run([sys.executable, str(path()), *map(str, args)], cwd=str(cwd or settings.ROOT),
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=timeout, env=env)
     return r.returncode, (r.stdout or "") + (r.stderr or "")

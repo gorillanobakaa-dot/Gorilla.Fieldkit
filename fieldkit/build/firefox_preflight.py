@@ -20,6 +20,7 @@ import shutil
 from dataclasses import dataclass, field
 import sys
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 BLOCKER, WARN = "BLOCKER", "WARN"
@@ -364,10 +365,10 @@ def must_keep(root, platform="linux"):
 
 def _changed(src):
     import subprocess
-    r = subprocess.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
         return None
-    d = subprocess.run(["git", "-C", str(src), "diff", "--name-only", r.stdout.split()[0]], capture_output=True, text=True)
+    d = fkproc.run(["git", "-C", str(src), "diff", "--name-only", r.stdout.split()[0]], capture_output=True, text=True)
     return set(d.stdout.split())
 
 

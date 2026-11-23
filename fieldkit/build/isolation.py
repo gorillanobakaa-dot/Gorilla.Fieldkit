@@ -36,6 +36,7 @@ import os
 import re
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -104,7 +105,7 @@ def own_work(roots=None):
             if pid.isdigit() and proc.create_time(int(pid)) is not None:     # /proc on Linux, the process table on Windows
                 why.append(f"a pre-commit check is running in {root} (pid {pid})")
     try:
-        sl = subprocess.run(["screen", "-ls"], capture_output=True, text=True, timeout=5).stdout
+        sl = fkproc.run(["screen", "-ls"], capture_output=True, text=True, timeout=5).stdout
         why += [f"a screen session is running: {m}" for m in re.findall(r"^\s+(\d+\.\S+)", sl, re.M)]
     except (OSError, subprocess.TimeoutExpired):
         pass
@@ -219,7 +220,7 @@ def _net_bytes():
 
 def _video_engine(seconds=3):
     from .decode_test import parse_gpu_top
-    r = subprocess.run(["sudo", "-n", "timeout", "--signal=INT", str(seconds), "intel_gpu_top", "-J", "-s", "1000"],
+    r = fkproc.run(["sudo", "-n", "timeout", "--signal=INT", str(seconds), "intel_gpu_top", "-J", "-s", "1000"],
                        capture_output=True, text=True)
     v = [x[k] for x in parse_gpu_top(r.stdout) for k in x if k.lower().split("/")[0] == "video"]
     return round(sum(v) / len(v), 2) if v else None
@@ -275,7 +276,7 @@ def warn(what, seconds=DRIVE_COUNTDOWN, out=print, speak=True, sleep=time.sleep)
         except Exception:                                  # a missing voice never stops the warning on screen
             pass
     try:
-        subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path",
+        fkproc.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path",
                         "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
                         "Fieldkit", "0", "dialog-warning", "Hands off: test starting", words, "[]",
                         # transient: GNOME keeps a normal banner up until the person is back at the keyboard, so on an
@@ -313,7 +314,7 @@ def restore(closed, out=print):
     for b in closed:
         if not b["cmdline"]:
             continue
-        subprocess.Popen(b["cmdline"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        fkproc.Popen(b["cmdline"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         out(f"  reopened {b['name']}: {' '.join(b['cmdline'])[:120]}")
 
 

@@ -15,6 +15,7 @@ to break: call this module.
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 # -- port steps ----------------------------------------------------------------------------------------------------
@@ -36,7 +37,7 @@ def open_steps(steps, final=True):
 # -- repositories --------------------------------------------------------------------------------------------------
 def _git(repo, *args):
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=60)
+        r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout.strip() if r.returncode == 0 else None

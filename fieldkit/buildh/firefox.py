@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -213,8 +214,8 @@ def step_new_files(t, harness_root, group, **kw):
     overwritten here (upstream now ships something there): that is an owner decision."""
     pset, _ = _policy(harness_root)
     w = Path(t["workdir"])
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
-    pristine = set(subprocess.run(["git", "-C", str(w), "ls-tree", "-r", "--name-only", root[0]], capture_output=True,
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    pristine = set(fkproc.run(["git", "-C", str(w), "ls-tree", "-r", "--name-only", root[0]], capture_output=True,
                                   text=True, errors="replace").stdout.splitlines()) if root else set()
     copied, same, conflicts, skipped = [], [], [], []
     for src, rel in new_files(pset, group):
@@ -292,7 +293,7 @@ def step_apply_group(t, harness_root, group, **kw):
     pset, groups = _policy(harness_root)
     excluded = set(groups[group].get("exclude", []))
     w = Path(t["workdir"])
-    base = subprocess.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    base = fkproc.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     t["meta"].setdefault("group_base", {})[group] = base
     new_steps, applied, skipped, upstreamed = [], 0, [], []
     from . import setproof
@@ -321,16 +322,16 @@ def step_apply_group(t, harness_root, group, **kw):
             # through git apply, as in replay; a file only an earlier group's NEW_FILES put there gives way to the
             # final version (23.REBASE.158's logos over 08.Look's).
             def _gapply(check):
-                return subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(w), "apply", "--whitespace=nowarn"]
+                return fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(w), "apply", "--whitespace=nowarn"]
                                       + (["--check"] if check else []), input=body.encode("utf-8"),
                                       capture_output=True)
             g = _gapply(True)
             gout = (g.stdout + g.stderr).decode("utf-8", "replace")
             if g.returncode != 0:
                 for m in re.finditer(r"error: (\S+): already exists in working directory", gout):
-                    tracked = subprocess.run(["git", "-C", str(w), "ls-files", "--error-unmatch", m.group(1)],
+                    tracked = fkproc.run(["git", "-C", str(w), "ls-files", "--error-unmatch", m.group(1)],
                                              capture_output=True).returncode == 0
-                    if not tracked or subprocess.run(["git", "-C", str(w), "cat-file", "-e",
+                    if not tracked or fkproc.run(["git", "-C", str(w), "cat-file", "-e",
                                                       f"{base}:{m.group(1)}"], capture_output=True).returncode != 0:
                         (w / m.group(1)).unlink(missing_ok=True)
                 g = _gapply(True)
@@ -414,7 +415,7 @@ def leftovers(w):
     harness deleted every *.orig it found, which silently removed 560 upstream files from the source (found by an
     independent audit on 2026-10-01, in both the overnight copy and the clean copy). Only what is not in git is ours."""
     w = Path(w)
-    raw = subprocess.run(["git", "-C", str(w), "ls-files", "-z", "--", "*.rej", "*.orig"], capture_output=True).stdout
+    raw = fkproc.run(["git", "-C", str(w), "ls-files", "-z", "--", "*.rej", "*.orig"], capture_output=True).stdout
     tracked = {p for p in raw.decode("utf-8", "replace").split("\0") if p}
     found = []
     for p in list(w.rglob("*.rej")) + list(w.rglob("*.orig")):
@@ -432,10 +433,10 @@ def unexplained_deletions(t):
     """Files that exist in pristine Firefox but are gone from the working copy, and that no Gorilla patch deletes.
     -> list of paths. (The 560 vendored .orig files removed by the first draft would have been caught here.)"""
     w = Path(t["workdir"])
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
     if not root:
         return []
-    gone = subprocess.run(["git", "-C", str(w), "diff", "--name-only", "--diff-filter=D", "-z", root[0], "HEAD"],
+    gone = fkproc.run(["git", "-C", str(w), "diff", "--name-only", "--diff-filter=D", "-z", root[0], "HEAD"],
                           capture_output=True).stdout.decode("utf-8", "replace").split("\0")
     gone = [p for p in gone if p]
     meant = set()
@@ -460,9 +461,9 @@ def restore_deleted(task_id):
     if not lost:
         return 0
     w = Path(t["workdir"])
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
     for i in range(0, len(lost), 100):
-        subprocess.run(["git", "-C", str(w), "checkout", root, "--", *lost[i:i + 100]], check=True, capture_output=True)
+        fkproc.run(["git", "-C", str(w), "checkout", root, "--", *lost[i:i + 100]], check=True, capture_output=True)
     taskmod.checkpoint(t, f"restored {len(lost)} pristine file(s) the first harness draft had deleted")
     taskmod.journal(t, "repair", restored=len(lost), first=lost[:3])
     taskmod.save(t)
@@ -478,7 +479,7 @@ def step_export_group(t, harness_root, group, out_dir=None, **kw):
     if redone:
         from . import task as taskmod
         taskmod.checkpoint(t, f"recompute .cargo-checksum.json for {group}: {', '.join(redone)}")
-    diff = subprocess.run(["git", "-C", str(w), "diff", "--binary", base, "HEAD"], capture_output=True).stdout
+    diff = fkproc.run(["git", "-C", str(w), "diff", "--binary", base, "HEAD"], capture_output=True).stdout
     out = Path(out_dir or (Path(t["workdir"]).parent / f"patchset-{t['meta']['upstream']['version']}")) / f"{group}.patch"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(diff)
@@ -546,11 +547,11 @@ def changed_vendored_crates(workdir):
     """Crate folders under third_party/rust/ with a changed file: committed since the root commit (pristine
     upstream) or not yet committed (against HEAD). Only crates that carry a .cargo-checksum.json."""
     w = Path(workdir)
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
                           text=True).stdout.split()
     names = set()
     for ref in ["HEAD"] + root[:1]:
-        r = subprocess.run(["git", "-C", str(w), "diff", "--name-only", ref, "--", "third_party/rust/"],
+        r = fkproc.run(["git", "-C", str(w), "diff", "--name-only", ref, "--", "third_party/rust/"],
                            capture_output=True, text=True)
         names.update(l.strip() for l in r.stdout.splitlines() if l.strip())
     crates = set()
@@ -596,7 +597,7 @@ def node_check(path):
     node = shutil.which("node")
     if not node:
         return None
-    r = subprocess.run([node, "--check", str(path)], capture_output=True, text=True, errors="replace", timeout=60)
+    r = fkproc.run([node, "--check", str(path)], capture_output=True, text=True, errors="replace", timeout=60)
     if r.returncode == 0:
         return None
     lines = [l for l in (r.stderr or "").splitlines() if l.strip()]
@@ -696,7 +697,7 @@ def _generic(symbols, old_root, limit=12):
     args = ["git", "-C", str(old_root), "grep", "-nIF"]
     for sym in symbols:
         args += ["-e", sym]
-    r = subprocess.run(args + ["--", "*.cpp", "*.h", "*.mjs", "*.js", "moz.build", "*.ipdl"], capture_output=True,
+    r = fkproc.run(args + ["--", "*.cpp", "*.h", "*.mjs", "*.js", "moz.build", "*.ipdl"], capture_output=True,
                        text=True, encoding="utf-8", errors="replace", timeout=900)
     files = {}
     for line in r.stdout.splitlines():
@@ -722,7 +723,7 @@ def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
     for sym in symbols:
         args += ["-e", sym]
     args += ["--", "*.ipdl", "*.cpp", "*.h", "*.mm", "moz.build", "*.mjs", "*.js", "*.webidl", "*.idl", "*.mn", "*.ftl"]
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = fkproc.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
     hits = {}
     for line in r.stdout.splitlines():
         f, _, rest = line.partition(":")
@@ -776,16 +777,16 @@ def misplaced(body, hunk, gap=None):
 
 
 def changed_vs_root(workdir):
-    root = subprocess.run(["git", "-C", str(workdir), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    root = fkproc.run(["git", "-C", str(workdir), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
     if not root:
         return []
-    r = subprocess.run(["git", "-C", str(workdir), "diff", "--name-only", root[0], "HEAD"], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(workdir), "diff", "--name-only", root[0], "HEAD"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return [l for l in r.stdout.splitlines() if l]
 
 
 def _diff_sides(w, a, b, file):
-    r = subprocess.run(["git", "-C", str(w), "diff", "--unified=0", a, b, "--", file], capture_output=True)
+    r = fkproc.run(["git", "-C", str(w), "diff", "--unified=0", a, b, "--", file], capture_output=True)
     added, removed = set(), set()
     for line in r.stdout.decode("utf-8", "replace").splitlines():
         if line.startswith(("+++", "---")):
@@ -808,7 +809,7 @@ def superseded_by(w, commit, file):
     superseded when a LATER commit to the same file removes a line this step added, or adds back a line it removed.
     Lost work shows neither: nothing later touched those lines."""
     added, removed = _diff_sides(w, f"{commit}~1", commit, file)
-    r = subprocess.run(["git", "-C", str(w), "log", "--format=%H %s", f"{commit}..HEAD", "--", file],
+    r = fkproc.run(["git", "-C", str(w), "log", "--format=%H %s", f"{commit}..HEAD", "--", file],
                        capture_output=True, text=True)
     for row in reversed(r.stdout.splitlines()):             # oldest later commit first
         c, _, subject = row.partition(" ")
@@ -838,7 +839,7 @@ def step_final_checks(t, **kw):
     w = Path(t["workdir"])
     why = [f"leftover {p.relative_to(w)}" for p in leftovers(w)[:10]]
     first = t["checkpoints"][0]["commit"] if t["checkpoints"] else "HEAD"
-    r = subprocess.run(["git", "-C", str(w), "diff", "--check", first, "HEAD"], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(w), "diff", "--check", first, "HEAD"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     why += [l for l in r.stdout.splitlines() if "conflict marker" in l][:5]
     lost = unexplained_deletions(t)
@@ -858,7 +859,7 @@ def step_final_checks(t, **kw):
         target = w / a["file"]
         now = target.read_text(encoding="utf-8", errors="replace").splitlines() if target.is_file() else []
         base_commit = next((c["commit"] for c in t["checkpoints"] if c["label"] == s["id"]), None)
-        before = subprocess.run(["git", "-C", str(w), "show", f"{base_commit}~1:{a['file']}"], capture_output=True
+        before = fkproc.run(["git", "-C", str(w), "show", f"{base_commit}~1:{a['file']}"], capture_output=True
                                 ).stdout.decode("utf-8", "replace").splitlines() if base_commit else []
         lost = still_holds(s, a["file"], a["hunk"], before, now) if before else []
         if lost and holds_file_wide(a["hunk"], now, before):
@@ -2430,7 +2431,7 @@ def check_port(t, s, patch, file, hunk, **kw):
     if is_cargo_checksum(file):
         # D-158-02: never judged against the hunk's hashes (an older version's files). Done when the file is
         # untouched (the export recomputes it) or consistent with the crate's files as they are now.
-        head = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True)
+        head = fkproc.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True)
         if head.returncode == 0 and head.stdout == target.read_bytes():
             return {"ok": True, "why": []}
         why = cargo_checksum_problems(target.parent)
@@ -2440,12 +2441,12 @@ def check_port(t, s, patch, file, hunk, **kw):
         got = hashlib.sha256(target.read_bytes()).hexdigest()
         return {"ok": got == hunk.get("sha256"), "why": [] if got == hunk.get("sha256") else
                 [f"{file} is not the recorded binary (sha256 {got[:12]} vs {str(hunk.get('sha256'))[:12]})"]}
-    before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
+    before = fkproc.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
     if s.get("hand_port"):
-        root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
-        pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
+        root = fkproc.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+        pristine = fkproc.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
         renames = hand_renames(s.get("hand_note"))
         bad = rename_problems(renames, "\n".join(before), "\n".join(after))

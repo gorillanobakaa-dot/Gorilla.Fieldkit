@@ -26,6 +26,7 @@ and no text this tool prints for a row not in sync contains "IN SYNC" or "IN-SYN
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import ghhidden
@@ -55,7 +56,7 @@ def missing_os(runs, need, slug, path=None):
 
 
 def _git(repo, *a, check=True):
-    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
     if check and r.returncode:
         raise RuntimeError(f"git {' '.join(a)}: {(r.stderr or r.stdout).strip()[:200]}")
     return r.stdout.strip()

@@ -49,6 +49,7 @@ build_harness_briefs. It never gets a tool that records a decision.
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import re
 import os as _os
 import time
@@ -108,7 +109,7 @@ def start_firefox_emerge(version, workdir, harness_root, task_id=None, tag=None)
     wd = Path(workdir)
 
     def git(*a):
-        r = subprocess.run(["git", "-C", str(wd), *a], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = fkproc.run(["git", "-C", str(wd), *a], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode:
             raise task.Refused(f"start --emerge: git {' '.join(a)} in {wd}: {r.stderr.strip()[:200]}")
         return r.stdout.strip()
@@ -213,6 +214,7 @@ def drive(tid, a):
     """One fresh Gorilla OpenCode run per job, until the task is done or blocked."""
     import os
     import subprocess as sp
+    from fieldkit import proc as fkproc
     from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
     import threading
 
@@ -285,7 +287,7 @@ def drive(tid, a):
             cur_model = next((x.get("model") for x in task.load(tid)["steps"] if x["id"] == step), None)  # P9 rung
             t0 = time.time()
             step_env = dict(env, ANTHROPIC_MODEL=cur_model, FIELDKIT_ATTEMPT_MODEL=cur_model) if cur_model else env
-            r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
+            r = fkproc.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
                         "-q"], env=step_env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             answer = (r.stdout or r.stderr).strip()
 

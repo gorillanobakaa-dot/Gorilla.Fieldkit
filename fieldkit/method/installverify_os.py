@@ -20,6 +20,7 @@ import plistlib
 import shutil
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -80,7 +81,7 @@ def read_lnk(path):
     ps = ("$l=(New-Object -ComObject WScript.Shell).CreateShortcut('" + str(path).replace("'", "''") + "');"
           "[ordered]@{target=$l.TargetPath;args=$l.Arguments;icon=$l.IconLocation}|ConvertTo-Json -Compress")
     try:
-        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True,
+        r = fkproc.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True,
                            text=True, timeout=60)
         return json.loads(r.stdout)
     except (OSError, ValueError, subprocess.TimeoutExpired):

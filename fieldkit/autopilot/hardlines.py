@@ -48,6 +48,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 STATE = Path(os.environ.get("FIELDKIT_AUTOPILOT_STATE") or (Path.home() / ".fieldkit" / "autopilot"))
@@ -207,7 +208,7 @@ def _opened(text, transcript):
 
 def _git(repo, *args):
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
+        r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout if r.returncode == 0 else None

@@ -19,6 +19,7 @@ import argparse
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 
 from ..core import settings
@@ -62,7 +63,7 @@ def parse(output):
 def record(label, cmd, cwd=None, timeout=7200):
     t0 = time.time()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
+        r = fkproc.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
         out, code = r.stdout + r.stderr, r.returncode
     except subprocess.TimeoutExpired:
         out, code = "", None

@@ -8,6 +8,7 @@ leave it alone.
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def state_dir(platform=None):
 
 def run(args, timeout=30):
     try:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+        out = fkproc.run(args, capture_output=True, text=True, timeout=timeout,
                              creationflags=NO_WINDOW if os.name == "nt" else 0)
         return out.stdout
     except (OSError, subprocess.TimeoutExpired):

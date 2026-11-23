@@ -46,6 +46,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -174,7 +175,7 @@ def portable(value):
 
 def _git(path, *args, timeout=60):
     try:
-        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=timeout,
+        r = fkproc.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None

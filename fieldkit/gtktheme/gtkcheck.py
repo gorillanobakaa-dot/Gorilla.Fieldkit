@@ -41,6 +41,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -225,7 +226,7 @@ def stale_package(installer=PACKAGE):
     if not any(live.values()):
         return []                           # the theme is not applied (never installed, or reverted): nothing to refresh
     with tempfile.TemporaryDirectory() as home:
-        subprocess.run([installer, "--apply-once"], env={**os.environ, "HOME": home}, capture_output=True, timeout=60)
+        fkproc.run([installer, "--apply-once"], env={**os.environ, "HOME": home}, capture_output=True, timeout=60)
         out = []
         for p in (CSS4, CSS3):
             fresh = os.path.join(home, os.path.relpath(p, os.path.expanduser("~")))
@@ -300,11 +301,11 @@ def _exec_program(desktop, desktops=None):
 def _owner(path):
     """(package, dpkg state) owning a file, or (None, None) when dpkg does not know it."""
     try:
-        r = subprocess.run(["dpkg-query", "-S", path], capture_output=True, text=True, timeout=10)
+        r = fkproc.run(["dpkg-query", "-S", path], capture_output=True, text=True, timeout=10)
         pkg = r.stdout.split(":", 1)[0].strip() if r.returncode == 0 else None
         if not pkg:
             return None, None
-        st = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Abbrev}", pkg], capture_output=True, text=True,
+        st = fkproc.run(["dpkg-query", "-W", "-f=${db:Status-Abbrev}", pkg], capture_output=True, text=True,
                             timeout=10).stdout.strip()
         return pkg, st or None
     except (OSError, subprocess.SubprocessError):

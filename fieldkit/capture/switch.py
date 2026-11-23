@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -289,7 +290,7 @@ def prepare_routes(agents, home=None):
 # ---- the periodic scan (installed by `capture install`, if ever) ------------------------------------------------
 def _run(argv):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=30)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)

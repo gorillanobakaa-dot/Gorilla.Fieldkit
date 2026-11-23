@@ -15,10 +15,11 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
-ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip())
+ROOT = Path(fkproc.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip())
 
 # High-confidence secret SIGNATURES, not a generic "KEY=" scan. A generic
 # scan flags every .env.example, which is SUPPOSED to hold placeholders
@@ -36,7 +37,7 @@ SECRET_PATTERNS = [
 
 
 def run(*args):
-    return subprocess.run(list(args), cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return fkproc.run(list(args), cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 def force_added_files(staged):

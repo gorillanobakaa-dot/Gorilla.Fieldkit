@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
@@ -153,7 +154,7 @@ def find_local(slug, scan=roots):
 def scratch_clone(slug):
     base = "C:\\fk-scratch" if os.name == "nt" and Path("C:\\fk-scratch").is_dir() else None
     d = tempfile.mkdtemp(prefix="fk-all-", dir=base)
-    r = subprocess.run(["gh", "repo", "clone", slug, str(Path(d) / "r")], capture_output=True, text=True, timeout=600)
+    r = fkproc.run(["gh", "repo", "clone", slug, str(Path(d) / "r")], capture_output=True, text=True, timeout=600)
     return (Path(d) / "r", d) if r.returncode == 0 else (None, d)
 
 

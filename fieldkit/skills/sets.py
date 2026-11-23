@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -107,11 +108,11 @@ def merged_project(cur, data, name):
 def _exclude(folder):
     """Keep .claude/settings.local.json out of git in the repository holding folder -> what was done."""
     rel = ".claude/settings.local.json"
-    if subprocess.run(["git", "-C", str(folder), "rev-parse", "--git-dir"], capture_output=True).returncode:
+    if fkproc.run(["git", "-C", str(folder), "rev-parse", "--git-dir"], capture_output=True).returncode:
         return "not a git repository"
-    if subprocess.run(["git", "-C", str(folder), "check-ignore", "-q", rel], capture_output=True).returncode == 0:
+    if fkproc.run(["git", "-C", str(folder), "check-ignore", "-q", rel], capture_output=True).returncode == 0:
         return "already ignored"
-    r = subprocess.run(["git", "-C", str(folder), "rev-parse", "--git-path", "info/exclude"], capture_output=True,
+    r = fkproc.run(["git", "-C", str(folder), "rev-parse", "--git-path", "info/exclude"], capture_output=True,
                        text=True)
     ex = Path(r.stdout.strip())
     if not ex.is_absolute():

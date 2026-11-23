@@ -2018,6 +2018,17 @@
    "hog-churn"
   ]
  },
+ "hog consoles": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "conhost.exe exists only on Windows; elsewhere it reports 0 hosts and PASS. Not run on a Mac.",
+  "ids": [
+   "hog-consoles"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",

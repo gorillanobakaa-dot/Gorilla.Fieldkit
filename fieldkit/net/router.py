@@ -53,6 +53,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 
 CELLULAR_WORDS = ("sim", "lte", "5g", "rsrp", "rsrq", "sinr", "imei", "apn",
                   "cellular", "mobile", "band", "signal")
@@ -69,7 +70,7 @@ def _get(url, timeout=15, head=False):
     if head:
         args = ["curl", "-s", "-I", "-m", str(timeout), url]
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout + 10)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout + 10)
     except Exception:
         return None, None
     if head:
@@ -81,7 +82,7 @@ def _get(url, timeout=15, head=False):
 def gateway():
     """The default gateway's IP and MAC, without assuming it is 192.168.1.1."""
     try:
-        r = subprocess.run(["ip", "route"], capture_output=True, text=True, timeout=10)
+        r = fkproc.run(["ip", "route"], capture_output=True, text=True, timeout=10)
         m = re.search(r"^default via (\S+)", r.stdout, re.M)
         ip = m.group(1) if m else None
     except Exception:
@@ -89,7 +90,7 @@ def gateway():
     mac = None
     if ip:
         try:
-            r = subprocess.run(["ip", "neigh", "show", ip], capture_output=True, text=True, timeout=10)
+            r = fkproc.run(["ip", "neigh", "show", ip], capture_output=True, text=True, timeout=10)
             mm = re.search(r"lladdr\s+(\S+)", r.stdout)
             mac = mm.group(1) if mm else None
         except Exception:
@@ -107,7 +108,7 @@ def mac_for(ip):
     which was the OTHER router on the wifi.
     """
     try:
-        text = subprocess.run(["ip", "neigh", "show", str(ip)], capture_output=True,
+        text = fkproc.run(["ip", "neigh", "show", str(ip)], capture_output=True,
                               text=True, timeout=10).stdout
     except Exception:
         return None, None

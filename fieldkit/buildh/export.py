@@ -17,6 +17,7 @@ is printed, so the maintainer reviews the split before anything is published.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import task
@@ -28,7 +29,7 @@ PRIVACY = re.compile(r"egress|telemetry|PHYSICAL LOCK|privacy|excis|Merino|Norma
 
 
 def _git(w, *a):
-    return subprocess.run(["git", "-C", str(w), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    return fkproc.run(["git", "-C", str(w), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
 
 
 def hand_commits(t):

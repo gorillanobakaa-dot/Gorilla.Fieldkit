@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 
@@ -84,7 +85,7 @@ def main(argv, default_source):
     sources = [args.from_dir.resolve() / f"{name}{suffix}" for name in ("gorilla-size", "gorilla-trash")]
     for binary, flag in zip(sources, ("--version", "--help")):
         try:
-            result = subprocess.run([str(binary), flag], capture_output=True, text=True, timeout=15)
+            result = fkproc.run([str(binary), flag], capture_output=True, text=True, timeout=15)
         except (OSError, subprocess.SubprocessError) as exc:
             print(f"Cannot open {binary}: {exc}", file=sys.stderr)
             return 1

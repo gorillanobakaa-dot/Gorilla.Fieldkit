@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -35,7 +36,7 @@ def _sha(path):
 
 
 def _git(wd, *args):
-    return subprocess.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout.strip()
+    return fkproc.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout.strip()
 
 
 def mozconfig_path(harness_root=None):
@@ -262,7 +263,7 @@ def verify(task_id, run_binary=True):
     def _version_row():
         if not exe.is_file():
             return False, str(exe)
-        out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
+        out = fkproc.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
         return rec["version"] in out, out.strip() or "no output"
     if run_binary:
         host.os_row(rows, win, "built firefox.exe exists and reports the pinned version", _version_row)

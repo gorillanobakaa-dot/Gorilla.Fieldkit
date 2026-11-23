@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import threading
 import time
 import zipfile
@@ -207,7 +208,7 @@ class Browser:
         env.pop("MOZ_LOG", None)
         env.pop("MOZ_LOG_FILE", None)
         env.update(env_extra or {})
-        self.proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(profile), url], env=env,
+        self.proc = fkproc.Popen([str(exe), "-headless", "-no-remote", "-profile", str(profile), url], env=env,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.pid = self.proc.pid
         self.profile = Path(profile)
@@ -274,7 +275,7 @@ class Browser:
             pass
         if not self.clean_exit:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
+                fkproc.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
             else:
                 self.proc.kill()
         try:

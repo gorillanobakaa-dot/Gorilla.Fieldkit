@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -516,7 +517,7 @@ def open_page(root=None, run=None, inbox=False):
     elif sys.platform == "win32":
         os.startfile(str(p))  # noqa: S606 - the owner's own page
     else:
-        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(p)])
+        fkproc.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(p)])
     return p
 
 

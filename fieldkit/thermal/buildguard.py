@@ -14,6 +14,7 @@ is skipped there (no TPFanControl).
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from contextlib import contextmanager, nullcontext
@@ -88,9 +89,9 @@ def kill_children(pid=None):
     if sys.platform == "win32":
         ps = (f"function k($p) {{ Get-CimInstance Win32_Process -Filter \"ParentProcessId=$p\" | ForEach-Object "
               f"{{ k $_.ProcessId; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }} }}; k {pid}")
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     else:
-        subprocess.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
+        fkproc.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
 
 
 @contextmanager
@@ -202,7 +203,7 @@ def run(cmd, cwd=None, say=None, check_fan=True):
     try:
         with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan, slot=not is_commit(cmd)) as gov:
             env = {k: v for k, v in os.environ.items() if k != GUARD_LOG}
-            rc = subprocess.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
+            rc = fkproc.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
             if gov is not None and gov.verdict:
                 say(f"  STOPPED by the governor: {gov.verdict}")
                 return rc or 3

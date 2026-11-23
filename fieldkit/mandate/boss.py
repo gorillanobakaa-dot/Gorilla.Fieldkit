@@ -14,6 +14,7 @@ backup and the boss gone, workers finish the job they have and take no new one.
 import os
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def _mem_gb():
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
             return round(m.ullTotalPhys / 2**30, 1)
         if sys.platform == "darwin":
-            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout.strip()
+            out = fkproc.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout.strip()
             return round(int(out) / 2**30, 1)
         return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1)
     except (OSError, ValueError, AttributeError):
@@ -55,7 +56,7 @@ def _power(root=Path("/sys/class/power_supply")):
             ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s))
             return (s.BatteryFlag & 128) == 0, s.ACLineStatus == 1
         if sys.platform == "darwin":
-            out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
+            out = fkproc.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
             return "InternalBattery" in out, "AC Power" in out
         return power_sysfs(root)
     except (OSError, ValueError, AttributeError):

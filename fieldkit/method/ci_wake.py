@@ -19,6 +19,7 @@ Writes nothing else; never calls GitHub itself (the caller passes the PR state i
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def pid_alive(pid):
         pass
     if os.name == "nt":                                   # os.kill(pid, 0) is Ctrl+C on Windows: never used there
         try:
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=15)
+            r = fkproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=15)
             return str(pid) in r.stdout
         except (OSError, subprocess.SubprocessError):
             return False

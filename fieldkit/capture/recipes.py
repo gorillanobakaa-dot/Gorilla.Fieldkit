@@ -206,13 +206,14 @@ def run_sonnet(prompt):
     """The one model call: headless claude, model checked by the spend guard, a dollar cap. -> text."""
     import os
     import subprocess
+    from fieldkit import proc as fkproc
     from ..lifecycle import models
     argv, env = models.guard_launch(["claude", "-p", "--model", CHEAP_MODEL, "--max-budget-usd", BUDGET_USD,
                                      "--output-format", "text", "--tools", ""], dict(os.environ), role="worker", origin="local")
     from ..lifecycle import counsel
 
     def run(a):
-        r = subprocess.run(a, input=prompt, capture_output=True, text=True, timeout=300, env=env, encoding="utf-8")
+        r = fkproc.run(a, input=prompt, capture_output=True, text=True, timeout=300, env=env, encoding="utf-8")
         return r.returncode, r.stdout, r.stderr
     return counsel.run_advised(argv, env, run)[1]          # I10: every headless launch carries the advisor
 

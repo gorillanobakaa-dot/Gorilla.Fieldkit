@@ -24,6 +24,7 @@ Two layers:
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 MIN_CONTRAST = 4.5
@@ -38,7 +39,7 @@ SCOPED_MENU_RULE = re.compile(r"menupopup[^{}]*\{[^}]*?background-color:[^;]*!im
 
 
 def _git(workdir, *args):
-    return subprocess.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8",
+    return fkproc.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8",
                           errors="replace").stdout
 
 

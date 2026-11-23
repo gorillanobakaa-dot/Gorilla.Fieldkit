@@ -13,6 +13,7 @@ says GORILLA, the branding CSS, the files the allowlist adds; minus the allowlis
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import allow as allowmod, chrome, css, leftovers, rasters
@@ -22,7 +23,7 @@ START_CSS = ("browser/base/content/aboutDialog.css", "browser/themes/shared/mast
 
 
 def _git(tree, *args):
-    r = subprocess.run(["git", "-C", str(tree), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(tree), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace")
     return r.returncode, r.stdout
 

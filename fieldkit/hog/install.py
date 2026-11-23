@@ -10,6 +10,7 @@ Without --apply it prints what it would write and run, and changes nothing.
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -141,7 +142,7 @@ def main(apply=False, remove=False):
         if kind == "run":
             print(("RUN   " if apply else "WOULD RUN   ") + " ".join(rest[0]))
             if apply:
-                r = subprocess.run(rest[0], capture_output=True, text=True)
+                r = fkproc.run(rest[0], capture_output=True, text=True)
                 if r.returncode and "bootout" not in rest[0][1:2]:
                     print(f"  exit {r.returncode}: {(r.stdout + r.stderr).strip()[:300]}")
                     rc = 1

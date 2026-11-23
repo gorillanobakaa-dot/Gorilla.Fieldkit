@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 FW_DIRS = ("/lib/firmware/updates", "/lib/firmware", "/usr/lib/firmware/updates", "/usr/lib/firmware")
@@ -94,7 +95,7 @@ def module_firmware(module, builtin):
     if not exe:
         return [], "unknown"
     try:
-        r = subprocess.run([exe, "-F", "firmware", module], capture_output=True, text=True, timeout=10)
+        r = fkproc.run([exe, "-F", "firmware", module], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return [], "unknown"
     return [l.strip() for l in r.stdout.splitlines() if l.strip()], "module" if r.returncode == 0 else "unknown"
@@ -130,7 +131,7 @@ def kernel_log():
         if not exe:
             continue
         try:
-            r = subprocess.run([exe] + argv[1:], capture_output=True, text=True, timeout=20)
+            r = fkproc.run([exe] + argv[1:], capture_output=True, text=True, timeout=20)
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0 and r.stdout.strip():

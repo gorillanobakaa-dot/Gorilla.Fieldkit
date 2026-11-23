@@ -21,6 +21,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -32,7 +33,7 @@ TRASH = Path.home() / "Agents.Work.Trash" / "heal-rounds"
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
 
 
 def count_errors(log, pattern=None):

@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def check_table(page, sums, sizes):
 
 # ---- the published release -----------------------------------------------------------------------------------
 def _gh(args, gh="gh", timeout=600):
-    r = subprocess.run([gh] + args, capture_output=True, text=True, timeout=timeout)
+    r = fkproc.run([gh] + args, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args[:3])} failed: {(r.stderr or r.stdout).strip()[:300]}")
     return r.stdout

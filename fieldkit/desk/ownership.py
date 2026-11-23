@@ -4,6 +4,7 @@ import csv
 import re
 import stat
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from contextlib import ExitStack
 from pathlib import Path, PureWindowsPath
@@ -147,7 +148,7 @@ def take(value, *, drive=False, recover_inaccessible=False):
     system, drive_type, lock, descriptor, elevate = _native()
     if drive_type(target.anchor) not in (2, 3, 6):
         raise ValueError("Select a file or directory on a local drive.")
-    user = subprocess.run([str(system / "whoami.exe"), "/user", "/fo", "csv", "/nh"],
+    user = fkproc.run([str(system / "whoami.exe"), "/user", "/fo", "csv", "/nh"],
                           capture_output=True, text=True, timeout=5, check=True)
     sid = next(csv.reader(user.stdout.splitlines()))[1]
     if not re.fullmatch(r"S-1-(?:\d+-)+\d+", sid):

@@ -96,9 +96,10 @@ def orphans(workdir, pristine, files=None):
     them among the fork's deliberate removals; a removed id that code still names is not deliberate.
     `files`: the .ftl files to look at (default: every .ftl that differs from `pristine`)."""
     import subprocess
+    from fieldkit import proc as fkproc
     from pathlib import Path
     w = str(workdir)
-    git = lambda *a: subprocess.run(["git", "-C", w, *a], capture_output=True)
+    git = lambda *a: fkproc.run(["git", "-C", w, *a], capture_output=True)
     if files is None:
         files = [l for l in git("diff", "--name-only", pristine, "--", "*.ftl").stdout.decode().splitlines() if l]
     removed = {}
@@ -593,10 +594,11 @@ def step_dedupe(t, file, truth_root, **kw):
         new, inserted = restore_lost(new, truth, kw["pristine_lines"])
     else:
         import subprocess
-        r = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+        from fieldkit import proc as fkproc
+        r = fkproc.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
         root = r.stdout.split()
         if root:
-            pr = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True, text=True,
+            pr = fkproc.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True, text=True,
                                 encoding="utf-8", errors="replace")
             if pr.returncode == 0:
                 new, inserted = restore_lost(new, truth, pr.stdout.splitlines())
@@ -616,8 +618,9 @@ def check_dedupe(t, file, truth_root, **kw):
     pristine = kw.get("pristine_lines")
     if pristine is None:
         import subprocess
-        r = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
-        pr = subprocess.run(["git", "-C", t["workdir"], "show", f"{r.stdout.split()[0]}:{file}"], capture_output=True, text=True,
+        from fieldkit import proc as fkproc
+        r = fkproc.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+        pr = fkproc.run(["git", "-C", t["workdir"], "show", f"{r.stdout.split()[0]}:{file}"], capture_output=True, text=True,
                             encoding="utf-8", errors="replace") if r.stdout.split() else None
         pristine = pr.stdout.splitlines() if pr is not None and pr.returncode == 0 else []
     up = collections.Counter(e["id"] for e in entries(pristine))

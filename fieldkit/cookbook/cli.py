@@ -11,6 +11,7 @@ Registry only: no file search, no filesystem walk (projects/<id>/project.yaml, s
 import argparse
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 from . import registry
@@ -20,7 +21,7 @@ TOKEN_CHARS = 4  # a token is about 4 characters
 
 def _emerge_line(recipe):
     try:
-        r = subprocess.run([sys.executable, "-m", "fieldkit", "emerge", "status", recipe], capture_output=True,
+        r = fkproc.run([sys.executable, "-m", "fieldkit", "emerge", "status", recipe], capture_output=True,
                            text=True, timeout=20)
         d, _ = json.JSONDecoder().raw_decode(r.stdout)   # the JSON, then a NEXT: line
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -102,7 +103,7 @@ def hook(stdin_text):
     text = render(build(proj), 2000)
     if proj["id"] == "firefox":
         try:
-            r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "migrate", "brief"],
+            r = fkproc.run([sys.executable, "-m", "fieldkit", "build-harness", "migrate", "brief"],
                                capture_output=True, text=True, timeout=25)
             if r.stdout.strip():
                 text += "\nFirefox migration state:\n" + r.stdout.strip()

@@ -83,9 +83,10 @@ def _tracked(tree, name):
     """Relative paths of every file called `name` (git ls-files when the tree is a repository: a full walk of a
     Firefox tree takes minutes)."""
     import subprocess
+    from fieldkit import proc as fkproc
     tree = Path(tree)
     if (tree / ".git").exists():
-        r = subprocess.run(["git", "-C", str(tree), "ls-files", "-z", f"*{name}"], capture_output=True)
+        r = fkproc.run(["git", "-C", str(tree), "ls-files", "-z", f"*{name}"], capture_output=True)
         if r.returncode == 0:
             return sorted(x for x in r.stdout.decode("utf-8", "replace").split(chr(0)) if x and x.split("/")[-1] == name)
     return sorted(p.relative_to(tree).as_posix() for p in tree.rglob(name))
@@ -93,9 +94,10 @@ def _tracked(tree, name):
 
 def _all_tracked(tree):
     import subprocess
+    from fieldkit import proc as fkproc
     tree = Path(tree)
     if (tree / ".git").exists():
-        r = subprocess.run(["git", "-C", str(tree), "ls-files", "-z"], capture_output=True)
+        r = fkproc.run(["git", "-C", str(tree), "ls-files", "-z"], capture_output=True)
         if r.returncode == 0:
             return [x for x in r.stdout.decode("utf-8", "replace").split(chr(0)) if x]
     return [p.relative_to(tree).as_posix() for p in tree.rglob("*") if p.is_file()]

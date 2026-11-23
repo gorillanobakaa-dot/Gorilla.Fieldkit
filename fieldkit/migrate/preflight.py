@@ -20,6 +20,7 @@ Read-only: git object reads of the source tree (`git --no-optional-locks`), the 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 CHECKS = ("static", "policy", "set-proof", "stage-key", "stall")
@@ -44,7 +45,7 @@ class Tree:
         self._ls = None
 
     def git(self, *a, timeout=600):
-        r = subprocess.run(["git", "--no-optional-locks", "-C", self.repo, *a], capture_output=True, timeout=timeout)
+        r = fkproc.run(["git", "--no-optional-locks", "-C", self.repo, *a], capture_output=True, timeout=timeout)
         if r.returncode:
             raise RuntimeError(f"git {' '.join(a[:3])}: {r.stderr.decode('utf-8', 'replace').strip()[:300]}")
         return r.stdout.decode("utf-8", "replace")
@@ -62,7 +63,7 @@ class Tree:
         if not paths:
             return {}
         inp = "".join(f"{self.rev}:{p}\n" for p in paths).encode("utf-8")
-        r = subprocess.run(["git", "--no-optional-locks", "-C", self.repo, "cat-file", "--batch"], input=inp,
+        r = fkproc.run(["git", "--no-optional-locks", "-C", self.repo, "cat-file", "--batch"], input=inp,
                            capture_output=True, timeout=600)
         out, buf, i = {}, r.stdout, 0
         for p in paths:

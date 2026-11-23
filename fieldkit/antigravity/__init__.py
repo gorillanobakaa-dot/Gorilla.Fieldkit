@@ -18,6 +18,7 @@ slow. Exit codes follow the binary: 0 fine, 3 findings, 2 bad usage; 1 binary mi
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def run_tool(argv):
         return 1  # missing binary
     # captured and re-printed through this process's own stdout: a child writing to an inherited handle is lost
     # when a parent captures output on Windows
-    r = subprocess.run([str(exe), "run", *argv], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = fkproc.run([str(exe), "run", *argv], capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout)
     sys.stdout.flush()
     sys.stderr.write(r.stderr)
@@ -74,8 +75,8 @@ def run_bridge(cmd, rest):
         from . import bridge
         return bridge.main([cmd, *rest])
     if cmd == "stream":  # inherits stdin/stdout: NDJSON in, fenced NDJSON out
-        return subprocess.run([str(exe), "bridge", cmd, *rest]).returncode
-    r = subprocess.run([str(exe), "bridge", cmd, *rest], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return fkproc.run([str(exe), "bridge", cmd, *rest]).returncode
+    r = fkproc.run([str(exe), "bridge", cmd, *rest], capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout)
     sys.stdout.flush()
     sys.stderr.write(r.stderr)

@@ -16,6 +16,7 @@ checkpoint exists.
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def save(job_dir, cp):
 
 
 def _git(cwd, *a, env=None):
-    return subprocess.run(["git", "-C", str(cwd), *a], capture_output=True, text=True, encoding="utf-8",
+    return fkproc.run(["git", "-C", str(cwd), *a], capture_output=True, text=True, encoding="utf-8",
                           errors="replace", env=env)
 
 

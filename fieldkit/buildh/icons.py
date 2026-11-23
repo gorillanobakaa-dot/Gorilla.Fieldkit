@@ -6,6 +6,7 @@ brand_installer_stub.py) and nothing called them; build-verify does now, and the
 import re
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def _tool(owner_root, name, *args, timeout=600):
     script = Path(owner_root) / "working scripts" / name
     if not script.is_file():
         return None, f"no {script}"
-    r = subprocess.run([sys.executable, str(script), *args], cwd=str(owner_root), capture_output=True, text=True,
+    r = fkproc.run([sys.executable, str(script), *args], cwd=str(owner_root), capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
     return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
 

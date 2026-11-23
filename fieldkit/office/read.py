@@ -7,6 +7,7 @@ engine="markitdown" / "docling"; the built-in engine needs neither and is
 what the tests pin down. Nothing is uploaded anywhere.
 """
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ..core.host import find_tool
@@ -97,7 +98,7 @@ def _pptx(path):
 def _pdf(path):
     tool = find_tool("pdftotext")
     if tool:
-        r = subprocess.run([tool, "-layout", "-enc", "UTF-8", str(path), "-"], capture_output=True)
+        r = fkproc.run([tool, "-layout", "-enc", "UTF-8", str(path), "-"], capture_output=True)
         if r.returncode == 0:
             return r.stdout.decode("utf-8", "replace")
     import pypdfium2 as pdfium

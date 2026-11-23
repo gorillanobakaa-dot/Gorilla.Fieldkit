@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def rolling_url(ctx):
 
 def _current_branch(root):
     try:
-        r = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
+        r = fkproc.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
                            text=True, timeout=20)
         return r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):

@@ -20,6 +20,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -255,7 +256,7 @@ def test_exists(test):
 
 
 def _pytest(test):
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", test], cwd=ROOT, capture_output=True, text=True, timeout=600)
+    r = fkproc.run([sys.executable, "-m", "pytest", "-q", "-x", test], cwd=ROOT, capture_output=True, text=True, timeout=600)
     return r.returncode == 0, (r.stdout or "")[-300:]
 
 

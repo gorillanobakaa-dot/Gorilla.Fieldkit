@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -93,7 +94,7 @@ def claude_cli_login():
     if not exe:
         return None
     try:
-        r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=30)
+        r = fkproc.run([exe, "auth", "status"], capture_output=True, text=True, timeout=30)
         return bool(json.loads(r.stdout).get("loggedIn")) if r.stdout.strip() else r.returncode == 0
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None

@@ -38,6 +38,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -200,7 +201,7 @@ def run_steps(tree, steps, os_word, log_path, python=None, run=subprocess.run):
                 bindir = venv / ("Scripts" if os_word == "windows" else "bin")
                 env["PATH"] = os.pathsep.join([str(bindir), env.get("PATH", "")])
                 env["VIRTUAL_ENV"] = str(venv)
-                ver = subprocess.run([str(bindir / "python"), "--version"], capture_output=True, text=True).stdout
+                ver = fkproc.run([str(bindir / "python"), "--version"], capture_output=True, text=True).stdout
                 log.write(f"python wanted {st.get('want') or '?'}, this venv: {ver.strip()}\n")
             else:
                 script = tree.parent / f".ci-local-step-{i}.{'sh' if (st['shell'] or 'bash') == 'bash' else 'ps1'}"
@@ -330,7 +331,7 @@ def canon(rec):
 
 
 def _git(repo, *a, check=True):
-    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
     if check and r.returncode:
         raise RuntimeError(f"git {' '.join(a[:3])}: {(r.stderr or r.stdout).strip()[-200:]}")
     return r.stdout.strip()

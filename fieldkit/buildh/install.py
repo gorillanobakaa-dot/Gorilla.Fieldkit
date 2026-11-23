@@ -29,6 +29,7 @@ import secrets
 import shutil
 import tempfile
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 import zipfile
@@ -183,7 +184,7 @@ def running(install_dir, proc=Path("/proc")):
                     out.append(exe)
         return out
     exe = str(Path(install_dir) / "firefox.exe").lower()
-    r = subprocess.run(["powershell", "-NoProfile", "-Command",
+    r = fkproc.run(["powershell", "-NoProfile", "-Command",
                         "Get-Process firefox -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }"],
                        capture_output=True, text=True, errors="replace")
     return [l.strip() for l in (r.stdout or "").splitlines() if l.strip().lower() == exe]
@@ -263,7 +264,7 @@ def clear_startup_caches(say=print):
     """Delete every profile's startupCache. Firefox keys that cache on the BuildID; two different builds with one
     BuildID (02 Oct, builds 2-6) left the owner's profile running the broken build's compiled scripts while a
     fresh profile ran the new one. -> [cleared dirs]. Refuses while Firefox runs."""
-    r = subprocess.run(["powershell", "-NoProfile", "-Command",
+    r = fkproc.run(["powershell", "-NoProfile", "-Command",
                         "Get-Process firefox -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }"],
                        capture_output=True, text=True, errors="replace")
     users = blocking_firefox(r.stdout.splitlines())
@@ -296,8 +297,8 @@ def desktop_icons_row(say=print, apply=True):
         return {"check": check, "ok": False, "evidence": f"IconKit missing ({ICONKIT}): cache not rebuilt; icons may be soft"}
     if apply:
         say("  desktop icons: rebuilding Explorer's icon cache (IconKit; Explorer restarts after a countdown)")
-        subprocess.run([sys.executable, str(ICONKIT), "cache", "--apply"], capture_output=True, text=True, timeout=300)
-    r = subprocess.run([sys.executable, str(ICONKIT), "cache"], capture_output=True, text=True, errors="replace", timeout=120)
+        fkproc.run([sys.executable, str(ICONKIT), "cache", "--apply"], capture_output=True, text=True, timeout=300)
+    r = fkproc.run([sys.executable, str(ICONKIT), "cache"], capture_output=True, text=True, errors="replace", timeout=120)
     # IconKit marks each desktop icon "ok", "FILE" (the icon file lacks a sharp frame) or "????" (unreadable)
     bad = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith(("FILE", "????"))]
     seen = [l for l in r.stdout.splitlines() if l.strip().startswith("ok ")]
@@ -376,7 +377,7 @@ def install(installer, install_dir, say=print, timeout=1800, fresh=True):
     # the Firefox installer: a 7-Zip SFX that unpacks and runs setup.exe; /S silent, /InstallDirectoryPath= exact dir
     cmd = [str(installer), "/S", f"/InstallDirectoryPath={install_dir}"]
     say(f"  install: {' '.join(cmd)}")
-    r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
+    r = fkproc.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
     # the SFX returns when setup.exe exits; give the shell a moment to settle registry writes
     time.sleep(3)
     return r.returncode, time.time() - t0
@@ -397,7 +398,7 @@ def verify(install_dir, version, marker=None):
         out = ""
         if exe.is_file():
             try:
-                out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
+                out = fkproc.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout.strip()
             except (OSError, subprocess.TimeoutExpired) as e:
                 out = f"failed: {e}"
         return version in out, out or f"no {name}"
@@ -421,7 +422,7 @@ def any_firefox_running():
     else:
         cmd = ["pgrep", "-x", "firefox"]
     try:
-        return bool(subprocess.run(cmd, capture_output=True, text=True, errors="replace").stdout.strip())
+        return bool(fkproc.run(cmd, capture_output=True, text=True, errors="replace").stdout.strip())
     except OSError:
         return True                                    # cannot tell: treat as running (refuse)
 
@@ -758,7 +759,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         say(f"  {name} ...")
         t0 = time.time()
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout, cwd=str(script.parent))
+            r = fkproc.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout, cwd=str(script.parent))
             rc, out = r.returncode, (r.stdout or "") + (r.stderr or "")
         except subprocess.TimeoutExpired as e:
             rc, out = 124, f"timeout after {timeout} s\n" + ((e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or ""))

@@ -22,3 +22,10 @@ Counts the processes the room hook starts and catches whoever starts new console
 
 Read-only: nothing is stopped. Tests: `tests/test_hog_churn.py` (the scan gate runs on every CI; the zero-children
 UserPromptSubmit probe runs on Windows).
+
+## hog consoles (consoles.py) and fieldkit/proc.py
+
+`fieldkit hog consoles [--reap] [--json]` groups every conhost/OpenConsole by its parent process and exits 1 when a
+Python process running `fieldkit` owns one. `--reap` stops the empty ones (`empty_hosts`) by PID. The prevention is
+`fieldkit/proc.py` (DETACHED_PROCESS plus redirected streams) and the CI gate `tests/test_no_console_spawn.py`
+(allowlist `fieldkit/proc_allow.yaml`, one reason per entry).

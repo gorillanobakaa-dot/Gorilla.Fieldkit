@@ -29,6 +29,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import zipfile
 from pathlib import Path
 
@@ -333,7 +334,7 @@ def elf_needed(path, readelf=None):
     readelf = readelf or shutil.which("readelf")
     if not readelf:
         return None
-    p = subprocess.run([readelf, "-d", str(path)], capture_output=True, text=True, errors="replace")
+    p = fkproc.run([readelf, "-d", str(path)], capture_output=True, text=True, errors="replace")
     return _NEEDED.findall(p.stdout)
 
 

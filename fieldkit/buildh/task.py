@@ -32,6 +32,7 @@ import json
 import re
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -152,7 +153,7 @@ def plan_hash(steps):
 # -- working copy (git) ------------------------------------------------------------------
 
 def _git(t, *args, check=True):
-    r = subprocess.run(["git", "-C", t["workdir"], *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", t["workdir"], *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=3600)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:2])}: {(r.stderr or r.stdout).strip()[:300]}")
@@ -168,7 +169,7 @@ BUILD_OUTPUT = ("build_logs/",)
 
 def exclude_build_output(workdir):
     """Write BUILD_OUTPUT into the tree's .git/info/exclude (local to this clone, never committed), once."""
-    r = subprocess.run(["git", "-C", str(workdir), "rev-parse", "--git-path", "info/exclude"], capture_output=True,
+    r = fkproc.run(["git", "-C", str(workdir), "rev-parse", "--git-path", "info/exclude"], capture_output=True,
                        text=True)
     if r.returncode != 0 or not r.stdout.strip():
         return
@@ -198,7 +199,7 @@ def checkpoint(t, label):
         # commits by this author (found 2026-10-01: the pre-commit hook's run signed a checkpoint as the owner).
         ident = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@localhost",
                  "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
-        subprocess.run(["git", "-C", t["workdir"], "commit", "-q", "--no-verify", "-m", f"checkpoint: {label}"],
+        fkproc.run(["git", "-C", t["workdir"], "commit", "-q", "--no-verify", "-m", f"checkpoint: {label}"],
                        check=True, capture_output=True, env={**os.environ, **ident}, timeout=3600)
     head = _git(t, "rev-parse", "HEAD").strip()
     t.setdefault("checkpoints", []).append({"label": label, "commit": head, "t": time.strftime("%H:%M:%S")})
@@ -577,7 +578,7 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     if changed_files(t):
         raise Refused("the work tree has uncommitted changes; submit or revert the current step first")
     pristine = _git(t, "rev-list", "--max-parents=0", "HEAD").split()[0]
-    in_pristine = lambda f: subprocess.run(["git", "-C", t["workdir"], "cat-file", "-e", f"{pristine}:{f}"],
+    in_pristine = lambda f: fkproc.run(["git", "-C", t["workdir"], "cat-file", "-e", f"{pristine}:{f}"],
                                            capture_output=True).returncode == 0
     # A file the release does not have (created by an earlier group, e.g. 08.Look's branding prefs) has no pristine
     # version: only the dropped patches' own hunks are taken back out of it (2026-10-16, Windows 158: dropping
@@ -587,7 +588,7 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     # Back to pristine only when the reverse does not fit (hunks half ported) AND no other patch in the set writes
     # that file. Otherwise refused, with nothing touched.
     def reverses(f):
-        return all(subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+        return all(fkproc.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
                                    "--check", str(root / p)], capture_output=True).returncode == 0 for p in patches)
     others_write = set()
     for pf in root.rglob("*.patch"):
@@ -609,7 +610,7 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     for f, how in plan.items():
         if how == "reverse":
             for p in patches:
-                subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+                fkproc.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
                                 str(root / p)], capture_output=True, text=True, check=True)
         else:
             _git(t, "checkout", pristine, "--", f)
@@ -805,7 +806,7 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
         s.pop("hand_note", None)
         if res.get("ok"):
             _git(t, "add", "-A")
-            diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
+            diff = fkproc.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
                                   capture_output=True, timeout=600).stdout
             _git(t, "reset", "-q")
             pdir = _proposals_dir(t)
@@ -879,7 +880,7 @@ def _keep_refused(t, s, check_why, adapted, note):
         from ..lifecycle import autoaccept
         from ..method import strikes
         _git(t, "add", "-A")
-        diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
+        diff = fkproc.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
                               capture_output=True, timeout=600).stdout
         _git(t, "reset", "-q")
         pdir = _proposals_dir(t)
@@ -916,11 +917,11 @@ def accept(task_id, step_ids=None, who="owner"):
         if changed_files(t):
             out["failed"].append({"step": s["id"], "why": "the working copy has uncommitted changes; put it back first"})
             continue
-        r = subprocess.run(["git", "-C", t["workdir"], "apply", "--index", str(diff)], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", t["workdir"], "apply", "--index", str(diff)], capture_output=True, text=True)
         if r.returncode != 0:
             # later checkpoints moved the lines around the change (2026-10-14: 093 edited AboutRedirector.cpp after
             # 036 h4's proposal was saved): a three-way apply merges by content, using the blobs the diff names
-            r = subprocess.run(["git", "-C", t["workdir"], "apply", "--index", "--3way", str(diff)], capture_output=True,
+            r = fkproc.run(["git", "-C", t["workdir"], "apply", "--index", "--3way", str(diff)], capture_output=True,
                                text=True)
             if r.returncode != 0 or changed_files(t) and _git(t, "diff", "--name-only", "--diff-filter=U").strip():
                 revert_to_checkpoint(t)

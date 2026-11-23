@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from dataclasses import dataclass, field
@@ -174,7 +175,7 @@ def _kill_tree(pid):
             except psutil.Error:
                 pass
     elif os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
     if os.name != "nt":
         # the runner starts each child as its own process group (start_new_session), so the
         # group also catches grandchildren whose parent already exited; only if it is that group

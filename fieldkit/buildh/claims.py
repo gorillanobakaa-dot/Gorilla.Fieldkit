@@ -63,6 +63,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -255,7 +256,7 @@ def public_files(owner_root):
     owner = Path(owner_root)
     pub = owner / "gorilla-patchset"
     rels = []
-    r = subprocess.run(["git", "-C", str(pub), "ls-files"], capture_output=True, text=True, errors="replace", env=GIT_ENV)
+    r = fkproc.run(["git", "-C", str(pub), "ls-files"], capture_output=True, text=True, errors="replace", env=GIT_ENV)
     tracked = r.stdout.splitlines() if r.returncode == 0 else \
         [p.relative_to(pub).as_posix() for p in pub.rglob("*") if p.is_file() and ".git" not in p.parts] if pub.is_dir() else []
     for f in sorted(tracked):
@@ -349,11 +350,11 @@ class Tree:
         # rename check needs (2026-10-08: jar.mn kept about-logo.png when about-logo.svg went, and with no reference
         # the png read as the svg "under a new name")
         self.new_file_sources = {}
-        r = subprocess.run(["git", "-C", str(self.w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
+        r = fkproc.run(["git", "-C", str(self.w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
         self.root = (r.stdout.split() or [None])[0]
-        r = subprocess.run(["git", "-C", str(self.w), "rev-parse", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
+        r = fkproc.run(["git", "-C", str(self.w), "rev-parse", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
         self.head = r.stdout.strip() or None
-        r = subprocess.run(["git", "-C", str(self.w), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+        r = fkproc.run(["git", "-C", str(self.w), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
                            text=True, errors="replace", env=GIT_ENV)
         self.dirty = len([l for l in r.stdout.splitlines() if l.strip()]) if r.returncode == 0 else None
 
@@ -376,7 +377,7 @@ class Tree:
             return None
         if rel not in self.pcache:
             if self._cat is None:
-                self._cat = subprocess.Popen(["git", "-C", str(self.w), "cat-file", "--batch"], stdin=subprocess.PIPE,
+                self._cat = fkproc.Popen(["git", "-C", str(self.w), "cat-file", "--batch"], stdin=subprocess.PIPE,
                                              stdout=subprocess.PIPE, env=GIT_ENV)
             self._cat.stdin.write(f"{self.root}:{rel}\n".encode("utf-8"))
             self._cat.stdin.flush()

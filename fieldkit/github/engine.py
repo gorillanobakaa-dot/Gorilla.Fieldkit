@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -50,7 +51,7 @@ def doctor_data():
 def _exec(argv, stdin=None, timeout=120):
     """-> (returncode, stdout, stderr). A missing program is returncode 127."""
     try:
-        p = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        p = fkproc.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=timeout)
     except FileNotFoundError:
         return 127, "", f"{argv[0]}: not found"

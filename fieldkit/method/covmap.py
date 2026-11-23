@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -104,7 +105,7 @@ def git_blob(root="."):
 
     def look(path):
         if path not in cache:
-            r = subprocess.run(["git", "rev-parse", f"HEAD:{path}"], cwd=root, capture_output=True, text=True)
+            r = fkproc.run(["git", "rev-parse", f"HEAD:{path}"], cwd=root, capture_output=True, text=True)
             cache[path] = r.stdout.strip() if r.returncode == 0 else ""
         return cache[path]
     return look

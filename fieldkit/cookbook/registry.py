@@ -3,6 +3,7 @@ the cwd lookup is a string match on the path's folder names against each project
 import fnmatch
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -70,7 +71,7 @@ def _slug(url):
 def remote_slug(path):
     """-> owner/name of the origin remote of the git folder PATH (offline), else None."""
     try:
-        r = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"], capture_output=True, text=True, timeout=10)
+        r = fkproc.run(["git", "-C", str(path), "remote", "get-url", "origin"], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
     return _slug(r.stdout) if r.returncode == 0 else None
@@ -79,7 +80,7 @@ def remote_slug(path):
 def gh_slug(name):
     """-> the canonical owner/name GitHub reports for NAME, else None (gh missing, offline or not signed in)."""
     try:
-        r = subprocess.run(["gh", "repo", "view", name, "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        r = fkproc.run(["gh", "repo", "view", name, "--json", "nameWithOwner", "-q", ".nameWithOwner"],
                            capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return None

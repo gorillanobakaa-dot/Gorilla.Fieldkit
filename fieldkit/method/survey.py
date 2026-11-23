@@ -20,6 +20,7 @@ import argparse
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from collections import Counter
 from pathlib import Path
 
@@ -56,7 +57,7 @@ def _is_test_file(rel):
 
 def _git(path, *args):
     try:
-        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=30)
+        r = fkproc.run(["git", "-C", str(path), *args], capture_output=True, text=True, timeout=30)
         return r.stdout.strip() if r.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
         return None

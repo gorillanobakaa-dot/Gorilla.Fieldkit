@@ -56,6 +56,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -139,7 +140,7 @@ def exec_program(exec_line):
             return prog, None, f"Wine prefix {pre} is gone"
     if path and os.path.basename(prog) == "flatpak" and len(words) >= 3 and words[1] == "run":
         app = next((w for w in words[2:] if not w.startswith("-")), None)
-        if app and subprocess.run(["flatpak", "info", app], capture_output=True).returncode != 0:
+        if app and fkproc.run(["flatpak", "info", app], capture_output=True).returncode != 0:
             return prog, None, f"flatpak app {app} is not installed"
     return prog, path, None
 
@@ -189,7 +190,7 @@ def starts_here(entry, desktops):
 
 def _run(argv, **kw):
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=30, **kw)
+        return fkproc.run(argv, capture_output=True, text=True, timeout=30, **kw)
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -407,8 +408,8 @@ def scan(dpkg=None, sys_autostart=SYS_AUTOSTART, user_autostart=USER_AUTOSTART, 
 
 def _sudo(argv):
     if os.geteuid() == 0:
-        return subprocess.run(argv).returncode
-    return subprocess.run(["sudo"] + argv).returncode
+        return fkproc.run(argv).returncode
+    return fkproc.run(["sudo"] + argv).returncode
 
 
 def _keep(src, run, manifest, how, **extra):

@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from pathlib import Path
@@ -95,7 +96,7 @@ def write_claims(st, net=None):
 
 def _git(args, cwd, timeout=30):
     try:
-        r = subprocess.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, timeout=timeout,
+        r = fkproc.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
         return r.stdout if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):

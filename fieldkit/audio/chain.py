@@ -22,6 +22,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -48,7 +49,7 @@ def _run(cmd):
     if not shutil.which(cmd[0]):
         return None
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        p = fkproc.run(cmd, capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return p.returncode, p.stdout

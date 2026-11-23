@@ -24,13 +24,14 @@ Run it again after any later change: it rewrites the group from scratch (stale n
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import firefox, replay as rp
 
 
 def _git(w, *a):
-    r = subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True)
+    r = fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(a[:3])}: {r.stderr.decode('utf-8', 'replace').strip()[:300]}")
     return r.stdout
@@ -203,7 +204,7 @@ def write_group(owner_root, workdir, major, replayed, excl, say=print, dry=False
 
 
 def _blob(w, rev, path):
-    r = subprocess.run(["git", "-C", str(w), "show", f"{rev}:{path}"], capture_output=True)
+    r = fkproc.run(["git", "-C", str(w), "show", f"{rev}:{path}"], capture_output=True)
     return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
 
 

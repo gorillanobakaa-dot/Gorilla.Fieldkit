@@ -18,6 +18,7 @@ fan window still said "fieldkit thermal watch (started at logon) lowers the CPU 
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -63,7 +64,7 @@ def spawn(cmd, cwd=None):
         kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000   # DETACHED, NEW_PROCESS_GROUP, NO_WINDOW
     else:
         kw["start_new_session"] = True
-    pid = subprocess.Popen(cmd, **kw).pid
+    pid = fkproc.Popen(cmd, **kw).pid
     from ..core import procs
     procs.record(pid, "thermal-governor", "the thermal governor (a detached service: fieldkit thermal ensure)")
     return pid

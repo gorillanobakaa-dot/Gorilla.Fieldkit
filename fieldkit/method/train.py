@@ -40,6 +40,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -601,7 +602,7 @@ def clone_for(repo, purpose="train-clone"):
     work = mp.state_dir(repo) / purpose
     url = _git(repo, "remote", "get-url", "origin").stdout.strip()
     if not (work / ".git").is_dir():
-        r = subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(mp.common_dir(repo)), str(work)],
+        r = fkproc.run(["git", "clone", "--quiet", "--no-checkout", str(mp.common_dir(repo)), str(work)],
                            capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError(f"git clone: {r.stderr.strip()[-200:]}")
@@ -730,7 +731,7 @@ def wait_required(gh, head, base, max_wait_s, sleep=time.sleep, clock=time.monot
 def _record_refusal(repo, n, msg):
     """R14: a repeated refusal becomes a defect row. `fieldkit refusals record` when it exists; the train log always."""
     try:
-        subprocess.run([sys.executable, "-m", "fieldkit", "refusals", "record", "train", f"PR #{n}: {msg[:200]}"],
+        fkproc.run([sys.executable, "-m", "fieldkit", "refusals", "record", "train", f"PR #{n}: {msg[:200]}"],
                        capture_output=True, text=True, timeout=30)
     except Exception:  # noqa: BLE001 - recording must never block the train
         pass

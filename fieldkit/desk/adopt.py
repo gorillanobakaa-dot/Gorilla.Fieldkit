@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -177,7 +178,7 @@ def _sweep_ignored():
 def _ps(script):
     if sys.platform != "win32":
         return ""
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+    r = fkproc.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return r.stdout
 
@@ -233,7 +234,7 @@ def repo_hits(names, root=None):
     for d in sorted(p for p in root.iterdir() if p.is_dir() and (p / ".git").exists()):
         if d.resolve() == Path(settings.ROOT).resolve():
             continue                                   # the public repository itself: public_hits
-        r = subprocess.run(["git", "-C", str(d), "ls-files"], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", str(d), "ls-files"], capture_output=True, text=True)
         for rel in r.stdout.splitlines():
             p = d / rel
             if p.suffix.lower() not in TEXT_EXT or not p.is_file():
@@ -248,7 +249,7 @@ def repo_hits(names, root=None):
 
 def public_hits(names, root=None):
     """Tracked files of the public repository that name an old Scripts path: listed, never edited here."""
-    r = subprocess.run(["git", "-C", str(settings.ROOT), "ls-files"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(settings.ROOT), "ls-files"], capture_output=True, text=True)
     hits = []
     for rel in r.stdout.splitlines():
         p = settings.ROOT / rel
@@ -433,7 +434,7 @@ def _recycle(path):
     if not exe:
         return False, "gorilla-size is not built here (fieldkit size doctor --install): nothing removed"
     # the adopt plan was the review, so the size tool's own plan threshold does not hold this one back
-    r = subprocess.run([str(exe), "recycle", str(path), "--whole-folder", "--plan-files", "100000000", "--plan-bytes", "100T", "--json"],
+    r = fkproc.run([str(exe), "recycle", str(path), "--whole-folder", "--plan-files", "100000000", "--plan-bytes", "100T", "--json"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         d = json.loads(r.stdout)

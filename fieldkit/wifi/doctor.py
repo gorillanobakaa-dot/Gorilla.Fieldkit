@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 # Tools that live in /usr/sbin on Debian and are therefore invisible to a plain
@@ -24,7 +25,7 @@ def tool(name):
 
 def run(args, timeout=25):
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout
     except Exception:
         return 1, ""

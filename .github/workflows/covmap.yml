@@ -30,10 +30,7 @@ jobs:
       - name: Run the suite with one coverage context per test (pytest-cov, xdist)
         shell: bash
         run: |
-          printf '[run]
-source = fieldkit,.github
-branch = False
-' > .covmap.rc
+          printf '[run]\nsource = fieldkit,.github\nbranch = False\n' > .covmap.rc
           python -m pytest -q -p no:cacheprovider --timeout=300 -n 3 --cov --cov-config=.covmap.rc --cov-context=test || echo "suite-red: map still written from what ran"
       - name: Build the map
         shell: bash

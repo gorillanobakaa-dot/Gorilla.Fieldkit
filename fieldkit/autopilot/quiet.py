@@ -361,9 +361,10 @@ def start_holder(pid, log):
     """Start `fieldkit autopilot quiet --apply --hold PID` as its own process (it outlives nothing: it ends when PID
     ends), its output in `log`. -> the holder's PID."""
     import subprocess
+    from fieldkit import proc as fkproc
     import sys
     f = open(log, "a", encoding="utf-8")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    p = subprocess.Popen([sys.executable, "-m", "fieldkit", "autopilot", "quiet", "--apply", "--hold", str(pid)],
+    p = fkproc.Popen([sys.executable, "-m", "fieldkit", "autopilot", "quiet", "--apply", "--hold", str(pid)],
                          stdout=f, stderr=subprocess.STDOUT, creationflags=flags)
     return p.pid

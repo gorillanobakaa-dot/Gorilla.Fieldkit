@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 
 NUM = r"[0-9]{1,5}(?:[.,][0-9]{1,2})?"
 
@@ -26,7 +27,7 @@ def read_text(path, timeout=120):
     if not os.path.exists(path):
         return None, f"{path} does not exist"
     try:
-        r = subprocess.run([t, path, "-"], capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run([t, path, "-"], capture_output=True, text=True, timeout=timeout)
     except Exception as e:
         return None, str(e)
     if r.returncode != 0:

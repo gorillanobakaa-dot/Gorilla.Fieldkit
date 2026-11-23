@@ -18,6 +18,7 @@ import json
 import re
 import sys
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import firefox, task
@@ -278,7 +279,7 @@ def score_hunk(body, hunk, file=""):
 
 
 def _git(wd, *args):
-    return subprocess.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout
+    return fkproc.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout
 
 
 def _sha(p):
@@ -639,14 +640,14 @@ def verify(task_id):
         p, k = w / rel, key_root / rel
         if not (p.is_file() and k.is_file() and p.stat().st_size == k.stat().st_size and _sha(p) == _sha(k)):
             continue
-        if old_pristine is not None and not (old_pristine / rel).is_file() and subprocess.run(
+        if old_pristine is not None and not (old_pristine / rel).is_file() and fkproc.run(
                 ["git", "-C", str(w), "cat-file", "-e", f"{root[0]}:{rel}"], capture_output=True).returncode != 0:
             rep["old_tree_copies_harmless"].append(rel)       # in neither upstream version: the fork's own file, nothing to lose
             continue
         if old_pristine is None or not (old_pristine / rel).is_file():
             rep["old_tree_copies_undetermined"].append(rel)
             continue
-        new_pristine = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True).stdout
+        new_pristine = fkproc.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True).stdout
         if new_pristine == (old_pristine / rel).read_bytes():
             rep["old_tree_copies_harmless"].append(rel)       # upstream did not change it: same result either way
         elif _upstream_changes_inside_removed_blocks(new_pristine, (old_pristine / rel).read_bytes(), rel, hr):
@@ -752,7 +753,7 @@ def verify(task_id):
             # 7b. message shape against pristine, with Mozilla's parser (fluent.shape_diff): an id still there that lost
             #     its value or an attribute leaves code reading it with nothing (fails); removed ids are listed only,
             #     the fork removes messages on purpose (an accidental loss is the row above)
-            up = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True)
+            up = fkproc.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True)
             if up.returncode == 0:
                 try:
                     sd = fluent.shape_diff(up.stdout.decode("utf-8", "replace"), "\n".join(now))

@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 from pathlib import Path
 
@@ -32,7 +33,7 @@ ENV = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "LC_ALL": "C"}
 
 
 def _git(w, *a, env=None, inp=None):
-    r = subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True, input=inp,
+    r = fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True, input=inp,
                        env=env or ENV)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(a[:3])}: {r.stderr.decode('utf-8', 'replace').strip()[:300]}")

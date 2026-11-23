@@ -19,6 +19,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -65,7 +66,7 @@ def platform_patches(patchset, platform):
 
 
 def _git(repo, *a):
-    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -186,7 +187,7 @@ def send(pkg, to, say=print):
                 ["ssh", "macair", f"shasum -a 256 {Path(archive).name}"]]
     for c in cmds:
         say("  $ " + " ".join(c))
-        r = subprocess.run(c, capture_output=True, text=True)
+        r = fkproc.run(c, capture_output=True, text=True)
         if r.returncode:
             say(f"  failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:300]}")
             return 1

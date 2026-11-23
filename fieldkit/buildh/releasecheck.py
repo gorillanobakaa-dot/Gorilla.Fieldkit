@@ -19,6 +19,7 @@ that remain, with their exact commands):
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from . import task
 
 
 def _run(args, timeout=7200):
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", *args], capture_output=True, text=True,
+    r = fkproc.run([sys.executable, "-m", "fieldkit", "build-harness", *args], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
     return r.returncode, (r.stdout + r.stderr)
 

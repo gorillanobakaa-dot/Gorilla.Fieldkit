@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -96,7 +97,7 @@ def system_of(tag, systems=None):
 
 def _gh_recent(slug, limit=30):
     """-> [(tag, epoch seconds)] of the newest published releases, newest first; raises when gh fails."""
-    r = subprocess.run(["gh", "release", "list", "-R", slug, "--limit", str(limit),
+    r = fkproc.run(["gh", "release", "list", "-R", slug, "--limit", str(limit),
                         "--json", "publishedAt,tagName,isDraft"],
                        capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
