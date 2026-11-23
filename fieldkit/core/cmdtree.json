@@ -4824,6 +4824,7 @@
    "c": [
     "build",
     "install-admin",
+    "recycle-dir",
     "register",
     "status"
    ],
@@ -4831,6 +4832,7 @@
     "--bindir": 1,
     "--dll": 1,
     "--help": 0,
+    "--path": 1,
     "--types": 1,
     "-h": 0
    },
