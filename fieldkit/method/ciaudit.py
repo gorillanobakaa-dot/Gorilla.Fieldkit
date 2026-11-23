@@ -13,7 +13,6 @@ import argparse
 import json
 import os
 import re
-import subprocess
 from fieldkit import proc as fkproc
 import sys
 from collections import Counter
@@ -138,7 +137,7 @@ def _git_hunks(root):
     from . import covsel
 
     def git(*args):
-        r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = fkproc.run(["git", "-C", root, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode:
             raise RuntimeError(r.stderr.strip()[:200])
         return r.stdout
