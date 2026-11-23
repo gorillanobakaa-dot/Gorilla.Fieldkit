@@ -587,8 +587,8 @@ def _agent_quota(t, read=None):
     except OSError:
         return None
     last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
-    if last == ["exit 0"]:                       # the run itself finished fine: its status lines are not a quota error
-        return None                              # (2026-11-17: a finished runbook blocked Claude for two hours)
+    if last in (["exit 0"], ["exit 75"]):        # finished fine, or a deliberate budget PAUSE (autopilot EXIT_PAUSED = 75):
+        return None                              # neither is an agent quota error (2026-11-17 exit 0; 2026-11-23 exit 75)
     from . import choice
     return choice.note_failure(t.get("agent") or "claude", tail)
 

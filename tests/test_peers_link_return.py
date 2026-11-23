@@ -162,3 +162,27 @@ def test_restart_passes_when_the_new_listener_holds_the_port(monkeypatch, tmp_pa
     assert code == 0 and "PID 500" in lines[-1]
     code, _ = _restart(monkeypatch, tmp_path, holder=None, alive=True)    # the holder cannot be told: alive is enough
     assert code == 0
+
+
+class _Dead:
+    def wait(self):
+        return 1
+
+
+def test_the_return_note_carries_the_exit_code_and_the_log_tail(repo, tmp_path):
+    # 2026-11-23: four cable claude jobs ended in 40 s and the note named only a branch, never why
+    (tmp_path / "session.log").write_text("starting\nError: not logged in, run claude login\n", encoding="utf-8")
+    before = R.heads(repo)
+    _commit_on(repo, "wip/job")
+    sent = []
+    rep = R.bring_home(_Dead(), repo, before, tmp_path, push=lambda p: {"ok": True, "pushed": True},
+                       send=lambda text, needs_you=False: sent.append(text))
+    assert rep["exit"] == 1 and "not logged in" in rep["log_tail"]
+    assert "run exit 1" in sent[0] and "not logged in" in sent[0]
+
+
+def test_a_failed_run_with_no_branch_still_sends_a_note(repo, tmp_path):
+    (tmp_path / "session.log").write_text("usage limit reached\n", encoding="utf-8")
+    sent = []
+    R.bring_home(_Dead(), repo, R.heads(repo), tmp_path, send=lambda text, needs_you=False: sent.append(text))
+    assert sent and "run exit 1" in sent[0] and "usage limit reached" in sent[0]
