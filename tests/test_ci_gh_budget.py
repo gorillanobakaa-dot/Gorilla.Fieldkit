@@ -14,6 +14,8 @@ ALLOWED = {
     ("tests.yml", "merge-proof"): "reads the previous run of a push, once per push",
     ("tests.yml", "selection"): "the one ci-durations fetch of the run, handed on as an artifact",
     ("tests.yml", "durations"): "fallback fetch only when selection handed none on",
+    ("tests.yml", "shard-ubuntu-latest"): "FIELDKIT_CI_READ_TOKEN: reuse-CI evidence reads per shard (next to cut: hand them over in the selection artifact)",
+    ("tests.yml", "shard-windows-latest"): "same as the Linux shard",
     ("e2e-l15.yml", "snapshot"): "the one read of the open PRs for the ship-batch jobs",
 }
 OWN_WORKFLOWS = ("leakgate-linux.yml", "release.yml")       # own workflow, one run a day, not part of the PR run
