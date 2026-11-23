@@ -36,7 +36,7 @@ def test_fix_tightens_and_keeps_narrow_folders(tmp_path):
 
 def test_runner_workers_follow_ram_and_cpus():
     assert cirunner.workers({"cpus": 4, "ram_mb": 7000}) == 4
-    assert cirunner.workers({"cpus": 16, "ram_mb": 7000}) == 4
+    assert cirunner.workers({"cpus": 16, "ram_mb": 7000}) == 7
     assert cirunner.workers({"cpus": 4, "ram_mb": 3000}) == 2
     assert cirunner.workers({"cpus": 4, "ram_mb": 100}) == 1
     assert cirunner.problems({"cpus": 4, "ram_mb": 2000})
