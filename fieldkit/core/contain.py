@@ -861,7 +861,17 @@ def wait_inherit(cmd, label="", deadline_s=None, on_tick=None):
     with Container(label or " ".join(map(str, cmd))[:120], deadline_s, liveness.current()) as c:
         c.open_step(cmd, deadline_s)
         try:
-            p = c.popen([str(x) for x in cmd])
+            # Windows: a child started with no stdio arguments gets no handle of a REDIRECTED parent (a file or pipe,
+            # as in a git hook run with `>out 2>&1`): its output vanished and the caller saw a silent non-zero exit
+            # (2026-11-23, CI: hook tests). Pass the caller's own fds explicitly when they are open.
+            std = {}
+            for name, fd in (("stdin", 0), ("stdout", 1), ("stderr", 2)):
+                try:
+                    os.fstat(fd)
+                    std[name] = fd
+                except OSError:
+                    pass
+            p = c.popen([str(x) for x in cmd], **std)
         except OSError as e:
             print(f"[fieldkit] could not start {cmd[0]}: {e}", file=sys.stderr)
             return 127
