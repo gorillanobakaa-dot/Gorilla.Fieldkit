@@ -1,0 +1,30 @@
+# fieldkit covsel: every rule must be CAUGHT.
+#   fieldkit mutate --plan tests/covsel_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_covsel.py
+- file: fieldkit/method/covsel.py
+  swap:
+  - '            elif not hunks or not all(inside_function(h, spans) for h in hunks):'
+  - '            elif not hunks or not any(inside_function(h, spans) for h in hunks):'
+  why: one hunk outside every function must send the whole file to the import fallback
+- file: fieldkit/method/covsel.py
+  swap:
+  - '                if hit:
+                    covered[q] = sorted(hit)
+                else:
+                    unmapped.append(q)'
+  - '                covered[q] = sorted(hit)'
+  why: a change no test ran must be refused, never silently unselected
+- file: fieldkit/method/covsel.py
+  swap:
+  - '    return (sorted(set(imp["tests"]) | set(cov["tests"])),'
+  - '    return (sorted(set(cov["tests"])),'
+  why: the union gate must never select fewer tests than the import rule
+- file: fieldkit/method/covsel.py
+  swap:
+  - '    if cov is None or gate == "import":'
+  - '    if cov is None:'
+  why: the default gate import must ignore the coverage selection
+- file: fieldkit/method/ciaudit.py
+  swap:
+  - '            row["missed"] = [t for t in red if t not in cov["tests"]]'
+  - '            row["missed"] = []'
+  why: the replay must count a red test the coverage selection did not include

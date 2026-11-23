@@ -140,7 +140,7 @@ def block(d, selected, new_files=(), now=None):
     return {"run": d.get("run"), "age_days": round(age, 2), "coverage": coverage, "weights": weights}, None
 
 
-DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
+DEFAULTS = {"selection_gate": "import", "target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
             "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": [],
             "runner": {"mb_per_worker": 700, "reserve_mb": 1500, "min_ram_mb": 3000, "max_workers": 8},
             "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300},
@@ -160,6 +160,8 @@ def load_config(path=".github/ci.yaml"):
             if k not in DEFAULTS:
                 raise ValueError(f"{path}: unknown key {k!r}")
             cfg[k] = {**cfg[k], **v} if isinstance(cfg[k], dict) else v
+    if cfg["selection_gate"] not in ("import", "coverage", "union"):
+        raise ValueError(f"{path}: selection_gate {cfg['selection_gate']!r}: expected import, coverage or union")
     return cfg
 
 
