@@ -205,7 +205,36 @@ def _claude_settings(arg=None, home=None, **_):
     return [f"{k} = {v!r}" for k, v in got.items()], {"ok": all(v in ("1h", "1") for v in got.values()), "keys": got}
 
 
-PROBES = {"claude-health": _claude_health, "claude-settings": _claude_settings, "clean-slate-audit": _clean_slate, "choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
+def _claude_settings_set(arg=None, home=None, **_):
+    """No model, no login needed: merges the five prompt-cache TTL keys (fixed names, the fixed value 1h; "1" for the
+    one switch) into ~/.claude/settings.json, keeps every other key, saves settings.json.bak first, reads it back."""
+    import json
+    if arg != "1h":
+        raise ValueError("claude-settings-set takes exactly the argument 1h")
+    f = os.path.join(home or os.path.expanduser("~"), ".claude", "settings.json")
+    try:
+        with open(f, encoding="utf-8") as fh:
+            j = json.load(fh)
+    except FileNotFoundError:
+        j = {}
+    except (OSError, ValueError) as e:
+        return [f"{f}: not changed, not readable as JSON ({type(e).__name__})"], {"ok": False}
+    if not isinstance(j, dict):
+        return [f"{f}: not changed, top level is not an object"], {"ok": False}
+    if os.path.exists(f):
+        shutil.copy2(f, f + ".bak")
+    env = j.get("env") if isinstance(j.get("env"), dict) else {}
+    env.update({"CLAUDE_CODE_PROMPT_CACHE_TTL": "1h", "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL": "1h",
+                "ENABLE_PROMPT_CACHING_1H": "1"})
+    j["env"] = env
+    j["promptCacheTtl"] = j["subagentPromptCacheTtl"] = "1h"
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    with open(f, "w", encoding="utf-8") as fh:
+        json.dump(j, fh, indent=2)
+    return _claude_settings(None, home=home)
+
+
+PROBES = {"claude-settings-set": _claude_settings_set, "claude-health": _claude_health, "claude-settings": _claude_settings, "clean-slate-audit": _clean_slate, "choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
           "sessions": _sessions, "antigravity-sessions": _antigravity_sessions}
 
 

@@ -48,3 +48,16 @@ def test_settings_probe_returns_only_the_ttl_keys(tmp_path):
     assert "XYZ" not in r["text"] and "OTHER" not in r["text"]
     assert r["data"]["ok"] is False                      # the subagent env key is missing
     assert "env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL = None" in r["text"]
+
+
+def test_settings_set_merges_the_five_keys_keeps_the_rest_and_backs_up(tmp_path):
+    d = tmp_path / ".claude"
+    d.mkdir()
+    (d / "settings.json").write_text(json.dumps({"keep": 1, "env": {"A": "b"}}), encoding="utf-8")
+    r = P.run("claude-settings-set", "1h", home=str(tmp_path))
+    assert r["data"]["ok"] is True
+    j = json.loads((d / "settings.json").read_text(encoding="utf-8"))
+    assert j["keep"] == 1 and j["env"]["A"] == "b" and j["promptCacheTtl"] == "1h"
+    assert json.loads((d / "settings.json.bak").read_text(encoding="utf-8")) == {"keep": 1, "env": {"A": "b"}}
+    assert P.run("claude-settings-set", "5m", home=str(tmp_path))["ok"] is False
+    assert P.run("claude-settings-set", home=str(tmp_path))["ok"] is False
