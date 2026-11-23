@@ -1051,13 +1051,18 @@
     "plan": {
      "c": [],
      "f": {
+      "--adapter": 1,
       "--check": 0,
+      "--collect": 1,
       "--config": 1,
       "--explain": 0,
       "--github-output": 0,
       "--help": 0,
       "--min": 1,
+      "--os": 1,
+      "--raw-durations": 1,
       "--selection": 1,
+      "--slice": 1,
       "-h": 0
      },
      "open": false,
@@ -4666,6 +4671,8 @@
      "c": [],
      "f": {
       "--base": 1,
+      "--covmap": 1,
+      "--gate": 1,
       "--help": 0,
       "--json": 0,
       "--repo": 1,

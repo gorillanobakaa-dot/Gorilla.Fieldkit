@@ -485,6 +485,60 @@ def plan(repo=".", base=None, paths=None, diff_lines=None, own_base=None):
             "changed": paths}
 
 
+def plan_selected(repo=".", base=None, covmap=None, gate=None, **kw):
+    """plan() plus the coverage selection (C4.2-C4.4). Both selections are kept side by side:
+    "import_selection" and "coverage_selection" (None without a map or base); "gate" names the one that decides
+    (ci.yaml `selection_gate`: import | coverage | union, default import), and "tests"/"unmapped" are that one's.
+    `covmap` is a path to covmap.json or an already loaded dict; a missing or unreadable map is no map."""
+    from .method import covsel
+    imp = plan(repo, base, **kw)
+    if gate is None:
+        try:
+            from .method import ciplan
+            gate = ciplan.load_config(str(Path(repo) / ".github" / "ci.yaml")).get("selection_gate", "import")
+        except (OSError, ValueError, ImportError):
+            gate = "import"
+    cmap = covmap
+    if isinstance(cmap, (str, os.PathLike)):
+        try:
+            cmap = json.loads(Path(cmap).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cmap = None
+    cov = None
+    if base and isinstance(cmap, dict) and cmap.get("schema") == 1 and not kw.get("own_base"):
+        try:
+            mb = _git(repo, "merge-base", base, "HEAD").strip()
+        except RuntimeError:
+            mb = None
+        if mb:
+            def hunks_of(q):
+                try:
+                    if _git(repo, "diff", "-U0", "HEAD", "--", q).strip() or _git(repo, "ls-files", "--others", "--exclude-standard", "--", q).strip():
+                        return None                                  # dirty or untracked: the map cannot speak for it
+                    return covsel.parse_hunks(_git(repo, "diff", "-U0", f"{mb}...HEAD", "--", q))
+                except RuntimeError:
+                    return None
+
+            def old_source_of(q):
+                try:
+                    return _git(repo, "show", f"{mb}:{q}")
+                except RuntimeError:
+                    return None
+            cov = covsel.coverage_plan(imp["changed"], cmap, hunks_of, old_source_of,
+                                       lambda files: plan(repo, base, paths=files, diff_lines=kw.get("diff_lines")))
+            for q in list(cov["unmapped"]):                           # same mutation-plan carve-out as ci_tests.py
+                if MUTATION_PLAN.match(q):
+                    cov["unmapped"].remove(q)
+    tests, unmapped = covsel.combine(gate, imp, cov)
+    out = dict(imp)
+    out["import_selection"] = {"tests": list(imp["tests"]), "unmapped": list(imp["unmapped"])}
+    out["coverage_selection"] = cov
+    out["gate"] = gate if cov is not None else "import"
+    out["tests"], out["unmapped"] = sorted(tests), list(unmapped)
+    out["direct"] = sorted(set(out["direct"]) & set(tests))
+    return out
+
+
 def report(last=200):
     rows = _read("runs.jsonl")[-last:]
     if not rows:
@@ -539,6 +593,10 @@ def main(argv=None, prog="fieldkit testcost"):
     p.add_argument("--base")
     p.add_argument("--repo", default=".")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--covmap", default=os.environ.get("FIELDKIT_COVMAP"),
+                   help="covmap.json (C4): also select by changed lines; both selections are printed")
+    p.add_argument("--gate", choices=("import", "coverage", "union"),
+                   help="which selection decides (default: selection_gate in .github/ci.yaml, import)")
     ru = sub.add_parser("run")
     ru.add_argument("--fast", action="store_true", required=True)
     ru.add_argument("--base")
@@ -607,7 +665,8 @@ def main(argv=None, prog="fieldkit testcost"):
                   file=sys.stderr)
         return 0
     if a.cmd in ("plan", "run"):
-        pl = plan(a.repo, a.base)
+        pl = (plan_selected(a.repo, a.base, getattr(a, "covmap", None), getattr(a, "gate", None))
+              if a.cmd == "plan" else plan(a.repo, a.base))
         if a.cmd == "plan":
             if getattr(a, "json", False):
                 print(json.dumps(pl, indent=1))

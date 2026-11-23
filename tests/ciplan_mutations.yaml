@@ -1,5 +1,5 @@
 # fieldkit ci durations: every fail-closed rule must be CAUGHT.
-#   fieldkit mutate --plan tests/ciplan_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ciplan.py
+#   fieldkit mutate --plan tests/ciplan_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ciplan.py tests/test_ciadapters.py
 - file: fieldkit/method/ciplan.py
   swap:
   - '    if age is None or age > MAX_AGE_DAYS:'
@@ -55,3 +55,8 @@
   - 'p["heaviest"] - p["lightest"] > p.get("granule", 0):'
   - 'p["heaviest"] - p["lightest"] > -1:'
   why: a gap beyond one file's weight must still fail the spread check
+- file: fieldkit/method/ciadapters.py
+  swap:
+  - '    pl = ciplan.plan(units, blocks(adapter, units, raw_durations), cfg, floor=floor)'
+  - '    pl = ciplan.plan(units[1:], blocks(adapter, units, raw_durations), cfg, floor=floor)'
+  why: an adapter must not drop a unit from the plan (C2 union)

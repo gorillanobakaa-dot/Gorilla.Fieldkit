@@ -21,6 +21,8 @@ hang:                        # C6: one test may run factor x p90 of the recorded
   floor: 120                 # seconds
   cap: 900
   default: 300
+selection_gate: import       # C4.4: import (today's rule) | coverage | union (both). Stays import until `fieldkit ciaudit replay`
+                             # shows 0 misses; after misses the gate is union. Never flipped by a model.
 runner:                      # fieldkit ci runner: the shard asks the machine, the xdist worker count follows RAM and CPUs
   mb_per_worker: 700         # one pytest worker's memory
   reserve_mb: 1500           # left for the OS and the runner agent

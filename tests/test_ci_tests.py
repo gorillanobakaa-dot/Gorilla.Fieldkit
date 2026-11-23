@@ -400,3 +400,15 @@ def test_f18_pr_shards_time_out_at_10_minutes():
     lines = [ln for ln in text.splitlines() if "workflow_dispatch' && 90 ||" in ln]
     assert len(lines) == 2                                   # one per OS shard step
     assert all(ln.strip().endswith("|| 10 }}") for ln in lines)   # 10 on the pull_request path; 90 only for workflow_dispatch
+
+
+def test_c5_a_shard_whose_tests_all_passed_by_receipt_is_green(capsys):
+    """PR 678 run 45107033453: receipts deselected all 95 tests, pytest exited 5 and the shard went red."""
+    assert ci.receipt_rc(5, {"tests/test_a.py::test_x"}) == 0
+    assert "already passed by receipt" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("rc, skip", [(5, set()), (1, {"tests/test_a.py::test_x"}), (2, {"tests/test_a.py::test_x"}),
+                                      (0, set())])
+def test_c5_other_codes_and_exit_5_without_receipts_are_unchanged(rc, skip):
+    assert ci.receipt_rc(rc, skip) == rc

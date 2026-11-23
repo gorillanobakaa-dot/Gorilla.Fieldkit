@@ -56,6 +56,15 @@ def batch_selection(event_path=None, head_ref=None):
     return sorted({t.replace("\\", "/") for t in tests}) if isinstance(tests, list) else None
 
 
+SELECTIONS = {}      # C4.4: both selections of the last testcost plan (import_selection, coverage_selection, gate)
+
+
+def covmap_args():
+    """-> ["--covmap", PATH] when a coverage map is available (FIELDKIT_COVMAP, else ./covmap.json), else []."""
+    path = os.environ.get("FIELDKIT_COVMAP") or ("covmap.json" if Path("covmap.json").is_file() else "")
+    return ["--covmap", path] if path and Path(path).is_file() else []
+
+
 def selection(base, merged=False):
     """-> (tests, why); tests None = the whole suite (only `full`), [] = nothing to run, REFUSED = fail, run nothing."""
     picked = batch_selection() if base != "full" else None
@@ -67,13 +76,15 @@ def selection(base, merged=False):
         return None, "the whole suite (asked for)"
     if not base or set(base) == {"0"}:                              # all zeros: a new branch has no "before"
         return REFUSED, "no base commit to compare with: nothing is selected and the whole suite is never the default"
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "testcost", "plan", "--base", base, "--json"],
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "testcost", "plan", "--base", base, "--json", *covmap_args()],
                        capture_output=True, text=True)
     try:
         plan = json.loads(r.stdout)
     except ValueError:
         return REFUSED, (f"testcost plan gave no answer (exit {r.returncode}): fix testcost; "
                          f"{(getattr(r, 'stderr', '') or '').strip()[-300:]}")
+    SELECTIONS.clear()
+    SELECTIONS.update({k: plan[k] for k in ("import_selection", "coverage_selection", "gate") if k in plan})
     if plan.get("no_code") or plan.get("docs_only"):
         return [], "no code changed - no tests"
     unmapped = [p for p in plan.get("unmapped", []) if not MUTATION_PLAN.match(p.replace("\\", "/"))]
@@ -144,6 +155,16 @@ def tee(cmd, log):
             sys.stdout.write(raw.decode("utf-8", "replace"))
             sys.stdout.flush()
     return proc.returncode
+
+
+def receipt_rc(rc, skip_nodes):
+    """C5: pytest exits 5 ("no tests collected") when receipts deselected every test of the pending files.
+    That shard has nothing left to run, so it passes; any other code, or 5 without receipts, stays as it was."""
+    if rc == 5 and skip_nodes:
+        print(f"ci-tests: all {len(skip_nodes)} remaining tests already passed by receipt; pytest exit 5 counts as 0",
+              flush=True)
+        return 0
+    return rc
 
 
 def run_checked(cmd, tests, shard):
@@ -253,7 +274,7 @@ def main(argv):
                       else selection(argv[1] if len(argv) > 1 else "full", merged))
         block = read_durations_block(incoming) if incoming else None
         if outgoing and tests is not REFUSED:
-            record = {"schema": 1, "head": checkout_head(), "tests": tests, "why": why}
+            record = {"schema": 1, "head": checkout_head(), "tests": tests, "why": why, **SELECTIONS}
             if durations_file:
                 from fieldkit.method import ciplan
 
@@ -345,7 +366,7 @@ def main(argv):
             report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
             cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
             print("ci-tests:", " ".join(cmd), flush=True)
-            status = run_checked(cmd, tests, shard)
+            status = receipt_rc(run_checked(cmd, tests, shard), skip_nodes)
             if report.is_file():                      # C1: every shard hands its junit to the durations job
                 import shutil
                 Path(proof).parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +383,7 @@ def main(argv):
             summary(reused_files + len(skip_nodes), ran, len(skip_nodes), proof)
             return status
     print("ci-tests:", " ".join(cmd), flush=True)
-    return run_checked(cmd, tests, shard)
+    return receipt_rc(run_checked(cmd, tests, shard), skip_nodes)
 
 
 if __name__ == "__main__":

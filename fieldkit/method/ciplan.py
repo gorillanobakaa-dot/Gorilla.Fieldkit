@@ -140,7 +140,7 @@ def block(d, selected, new_files=(), now=None):
     return {"run": d.get("run"), "age_days": round(age, 2), "coverage": coverage, "weights": weights}, None
 
 
-DEFAULTS = {"target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
+DEFAULTS = {"selection_gate": "import", "target_seconds": 180, "setup_seconds": {"windows": 40, "linux": 20}, "budget": {"windows": 16, "linux": 16},
             "degraded_file_seconds": 10, "max_spread": 1.25, "keep_together": [],
             "runner": {"mb_per_worker": 700, "reserve_mb": 1500, "min_ram_mb": 3000, "max_workers": 8},
             "hang": {"factor": 10, "floor": 120, "cap": 900, "default": 300},
@@ -160,6 +160,8 @@ def load_config(path=".github/ci.yaml"):
             if k not in DEFAULTS:
                 raise ValueError(f"{path}: unknown key {k!r}")
             cfg[k] = {**cfg[k], **v} if isinstance(cfg[k], dict) else v
+    if cfg["selection_gate"] not in ("import", "coverage", "union"):
+        raise ValueError(f"{path}: selection_gate {cfg['selection_gate']!r}: expected import, coverage or union")
     return cfg
 
 
@@ -265,6 +267,37 @@ def fetch(out, repo=None):
     return False
 
 
+def _adapter_plan(a):
+    """C8: the plan and the checks of ciplan, over an adapter's units."""
+    from fieldkit.method import ciadapters
+
+    ad = ciadapters.ADAPTERS[a.adapter]
+    read_text = lambda f: Path(f).read_text(encoding="utf-8") if f else None
+    if not a.collect and a.adapter != "kernel":
+        print("ci plan --adapter needs --collect FILE (the collect command's output)")
+        return 2
+    units = ad.collect(read_text(a.collect) or "")
+    cfg = load_config(a.config)
+    pl, bad = ciadapters.plan(ad, units, read_text(a.raw_durations), cfg, floor=a.floor)
+    print(f"ci: adapter {ad.name}: {len(units)} units")
+    print(describe(pl))
+    if a.slice_spec:
+        i, n = (int(x) for x in a.slice_spec.split("/"))
+        shards = pl[a.plan_os]["shards"]
+        if n != len(shards) or not 1 <= i <= n:
+            print(f"ci: --slice {a.slice_spec} does not match the plan (N={len(shards)})")
+            return 2
+        for cmd in ad.slice(shards[i - 1]):
+            print(__import__("shlex").join(cmd))
+    if a.check:
+        for line in bad:
+            print("ci: PLAN CHECK FAILED:", line)
+        if bad:
+            return 3
+        print("ci: plan check ok: every unit is in exactly one shard, spread within limit")
+    return 0
+
+
 def main(argv=None):
     if argv and argv[0] == "quarantine":              # C6: .github/quarantine.yaml, see cihang.py
         from . import cihang
@@ -296,7 +329,15 @@ def main(argv=None):
     pp.add_argument("--check", action="store_true")
     pp.add_argument("--min", type=int, default=1, dest="floor")
     pp.add_argument("--github-output", action="store_true")
+    pp.add_argument("--adapter", choices=["pytest", "go", "firefox", "kernel"],
+                    help="C8: plan another runner's units (see ciadapters.py); omitted = today's pytest plan")
+    pp.add_argument("--collect", help="adapter: the collect command's output")
+    pp.add_argument("--raw-durations", help="adapter: the runner's own timing report")
+    pp.add_argument("--slice", dest="slice_spec", help="adapter: print the commands of shard I/N (needs --os)")
+    pp.add_argument("--os", default=os_key(), dest="plan_os")
     a = ap.parse_args(argv)
+    if a.cmd == "plan" and a.adapter:
+        return _adapter_plan(a)
     if a.cmd == "plan":
         if not a.selection:
             print("ci plan needs --selection FILE (the selection JSON CI wrote)")
