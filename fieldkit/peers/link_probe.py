@@ -156,7 +156,56 @@ def _clean_slate(arg=None, **_):
     return [], report
 
 
-PROBES = {"clean-slate-audit": _clean_slate, "choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
+HEALTH_TIMEOUT = 90
+HEALTH_PROMPT = "Reply with the single word OK."
+TTL_ENV = ("CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL", "ENABLE_PROMPT_CACHING_1H")
+TTL_TOP = ("promptCacheTtl", "subagentPromptCacheTtl")
+
+
+def _tail(text, n=400):
+    return " | ".join(x.strip() for x in (text or "").strip().splitlines() if x.strip())[-n:]
+
+
+def _claude_health(arg=None, finder=None, run=fkproc.run, **_):
+    """Starts ONE real `claude -p` session here (fixed prompt, one turn, 90 s cap) and reports its exit code and the tail
+    of its output, so an expired login or a quota error is read over the cable instead of guessed. No argument."""
+    if arg is not None:
+        raise ValueError("claude-health accepts no argument")
+    row = (finder or agentfind.find_one)("claude")
+    path = row.get("path") if row else ""
+    if not path:
+        return ["claude: not found"], {"ok": False, "found": False}
+    t0 = time.time()
+    try:
+        r = run([path, "-p", HEALTH_PROMPT, "--max-turns", "1"], capture_output=True, text=True,
+                timeout=HEALTH_TIMEOUT, stdin=subprocess.DEVNULL)
+        rc, out, err = r.returncode, r.stdout or "", r.stderr or ""
+    except subprocess.TimeoutExpired:
+        rc, out, err = None, "", f"no answer within {HEALTH_TIMEOUT} s"
+    ok = rc == 0 and bool(out.strip())
+    d = {"ok": ok, "found": True, "path": path, "exit": rc, "seconds": round(time.time() - t0, 1),
+         "stdout": _tail(out), "stderr": _tail(err)}
+    return [f"claude {'WORKS' if ok else 'FAILS'}: exit {rc}, {d['seconds']} s",
+            f"stdout: {d['stdout'] or '(empty)'}", f"stderr: {d['stderr'] or '(empty)'}"], d
+
+
+def _claude_settings(arg=None, home=None, **_):
+    """Reads ONLY the five prompt-cache TTL keys of ~/.claude/settings.json (nothing else of the file is returned)."""
+    import json
+    if arg is not None:
+        raise ValueError("claude-settings accepts no argument")
+    f = os.path.join(home or os.path.expanduser("~"), ".claude", "settings.json")
+    try:
+        with open(f, encoding="utf-8") as fh:
+            j = json.load(fh)
+    except (OSError, ValueError) as e:
+        return [f"{f}: not readable ({type(e).__name__})"], {"ok": False}
+    env = j.get("env") if isinstance(j.get("env"), dict) else {}
+    got = {**{f"env.{k}": env.get(k) for k in TTL_ENV}, **{k: j.get(k) for k in TTL_TOP}}
+    return [f"{k} = {v!r}" for k, v in got.items()], {"ok": all(v in ("1h", "1") for v in got.values()), "keys": got}
+
+
+PROBES = {"claude-health": _claude_health, "claude-settings": _claude_settings, "clean-slate-audit": _clean_slate, "choice": _choice, "install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
           "sessions": _sessions, "antigravity-sessions": _antigravity_sessions}
 
 
