@@ -6646,16 +6646,16 @@ tools:
   entry: [python, -m, fieldkit, ci]
   path: ${FIELDKIT}/fieldkit/method/ciplan.py
   inputs:
-    - {name: verb, flag: durations, type: str, required: false, help: "durations merge|fetch, or plan --selection FILE [--check] [--github-output] [--explain]"}
+    - {name: verb, flag: durations, type: str, required: false, help: "durations merge|fetch, or plan --selection FILE [--check] [--github-output] [--explain], or plan --adapter pytest|go|firefox|kernel --collect FILE [--raw-durations F] [--slice I/N --os OS] [--check]"}
   effects: [reads-files, writes-files, network]
   safety: reversible
   output: own
   exits: {1: "no durations artifact could be read", 2: "bad usage"}
   platforms: [windows, linux, darwin]
   e2e: {linux: e2e-ci-linux, windows: e2e-ci-windows}
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciplan.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciplan.py", "${FIELDKIT}/tests/test_ciadapters.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "CI-SPEED-PLAN C1 (2026-11-22). Every main run merges each shard's junit into the ci-durations artifact; the selection step fetches it and fails closed when it is older than 7 days or covers under 90% of the selected files (ci_tests.py --durations). No artifact yet or no whole-suite run yet = degraded split by file count, said loudly. Weekly full run in tests.yml keeps it complete. C2: `ci plan --check --github-output` sizes the shard matrix per OS from the selected work (N=0 starts no runner; budget in .github/ci.yaml); file-level split, node-level is later."
+  notes: "CI-SPEED-PLAN C1 (2026-11-22). Every main run merges each shard's junit into the ci-durations artifact; the selection step fetches it and fails closed when it is older than 7 days or covers under 90% of the selected files (ci_tests.py --durations). No artifact yet or no whole-suite run yet = degraded split by file count, said loudly. Weekly full run in tests.yml keeps it complete. C2: `ci plan --check --github-output` sizes the shard matrix per OS from the selected work (N=0 starts no runner; budget in .github/ci.yaml); file-level split, node-level is later. C8: `ci plan --adapter` plans Go, Firefox and kernel units through the same C2 checks and C3 slot budget (fieldkit/method/ciadapters.py, docs/ci-plan-adapters.md)."
 
 - id: rules
   title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
