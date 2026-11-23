@@ -32,11 +32,14 @@ availability:
   # Error phrases only, never a bare word: 2026-11-17 a bare 'budget' matched a FINISHED job's own status lines
   # ("session dollars ... budget", ending "exit 0") and blocked Claude for two hours with credit left (owner: "Where
   # does this block come from?"). Each pattern needs the error's verb or noun next to it.
+  # 2026-11-23: same rule for 'overloaded', 'rate limit', 'credit balance' and '429' (a PID, a count, a test name).
   patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage',
              'quota.{0,20}(exceeded|exhausted|reached)', '(exceeded|exhausted|over).{0,30}quota', 'resource.?exhausted',
-             'rate.?limit', 'budget.{0,20}(exceeded|exhausted|reached)', '(exceeded|exhausted|over|out of).{0,20}budget',
-             'credit balance', 'overloaded', 'too many requests',
-             'insufficient.{0,20}(credit|balance|quota|funds)', '\b429\b', 'max turns']
+             'rate.?limit(ed\b|_error| exceeded| reached| hit)', '(hit|exceeded|reached).{0,20}rate.?limit',
+             'budget.{0,20}(exceeded|exhausted|reached)', '(exceeded|exhausted|over|out of).{0,20}budget',
+             'credit balance.{0,20}(too low|insufficient|exhausted|empty)', 'overloaded_error',
+             '(api|server|model|service)s?.{0,15}(is |are )?overloaded', 'too many requests',
+             'insufficient.{0,20}(credit|balance|quota|funds)', '(http|status|error|code)\D{0,12}429\b', 'max turns']
 # P9 (owner, 2026-11-11: "Unify them, don't leave them scattered"): every "ask a stronger model" path lives in ONE module,
 # fieldkit/lifecycle/counsel.py, tried cheapest first: advise (Claude Code's own advisor in the worker's session, no
 # restart) -> review (independent, higher rung) -> tiebreak (highest allowed rung) -> climb (the job retries a rung up)
