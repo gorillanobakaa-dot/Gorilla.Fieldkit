@@ -146,6 +146,16 @@ def tee(cmd, log):
     return proc.returncode
 
 
+def receipt_rc(rc, skip_nodes):
+    """C5: pytest exits 5 ("no tests collected") when receipts deselected every test of the pending files.
+    That shard has nothing left to run, so it passes; any other code, or 5 without receipts, stays as it was."""
+    if rc == 5 and skip_nodes:
+        print(f"ci-tests: all {len(skip_nodes)} remaining tests already passed by receipt; pytest exit 5 counts as 0",
+              flush=True)
+        return 0
+    return rc
+
+
 def run_checked(cmd, tests, shard):
     """C6: a hung test (pytest-timeout) gets one automatic re-run of the shard; hanging twice is quarantine."""
     rc = run_tests(cmd, tests, shard)
@@ -345,7 +355,7 @@ def main(argv):
             report = Path(os.environ["RUNNER_TEMP"]) / "fieldkit-test-report.xml"
             cmd.extend(["--junitxml", str(report), "-o", "junit_family=xunit1"])
             print("ci-tests:", " ".join(cmd), flush=True)
-            status = run_checked(cmd, tests, shard)
+            status = receipt_rc(run_checked(cmd, tests, shard), skip_nodes)
             if report.is_file():                      # C1: every shard hands its junit to the durations job
                 import shutil
                 Path(proof).parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +372,7 @@ def main(argv):
             summary(reused_files + len(skip_nodes), ran, len(skip_nodes), proof)
             return status
     print("ci-tests:", " ".join(cmd), flush=True)
-    return run_checked(cmd, tests, shard)
+    return receipt_rc(run_checked(cmd, tests, shard), skip_nodes)
 
 
 if __name__ == "__main__":
