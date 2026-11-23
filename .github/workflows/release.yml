@@ -131,7 +131,8 @@ jobs:
           if [ -n "${{ needs.reuse.outputs.run }}" ]; then echo "reused green main run ${{ needs.reuse.outputs.run }}"; test "$result" = "skipped"; else test "$result" = "success"; fi
   candidate:
     needs: test
-    if: github.ref_type == 'tag'
+    # always(): the shards are skipped when a green main run is reused, and a skipped ancestor would skip this job
+    if: always() && github.ref_type == 'tag' && needs.test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
