@@ -23,6 +23,7 @@ running listener is left alone; a dead one is started again) and RestartCount on
 import getpass
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -85,12 +86,12 @@ def _ok(run, argv):
     return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()
 
 
-def linger(run=subprocess.run, user=None):
+def linger(run=fkproc.run, user=None):
     ok, out = _ok(run, ["loginctl", "show-user", user or getpass.getuser(), "-p", "Linger"])
     return ok and bool(re.search(r"^Linger=yes", out, re.M))
 
 
-def linux_status(run=subprocess.run, user=None):
+def linux_status(run=fkproc.run, user=None):
     """-> rows {item, ok, detail}: units enabled + active, linger, the watchdog timer."""
     rows = []
     for u in (SERVICE, RESCUE, WATCHDOG):
@@ -105,7 +106,7 @@ def linux_status(run=subprocess.run, user=None):
     return rows
 
 
-def listener_python(home=None, run=subprocess.run):
+def listener_python(home=None, run=fkproc.run):
     """-> (ok, one line) about the Python the installed listener unit starts, or None when no unit is installed.
     2026-10-26: the units were written with the system python3, which had no pytest, so every test job the listener
     ran collected 0 tests and said only "exit 1"."""
@@ -123,7 +124,7 @@ def listener_python(home=None, run=subprocess.run):
                 f"`{sys.executable} -m fieldkit peers link keepalive install` with the Fieldkit venv Python")
 
 
-def windows_status(run=subprocess.run):
+def windows_status(run=fkproc.run):
     ok, out = _ok(run, ["schtasks", "/Query", "/TN", TASK, "/V", "/FO", "LIST"])
     if not ok:
         return [{"item": f"task {TASK}", "ok": False, "detail": "not installed (mandate prerequisite "
@@ -132,7 +133,7 @@ def windows_status(run=subprocess.run):
     return [{"item": f"task {TASK}", "ok": True, "detail": f"installed, status {st.group(1).strip() if st else '?'}"}]
 
 
-def status(platform=sys.platform, run=subprocess.run):
+def status(platform=sys.platform, run=fkproc.run):
     if platform.startswith("linux"):
         return linux_status(run)
     if platform == "win32":
@@ -165,7 +166,7 @@ def stop_detached(pidfile=None):
         return f"no detached listener at PID {pid} ({type(e).__name__})"
 
 
-def install(platform=sys.platform, run=subprocess.run, home=None):
+def install(platform=sys.platform, run=fkproc.run, home=None):
     """-> (code, lines). Linux only does it itself; Windows is an administrator prerequisite of the mandate."""
     if not platform.startswith("linux"):
         return 3, ["Windows: the logon task is the mandate prerequisite link-keepalive-windows "
@@ -200,7 +201,7 @@ def rescue_firewall_args(h=None):
     return None
 
 
-def rescue_firewall_present(platform=sys.platform, run=subprocess.run, args=None):
+def rescue_firewall_present(platform=sys.platform, run=fkproc.run, args=None):
     """True / False from the pinned script's verify; None when it cannot tell (then the prerequisite is applied)."""
     if not platform.startswith("linux"):
         return True                                  # the rescue door listens on Linux peers only
@@ -215,7 +216,7 @@ def rescue_firewall_present(platform=sys.platform, run=subprocess.run, args=None
     return None if r.returncode != 0 or not m else m.group(1) == "yes"
 
 
-def restart_via_manager(platform=sys.platform, run=subprocess.run):
+def restart_via_manager(platform=sys.platform, run=fkproc.run):
     """The watchdog's restart when keep-alive is installed: the manager starts it, so it outlives the caller.
     -> (handled, code, lines); handled False means keep-alive is not installed (the old way is used)."""
     if platform.startswith("linux"):

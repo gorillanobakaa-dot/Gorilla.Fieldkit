@@ -48,6 +48,7 @@ def scan_source(src, rel):
             for a in n.names:
                 froms[a.asname or a.name] = (n.module, a.name)
     hits = []
+    call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
 
     def walk(node, fn):
         for ch in ast.iter_child_nodes(node):
@@ -64,6 +65,10 @@ def scan_source(src, rel):
                         callee = f"{m}.{a}"
                 if callee:
                     hits.append((f"{rel}:{fn}:{callee}", ch.lineno))
+            if (isinstance(ch, ast.Attribute) and id(ch) not in call_funcs and isinstance(ch.value, ast.Name)
+                    and mods.get(ch.value.id) == "subprocess" and ch.attr in SUB_FNS):
+                # `run=subprocess.run` as a default or argument starts the same raw child later (A5, 2026-11-23)
+                hits.append((f"{rel}:{fn}:subprocess.{ch.attr}", ch.lineno))
             if _new_console_ref(ch):
                 hits.append((f"{rel}:{fn}:CREATE_NEW_CONSOLE", ch.lineno))
             walk(ch, name)

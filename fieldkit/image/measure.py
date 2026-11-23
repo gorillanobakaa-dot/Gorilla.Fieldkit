@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 
 from . import tools
 
@@ -10,14 +11,14 @@ class ImageError(RuntimeError):
     pass
 
 
-def magick(args, run=subprocess.run, timeout=300):
+def magick(args, run=fkproc.run, timeout=300):
     exe = tools.find("magick")
     if not exe:
         raise ImageError("magick (ImageMagick) is not installed: run `fieldkit image doctor`")
     return run([exe, *args], capture_output=True, text=True, timeout=timeout)
 
 
-def metric(name, a, b, run=subprocess.run):
+def metric(name, a, b, run=fkproc.run):
     """-> (value, normalised) from `magick compare -metric NAME`, which prints 'VALUE (NORMALISED)' on stderr
     (exit 1 just means 'not identical'). NORMALISED is None when the build prints no bracket."""
     r = magick(["compare", "-metric", name, a, b, "null:"], run)
@@ -34,7 +35,7 @@ def metric(name, a, b, run=subprocess.run):
 _CONVENTION = {}
 
 
-def ssim(a, b, run=subprocess.run):
+def ssim(a, b, run=fkproc.run):
     """Structural similarity, 1.0 = identical. ImageMagick 7.1.2 prints the metric as a DISSIMILARITY (0 for identical,
     the bracket is (1 - SSIM) / 2); older builds print the similarity itself. Decided per build by comparing a picture
     with itself, never assumed. The number is ImageMagick's, not scikit-image's: they differ by a few hundredths."""
@@ -47,21 +48,21 @@ def ssim(a, b, run=subprocess.run):
     return value
 
 
-def to_png(src, dst, run=subprocess.run):
+def to_png(src, dst, run=fkproc.run):
     r = magick([src + "[0]", "-auto-orient", dst], run)
     if r.returncode != 0 or not os.path.isfile(dst):
         raise ImageError(f"could not read {src}: {(r.stderr or '').strip()[:200]}")
     return dst
 
 
-def size_of(p, run=subprocess.run):
+def size_of(p, run=fkproc.run):
     r = magick(["identify", "-format", "%w %h", p + "[0]"], run)
     if r.returncode != 0:
         raise ImageError(f"could not read {p}: {(r.stderr or '').strip()[:200]}")
     return tuple(int(v) for v in r.stdout.split())
 
 
-def scores(a, b, run=subprocess.run):
+def scores(a, b, run=fkproc.run):
     """{'ssim','psnr'}; pictures of different size are an error, never a guess."""
     sa, sb = size_of(a, run), size_of(b, run)
     if sa != sb:

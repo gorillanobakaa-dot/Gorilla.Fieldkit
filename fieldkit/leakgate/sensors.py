@@ -537,7 +537,7 @@ try {
 class ElevatedPktmon:
     """Starts the packet sensor worker once per gate run through elevate.py (ELEVATE_PY; one UAC click)."""
 
-    def __init__(self, workdir, elevate_py=None, runner=subprocess.run, timeout_min=15):
+    def __init__(self, workdir, elevate_py=None, runner=fkproc.run, timeout_min=15):
         self.dir = Path(workdir) / "pktmon-elevated"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.elevate_py = Path(elevate_py or ELEVATE_PY)
@@ -595,7 +595,7 @@ class ElevatedPktmon:
             self.active = False
 
 
-def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=subprocess.run):
+def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=fkproc.run):
     """Ensure the packet sensor can run: directly when already elevated, or via elevate.py (ELEVATE_PY)."""
     global _ELEVATED_PKTMON
     if is_admin():

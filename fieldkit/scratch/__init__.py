@@ -405,7 +405,7 @@ def hog_findings():
 
 
 # ---- Defender exclusion ------------------------------------------------------------------------------------------
-def exclusion(r=None, run=subprocess.run):
+def exclusion(r=None, run=fkproc.run):
     """-> {present: True|False|None, how, detail}. Read-only: Get-MpPreference (lists exclusions only for an
     administrator; otherwise None), then the proof the owner's script wrote (state/scratch/exclusion.json)."""
     r = _norm(r or root())

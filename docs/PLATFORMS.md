@@ -99,7 +99,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
-| `module:fieldkit/power/drift.py` | windows | linux | PARTIAL | PORT | power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and… | M | 2 | fieldkit/power/drift.py:32 |
+| `module:fieldkit/power/drift.py` | windows | linux | PARTIAL | PORT | power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and… | M | 2 | fieldkit/power/drift.py:33 |
 | `module:fieldkit/lifecycle/nested.py` | windows | linux | PARTIAL | ADAPT | nested.records_glob finds the Claude desktop session records on Linux | S | 3 | fieldkit/lifecycle/nested.py:51 |
 | `module:fieldkit/desk/adopt.py` | windows | linux | PARTIAL | PORT | adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux | M | 4 | fieldkit/desk/adopt.py:179 |
 | `stage:gorilla-hdmi-harness` | windows | linux | PARTIAL | PORT | the hdmi-harness recipe stages run on Linux once the hdmi cards are ported | L | 4 | fieldkit/emerge/recipes/gorilla-hdmi-harness.yaml:44 |
@@ -118,7 +118,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:sensors-gorilla` | linux | windows | INCOMPATIBLE | DOCUMENT | gorilla-tpfancontrol and fieldkit hog read the sensors on Windows | M |  | fieldkit/emerge/recipes/sensors-gorilla.yaml:43 |
 | `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:395 |
 | `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:984 |
-| `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
+| `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:233 |
 | `module:fieldkit/hog/consoles.py` | windows | linux | NATIVE-ONLY | CREATE | console hosts (conhost, OpenConsole, Windows Terminal) and the desktop heap they fill exi… | M |  | fieldkit/hog/consoles.py:55 |
 | `module:fieldkit/peers/link.py` | windows | linux | NATIVE-ONLY | CREATE | _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windo… | M |  | fieldkit/peers/link.py:893 |
 | `module:fieldkit/thermal/pdh.py` | windows | linux | NATIVE-ONLY | CREATE | reads Windows performance counters through pdh.dll in-process (no PowerShell, no console… | M |  | fieldkit/thermal/pdh.py:28 |

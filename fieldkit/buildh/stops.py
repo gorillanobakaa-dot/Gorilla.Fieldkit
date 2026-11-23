@@ -28,6 +28,7 @@ import datetime
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import task, window
@@ -84,7 +85,7 @@ def check_of(why):
     return "other"
 
 
-def commits(repo, a, b, paths=(), run=subprocess.run):
+def commits(repo, a, b, paths=(), run=fkproc.run):
     """Subjects of the commits made in (a, b] -> [str]."""
     if not repo or not Path(repo).exists():
         return []
@@ -94,7 +95,7 @@ def commits(repo, a, b, paths=(), run=subprocess.run):
     return [l for l in (r.stdout or "").splitlines() if l.strip()]
 
 
-def power_events(since, run=subprocess.run):
+def power_events(since, run=fkproc.run):
     """[(time, kind)] from Windows' System log: standby (506), wake (507), unexpected shutdown (41, 6008), start (12)."""
     ps = ("Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date '" + f"{since:%Y-%m-%d %H:%M:%S}" + "'); "
           "ProviderName='Microsoft-Windows-Kernel-Power','Microsoft-Windows-Kernel-General','EventLog'} "
@@ -171,7 +172,7 @@ def classify(rs, journal, events, changed, now=None):
     return out
 
 
-def run(task_id, since=None, folder=None, run_cmd=subprocess.run):
+def run(task_id, since=None, folder=None, run_cmd=fkproc.run):
     """-> {"stops": [...], "by_check": {check: {"stops", "false alarms"}}}."""
     from . import buildrun
     t = task.load(task_id)

@@ -44,7 +44,7 @@ def _git(repo, *a, timeout=60):
     return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
 
 
-def locate(env=None, run=subprocess.run):
+def locate(env=None, run=fkproc.run):
     """-> the installed Fieldkit tree (the git top level `fieldkit` imports from), or None."""
     env = os.environ if env is None else env
     if env.get("FIELDKIT_INSTALLED_DIR"):
@@ -91,7 +91,7 @@ def _cache_write(data, env=None):
         pass
 
 
-def locate_cached(env=None, now=None, run=subprocess.run):
+def locate_cached(env=None, now=None, run=fkproc.run):
     """locate(), remembered for a day per Python: the editable install moves only when a person re-runs pip."""
     env = os.environ if env is None else env
     if env.get("FIELDKIT_INSTALLED_DIR"):
@@ -245,7 +245,7 @@ def line(row):
     return f"installed copy: {'PASS' if ok else 'FAIL'} {row['verdict']}: {row['why']}"
 
 
-def _smoke(tree, run=subprocess.run):
+def _smoke(tree, run=fkproc.run):
     """The installed `fieldkit --version` loads from a neutral folder; -> (ok, text)."""
     try:
         r = run([sys.executable, "-I", "-m", "fieldkit", "--version"], capture_output=True, text=True,
@@ -256,7 +256,7 @@ def _smoke(tree, run=subprocess.run):
     return r.returncode == 0, (out[-1] if out else "no output")[:160]
 
 
-def sync(tree=None, fetch=True, run=subprocess.run):
+def sync(tree=None, fetch=True, run=fkproc.run):
     """Fetch, fast-forward the installed tree to origin/main, verify. Never resets, never deletes."""
     tree = tree if tree is not None else locate()
     row = inspect(tree, fetch=fetch)

@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -50,12 +51,12 @@ def classify(path, branch, head, dirty_lines, is_ancestor_of_main, extra_commits
             "age_h": round(age_h, 1), "pr_merged_by_name": br in merged_names}
 
 
-def _git(repo, *args, run=subprocess.run):
+def _git(repo, *args, run=fkproc.run):
     r = run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=120)
     return r.returncode, (r.stdout or "").strip()
 
 
-def live(repo, run=subprocess.run, now=None):
+def live(repo, run=fkproc.run, now=None):
     """-> (worktrees as fixture dicts, prs, notes)."""
     rc, out = _git(repo, "worktree", "list", "--porcelain", run=run)
     if rc != 0:

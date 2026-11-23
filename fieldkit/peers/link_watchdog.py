@@ -102,7 +102,8 @@ def install(run=None, home=None):
     if not sys.platform.startswith("linux"):
         return 3, ["the watchdog timer is installed this way on Linux only; Windows uses a scheduled task (its side)"]
     import subprocess
-    run = run or subprocess.run
+    from fieldkit import proc as fkproc
+    run = run or fkproc.run
     d = Path(home or Path.home()) / ".config" / "systemd" / "user"
     d.mkdir(parents=True, exist_ok=True)
     (d / "fieldkit-link-watchdog.service").write_text(UNIT.format(root=link.LINK_ROOT, py=sys.executable),

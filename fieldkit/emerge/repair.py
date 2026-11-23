@@ -131,7 +131,7 @@ def next_patch(patches, series, version, name):
     return d / f"{(max(nums) + 1) if nums else 1:03d}-{slug}.patch", major
 
 
-def export_patch(sp, files, recipe_name, version, name, why, base="HEAD", run=subprocess.run):
+def export_patch(sp, files, recipe_name, version, name, why, base="HEAD", run=fkproc.run):
     """Write the source diff of `files` against `base` as the next patch of the series -> path (None: no diff)."""
     rels = [str(Path(f)) for f in files]
     result = run(["git", "-C", str(sp["source"]), "diff", base, "--", *rels], capture_output=True, text=True,

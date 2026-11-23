@@ -11,6 +11,7 @@ import glob as _glob
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -109,7 +110,7 @@ def process_list():
     return out
 
 
-def version_of(exe, args, run=subprocess.run):
+def version_of(exe, args, run=fkproc.run):
     """First line of `exe --version` (5 s cap); "" when it cannot say. The only thing ever executed."""
     if not args:
         return ""
@@ -121,7 +122,7 @@ def version_of(exe, args, run=subprocess.run):
     return text.splitlines()[0][:80] if text else ""
 
 
-def find_one(name, which=shutil.which, procs=None, glob=_glob.glob, isfile=os.path.isfile, run=subprocess.run,
+def find_one(name, which=shutil.which, procs=None, glob=_glob.glob, isfile=os.path.isfile, run=fkproc.run,
              osname=None, home=None, env=None):
     """-> {agent, installed, path, version, how, running}. how: 'PATH', 'process', 'known place' or ''."""
     stems, vargs, must = AGENTS[name]

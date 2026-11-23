@@ -12,6 +12,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def _clean_exe(command):
 
 
 # -- versions ---------------------------------------------------------------------------------------------------
-def version_of(path, run=subprocess.run, platform=None):
+def version_of(path, run=fkproc.run, platform=None):
     p = Path(path)
     platform = platform or sys.platform
     try:
@@ -121,7 +122,7 @@ def version_of(path, run=subprocess.run, platform=None):
         return ""
 
 
-def row(name, path, source, version=None, run=subprocess.run, have_geckodriver=False, why="", platform=None):
+def row(name, path, source, version=None, run=fkproc.run, have_geckodriver=False, why="", platform=None):
     path = str(path)
     eng = engine_of(name, path)
     ver = version if version is not None else version_of(path, run, platform)
@@ -289,7 +290,7 @@ def gorilla_firefox(root, windows=None):
         return []
 
 
-def discover(cfg=None, local=None, env=None, run=subprocess.run, platform=None):
+def discover(cfg=None, local=None, env=None, run=fkproc.run, platform=None):
     """-> list of rows (see choose for the order to use). cfg = browser_fetch, local = the whole local settings."""
     cfg, local = cfg or {}, local or {}
     env = os.environ if env is None else env

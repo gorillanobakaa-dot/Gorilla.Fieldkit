@@ -14,6 +14,7 @@ import os
 import re
 import stat
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tarfile
 from contextlib import nullcontext
@@ -321,7 +322,7 @@ def archive(project, store_dir=None, out_dir=None, history=None):
 RECYCLE_TIMEOUT = 1800     # seconds: a hung recycle must fail loudly, not stall the unattended start
 
 
-def recycle(path, run=subprocess.run, timeout=RECYCLE_TIMEOUT):
+def recycle(path, run=fkproc.run, timeout=RECYCLE_TIMEOUT):
     try:
         r = run([sys.executable, "-m", "fieldkit", "size", "recycle", str(path), "--whole-folder", "--json",
                  "--plan-files", "100000000", "--plan-bytes", "100T"],

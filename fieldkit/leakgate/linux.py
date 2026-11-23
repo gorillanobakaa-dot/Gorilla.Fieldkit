@@ -143,7 +143,7 @@ def mitm_start(work, name, poison, confdir, port, mitm_out, mitm_raw):
     return p
 
 
-def missing_libs(build_dir, runner=subprocess.run):
+def missing_libs(build_dir, runner=fkproc.run):
     """-> the shared libraries `ldd` cannot find for the build's libxul.so (the usual reason a browser dies at once)."""
     so = Path(build_dir) / "libxul.so"
     if not so.is_file() or not shutil.which("ldd"):

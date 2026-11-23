@@ -22,6 +22,7 @@ import os
 import re
 import shlex
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -93,7 +94,7 @@ def listing(folder):
     return sorted(q for q in d.glob("*.pub") if guarded(q)[0])
 
 
-def write(name, line, append=False, run=subprocess.run):
+def write(name, line, append=False, run=fkproc.run):
     """Write one line to a guarded file, as the owner (a password prompt). `name` and `line` are validated: hex and a
     short note only, so nothing reaches the privileged shell but what is shown here."""
     if not NAME.fullmatch(name) or not HEXLINE.fullmatch(line) or "'" in line:
@@ -247,7 +248,7 @@ def _read_acl(p, run=None):
         k32.LocalFree(sd)
 
 
-def _read_acl_powershell(p, run=subprocess.run):
+def _read_acl_powershell(p, run=fkproc.run):
     """The first reader (Get-Acl in Windows PowerShell 5). Kept for the parity test on the Windows CI only: it starts
     a powershell.exe and a console host per call, so nothing on a hook path may use it."""
     shell = _windows_powershell_home()
@@ -322,7 +323,7 @@ def _elevate_kit(candidates=None):
     return next((k for k in kits if k.is_file()), kits[-1])
 
 
-def _write_windows(name, line, append, run=subprocess.run):
+def _write_windows(name, line, append, run=fkproc.run):
     """Through the elevate kit: one UAC Yes from the owner, then read back and checked like Linux."""
     import tempfile
     kit = _elevate_kit()

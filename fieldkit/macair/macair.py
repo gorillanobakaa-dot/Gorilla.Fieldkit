@@ -129,7 +129,7 @@ def sha256(p):
     return h.hexdigest()
 
 
-def export_patches(tree=TREE, out=None, macos=MACOS, run=subprocess.run):
+def export_patches(tree=TREE, out=None, macos=MACOS, run=fkproc.run):
     """Our commits on top of Momiji -> patches-mac.tar.xz (Microsoft fonts excluded) + patches-mac.sha256 +
     PATCHES.sha256 in macos-legacy. -> (tarball, count)."""
     import tarfile

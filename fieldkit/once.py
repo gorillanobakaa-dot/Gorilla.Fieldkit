@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -124,7 +125,7 @@ DEFAULT_TIMEOUT = 4 * 3600      # seconds: a hung command is killed and journall
 TIMEOUT_EXIT = 124              # the exit code `timeout(1)` uses
 
 
-def run(journal, key, sig, argv, runner=subprocess.run, clock=time.time, timeout=DEFAULT_TIMEOUT):
+def run(journal, key, sig, argv, runner=fkproc.run, clock=time.time, timeout=DEFAULT_TIMEOUT):
     """Run argv unless it already succeeded. -> (result line dict, exit code). A command still running after
     `timeout` seconds is killed and recorded as exit 124 (a failure: the next run runs again)."""
     c = check(journal, key, sig)

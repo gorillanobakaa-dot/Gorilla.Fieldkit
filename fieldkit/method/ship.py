@@ -231,7 +231,7 @@ def _waiting_prs(run, repo):
         return 0
 
 
-def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add,
+def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=None, inbox=_inbox_add,
          counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
     gh says. Exit 3 for PARKED (2+ commits of the branch red on CI): no auto-merge, a note in the owner's inbox."""
@@ -468,7 +468,7 @@ def release_is_empty(repo, extra, tag=""):
     return ""
 
 
-def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
+def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=fkproc.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
     from ..core import sync
@@ -581,7 +581,7 @@ def add_rows(page, rows):
     return page
 
 
-def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.run, workdir=None):
+def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=fkproc.run, workdir=None):
     """Add FILES to the published release TAG through the same mandate door as gh-release (release_tag): each file
     hashed, SHA256SUMS-TAG.txt downloaded, its lines added and uploaded again (--clobber), the files uploaded, and a
     row per file put in the page's 'File | Bytes | SHA-256' table. Never creates a release or touches a tag."""
@@ -646,7 +646,7 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
             "next": f"fieldkit release verify {tag} --repo {slug}"}
 
 
-def rerun_release_checks(slug, tag, run=subprocess.run):
+def rerun_release_checks(slug, tag, run=fkproc.run):
     """Re-run the failed workflow runs a release event started for TAG (they check the published files, so they must
     see the files just added). -> the run ids re-run; nothing on any error (the files are added either way)."""
     r = run(["gh", "api", f"repos/{slug}/actions/runs?event=release&per_page=50", "--jq",
@@ -672,7 +672,7 @@ def request_test_job(repo, commit, call=None):
     return jobs.send("test", name, commit, mp, call=call)
 
 
-def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_call=None):
+def merge(repo=".", base="main", mandate=_mandate, run=fkproc.run, verdict_call=None):
     """Merge the current branch into `base` under a project mandate, or refuse with what is missing."""
     branch = git(repo, "branch", "--show-current").stdout.strip()
     if not branch or branch == base:

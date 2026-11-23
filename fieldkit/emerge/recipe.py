@@ -237,7 +237,7 @@ def files_of(patterns):
 
 
 class Recipe:
-    def __init__(self, spec, source="<memory>", overrides=None, strict=True, state_root=None, run=subprocess.run):
+    def __init__(self, spec, source="<memory>", overrides=None, strict=True, state_root=None, run=fkproc.run):
         if not isinstance(spec, dict) or "name" not in spec or not ({"pipeline", "stages"} & set(spec)):
             raise RecipeError(f"{source}: a recipe needs 'name' and 'pipeline' or 'stages'")
         self.spec, self.source, self.strict, self._run = spec, str(source), strict, run

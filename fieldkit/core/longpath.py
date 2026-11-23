@@ -37,6 +37,7 @@ import os
 import shutil
 import stat
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -243,7 +244,7 @@ def long_paths_enabled(reg=None):
         return None
 
 
-def git_longpaths(run=subprocess.run):
+def git_longpaths(run=fkproc.run):
     """git config --global core.longpaths -> True | False | None (no git)."""
     git = shutil.which("git")
     if not git:
@@ -255,7 +256,7 @@ def git_longpaths(run=subprocess.run):
     return r.stdout.strip().lower() == "true"
 
 
-def machine(reg=None, run=subprocess.run):
+def machine(reg=None, run=fkproc.run):
     """-> rows (name, ok, detail). On Linux and macOS there is nothing to switch on."""
     sysname = system()
     lim = limits()

@@ -112,7 +112,7 @@ def _git(repo, *a):
     return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=60)
 
 
-def git_here(platform=None, which=shutil.which, run=subprocess.run):
+def git_here(platform=None, which=shutil.which, run=fkproc.run):
     """-> (ok, why): a real git on this computer. macOS (2026-10-26): /usr/bin/git without Apple's developer tools is a
     stub that opens an "install the command line developer tools" dialog instead of running, and a Mac installed from
     the zip has no git on purpose (core/requirements.json: git optional_when zip). Never run the stub."""

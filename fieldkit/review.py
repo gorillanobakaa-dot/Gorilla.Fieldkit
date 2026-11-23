@@ -412,7 +412,7 @@ def run_approved(raw, say=print, run=None):
     is the owner's terminal. Journaled in state/review-ran.jsonl; the result is shown. -> the journal row, or None."""
     import json
     import time
-    run = run or RUNNER or subprocess.run
+    run = run or RUNNER or fkproc.run
     cmd = str(raw.get("command") or "").strip()
     if not cmd:
         return None

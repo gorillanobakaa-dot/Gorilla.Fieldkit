@@ -15,6 +15,7 @@ Fail closed: no page, no register, or no previous page -> not OK.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -27,7 +28,7 @@ HIDDEN_HEADING = "## What's new: the hidden pages"
 def _no_network_during_gate(run):
     """gh goes to the network; never while a release leak gate measures this machine (2026-10-19: two release-cover
     runs called gh mid-gate). A test's fake runner is not the network."""
-    if run is subprocess.run:
+    if run is fkproc.run:
         from ..leakgate import status as _st
         pids = _st.gate_running()
         if pids:
@@ -35,7 +36,7 @@ def _no_network_during_gate(run):
                                "the gate has finished (fieldkit eta leakgate <run folder>)")
 
 
-def previous_release(repo="gorillanobakaa-dot/gorilla-firefox", tag=None, run=subprocess.run):
+def previous_release(repo="gorillanobakaa-dot/gorilla-firefox", tag=None, run=fkproc.run):
     """-> {"tag", "published", "body"} of the given or latest release, read with gh."""
     _no_network_during_gate(run)
     args = ["gh", "release", "view"] + ([tag] if tag else []) + ["-R", repo, "--json", "tagName,publishedAt,body"]
@@ -46,7 +47,7 @@ def previous_release(repo="gorillanobakaa-dot/gorilla-firefox", tag=None, run=su
     return {"tag": d["tagName"], "published": d["publishedAt"][:10], "body": d["body"]}
 
 
-def platform_pages(repo="gorillanobakaa-dot/gorilla-firefox", suffix="-win64", run=subprocess.run, limit=12):
+def platform_pages(repo="gorillanobakaa-dot/gorilla-firefox", suffix="-win64", run=fkproc.run, limit=12):
     """-> [{"tag", "published", "body"}] of the platform's published releases (tag ends with `suffix`), newest first."""
     _no_network_during_gate(run)
     r = run(["gh", "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,publishedAt"],
@@ -133,7 +134,7 @@ def check(page_text, register, previous_body, since, want=None):
     return rows
 
 
-def run(owner, page, previous=None, run_cmd=subprocess.run):
+def run(owner, page, previous=None, run_cmd=fkproc.run):
     """-> rows; `previous` is a tag (read from GitHub) or a path to the previous page's text."""
     owner = Path(owner)
     from .decisions import register_file

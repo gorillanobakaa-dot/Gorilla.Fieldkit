@@ -887,7 +887,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "interrupted from the console", "stops": stops, "log": str(log_path)}
 
 
-def sccache_size(root, say=print, run=subprocess.run):
+def sccache_size(root, say=print, run=fkproc.run):
     """The cache size the mozconfig asks for, on the server that will serve the build. 2026-10-17: the mozconfig says
     SCCACHE_CACHE_SIZE="30G", but the server had started earlier at the 10 GiB default and a running server keeps its
     size. A server smaller than configured is stopped; the build starts it again with the mozconfig's size."""

@@ -19,6 +19,7 @@ import json
 import re
 import shlex
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def listing(aliases):
     return out
 
 
-def main(argv=None, run=subprocess.run):
+def main(argv=None, run=fkproc.run):
     argv = list(sys.argv[1:] if argv is None else argv)
     aliases, defaults = load()
     if not argv or argv[0] in ("-h", "--help", "list"):

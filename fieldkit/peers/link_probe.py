@@ -13,6 +13,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -98,7 +99,7 @@ def _load(arg=None, report_fn=None, **_):
     return [f"{k:<10} {r.get(k)}" for k in keys] + [f"heavy      {r.get('heavy')}"], r
 
 
-def _versions(arg=None, which=shutil.which, run=subprocess.run, **_):
+def _versions(arg=None, which=shutil.which, run=fkproc.run, **_):
     rows = []
     for name, vargs in TOOLS:
         if name == "python":

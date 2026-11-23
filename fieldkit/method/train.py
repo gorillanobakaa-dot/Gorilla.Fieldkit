@@ -113,7 +113,7 @@ def _now():
 class GH:
     FIELDS = "number,title,headRefName,baseRefName,headRefOid,labels,isDraft,updatedAt,state"
 
-    def __init__(self, repo, run=subprocess.run):
+    def __init__(self, repo, run=fkproc.run):
         self.repo, self.run = str(repo), run
         from ..core import sync
         self.slug = sync._slug(repo)
@@ -520,7 +520,7 @@ def frozen(repo):
     return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else []
 
 
-def unfreeze(repo, base="main", checkout=None, run=subprocess.run):
+def unfreeze(repo, base="main", checkout=None, run=fkproc.run):
     rows = frozen(repo)
     co = str(Path(checkout or main_checkout(repo)))
     if not any(r["checkout"] == co for r in rows):
@@ -1038,7 +1038,7 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
 
 
 # -- doctor ------------------------------------------------------------------------------------------------------------
-def doctor(repo=".", run=subprocess.run):
+def doctor(repo=".", run=fkproc.run):
     """Everything the train needs here -> [(ok, what, why)]."""
     rows = []
     v = _git(repo, "version").stdout.strip()

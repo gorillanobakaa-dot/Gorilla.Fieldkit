@@ -93,7 +93,7 @@ def _git(repo, *a):
     return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
 
 
-def _gh(args, run=subprocess.run):
+def _gh(args, run=fkproc.run):
     r = run(["gh", *args], capture_output=True, text=True)
     return r.returncode, (r.stdout or ""), (r.stderr or "")
 
@@ -138,7 +138,7 @@ def verify_audit_start(ctx):
             "detail": "audit clean at this commit" if ok else "the audit is not clean"}
 
 
-def build(ctx, run=subprocess.run):
+def build(ctx, run=fkproc.run):
     r = _r(ctx)
     Path(r["out"]).mkdir(parents=True, exist_ok=True)
     started = time.time() - 2                             # file times are coarse on some file systems
@@ -194,7 +194,7 @@ def _shots(r):
     return [(s, Path(r["repo"]) / r["gallery"] / s["name"]) for s in r.get("screenshots") or []]
 
 
-def screenshots(ctx, run=subprocess.run):
+def screenshots(ctx, run=fkproc.run):
     r = _r(ctx)
     (Path(r["repo"]) / r["gallery"]).mkdir(parents=True, exist_ok=True)
     for s, path in _shots(r):
@@ -226,7 +226,7 @@ def _shot_url(r, name):
     return f"https://raw.githubusercontent.com/{_slug(r['repo'])}/{r['version']}/{r['gallery']}/{name}"
 
 
-def notes(ctx, run=subprocess.run):
+def notes(ctx, run=fkproc.run):
     r = _r(ctx)
     n = {k: Path(r["repo"]) / v for k, v in r["notes"].items()}
     missing = [k for k in ("opening", "layman", "developer") if not n.get(k, Path("/nonexistent")).is_file()]
@@ -344,7 +344,7 @@ def verify_page(ctx, gh=None):
             f"{r['version']}: {len(names)} assets, both tracks in order, {len(_shots(r))} screenshot(s)"}
 
 
-def installed(ctx, run=subprocess.run):
+def installed(ctx, run=fkproc.run):
     """The release is not done until `fieldkit install verify` passes on this computer AND the peer (owner, 2026-11-01)."""
     import sys
     from . import installverify

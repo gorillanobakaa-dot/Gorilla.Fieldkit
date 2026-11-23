@@ -15,6 +15,7 @@ import csv
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from datetime import datetime
@@ -74,7 +75,7 @@ def _list(v):
 
 # ---- readers --------------------------------------------------------------------------------------------------
 
-def read_windows(since, run=subprocess.run):
+def read_windows(since, run=fkproc.run):
     if sys.platform != "win32":
         return {}
     script = PS.replace("%SINCE%", time.strftime("%Y-%m-%d", time.localtime(since)))
@@ -104,7 +105,7 @@ def parse_battery(xml):
     return {"design_mwh": d, "full_mwh": f, "cycles": c, "health_pct": round(100.0 * f / d, 1)}
 
 
-def read_battery(run=subprocess.run):
+def read_battery(run=fkproc.run):
     if sys.platform != "win32":
         return {}
     import tempfile
@@ -117,7 +118,7 @@ def read_battery(run=subprocess.run):
             return {}
 
 
-def read_machine_posix(run=subprocess.run):
+def read_machine_posix(run=fkproc.run):
     if sys.platform.startswith("linux"):
         def dmi(n):
             try:

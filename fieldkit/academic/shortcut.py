@@ -10,6 +10,7 @@ icons. A shortcut is only ever removed when it is this tool's own: its name and 
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -46,14 +47,14 @@ def _ps_link(path, python, root):
             f"$s.Description = 'The academic tools, as a numbered menu'; $s.Save()")
 
 
-def _target_of_lnk(path, run=subprocess.run):
+def _target_of_lnk(path, run=fkproc.run):
     r = run(["powershell", "-NoProfile", "-Command",
              f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{str(path)}'); $s.TargetPath + ' ' + $s.Arguments"],
             capture_output=True, text=True)
     return (r.stdout or "").strip()
 
 
-def ours(path, run=subprocess.run):
+def ours(path, run=fkproc.run):
     p = Path(path)
     if not p.is_file():
         return False
@@ -62,7 +63,7 @@ def ours(path, run=subprocess.run):
     return ARGS in _target_of_lnk(p, run)
 
 
-def make(home=None, platform=None, run=subprocess.run):
+def make(home=None, platform=None, run=fkproc.run):
     made = []
     for p in places(home, platform):
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -79,13 +80,13 @@ def make(home=None, platform=None, run=subprocess.run):
     return {"ok": True, "made": [str(x) for x in made], "next": f"double-click {NAME} on the desktop"}
 
 
-def check(home=None, platform=None, run=subprocess.run):
+def check(home=None, platform=None, run=fkproc.run):
     rows = [{"path": str(p), "exists": p.is_file(), "ours": ours(p, run)} for p in places(home, platform)]
     return {"ok": all(r["exists"] and r["ours"] for r in rows), "shortcuts": rows,
             "next": "nothing to do" if all(r["exists"] for r in rows) else "fieldkit academic shortcut"}
 
 
-def remove(home=None, platform=None, run=subprocess.run):
+def remove(home=None, platform=None, run=fkproc.run):
     removed, kept = [], []
     for p in places(home, platform):
         if p.is_file() and ours(p, run):

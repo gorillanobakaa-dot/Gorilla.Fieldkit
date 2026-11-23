@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -122,12 +123,12 @@ def stream_argv(conversation=None, continue_latest=False, project=None, agy=None
 def send(prompt, run=None, **kw):
     """-> {"rc": int, "reply": fenced text, "src": ID}. The reply is always fenced."""
     argv = send_argv(prompt, **kw)
-    r = (run or subprocess.run)(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    r = (run or fkproc.run)(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
     src = kw.get("conversation") or ("latest" if kw.get("continue_latest") else "new")
     return {"rc": r.returncode, "src": src, "reply": fence(r.stdout, src), "stderr": (r.stderr or "")[-2000:]}
 
 
-def stream(argv, stdin, out, popen=subprocess.Popen, src="stream"):
+def stream(argv, stdin, out, popen=fkproc.Popen, src="stream"):
     """Run agy stream-json; each output line is emitted fenced, one JSON object per line. -> exit code."""
     p = popen(argv, stdin=stdin, stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     for line in p.stdout:

@@ -20,6 +20,7 @@ import os
 import secrets
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -36,24 +37,24 @@ def _norm(p):
     return os.path.normcase(os.path.normpath(str(p)))
 
 
-def _git(repo, *a, run=subprocess.run):
+def _git(repo, *a, run=fkproc.run):
     from ..lifecycle import worktrees
     return worktrees._git(repo, *a, run=run)
 
 
-def toplevel(path, run=subprocess.run):
+def toplevel(path, run=fkproc.run):
     rc, out = _git(path, "rev-parse", "--show-toplevel", run=run)
     return Path(out) if rc == 0 and out else None
 
 
-def is_main_checkout(path, run=subprocess.run):
+def is_main_checkout(path, run=fkproc.run):
     """True when `path` is inside the MAIN checkout of a repository (its .git is the folder, not a worktree's file)."""
     from ..lifecycle import worktrees
     tl, main = toplevel(path, run), worktrees.top(path, run=run)
     return bool(tl and main and _norm(tl) == _norm(main))
 
 
-def worker_cwd(gid, jid, cwd, prior=None, attempt=1, make=None, run=subprocess.run):
+def worker_cwd(gid, jid, cwd, prior=None, attempt=1, make=None, run=fkproc.run):
     """-> (folder the worker runs in, why). In the main checkout of a git repository the worker gets a worktree of its
     own (the one it had before, on a later attempt). Raises Refused when it cannot have one."""
     cwd = os.path.expandvars(cwd or ".")
@@ -75,7 +76,7 @@ def worker_cwd(gid, jid, cwd, prior=None, attempt=1, make=None, run=subprocess.r
 class Tree:
     """A fresh detached worktree of the base ref, in a scratch job folder. Use as a context manager."""
 
-    def __init__(self, repo, gid="goal", base=BASE, run=subprocess.run, scratch=None):
+    def __init__(self, repo, gid="goal", base=BASE, run=fkproc.run, scratch=None):
         self.repo, self.gid, self.base, self.run = Path(repo), gid, base, run
         self.top = toplevel(repo, run)
         self.main = None
@@ -171,7 +172,7 @@ class Null:
         return ""
 
 
-def tree_for(goal, gid, run=subprocess.run, scratch=None, base=None):
+def tree_for(goal, gid, run=fkproc.run, scratch=None, base=None):
     """-> a context manager: a Tree of the goal's repository at origin/main (goal.json "verify_base"), or Null when
     the goal's folder is not in git or the repository has no such ref."""
     cwd = os.path.expandvars(goal.get("cwd") or "")
@@ -186,7 +187,7 @@ def tree_for(goal, gid, run=subprocess.run, scratch=None, base=None):
 
 
 # ---- fieldkit goal reverify GOAL JOB -------------------------------------------------------------------------------
-def reverify(gid, jid, claude=None, run=subprocess.run, say=print, scratch=None):
+def reverify(gid, jid, claude=None, run=fkproc.run, say=print, scratch=None):
     """Run one job's own checks on a fresh origin/main tree and record the verdict (verdicts.jsonl). A pass marks the
     job verified: now when no supervisor runs, else the supervisor applies the marker at its next round. -> (ok, text)."""
     from . import goal

@@ -306,7 +306,7 @@ def stop_units(talking, run=None, say=print, proc="/proc", units_file=None):
     holder that dies still leaves the list to restore. -> [unit] stopped by this call."""
     import json
     import subprocess
-    run = run or subprocess.run
+    run = run or fkproc.run
     allowed = stoppable_units()
     units_file = Path(units_file or UNITS_FILE)
     before = json.loads(units_file.read_text(encoding="utf-8")) if units_file.is_file() else []
@@ -336,7 +336,7 @@ def restore_units(run=None, say=print, units_file=None):
     """Start again exactly the services stop_units stopped, then forget them. -> [unit] started."""
     import json
     import subprocess
-    run = run or subprocess.run
+    run = run or fkproc.run
     units_file = Path(units_file or UNITS_FILE)
     if not units_file.is_file():
         return []

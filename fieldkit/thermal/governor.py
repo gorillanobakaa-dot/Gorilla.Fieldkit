@@ -77,7 +77,7 @@ def _linux_read_cap(pstate=None, cpufreq=None):
     return None
 
 
-def _write(path, value, run=subprocess.run):
+def _write(path, value, run=fkproc.run):
     """Write one sysfs value: directly when allowed, else `sudo -n tee` (fails at once instead of asking)."""
     try:
         Path(path).write_text(str(value))
@@ -91,7 +91,7 @@ def _write(path, value, run=subprocess.run):
         return False
 
 
-def _linux_set_cap(pct, pstate=None, cpufreq=None, run=subprocess.run):
+def _linux_set_cap(pct, pstate=None, cpufreq=None, run=fkproc.run):
     pct = max(1, min(100, int(pct)))
     pstate = Path(pstate or PSTATE)
     if pstate.exists():

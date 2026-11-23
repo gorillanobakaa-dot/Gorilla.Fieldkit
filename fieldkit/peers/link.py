@@ -102,7 +102,7 @@ def link_env(env=None):
     return env
 
 
-def autopilot_flags(run=subprocess.run):
+def autopilot_flags(run=fkproc.run):
     """The options this computer's `fieldkit autopilot` accepts (read from its own --help)."""
     try:
         r = run([sys.executable, "-P", "-m", "fieldkit", "autopilot", "--help"], capture_output=True, text=True,
@@ -132,7 +132,7 @@ def home():
 
 
 # ---- what agents are here -----------------------------------------------------------------------------------------
-def agents(which=shutil.which, procs=None, run=subprocess.run, local_sessions=None, **finder):
+def agents(which=shutil.which, procs=None, run=fkproc.run, local_sessions=None, **finder):
     """-> [{agent, installed, path, version, how, running: [pids], reachable: [session names]}]. Read-only. The one
     finder is agentfind.py (PATH, the running process's own file, the known install places); finder= fakes its
     glob, isfile, osname, home and env for tests."""
@@ -782,7 +782,7 @@ def startcheck(agent="claude", run_check=None):
     return (False, "; ".join(bad)) if bad else (True, f"{len(rows)} checks ok")
 
 
-def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
+def start_session(agent, brief, from_host, popen=fkproc.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
                   grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None, thinking=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
@@ -1173,7 +1173,7 @@ def _ingest_soon():
     threading.Thread(target=run, daemon=True).start()
 
 
-def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset, via="cable"):
+def handle(req, verifier, popen=fkproc.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset, via="cable"):
     bad = verifier.check(req)
     if bad:
         _log(f"REFUSED from {req.get('from_host') if isinstance(req, dict) else '?'}: {bad}")
@@ -1389,7 +1389,7 @@ def reexec_argv():
     return list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv)
 
 
-def reexec(platform=None, execv=os.execv, popen=subprocess.Popen, exit=sys.exit):
+def reexec(platform=None, execv=os.execv, popen=fkproc.Popen, exit=sys.exit):
     """Re-execute this listener on new code. POSIX: in place (same PID, systemd sees no restart). Windows has no
     in-place exec: os.execv starts a NEW process and ends this one (P28: each reload gave a listener whose parent was
     dead, the scheduled task lost its instance and started another every 5 minutes). There: start the replacement,
@@ -1411,7 +1411,7 @@ def reexec(platform=None, execv=os.execv, popen=subprocess.Popen, exit=sys.exit)
     return p.pid
 
 
-def self_update(root=None, run=subprocess.run):
+def self_update(root=None, run=fkproc.run):
     """Bring the listener's own checkout to origin/main: only a clean checkout on main, only a fast-forward (main
     moves only by PRs merged on green CI). -> "moved", "same" or why it was left alone. 2026-10-28: #181 (a worktree
     per job) was merged at 2af3d7d while this checkout sat at f70d592, so three jobs started without one; a merge

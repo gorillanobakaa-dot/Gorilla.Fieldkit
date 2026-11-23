@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 import urllib.parse
@@ -125,7 +126,7 @@ def lms_activity(lines):
     return {"last_any": last_any, "by_model": by}
 
 
-def lms(rows, cfg, run=subprocess.run, logs=None):
+def lms(rows, cfg, run=fkproc.run, logs=None):
     if not running(rows, LMS_PROC):
         return {"ok": True, "models": [], "why": "LM Studio not running"}
     exe = lms_path(cfg)

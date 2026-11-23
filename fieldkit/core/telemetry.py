@@ -19,6 +19,7 @@ carries 'telemetry-ok: <why>' on the same line and is reported as such, never si
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -197,12 +198,12 @@ def fix_script_linux():
             + "echo '=== FINAL VERDICT: PASS (telemetry opt-outs stored for every login)'\n")
 
 
-def _ps(cmd, run=subprocess.run):
+def _ps(cmd, run=fkproc.run):
     r = run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=120)
     return r.stdout.strip()
 
 
-def blocked_programs(run=subprocess.run):
+def blocked_programs(run=fkproc.run):
     """-> the lower-cased programs our enabled outbound block rules ('Gorilla telemetry block: ...') name. Windows."""
     out = _ps("Get-NetFirewallRule -DisplayName '" + RULE_PREFIX + "*' -ErrorAction SilentlyContinue | "
               "Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' -and $_.Direction -eq 'Outbound' } | "
@@ -214,7 +215,7 @@ def blocked_programs(run=subprocess.run):
 FIREWALL_TASK = "fieldkit-telemetry-firewall"
 
 
-def firewall_task_present(run=subprocess.run):
+def firewall_task_present(run=fkproc.run):
     """Is the SYSTEM task that blocks every vctip.exe registered? Windows; elsewhere False."""
     if sys.platform != "win32":
         return False
@@ -225,7 +226,7 @@ def firewall_task_present(run=subprocess.run):
         return False
 
 
-def unblocked_vctip(run=subprocess.run, paths=None):
+def unblocked_vctip(run=fkproc.run, paths=None):
     """-> every vctip.exe with no outbound block rule yet (a new MSVC unpacked since the task last ran)."""
     paths = vctip_paths() if paths is None else paths
     if not paths:
@@ -234,7 +235,7 @@ def unblocked_vctip(run=subprocess.run, paths=None):
     return [p for p in paths if p.lower() not in blocked]
 
 
-def vctip_preflight(run=subprocess.run, paths=None, platform=None, task=None):
+def vctip_preflight(run=fkproc.run, paths=None, platform=None, task=None):
     """The emerge preflight row for MSVC telemetry (P28 D): None off Windows or with no vctip.exe on the machine,
     else (status, line, task_present). Plain reads; nothing changes. WARN, never STOP: the leak gate decides."""
     if (platform or sys.platform) != "win32":
@@ -251,7 +252,7 @@ def vctip_preflight(run=subprocess.run, paths=None, platform=None, task=None):
     return ("warn", f"{len(open_)} of {len(paths)} vctip.exe not blocked yet ({open_[0]}); {how}", task)
 
 
-def run_firewall_task(run=subprocess.run, paths=None, wait_s=60, sleep=None, clock=None):
+def run_firewall_task(run=fkproc.run, paths=None, wait_s=60, sleep=None, clock=None):
     """Start the SYSTEM task as a normal user (its security descriptor lets authenticated users start it, never
     change it) and wait until every vctip.exe is blocked, at most wait_s seconds. -> (ok, line)."""
     import time
@@ -274,7 +275,7 @@ def run_firewall_task(run=subprocess.run, paths=None, wait_s=60, sleep=None, clo
         sleep(3)
 
 
-def machine_rows(run=subprocess.run, env=None, paths=None):
+def machine_rows(run=fkproc.run, env=None, paths=None):
     """-> rows [{check, ok, evidence}] for this computer. Windows only; elsewhere one row says so (Linux: the same
     variables are checked in the environment)."""
     rows = []

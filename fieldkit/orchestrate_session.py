@@ -41,6 +41,7 @@ import os
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -161,7 +162,7 @@ def work_root():
     return link.home() / "work"
 
 
-def accept(req, mpath, lock, cap=3600, popen=subprocess.Popen, pinned=None, find_repo=None, inbox_add=None):
+def accept(req, mpath, lock, cap=3600, popen=fkproc.Popen, pinned=None, find_repo=None, inbox_add=None):
     """The worker's side, inside jobs.handle_job after the cable, mandate and boss-name checks."""
     why = boss_check(req, pinned) or check_scope(req, mpath)
     if why:
@@ -202,13 +203,13 @@ def launch_argv(jid, platform=None, which=None):
 
 
 # ---- the worker: the job itself ----------------------------------------------------------------------------------------
-def git(repo, *args, run=subprocess.run, timeout=300):
+def git(repo, *args, run=fkproc.run, timeout=300):
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     r = run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout, env=env)
     return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
 
 
-def free_branch(repo, branch, run=subprocess.run):
+def free_branch(repo, branch, run=fkproc.run):
     """-> None when `branch` is checked out nowhere (an earlier job's CLEAN worktree is removed), else why not."""
     _, out = git(repo, "worktree", "list", "--porcelain", run=run)
     for block in out.split("\n\n"):
@@ -229,7 +230,7 @@ def free_branch(repo, branch, run=subprocess.run):
     return None
 
 
-def prepare(repo, tree, branch, base, run=subprocess.run):
+def prepare(repo, tree, branch, base, run=fkproc.run):
     """A worktree of `branch` at `tree`: the remote branch when it exists, else a new branch from origin/base.
     -> (start sha, None) or (None, why)."""
     rc, out = git(repo, "fetch", "--quiet", "origin", run=run)
@@ -269,7 +270,7 @@ def agent_argv(job, tree, jobd, flags_fn=None):
     return link.fit_command(argv, (flags_fn or link.autopilot_flags)())
 
 
-def work(jid, run=subprocess.run, ship_push=None, deliver=None, sign=None, flags_fn=None):
+def work(jid, run=fkproc.run, ship_push=None, deliver=None, sign=None, flags_fn=None):
     """The job (a detached process on the worker). -> the signed result, delivered to the boss."""
     deliver = deliver or jobs.deliver
     sign = sign or jobs.sign_result

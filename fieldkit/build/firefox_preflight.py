@@ -311,7 +311,7 @@ def _c_api_drift(ctx):
 AUGUST_GATES = Path.home() / ".agents" / "skills" / "browser-release-pipeline" / "scripts" / "release_pipeline.py"
 
 
-def august_gates(src, phase="preflight", script=AUGUST_GATES, run=subprocess.run):
+def august_gates(src, phase="preflight", script=AUGUST_GATES, run=fkproc.run):
     """-> (ok, failed gate ids, the failing lines). A script that is missing or ran no gate is a failure."""
     if not Path(script).is_file():
         return False, ["MISSING"], [f"{script} is gone: the theme and text gates cannot run"]

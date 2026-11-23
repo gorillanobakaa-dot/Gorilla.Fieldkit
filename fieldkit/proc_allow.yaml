@@ -27,3 +27,6 @@ allow:
   "fieldkit/autopilot/run.py:login:CREATE_NEW_CONSOLE": >-
     Opens Claude Code in a window of its own so the owner can type /login there, once per machine; the window is
     the owner's and closes when they close it. Started only by a person (fieldkit autopilot login), never by a hook.
+  "fieldkit/mandate/hooks/gorilla-opencode/hooks.py:mandate_gate:subprocess.run": >-
+    A stand-alone hook copied into the Gorilla OpenCode install; it cannot import fieldkit. It runs one short
+    git/gh check with its output captured, from a hook that OpenCode starts with its own console.

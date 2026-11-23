@@ -194,7 +194,7 @@ def systemd_units(python, root):
     return {f"{UNIT}.service": service, f"{UNIT}.timer": timer}
 
 
-def install(run=subprocess.run, platform=None, home=None, scratch=None):
+def install(run=fkproc.run, platform=None, home=None, scratch=None):
     """-> {"ok", ...}. Windows: schtasks /Create /XML (user task). Linux: systemd --user timer, enabled now."""
     from ..core import settings
     plat = platform or sys.platform
@@ -216,7 +216,7 @@ def install(run=subprocess.run, platform=None, home=None, scratch=None):
     return {"ok": False, "error": f"{plat}: no keeper (the MacBook Air runs no heavy work; macOS cools in firmware)"}
 
 
-def installed(run=subprocess.run, platform=None):
+def installed(run=fkproc.run, platform=None):
     plat = platform or sys.platform
     try:
         if plat == "win32":

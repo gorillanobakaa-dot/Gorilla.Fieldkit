@@ -14,6 +14,7 @@ Windows only: elsewhere the check passes with "not-this-platform" (no ibmpmsvc e
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -27,7 +28,7 @@ SUB_BUTTONS = "SUB_BUTTONS"
 LENOVO_KEYS = (r"HKCU\Software\Lenovo", r"HKLM\SOFTWARE\Lenovo")
 
 
-def read_settings(run=subprocess.run):
+def read_settings(run=fkproc.run):
     """-> {alias: {"ac": int, "dc": int}} from powercfg /qh; {} when unreadable."""
     if sys.platform != "win32":
         return {}
@@ -47,7 +48,7 @@ def read_settings(run=subprocess.run):
     return out
 
 
-def lenovo_keys(run=subprocess.run, limit=40):
+def lenovo_keys(run=fkproc.run, limit=40):
     """Read-only: value lines under the Lenovo keys whose text speaks of sleep, power, hot keys or Fn."""
     if sys.platform != "win32":
         return []
@@ -114,7 +115,7 @@ def next_step(found, settings, days=7):
             f"{time.strftime('%Y-%m-%d', time.localtime(last))} leaves the {days}-day window on {gone}")
 
 
-def apply(settings, run=subprocess.run):
+def apply(settings, run=fkproc.run):
     """Set SBUTTONACTION AC to 0 on the current scheme. -> {"ok", "before", "after", "command", ["elevate"]}."""
     before = settings.get("SBUTTONACTION", {}).get("ac")
     cmd = ["powercfg", "/setacvalueindex", "SCHEME_CURRENT", SUB_BUTTONS, "SBUTTONACTION", "0"]

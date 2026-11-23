@@ -20,6 +20,7 @@ import ipaddress
 import json
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -48,7 +49,7 @@ def tail(path, n=TAIL):
         return [f"({path.name}: {type(e).__name__})"]
 
 
-def journal(run=subprocess.run, n=TAIL):
+def journal(run=fkproc.run, n=TAIL):
     if not sys.platform.startswith("linux"):
         return []
     from . import link_keepalive as K

@@ -134,7 +134,7 @@ def wait_own(limit=1800, out=print, sleep=time.sleep, check=own_work):
     return why
 
 
-def net_by_process(seconds=3, sleep=time.sleep, run=subprocess.run):
+def net_by_process(seconds=3, sleep=time.sleep, run=fkproc.run):
     """Bytes per second each program moves over TCP, measured from two `ss -tpni` snapshots `seconds` apart.
     -> [{pid, name, kbps}] busiest first. Connections opened between the snapshots count from zero."""
     def snap():

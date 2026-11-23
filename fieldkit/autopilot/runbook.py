@@ -28,6 +28,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -115,7 +116,7 @@ def done_if(cond, cwd):
 STEP_CAP_S = 12 * 3600               # a command step with no timeout of its own still has a wall deadline
 
 
-def _run_step(step, log, say, run=subprocess.Popen, env=None):
+def _run_step(step, log, say, run=fkproc.Popen, env=None):
     cmd = step["run"]
     cwd = os.path.expandvars(step.get("cwd") or os.getcwd())
     timeout = step.get("timeout")
@@ -132,7 +133,7 @@ def _run_step(step, log, say, run=subprocess.Popen, env=None):
         ps = ("$global:LASTEXITCODE = 0; " + cmd + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE")
         shell = ["powershell", "-NoProfile", "-Command", ps] if os.name == "nt" else ["bash", "-lc", cmd]
-        if run is subprocess.Popen:
+        if run is fkproc.Popen:
             # in a container with a wall deadline (none given: STEP_CAP_S): the whole tree stops on expiry, and what
             # the step leaves running when it ends is stopped too (fieldkit/core/contain.py, FM-1/FM-2)
             from ..core import contain, liveness

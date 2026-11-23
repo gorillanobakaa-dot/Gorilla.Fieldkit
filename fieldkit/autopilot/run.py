@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -171,7 +172,7 @@ def paste_command(exe=None):
     return f'cd $HOME; & "{shown}"'
 
 
-def logged_in(run=subprocess.run):
+def logged_in(run=fkproc.run):
     """True / False / None (unknown): one tiny headless call; 'Not logged in' answers at once and costs nothing."""
     exe = claude_exe()
     if not exe:
@@ -187,7 +188,7 @@ def logged_in(run=subprocess.run):
     return r.returncode == 0
 
 
-def login(popen=subprocess.Popen):
+def login(popen=fkproc.Popen):
     """Open Claude Code in its own console window so the owner can type /login there (one time per machine).
     -> {ok, command, say}. The window is the owner's; nothing is typed into it for them."""
     exe = claude_exe()
@@ -258,7 +259,7 @@ def parse_result(text):
 
 
 def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
-           popen=subprocess.Popen, idle_minutes=None, role="worker"):
+           popen=fkproc.Popen, idle_minutes=None, role="worker"):
     """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
     max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
     budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
@@ -364,7 +365,7 @@ def agent_exe(agent: str) -> str | None:
     return agentfind.find_path(agent)
 
 
-def antigravity(popen=subprocess.Popen, psutil=None, model=None, thinking=None, cwd=None):
+def antigravity(popen=fkproc.Popen, psutil=None, model=None, thinking=None, cwd=None):
     """Start Antigravity Desktop IDE for an autopilot run on Windows or Linux: the guard's autopilot mode on, and the
     app started with no GitHub or git credential in its environment (its terminals inherit it)."""
     if psutil is None:
@@ -402,7 +403,7 @@ def antigravity(popen=subprocess.Popen, psutil=None, model=None, thinking=None, 
 
 
 def agent_run(agent, prompt, cwd=None, timeout=None, env_extra=None, model=None, thinking=None,
-              popen=subprocess.Popen, idle_minutes=None, role="worker", require_explicit=True, max_turns=None):
+              popen=fkproc.Popen, idle_minutes=None, role="worker", require_explicit=True, max_turns=None):
     """Run any supported coding agent (`antigravity`, `agy`, `gemini`, `codex`, `gorilla-opencode`, `claude`) with
     explicit model and thinking level, guarded by the multi-agent quota/block guard and the spend guard."""
     from ..lifecycle import models

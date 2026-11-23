@@ -26,6 +26,7 @@ OpenCode brief on a copy of it; the artefacts go back by put, their sha256 in th
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -276,7 +277,7 @@ def _refuse(req, why, inbox_add=None):
     return {"ok": False, "error": why}
 
 
-def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=None, cap=3600, inbox_add=None):
+def handle_job(req, popen=fkproc.Popen, repos=None, lock=None, find_mandate=None, cap=3600, inbox_add=None):
     """The worker's side of verb job (inside link.handle, after the HMAC check): no session is asked. Refuses only
     what it CANNOT do (no such mandate here, a repository it does not have, a kind it does not know, a job running);
     each answer goes back to the orchestrator, which reports it. A refusal of AUTHORITY (no mandate in force here,

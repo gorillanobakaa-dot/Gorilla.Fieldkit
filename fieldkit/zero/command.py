@@ -176,7 +176,7 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
     return {"order": order, "station": station, "sent": sent}
 
 
-def run_done_cmd(o, run=subprocess.run):
+def run_done_cmd(o, run=fkproc.run):
     """P24: run the order's done command (cwd = its first area folder that exists, else the repo). -> {"exit": int,
     "tail": [last output lines], "cwd": path}. A timeout or a failure to start is exit -1 with the reason in tail."""
     cwd = next((a for a in o.get("area") or [] if Path(a).is_dir()), None) or str(N.ROOT)
@@ -191,7 +191,7 @@ def run_done_cmd(o, run=subprocess.run):
         return {"exit": -1, "tail": [f"could not run: {e}"], "cwd": cwd}
 
 
-def release(me, station, finished=False, epoch=None, now=None, run=subprocess.run):
+def release(me, station, finished=False, epoch=None, now=None, run=fkproc.run):
     now = time.time() if now is None else now
     net = N.load_net()
     N.require_zero(net, me, epoch)

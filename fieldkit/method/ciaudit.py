@@ -12,6 +12,7 @@ import argparse
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from collections import Counter
 from datetime import datetime
@@ -21,7 +22,7 @@ LINE = re.compile(r"ci-tests: (no test covers (?P<files>.+?): the whole suite|th
                   r"the merged tree equals the pull request's tree.*)")
 
 
-def _gh(args, run=subprocess.run):
+def _gh(args, run=fkproc.run):
     r = run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.returncode, r.stdout or "", r.stderr or ""
 
