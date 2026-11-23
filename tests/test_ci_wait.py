@@ -119,7 +119,7 @@ def test_checks_after_the_first_api_page_can_block_green():
 
     def api(command, paginate, endpoint, jq, selector):
         assert (command, paginate, jq) == ("api", "--paginate", "--jq")
-        if endpoint.endswith("check-runs"):
+        if endpoint.endswith("check-runs?per_page=100"):
             assert selector.startswith(".check_runs[]")
             return 0, "\n".join(map(json.dumps, checks)), ""
         assert selector.startswith(".workflow_runs[]")
