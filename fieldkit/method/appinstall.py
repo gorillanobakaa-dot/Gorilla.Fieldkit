@@ -959,6 +959,10 @@ def run_purge(
         r = link.call({"verb": "purge-app", "name": name, "apply": apply, "dir": install_dir}, timeout=120)
         return r.get("result") or r
     if host:
+        from ..peers import link
+        r = link.call({"verb": "purge-app", "name": name, "apply": apply, "dir": install_dir}, timeout=120)
+        if r.get("ok") or r.get("result"):          # the cable first (owner 2026-11-23); ssh only when it fails
+            return r.get("result") or r
         cmd = ["ssh", "-o", "BatchMode=yes", host, "python3", "-m", "fieldkit", "install", "purge", name, "--json"]
         if install_dir:
             cmd += ["--dir", install_dir]
@@ -987,6 +991,10 @@ def run_install(
         r = link.call({"verb": "install-app", "source": source, "name": name, "replace": replace, "apply": apply}, timeout=300)
         return r.get("result") or r
     if host:
+        from ..peers import link
+        r = link.call({"verb": "install-app", "source": source, "name": name, "replace": replace, "apply": apply}, timeout=300)
+        if r.get("ok") or r.get("result"):          # the cable first (owner 2026-11-23); ssh only when it fails
+            return r.get("result") or r
         cmd = [
             "ssh", "-o", "BatchMode=yes", host,
             "python3", "-m", "fieldkit", "install", "app", source, "--name", name, "--json",

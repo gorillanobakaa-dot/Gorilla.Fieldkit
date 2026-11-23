@@ -213,7 +213,9 @@ def remote(device_name, via):
         device = None
         error = str(exc)
 
-    for route in ("cable", "ssh") if via == "both" else (via,):
+    for route in ("cable", "ssh") if via in ("both", "auto") else (via,):
+        if route == "ssh" and via == "auto" and hosts:
+            continue                                  # the cable answered: ssh is the fallback only
         if device is None:
             routes[route] = {"error": error}
             continue
@@ -254,12 +256,9 @@ def cmd(args):
         print(json.dumps(report) if args.json else "\n".join(render(report)))
         return 3 if partial(report) else 0
 
-    via = args.via
-    if not via and sys.stdin.isatty():
-        print("Remote audit transport (cable, ssh, or both): ", end="", file=sys.stderr, flush=True)
-        via = sys.stdin.readline().strip().lower()
-    if via not in ("cable", "ssh", "both"):
-        print("capture audit: specify one of cable, ssh, or both with --via", file=sys.stderr)
+    via = args.via or "auto"                          # cable first, ssh only when the cable fails (owner 2026-11-23)
+    if via not in ("cable", "ssh", "both", "auto"):
+        print("capture audit: --via is one of auto, cable, ssh, both", file=sys.stderr)
         return 2
     report = remote(args.device, via)
     if args.json:

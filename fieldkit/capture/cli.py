@@ -404,7 +404,7 @@ def main(argv=None):
     audit = sub.add_parser("audit", help="read-only clean-slate audit of configured scratch roots")
     audit.add_argument("--json", action="store_true", help="machine-readable report")
     audit.add_argument("--device", help="audit this configured household peer instead of this computer")
-    audit.add_argument("--via", choices=("cable", "ssh", "both"), help="transport choice for this remote audit")
+    audit.add_argument("--via", choices=("auto", "cable", "ssh", "both"), help="transport choice for this remote audit")
     clean = sub.add_parser("clean", help="inventory temp and session stores and preview scratch retention")
     clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
     clean.add_argument("--retire-sessions", action="store_true",

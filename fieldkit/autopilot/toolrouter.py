@@ -812,6 +812,26 @@ def verdict(call):
     return _deny(message(r))
 
 
+CABLE_SSH = re.compile(r"(?:^|[;&|]\s*)(?:ssh|scp)(?:\.exe)?\s[^;&|\n]*\b10\.77\.0\.\d{1,3}\b", re.I | re.M)
+
+
+def cable_ssh_warning(call, link_up=None):
+    """A hand-run ssh/scp to a cable peer (10.77.0.x) while the cable link answers: a warning, never a deny (owner
+    2026-11-23: the cable first, ssh only when the cable hello fails). Fails open (no warning) when the link is unreadable."""
+    ti = call.get("tool_input") or {}
+    if (call.get("tool_name") or "").lower() not in ("bash", "powershell") or not CABLE_SSH.search(ti.get("command", "")):
+        return ""
+    try:
+        if link_up is None:
+            from ..peers import link
+            link_up = lambda: bool(link.call({"verb": "hello"}, timeout=4).get("ok"))  # noqa: E731
+        up = link_up()
+    except Exception:  # noqa: BLE001
+        return ""
+    return ("TOOL ROUTER WARNING: you are running ssh to the cable peer while the cable link answers. Use the cable "
+            "first: fieldkit peers link ask|put|run (ssh only when `fieldkit peers link hello` fails).") if up else ""
+
+
 def _room(call):
     """The shared room, the hog's registry, the net lease and the rotation line, for an allowed call, in this process
     (C6, 2026-10-28: they were a second Python start per tool call, PostToolUse). Fails open."""
@@ -834,7 +854,7 @@ def hook(stdin=None):
     if deny:
         print(json.dumps(deny))
         return 0
-    ctx = _room(call)
+    ctx = "\n".join(x for x in (cable_ssh_warning(call), _room(call)) if x)
     if ctx:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": ctx}}))
     return 0
