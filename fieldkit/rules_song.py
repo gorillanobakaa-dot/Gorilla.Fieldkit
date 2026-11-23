@@ -220,7 +220,7 @@ def lint(rows=None, home=None, root=None, pol=None):
 
 def store_dir(root=None):
     from .core.settings import state_root
-    return Path(state_root()) / "rules-store"
+    return Path(state_root()) / "state" / "rules-store"
 
 
 def manifest(rows):
@@ -275,7 +275,7 @@ def store_apply(rows, store=None, restore=False, home=None):
 
 def hook_log():
     from .core.settings import state_root
-    return Path(state_root()) / "hook-bytes.jsonl"
+    return Path(state_root()) / "state" / "hook-bytes.jsonl"
 
 
 def record(event, nbytes, session=None, now=None, path=None):
