@@ -56,6 +56,15 @@ def batch_selection(event_path=None, head_ref=None):
     return sorted({t.replace("\\", "/") for t in tests}) if isinstance(tests, list) else None
 
 
+SELECTIONS = {}      # C4.4: both selections of the last testcost plan (import_selection, coverage_selection, gate)
+
+
+def covmap_args():
+    """-> ["--covmap", PATH] when a coverage map is available (FIELDKIT_COVMAP, else ./covmap.json), else []."""
+    path = os.environ.get("FIELDKIT_COVMAP") or ("covmap.json" if Path("covmap.json").is_file() else "")
+    return ["--covmap", path] if path and Path(path).is_file() else []
+
+
 def selection(base, merged=False):
     """-> (tests, why); tests None = the whole suite (only `full`), [] = nothing to run, REFUSED = fail, run nothing."""
     picked = batch_selection() if base != "full" else None
@@ -67,13 +76,15 @@ def selection(base, merged=False):
         return None, "the whole suite (asked for)"
     if not base or set(base) == {"0"}:                              # all zeros: a new branch has no "before"
         return REFUSED, "no base commit to compare with: nothing is selected and the whole suite is never the default"
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "testcost", "plan", "--base", base, "--json"],
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "testcost", "plan", "--base", base, "--json", *covmap_args()],
                        capture_output=True, text=True)
     try:
         plan = json.loads(r.stdout)
     except ValueError:
         return REFUSED, (f"testcost plan gave no answer (exit {r.returncode}): fix testcost; "
                          f"{(getattr(r, 'stderr', '') or '').strip()[-300:]}")
+    SELECTIONS.clear()
+    SELECTIONS.update({k: plan[k] for k in ("import_selection", "coverage_selection", "gate") if k in plan})
     if plan.get("no_code") or plan.get("docs_only"):
         return [], "no code changed - no tests"
     unmapped = [p for p in plan.get("unmapped", []) if not MUTATION_PLAN.match(p.replace("\\", "/"))]
@@ -263,7 +274,7 @@ def main(argv):
                       else selection(argv[1] if len(argv) > 1 else "full", merged))
         block = read_durations_block(incoming) if incoming else None
         if outgoing and tests is not REFUSED:
-            record = {"schema": 1, "head": checkout_head(), "tests": tests, "why": why}
+            record = {"schema": 1, "head": checkout_head(), "tests": tests, "why": why, **SELECTIONS}
             if durations_file:
                 from fieldkit.method import ciplan
 
