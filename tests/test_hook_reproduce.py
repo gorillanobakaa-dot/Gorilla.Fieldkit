@@ -46,6 +46,7 @@ def _repo(tmp_path, test_body):
     env.pop("VIRTUAL_ENV", None)
     # the temp repo is not fieldkit, so the privacy scan needs the real package
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    env["FIELDKIT_ADMISSION_HOME"] = str(tmp_path / "admission")   # parallel workers must not queue on one machine-wide slot
     env["FIELDKIT_FULL_SUITE"] = "1"        # the reproduce logic of a suite run is under test, not the selection
     subprocess.run(["git", "init", "-q", str(r)], check=True, env=env)
     return r, env
