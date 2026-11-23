@@ -6308,8 +6308,8 @@ tools:
   harness: method
   entry: [python, -m, fieldkit.desk.trashmenu]
   path: ${FIELDKIT}/fieldkit/desk/trashmenu.py
-  args:
-    - {name: cmd, type: str, required: true, help: "build | install-admin | register | status"}
+  inputs:
+    - {name: cmd, flag: null, type: str, required: true, choices: [build, install-admin, register, status, recycle-dir], help: "build | install-admin | register | status | recycle-dir"}
   effects: [writes-files, registry]
   safety: needs-approval
   output: own
