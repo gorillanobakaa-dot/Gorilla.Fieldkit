@@ -396,7 +396,7 @@ def run_check(c, default_cwd, run=fkproc.run, timeout=None, hist=()):
               "$global:LASTEXITCODE = 0; " + c["run"] + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE"] if os.name == "nt" else ["bash", "-lc", c["run"]])
     from ..thermal import buildguard
-    if os.name == "nt" and run in (subprocess.run, fkproc.run) and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
+    if os.name == "nt" and (run is subprocess.run or run is fkproc.run) and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
         # 2026-10-27 (crash ~04:14, owner: "guard obligatoriu"): a criterion on the laptop (the fan control's status
         # file is there) runs under fieldkit guard (one machine-wide slot, the fan check, the governor at
         # thermal.build_target), never beside another heavy job; inside a guard already: no second one
@@ -404,7 +404,7 @@ def run_check(c, default_cwd, run=fkproc.run, timeout=None, hist=()):
     deadline = liveness.deadline_for(hist, c.get("timeout") or timeout)
     t0 = time.time()
     extra, timed = "", False
-    if run in (subprocess.run, fkproc.run):
+    if (run is subprocess.run or run is fkproc.run):
         o = contain.run(shell, label=f"verify {c.get('id') or c['run'][:60]}", deadline_s=deadline, cwd=cwd)
         out, rc = o.out + o.err, o.rc
         if o.status == "timeout":

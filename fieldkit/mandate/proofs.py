@@ -143,7 +143,7 @@ def ci_green(repo_path, commit, cfg, run=fkproc.run):
     from ..core import sync
     slug = sync._slug(repo_path)
     env = None
-    if run in (subprocess.run, fkproc.run):       # inside an autopilot run only ship's environment has gh's account back (#145)
+    if (run is subprocess.run or run is fkproc.run):       # inside an autopilot run only ship's environment has gh's account back (#145)
         from ..method import ship
         env = ship.ship_env()
     r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",

@@ -41,7 +41,10 @@ def _is_shim(a) -> bool:
     2026-11-23, `ship ci-wait` polling gh). A hidden console (CREATE_NO_WINDOW) is inherited by the real program."""
     if sys.platform != "win32" or not a:
         return False
-    exe = shutil.which(str(a).strip('"'))
+    try:
+        exe = shutil.which(str(a).strip('"'))
+    except (AttributeError, OSError):  # a test that fakes win32 on Linux has no _winapi
+        return False
     return bool(exe) and os.path.exists(os.path.splitext(exe)[0] + ".shim")
 
 

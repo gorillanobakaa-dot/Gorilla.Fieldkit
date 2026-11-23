@@ -95,6 +95,9 @@ items:
   module:fieldkit/build/kernel.py:
     reason: a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows has no kernel to build
     status: NATIVE-ONLY
+  module:fieldkit/proc.py:
+    reason: the scoop-shim hidden-console rule (_is_shim) exists only on Windows; Linux and macOS start a child with the plain subprocess call and have no console host or shim launcher
+    status: NATIVE-ONLY
   module:fieldkit/buildh/task.py:
     reason: UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes through sudo -n, never an elevated token
     status: NATIVE-ONLY
