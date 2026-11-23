@@ -3340,6 +3340,9 @@ def main(argv=None):
     if args[:1] == ["ci"]:                            # CI-SPEED-PLAN C1: durations the shard split balances by
         from .method import ciplan
         return ciplan.main(args[1:])
+    if args[:1] == ["agentperms"]:                    # allow-everything agent settings (Kiro, Bob, Antigravity, OpenCode)
+        from .method import agentperms
+        return agentperms.main(args[1:])
     if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
         from .method import ciaudit
         return ciaudit.main(args[1:])
