@@ -52,7 +52,7 @@ fieldkit testcost staged                                       names the coverin
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit ciaudit --run RUN                                    queue, active time and gaps for all attempts of one Actions run
-fieldkit ci plan --selection F [--check|--explain] | ci durations merge|fetch | ci quarantine --check | ci covmap build|merge|show|key | ci runner [--check] | agentperms audit|fix [--apply]   CI runners N (ci.yaml), durations, hung tests, which test ran which lines, the runner's CPU/RAM fingerprint (xdist workers), allow-everything agent settings
+fieldkit ci plan --selection F [--check|--explain] | ci durations merge|fetch | ci quarantine --check | ci covmap build|merge|show|key | ci runner | agentperms audit|fix   CI runners N, durations, hung tests, covmap, runner CPU/RAM (xdist workers), allow-everything agent settings
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
