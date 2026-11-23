@@ -13,12 +13,9 @@ TOOL = Path(__file__).resolve().parents[1] / "kits" / "profilefix" / "profilefix
 sys.path.insert(0, str(TOOL.parent))
 import profilefix as pf  # noqa: E402
 
-TEST_KEY = r"HKCU\Software\FieldkitProfilefixTest"
+_KEYNAME = "FieldkitProfilefixTest" + __import__("os").environ.get("PYTEST_XDIST_WORKER", "")  # one key per xdist worker
+TEST_KEY = "HKCU\\Software\\" + _KEYNAME
 OLD, NEW = "pfOldTest", "pfNewTest"
-
-# The live tests share one registry key: xdist (--dist loadgroup) must keep them on one worker, or one test
-# recreates the key while another reads it.
-pytestmark = pytest.mark.xdist_group("profilefix-registry")
 
 
 def run(*args):
@@ -80,7 +77,7 @@ win = pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
 @pytest.fixture
 def test_key():
     import winreg
-    base = r"Software\FieldkitProfilefixTest"
+    base = "Software\\" + _KEYNAME
     subprocess.run(["reg", "delete", TEST_KEY, "/f"], capture_output=True)
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as k:
         winreg.SetValueEx(k, "Path", 0, winreg.REG_SZ, rf"C:\Users\{OLD}\AppData\Local")  # privacy-scan: allow
