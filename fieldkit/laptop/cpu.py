@@ -23,6 +23,7 @@ import datetime as _dt
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -88,7 +89,7 @@ def _spin(stop):
         x = (x * 31 + 7) % 1000003
 
 
-def measure_windows(run=subprocess.run, samples=SAMPLES):
+def measure_windows(run=fkproc.run, samples=SAMPLES):
     stop = threading.Event()
     workers = [threading.Thread(target=_spin, args=(stop,), daemon=True) for _ in range(2)]
     for w in workers:
@@ -104,7 +105,7 @@ def measure_windows(run=subprocess.run, samples=SAMPLES):
         stop.set()
 
 
-def firmware_limits_since_boot(run=subprocess.run):
+def firmware_limits_since_boot(run=fkproc.run):
     """How often the firmware limited the processor since this boot (System log, Kernel-Processor-Power event 37)."""
     ps = ("$b=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime; (Get-WinEvent -FilterHashtable @{LogName="
           "'System'; ProviderName='Microsoft-Windows-Kernel-Processor-Power'; Id=37; StartTime=$b} -ErrorAction "
@@ -117,7 +118,7 @@ def firmware_limits_since_boot(run=subprocess.run):
         return None
 
 
-def tool_running(tool, run=subprocess.run):
+def tool_running(tool, run=fkproc.run):
     if not tool:
         return True                                      # none set: nothing that has to run
     name = Path(tool).name
@@ -129,7 +130,7 @@ def tool_running(tool, run=subprocess.run):
         return False
 
 
-def start_tool(tool, run=subprocess.run, wait=15, sleep=time.sleep):
+def start_tool(tool, run=fkproc.run, wait=15, sleep=time.sleep):
     """Start the unlock tool as administrator (a logon task already is; a manual run asks Windows) and wait for it."""
     if not tool or not Path(tool).is_file():
         return False
@@ -148,7 +149,7 @@ def start_tool(tool, run=subprocess.run, wait=15, sleep=time.sleep):
     return False
 
 
-def stop_tool(tool, run=subprocess.run):
+def stop_tool(tool, run=fkproc.run):
     run(["taskkill", "/IM", Path(tool).name, "/F"], capture_output=True, creationflags=NOWIN)
 
 
@@ -194,7 +195,7 @@ def measure_linux(root="/sys/devices/system/cpu", cpuinfo="/proc/cpuinfo"):
 
 
 # -- the runs ---------------------------------------------------------------------------------------------------------
-def check(fix=False, platform=None, run=subprocess.run, sleep=time.sleep, tool=None, now=None):
+def check(fix=False, platform=None, run=fkproc.run, sleep=time.sleep, tool=None, now=None):
     win = (platform or sys.platform) == "win32"
     tool = tool if tool is not None else _local().get("unlock_tool")
     ratio = float(_local().get("throttled_ratio") or THROTTLED_RATIO)
@@ -239,7 +240,7 @@ def exit_code(st):
     return {"ok": 0, "throttled": 1, "no-tool": 1}.get(st.get("verdict"), 2)
 
 
-def status(run=subprocess.run, platform=None):
+def status(run=fkproc.run, platform=None):
     try:
         st = json.loads(_state_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -269,7 +270,7 @@ def task_script(python, fieldkit_root, remove=False):
             "-Description 'Fieldkit: the processor is not locked slow at logon' -Force | Out-Null")
 
 
-def install(remove=False, run=subprocess.run, platform=None):
+def install(remove=False, run=fkproc.run, platform=None):
     if (platform or sys.platform) != "win32":
         return {"ok": False, "status": "windows-only",
                 "next": "on Linux, run fieldkit laptop cpu check from your session's autostart if you want it at login"}

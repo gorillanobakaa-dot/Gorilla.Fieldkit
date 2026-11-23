@@ -214,7 +214,7 @@ def make_profile(root, dpr):
     return prof
 
 
-def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=time.monotonic, sleep=time.sleep):
+def launch(copy, prof, dpr, timeout_s, popen=fkproc.Popen, kill=None, clock=time.monotonic, sleep=time.sleep):
     """Start the copy headless, wait for it to quit by itself; past the timeout stop exactly the process started
     here (with its children). -> {rc, seconds, timed_out, pid}."""
     from ..buildh import layout
@@ -236,7 +236,7 @@ def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=
     if timed_out:
         kill(proc.pid)            # still alive, so the PID is still ours; never after exit (the PID may be reused)
     sleep(1)
-    left = stop_leftovers(copy) if popen is subprocess.Popen else []
+    left = stop_leftovers(copy) if (popen is subprocess.Popen or popen is fkproc.Popen) else []
     return {"rc": rc, "seconds": round(clock() - t0, 1), "timed_out": timed_out, "pid": proc.pid, "stopped_leftovers": left}
 
 

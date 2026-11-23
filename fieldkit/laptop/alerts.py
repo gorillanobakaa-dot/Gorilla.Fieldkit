@@ -255,7 +255,8 @@ def autostart_entry(platform=None, home=None, python=None):
 
 def install_antigravity(apply=False, platform=None, home=None, run=None):
     import subprocess
-    run = run or subprocess.run
+    from fieldkit import proc as fkproc
+    run = run or fkproc.run
     path, py = autostart_entry(platform, home)
     if apply:
         path.parent.mkdir(parents=True, exist_ok=True)

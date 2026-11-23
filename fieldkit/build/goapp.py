@@ -1522,7 +1522,7 @@ def verify_checksums(ctx):
     return {"ok": True, "detail": f"{f.name} lists every published file and matches it; {t.name} agrees"}
 
 
-def stage_align(ctx, run=subprocess.run):
+def stage_align(ctx, run=fkproc.run):
     """After gh-release (release mode, once): bring both computers to the new version with `fieldkit parity align
     --apply`, here and on every peer over the cable (a `run` link job, no AI, no owner step). The release itself is
     the source: align downloads the asset and SHA256SUMS from it and checks them, so an unpublished tag fails here."""

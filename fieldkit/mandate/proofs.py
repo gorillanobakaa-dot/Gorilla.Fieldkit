@@ -69,7 +69,7 @@ def _suite(cwd, cmd, t, run):
     return True, int(p[-1]) if p else 0, int(k[-1]) if k else 0, last
 
 
-def full_tests_pass_here(repo_path, commit, cfg, run=subprocess.run):
+def full_tests_pass_here(repo_path, commit, cfg, run=fkproc.run):
     """Run the suite the SEALED mandate names (repos.X.test: {cmd, expect, base}) on a clean checkout of exactly
     `commit`, AND on origin/<base> in a temporary worktree: a commit that guts the tests passes its own suite (the
     Windows review of M1.1, point C). Proven only with no fewer passed, no more skipped, and no test file deleted."""
@@ -136,14 +136,14 @@ def ci_green_both(repo_path, commit, cfg):
     return sync.ci_green(sync._slug(repo_path), commit)
 
 
-def ci_green(repo_path, commit, cfg, run=subprocess.run):
+def ci_green(repo_path, commit, cfg, run=fkproc.run):
     """Every check run GitHub has for `commit` completed with success (or skipped), at least one ran, and every system
     in the repository's `ci_os:` (none by default: a repository with one CI job) had a job. Read with gh."""
     import json
     from ..core import sync
     slug = sync._slug(repo_path)
     env = None
-    if run is subprocess.run:       # inside an autopilot run only ship's environment has gh's account back (#145)
+    if (run is subprocess.run or run is fkproc.run):       # inside an autopilot run only ship's environment has gh's account back (#145)
         from ..method import ship
         env = ship.ship_env()
     r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",

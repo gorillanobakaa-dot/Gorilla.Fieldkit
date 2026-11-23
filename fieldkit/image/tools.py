@@ -1,6 +1,7 @@
 """Find the picture tools: the owner's fieldkit.local.json, then PATH. Nothing is guessed or installed."""
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 from ..core import settings
@@ -44,7 +45,7 @@ def find(name, local=None, which=shutil.which):
     return which(str(install_dir() / name))
 
 
-def version(path, name, run=subprocess.run):
+def version(path, name, run=fkproc.run):
     try:
         r = run([path, *SPECS[name][1]], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
@@ -53,7 +54,7 @@ def version(path, name, run=subprocess.run):
     return out[0][:120] if out else ""
 
 
-def report(local=None, which=shutil.which, run=subprocess.run, platform=None):
+def report(local=None, which=shutil.which, run=fkproc.run, platform=None):
     pk = platform_key(platform)
     rows = []
     for name, (what, _, source, install) in SPECS.items():

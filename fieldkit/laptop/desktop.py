@@ -10,13 +10,14 @@ way to pick the GPU per program. The wallpaper reload is SystemParametersInfo(SP
 Windows already has, so nothing about the wallpaper changes but its picture on screen.
 """
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 NVCP_ID = "9NF8H0H7WMLT"
 NOWIN = 0x08000000
 
 
-def video(apply=False, run=subprocess.run, platform=None):
+def video(apply=False, run=fkproc.run, platform=None):
     if (platform or sys.platform) != "win32":
         return {"ok": True, "status": "not-windows", "next": "on Linux the NVIDIA settings come with the driver "
                                                              "(nvidia-settings)"}
@@ -40,7 +41,7 @@ def video(apply=False, run=subprocess.run, platform=None):
             "next": "open NVIDIA Control Panel from the Start menu" if ok else "winget failed: " + out.strip()[-200:]}
 
 
-def wallpaper(platform=None, run=subprocess.run):
+def wallpaper(platform=None, run=fkproc.run):
     if (platform or sys.platform) == "win32":
         import ctypes
         import winreg

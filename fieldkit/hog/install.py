@@ -161,7 +161,7 @@ def main(apply=False, remove=False):
     return rc
 
 
-def scheduled(platform=None, run=subprocess.run):
+def scheduled(platform=None, run=fkproc.run):
     platform = platform or sys.platform
     try:
         if platform == "win32":

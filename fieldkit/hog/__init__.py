@@ -143,7 +143,8 @@ def _ram_used():
 
 def unload_lms(a, facts, run=None):
     import subprocess
-    run = run or subprocess.run
+    from fieldkit import proc as fkproc
+    run = run or fkproc.run
     exe = (facts.get("lms") or {}).get("exe")
     if not exe:
         return False, "no lms CLI"

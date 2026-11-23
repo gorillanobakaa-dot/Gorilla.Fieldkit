@@ -43,6 +43,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 import uuid
 from pathlib import Path
@@ -105,7 +106,7 @@ def _mark_if_gone(model, out, r, found):
     return counsel.mark_if_gone(model, out, r, found)
 
 
-def ask_reviewer(model, prompt, pol=None, run=subprocess.run):
+def ask_reviewer(model, prompt, pol=None, run=fkproc.run):
     """-> {"yes": bool, "why": str, "answer": str}: counsel.ask(purpose="review"); fail closed."""
     from . import counsel
     return counsel.ask(model, prompt, "review", policy() if pol is None else pol, run)
@@ -382,7 +383,7 @@ def parse_tiebreak(answer, evidence):
     return side, q, ""
 
 
-def ask_raw(model, prompt, pol=None, run=subprocess.run):
+def ask_raw(model, prompt, pol=None, run=fkproc.run):
     """-> {"ok", "answer", "why"}: counsel.ask(purpose="tiebreak"), the whole answer (the tie-break parses it)."""
     from . import counsel
     return counsel.ask(model, prompt, "tiebreak", policy() if pol is None else pol, run)

@@ -2,6 +2,7 @@
 `fieldkit privacy scan`. Fail closed: a picture that could not be read is a finding, not a pass."""
 import os
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ..core import privacy
@@ -11,7 +12,7 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 MIN_CONF = 30           # below this a "word" is noise; the line text still goes through the detectors
 
 
-def read(path, lang="eng", run=subprocess.run, timeout=180):
+def read(path, lang="eng", run=fkproc.run, timeout=180):
     """-> {'file','lang','text','words':[{'text','conf','box':[x,y,w,h],'line'}]}. Raises ImageError."""
     exe = tools.find("tesseract")
     if not exe:
@@ -63,7 +64,7 @@ def findings(res, terms=None):
     return out
 
 
-def check(path, lang="eng", terms=None, run=subprocess.run):
+def check(path, lang="eng", terms=None, run=fkproc.run):
     """-> (findings, ocr result). A picture that cannot be read gives one not-scanned finding."""
     try:
         res = read(path, lang, run)
@@ -102,7 +103,7 @@ def image_files(path, git_only=False):
     return [f for f in files if f.suffix.lower() in IMAGE_EXT]
 
 
-def scan_images(paths, git_only=False, lang="eng", run=subprocess.run):
+def scan_images(paths, git_only=False, lang="eng", run=fkproc.run):
     """For `fieldkit privacy scan --images`: {file: [findings]} in the shape privacy.scan_path returns."""
     rep = {}
     for p in paths:

@@ -81,7 +81,7 @@ def _public_check_runs(slug, sha, timeout=15):
             for x in data.get("check_runs") or []]
 
 
-def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
+def ci_green(slug, sha, run=fkproc.run, public=_public_check_runs):
     """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one. Read with gh;
     when gh cannot (no login, not installed), from the public API without a credential; neither -> not green."""
     try:

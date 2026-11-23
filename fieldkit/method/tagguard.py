@@ -127,7 +127,7 @@ def parity_row(repo, commit):
 PARITY_FIX = "fieldkit parity os --check; fix the records and run fieldkit parity os --write, then commit through a PR"
 
 
-def check(repo, tag, dry_run=False, ci_os=None, ci=None, page=None, run=subprocess.run):
+def check(repo, tag, dry_run=False, ci_os=None, ci=None, page=None, run=fkproc.run):
     """-> {"ok", "rows": [{"check", "ok", "say", "run"}]}. The tagged commit is the tag's (HEAD for a dry run with no tag)."""
     repo = str(repo)
     rows = []

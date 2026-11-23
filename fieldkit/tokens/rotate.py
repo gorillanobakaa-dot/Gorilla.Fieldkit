@@ -815,7 +815,7 @@ def pr_state(url, run=None):
     PR_GH_TIMEOUT_S. A caller that passes its own `run` (tests) bypasses the cache."""
     cache_f, cache = None, {}
     if run is None:
-        run = subprocess.run
+        run = fkproc.run
         try:
             cache_f = _pr_cache_file()
             cache = json.loads(cache_f.read_text(encoding="utf-8"))

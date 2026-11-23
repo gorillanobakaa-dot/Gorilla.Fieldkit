@@ -531,7 +531,7 @@ def verify_here(os_name, ref):
     return verify_windows(ref, windows_environment()) if os_name == "windows" else verify_macos(ref, mac_environment())
 
 
-def ssh_run(host, ref, ssh=None, run=subprocess.run):
+def ssh_run(host, ref, ssh=None, run=fkproc.run):
     """Run this file on a Mac over ssh (its python3, stdin = the script, the reference as argv). -> (rows or None, why)."""
     if ssh is None:
         import shlex

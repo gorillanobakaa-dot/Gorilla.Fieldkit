@@ -48,6 +48,10 @@ def scan_source(src, rel):
             for a in n.names:
                 froms[a.asname or a.name] = (n.module, a.name)
     hits = []
+    call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    # `run is subprocess.run` only compares which function a caller passed; it starts nothing
+    compared = {id(o) for n in ast.walk(tree) if isinstance(n, ast.Compare)
+                and all(isinstance(op, (ast.Is, ast.IsNot)) for op in n.ops) for o in [n.left, *n.comparators]}
 
     def walk(node, fn):
         for ch in ast.iter_child_nodes(node):
@@ -64,6 +68,10 @@ def scan_source(src, rel):
                         callee = f"{m}.{a}"
                 if callee:
                     hits.append((f"{rel}:{fn}:{callee}", ch.lineno))
+            if (isinstance(ch, ast.Attribute) and id(ch) not in call_funcs and id(ch) not in compared and isinstance(ch.value, ast.Name)
+                    and mods.get(ch.value.id) == "subprocess" and ch.attr in SUB_FNS):
+                # `run=subprocess.run` as a default or argument starts the same raw child later (A5, 2026-11-23)
+                hits.append((f"{rel}:{fn}:subprocess.{ch.attr}", ch.lineno))
             if _new_console_ref(ch):
                 hits.append((f"{rel}:{fn}:CREATE_NEW_CONSOLE", ch.lineno))
             walk(ch, name)
@@ -179,3 +187,18 @@ def test_terminal_floods():
     res = {"fieldkit_owned": [], "terminal_windows": 875}
     assert consoles.failures(res) == ["875 terminal windows open (limit 19)"]
     assert consoles.failures(dict(res, terminal_windows=3)) == []
+
+
+def test_scoop_shim_gets_a_hidden_console(tmp_path, monkeypatch):
+    """`gh` is a scoop shim that starts the real gh with default flags: with no console of its own that is a flashing
+    Windows Terminal window per call (owner 2026-11-23, ship ci-wait). A shim must get CREATE_NO_WINDOW."""
+    import sys
+    from fieldkit import proc
+    if sys.platform != "win32":
+        return
+    (tmp_path / "tool.exe").write_bytes(b"")
+    (tmp_path / "tool.shim").write_text("path = x", encoding="utf-8")
+    (tmp_path / "plain.exe").write_bytes(b"")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert proc._needs_console((["tool"],), {})
+    assert not proc._needs_console((["plain"],), {})

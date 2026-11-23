@@ -25,6 +25,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import urllib.parse
 import urllib.request
@@ -331,7 +332,7 @@ def drivers(ps=ps_json, platform=None, fetch=None):
 
 
 # -- the master volume, on both systems ---------------------------------------------------------------------------------
-def volume(set_to=None, platform=None, ps=ps_json, run=subprocess.run, which=shutil.which):
+def volume(set_to=None, platform=None, ps=ps_json, run=fkproc.run, which=shutil.which):
     """-> {percent, muted} after setting it (set_to 0-100) when asked."""
     if (platform or sys.platform) == "win32":
         body = (f"[FieldkitAudio.Audio]::SetMute($false); [FieldkitAudio.Audio]::SetVolume({min(100, int(set_to)) / 100.0})\n"

@@ -71,6 +71,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from datetime import date
@@ -772,7 +773,7 @@ def _disk_used():
     return used
 
 
-def install(gb, what, cmd, run=subprocess.run, used=_disk_used):
+def install(gb, what, cmd, run=fkproc.run, used=_disk_used):
     """An install inside a mandate's budget -> (code, message). Logs the larger of what was declared and what the
     disk measured, so a low declaration does not stretch the budget."""
     v, why, p = decide("install", gb=gb, what=what, cmd=" ".join(cmd))

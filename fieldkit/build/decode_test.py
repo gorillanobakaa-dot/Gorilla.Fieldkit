@@ -292,7 +292,7 @@ def run_batch(work, configs, out=print):
 ARCHIVE = "https://archive.mozilla.org/pub/firefox/releases"
 
 
-def stock_firefox(version, root=None, run=subprocess.run):
+def stock_firefox(version, root=None, run=fkproc.run):
     """Mozilla's own build of `version`, the same-version control for any comparison (2026-10-15: comparing Gorilla
     158 with ESR 153 blamed the wrong thing; stock 158 found the real cost). Downloaded once into
     state/stock-firefox/<version>, checked against Mozilla's SHA256SUMS, reused after. -> path of the firefox binary,

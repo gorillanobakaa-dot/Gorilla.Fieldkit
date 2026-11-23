@@ -33,6 +33,7 @@ import platform
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -89,7 +90,7 @@ def rules(path=None):
     return d
 
 
-def facts(system=None, dmi=Path("/sys/class/dmi/id"), run=subprocess.run, winreg_mod=None):
+def facts(system=None, dmi=Path("/sys/class/dmi/id"), run=fkproc.run, winreg_mod=None):
     """-> {vendor, product, version, family, model}: what the hardware says it is, read-only. Missing: ""."""
     system = system or _system()
     out = dict.fromkeys(FIELDS, "")

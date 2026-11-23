@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -81,7 +82,7 @@ def _telemetry_firewall_task(run=None, programdata=None):
     # users may start the task) is applied again, once
     if sys.platform != "win32":
         return True
-    run = run or subprocess.run
+    run = run or fkproc.run
     try:
         r = run(["schtasks", "/query", "/tn", "fieldkit-telemetry-firewall"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
@@ -208,7 +209,7 @@ def _elevate_py():
     return p if p.is_file() else None
 
 
-def elevated(todo, action="apply", timeout_min=10, run=subprocess.run, say=print):
+def elevated(todo, action="apply", timeout_min=10, run=fkproc.run, say=print):
     """Write the runner, put ONE UAC prompt on screen through the elevate kit, wait for it. -> (ok, why)."""
     el = _elevate_py()
     if not el:
@@ -247,7 +248,7 @@ def runner_text_sh(todo, root=None, action="apply", marker="PREREQS: done"):
     return "\n".join(lines) + "\n"
 
 
-def elevated_linux(todo, action="apply", run=subprocess.run, say=print):
+def elevated_linux(todo, action="apply", run=fkproc.run, say=print):
     """Linux: write the runner, ONE pkexec prompt (the polkit password dialog) for all of them. -> (ok, why)."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     script = _state() / f"runner-{stamp}.sh"
@@ -272,7 +273,7 @@ def _mark_attempt(now=None):
     (_state() / "last-attempt.json").write_text(json.dumps({"t": now or time.time()}), encoding="utf-8")
 
 
-def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=print, force=False, now=None, nt=None):
+def apply(m, in_force, verify=None, run=fkproc.run, elevate_fn=None, say=print, force=False, now=None, nt=None):
     """Apply the missing prerequisites of an IN-FORCE mandate. -> (code, lines). 0 all present, 3 something missing."""
     if not in_force:
         return 3, ["PREREQS: no mandate in force: nothing is applied (the owner approves them in the mandate)"]
@@ -322,7 +323,7 @@ def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=pri
     return (0 if not still else 3), out
 
 
-def undo(m, ident, run=subprocess.run, elevate_fn=None, say=print):
+def undo(m, ident, run=fkproc.run, elevate_fn=None, say=print):
     e = {x["id"]: x for x in entries(m)}.get(ident)
     if not e:
         return 2, [f"no prerequisite {ident} in the mandate"]

@@ -41,6 +41,7 @@ import os
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -342,7 +343,7 @@ def covered_action(reg, kind, repo, branch):
     return None
 
 
-def do_action(gid, kind, repo, branch, spec, title="", body="", run=subprocess.run, say=print):
+def do_action(gid, kind, repo, branch, spec, title="", body="", run=fkproc.run, say=print):
     """push_branch / open_pr, done by the harness (never a model) under a pre-approval. -> (ok, evidence)."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         return False, "refused inside an autopilot run (no credential there by design)"
@@ -383,7 +384,7 @@ def history(gid, cid, n=10):
     return out[-n:]
 
 
-def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
+def run_check(c, default_cwd, run=fkproc.run, timeout=None, hist=()):
     """One command criterion -> {verdict PASS|FAIL|TIMEOUT, rc, evidence, seconds}. The command's exit code, or a line
     it printed (expect.line), decides; nothing a model said does. It runs in a container (fieldkit/core/contain.py)
     with a WALL deadline (liveness.deadline_for: its own timeout, else 3 x its slowest measured run, capped at 1 h):
@@ -395,7 +396,7 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
               "$global:LASTEXITCODE = 0; " + c["run"] + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE"] if os.name == "nt" else ["bash", "-lc", c["run"]])
     from ..thermal import buildguard
-    if os.name == "nt" and run is subprocess.run and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
+    if os.name == "nt" and (run is subprocess.run or run is fkproc.run) and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
         # 2026-10-27 (crash ~04:14, owner: "guard obligatoriu"): a criterion on the laptop (the fan control's status
         # file is there) runs under fieldkit guard (one machine-wide slot, the fan check, the governor at
         # thermal.build_target), never beside another heavy job; inside a guard already: no second one
@@ -403,7 +404,7 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
     deadline = liveness.deadline_for(hist, c.get("timeout") or timeout)
     t0 = time.time()
     extra, timed = "", False
-    if run is subprocess.run:
+    if (run is subprocess.run or run is fkproc.run):
         o = contain.run(shell, label=f"verify {c.get('id') or c['run'][:60]}", deadline_s=deadline, cwd=cwd)
         out, rc = o.out + o.err, o.rc
         if o.status == "timeout":
@@ -475,7 +476,7 @@ def _run_check(fx, c, goal, gid, run):
     return r
 
 
-def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, who="goal"):
+def verify(gid, goal, st, ids=None, extra=(), claude=None, run=fkproc.run, who="goal"):
     """Run criteria (all, or ids) and extra job checks in a fresh worktree of origin/main (goal_fresh); record every
     verdict in verdicts.jsonl and the criteria records. -> list of results."""
     try:
@@ -1004,7 +1005,7 @@ def _final_if_due(gid, goal, st, claude, run):
         st["needs_plan"] = True
 
 
-def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
+def step(gid, claude=None, run_job=None, run=fkproc.run, inbox_add=None, inbox_items=None, now=time.time,
          sleep=time.sleep, say=print, action=None, peer=None, start_task=None):
     """One round of one goal. -> {"status", "why", "wait_until"}. `peer`: () -> the idle peer's load row or None;
     `start_task`: tasks.start, for a heavy job sent to the peer while the laptop's slot is held."""
@@ -1131,7 +1132,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
     return {"status": "active", "why": "; ".join(ended) + (f"; still running: {left}" if left else "")}
 
 
-def expand_branches(repo, branch, run=subprocess.run):
+def expand_branches(repo, branch, run=fkproc.run):
     """A branch name, or a glob (night/*) -> the local branches it names (job branch names are not known when the
     goal is written)."""
     if not any(ch in branch for ch in "*?["):

@@ -71,7 +71,7 @@ def classify(out, passes_alone=None):
     return "unknown", [ln for ln in out.splitlines() if ln.strip()][-8:]
 
 
-def _passes_alone(repo, env, run=subprocess.run):
+def _passes_alone(repo, env, run=fkproc.run):
     def check(tests):
         py = Path(env.get("VIRTUAL_ENV", "")) / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
         r = run([str(py) if py.is_file() else sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests],
@@ -80,7 +80,7 @@ def _passes_alone(repo, env, run=subprocess.run):
     return check
 
 
-def fix(cls, repo, env, run=subprocess.run):
+def fix(cls, repo, env, run=fkproc.run):
     """-> (env for the next try, what was done)."""
     env = dict(env)
     if cls == "no-pytest":
@@ -103,7 +103,7 @@ def fix(cls, repo, env, run=subprocess.run):
     return env, ""
 
 
-def commit(repo, message_file, run=subprocess.run, env=None, max_tries=5):
+def commit(repo, message_file, run=fkproc.run, env=None, max_tries=5):
     """-> {ok, commit, attempts: [{class, done}], stopped, log}. Never --no-verify; a class seen twice stops."""
     top, d = _state(repo)
     env = dict(env if env is not None else os.environ)

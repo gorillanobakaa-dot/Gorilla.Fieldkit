@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import zipfile
 from contextlib import contextmanager
@@ -60,7 +61,7 @@ def runnable_installer(package, member):
 
 
 def record(repo, target, version, installer, assets, output, command, *, env=None,
-           observe=observe_host, run=subprocess.run):
+           observe=observe_host, run=fkproc.run):
     """The checked-in command must install FIELDKIT_INSTALLER and verify FIELDKIT_VERSION."""
     env = dict(os.environ if env is None else env)
     if env.get("GITHUB_ACTIONS") != "true" or env.get("GITHUB_EVENT_NAME") not in ("push", "workflow_dispatch"):

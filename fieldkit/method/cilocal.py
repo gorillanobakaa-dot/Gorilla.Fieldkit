@@ -178,7 +178,7 @@ def _shell(shell, script_path, os_word):
     return [exe, "-NoProfile", "-NonInteractive", "-Command", f". '{script_path}'"]
 
 
-def run_steps(tree, steps, os_word, log_path, python=None, run=subprocess.run):
+def run_steps(tree, steps, os_word, log_path, python=None, run=fkproc.run):
     """Run the planned steps in `tree`, in order, stopping at the first red. -> [{name, kind, rc, seconds, setup}]."""
     tree, results = Path(tree), []
     venv = tree / ".ci-local-venv"
@@ -239,7 +239,7 @@ def file_sha(p):
     return h.hexdigest()
 
 
-def steps_here(tree, os_word, base, event="pull_request", log_path=None, workflow=WORKFLOW, run=subprocess.run):
+def steps_here(tree, os_word, base, event="pull_request", log_path=None, workflow=WORKFLOW, run=fkproc.run):
     """The whole step run in a checked-out tree. -> {context, steps, verdict, log, log_sha256, python, host}."""
     tree = Path(tree)
     ctx = context_for(os_word, base, event)
@@ -256,7 +256,7 @@ def steps_here(tree, os_word, base, event="pull_request", log_path=None, workflo
 class Hub:
     """The few gh calls ci-local makes (a fake in the tests), through ship's credential (ship_env)."""
 
-    def __init__(self, repo=".", run=subprocess.run):
+    def __init__(self, repo=".", run=fkproc.run):
         from . import train
         self.gh = train.GH(repo, run=run)
         self.slug = self.gh.slug

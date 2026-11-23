@@ -20,6 +20,7 @@ import os
 import re
 import shlex
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -97,12 +98,12 @@ def asks_full_suite(question):
                           q) or any(classify(m) for m in re.findall(r"`([^`]+)`", q)))
 
 
-def _git(cwd, *args, run=subprocess.run):
+def _git(cwd, *args, run=fkproc.run):
     r = run(["git", "-C", str(cwd), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return (r.stdout or "").strip() if r.returncode == 0 else ""
 
 
-def touched(cwd, base=DEFAULT_BASE, run=subprocess.run):
+def touched(cwd, base=DEFAULT_BASE, run=fkproc.run):
     """The files the branch's commits changed against base (from the merge base)."""
     return [p for p in _git(cwd, "diff", "--name-only", f"{base}...HEAD", run=run).splitlines() if p.strip()]
 
@@ -153,7 +154,7 @@ def local_commands(kind, cmd, files, cwd=".", base=DEFAULT_BASE):
     return []
 
 
-def ci_green(cwd, run=subprocess.run):
+def ci_green(cwd, run=fkproc.run):
     """-> (ok, why): every GitHub Actions run on the exact HEAD of cwd completed green (read with gh)."""
     sha = _git(cwd, "rev-parse", "HEAD", run=run)
     if not sha:
@@ -230,7 +231,7 @@ def mark_goal(spec, env=None):
     return spec, warns
 
 
-def run_gate(orig, cwd=".", base=DEFAULT_BASE, run=subprocess.run, env=None, say=print):
+def run_gate(orig, cwd=".", base=DEFAULT_BASE, run=fkproc.run, env=None, say=print):
     """The stand-in for a whole-suite command: touched tests locally, CI green for the rest. -> exit code."""
     if full_suite_allowed(env):
         say(f"suitegate: FIELDKIT_FULL_SUITE=1: running the whole suite as written: {orig}")

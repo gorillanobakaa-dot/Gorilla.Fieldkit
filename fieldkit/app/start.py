@@ -14,6 +14,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -110,7 +111,7 @@ def plan(match, args, osname, which=shutil.which):
     raise ValueError(f"unknown launch kind {k!r}")
 
 
-def start(match, args=(), osname=None, popen=subprocess.Popen, startfile=None, procs=agentfind.process_list,
+def start(match, args=(), osname=None, popen=fkproc.Popen, startfile=None, procs=agentfind.process_list,
           sleep=time.sleep, is_elevated=elevated, which=shutil.which, wait=VERIFY_SECONDS):
     """-> {ok, name, path, method, pid, pids, verified, why}. Verified = running `wait` seconds later."""
     osname = osname or sys.platform

@@ -3,6 +3,7 @@ script file), its output comes back as UTF-8, and JSON is found in it even after
 import base64
 import json
 import subprocess
+from fieldkit import proc as fkproc
 
 PRELUDE = "$ProgressPreference='SilentlyContinue'\n[Console]::OutputEncoding=[Text.Encoding]::UTF8\n"
 
@@ -12,14 +13,14 @@ def q(text):
     return "'" + str(text).replace("'", "''") + "'"
 
 
-def run_ps(script, timeout=300, run=subprocess.run):
+def run_ps(script, timeout=300, run=fkproc.run):
     enc = base64.b64encode((PRELUDE + script).encode("utf-16-le")).decode()
     p = run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     return p.returncode, p.stdout or "", p.stderr or ""
 
 
-def ps_json(script, timeout=300, run=subprocess.run):
+def ps_json(script, timeout=300, run=fkproc.run):
     code, out, err = run_ps(script, timeout, run)
     out = out.strip()
     starts = [i for i in (out.find("{"), out.find("[")) if i >= 0]

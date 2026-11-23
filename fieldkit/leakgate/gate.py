@@ -672,7 +672,7 @@ def run(*args, say=print, **kw):
     return preflight.call("leak gate", "gate", measure_exclusively, say=say, wait_s=600, refused=refused)
 
 
-def unpack_deb(deb, dest, runner=subprocess.run):
+def unpack_deb(deb, dest, runner=fkproc.run):
     """-> the folder of an unpacked .deb that holds the browser (the one with application.ini). No root, nothing installed."""
     r = runner(["dpkg-deb", "-x", str(deb), str(dest)], capture_output=True, text=True)
     if r.returncode:

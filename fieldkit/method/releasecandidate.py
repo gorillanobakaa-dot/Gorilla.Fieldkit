@@ -5,6 +5,7 @@ import json
 import math
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from contextlib import nullcontext
@@ -205,7 +206,7 @@ def retry_delay(status, headers, body, now, attempt):
 
 
 class GitHub:
-    def __init__(self, slug, run=subprocess.run, now=time.time, pause=time.sleep):
+    def __init__(self, slug, run=fkproc.run, now=time.time, pause=time.sleep):
         self.slug = slug
         self.run = run
         self.now = now

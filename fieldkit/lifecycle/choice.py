@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -72,7 +73,7 @@ def codex_cache_models(home=None):
     return out
 
 
-def command_models(exe, args, run=subprocess.run):
+def command_models(exe, args, run=fkproc.run):
     """First column of each line of `exe ARGS` (10 s cap), lines that look like a model id."""
     try:
         r = run([exe, *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
@@ -117,7 +118,7 @@ def _cache_put(key, v, now):
         pass
 
 
-def agent_models(name, a, data, found, run=subprocess.run, home=None, now=None, refresh=False):
+def agent_models(name, a, data, found, run=fkproc.run, home=None, now=None, refresh=False):
     """-> (models: [str], source: str, reasoning_by_model: {}) for one installed agent."""
     now = time.time() if now is None else now
     how = a.get("live", "none")
@@ -142,7 +143,7 @@ def agent_models(name, a, data, found, run=subprocess.run, home=None, now=None, 
     return [], "data file", {}
 
 
-def menu(data=None, finder=None, http=_http_json, run=subprocess.run, home=None, now=None, refresh=False,
+def menu(data=None, finder=None, http=_http_json, run=fkproc.run, home=None, now=None, refresh=False,
          installed=None):
     """-> rows grouped agent > provider > model > reasoning, each with `usable` and, when not, `why` and `until`.
 

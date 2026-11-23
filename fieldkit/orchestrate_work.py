@@ -49,6 +49,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -164,7 +165,7 @@ def link_transfer_bad(pattern):
     return link_transfer.bad_path(pattern.replace("*", "x").replace("?", "x").replace("[", "x").replace("]", "x"))
 
 
-def accept(req, mpath, lock, cap=3600, popen=subprocess.Popen):
+def accept(req, mpath, lock, cap=3600, popen=fkproc.Popen):
     """The worker's side, inside jobs.handle_job after the mandate and boss checks. -> the answer to the boss."""
     why = check_work(req)
     if why:
@@ -355,7 +356,7 @@ def opencode_exe():
     return exe
 
 
-def unload_local_models(brain, run=subprocess.run):
+def unload_local_models(brain, run=fkproc.run):
     """Owner rule: a model the job loaded is unloaded when it ends. -> what was done (one line)."""
     host = re.sub(r"^https?://", "", brain).split("/")[0].split(":")[0]
     if host not in ("127.0.0.1", "localhost", "::1"):
@@ -524,7 +525,7 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
 def _health():
     """Free temp space and the clock (health.py); never the network: a tree job needs no internet."""
     from .mandate import health
-    rows = {"temp space": health.free_temp(health.MIN_FREE_GB), "clock": health.clock(subprocess.run)}
+    rows = {"temp space": health.free_temp(health.MIN_FREE_GB), "clock": health.clock(fkproc.run)}
     return [{"text": f"{n}: {detail}", "fix_offered": fix} for n, (ok, detail, fix) in rows.items() if ok is False]
 
 

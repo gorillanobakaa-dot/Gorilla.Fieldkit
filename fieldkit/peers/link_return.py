@@ -13,6 +13,7 @@ push it the same way.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import threading
 import time
@@ -22,7 +23,7 @@ PREFIXES = ("feat/", "fix/")                      # what the owner-wide mandate 
 TASK_ID = re.compile(r"fieldkit-task (T-[\w.-]+)")
 
 
-def _git(cwd, *args, run=subprocess.run):
+def _git(cwd, *args, run=fkproc.run):
     try:
         r = run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
@@ -30,7 +31,7 @@ def _git(cwd, *args, run=subprocess.run):
     return r.returncode, (r.stdout or "").strip()
 
 
-def heads(cwd, run=subprocess.run):
+def heads(cwd, run=fkproc.run):
     """-> {branch: sha} of the local branches; {} when cwd is not a git repository."""
     rc, out = _git(cwd, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads", run=run)
     if rc != 0:
@@ -44,7 +45,7 @@ def moved(before, after):
     return [b for b in changed if b.startswith(PREFIXES)], [b for b in changed if not b.startswith(PREFIXES)]
 
 
-def worktree_of(cwd, branch, run=subprocess.run):
+def worktree_of(cwd, branch, run=fkproc.run):
     """-> the worktree that has `branch` checked out, or None."""
     rc, out = _git(cwd, "worktree", "list", "--porcelain", run=run)
     path = None
@@ -61,7 +62,7 @@ def _ship_push(repo):
     return ship.push(repo=repo)
 
 
-def push_branch(cwd, branch, run=subprocess.run, push=_ship_push, jobd=None, alive=None):
+def push_branch(cwd, branch, run=fkproc.run, push=_ship_push, jobd=None, alive=None):
     """-> {"branch", "pushed", "detail"}. Pushes from the worktree holding it, else from a scratch worktree made and
     removed here. A branch origin already has at this commit is done: no push (Zero, 2026-10-28). A branch another
     run still works in (HELD) or with no commit beyond origin/main (EMPTY) is not pushed (C4, cable note #174)."""
@@ -101,7 +102,7 @@ QUIET = (ALREADY, HELD, EMPTY)                    # no news for the command post
 # worktrees share one set of branches, so every job's `before` snapshot missed the branches the other two made; the
 # first to end (C1/C2) pushed feat/c3-workers and feat/r6-recipes-3, made a minute before at origin/main, while their
 # runs still went on. ended() was right: it was the attribution that was wrong.
-def held_by_other_run(cwd, branch, jobd=None, run=subprocess.run, alive=None):
+def held_by_other_run(cwd, branch, jobd=None, run=fkproc.run, alive=None):
     """-> the PID of a live run whose own job worktree (lifecycle/worktrees.py) has `branch` checked out, else None.
     This job's own tree (its owner record names jobd) never counts."""
     path = worktree_of(cwd, branch, run=run)
@@ -120,13 +121,13 @@ def held_by_other_run(cwd, branch, jobd=None, run=subprocess.run, alive=None):
         return None
 
 
-def ahead_of_main(cwd, branch, run=subprocess.run):
+def ahead_of_main(cwd, branch, run=fkproc.run):
     """True when `branch` has a commit origin/main does not. No origin/main to compare with: False (fail closed)."""
     rc, out = _git(cwd, "rev-list", "--count", f"refs/remotes/origin/main..refs/heads/{branch}", run=run)
     return rc == 0 and out.isdigit() and int(out) > 0
 
 
-def on_origin(cwd, branch, run=subprocess.run):
+def on_origin(cwd, branch, run=fkproc.run):
     """True when origin's branch is at the local branch's commit (asked of origin, not of a stale remote ref)."""
     rc, local = _git(cwd, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", run=run)
     rc2, remote = _git(cwd, "ls-remote", "origin", f"refs/heads/{branch}", run=run)
@@ -145,7 +146,7 @@ def _reap(cwd):
     return worktrees.reap(cwd)
 
 
-def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send, branches=None,
+def bring_home(proc, cwd, before, jobd, brief="", run=fkproc.run, push=_ship_push, send=_send, branches=None,
                reap=_reap, alive=None):
     """Waits for the started session, then pushes its branches and tells the command post. -> the report dict, also
     written to JOB/branch-return.json. `branches`: the branches to push when there is no `before` snapshot."""
@@ -233,7 +234,7 @@ def started_at(jobd):
         return None
 
 
-def window_branches(cwd, jobd, run=subprocess.run, now=None):
+def window_branches(cwd, jobd, run=fkproc.run, now=None):
     """A job started before follow.json existed has no `before`: its branches are the feat/ and fix/ ones whose newest
     commit falls inside the job's time and that origin does not have at that commit."""
     start, end = started_at(jobd), _checkpoint(jobd).get("ended_at") or (now or time.time())
@@ -255,7 +256,7 @@ def named(text, branches):
     return [b for b in branches if re.search(r"(?<![\w/.-])" + re.escape(b) + r"(?![\w/.-])", text or "")]
 
 
-def finish(jobd, alive=_pid_alive, sleep=time.sleep, bring=None, run=subprocess.run):
+def finish(jobd, alive=_pid_alive, sleep=time.sleep, bring=None, run=fkproc.run):
     """Wait (in this thread) for the job to end, then bring its branches home. -> the report, or None."""
     bring = bring or bring_home
     f = Path(jobd) / "follow.json"

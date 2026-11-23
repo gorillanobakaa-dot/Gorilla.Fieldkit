@@ -183,7 +183,7 @@ def powershell_script(command, mode, log, title=None):
     return "\n".join(ps)
 
 
-def open_window(command, mode="ask", title=None, popen=subprocess.Popen, which=None, env=None, platform=None, now=None, say=False):
+def open_window(command, mode="ask", title=None, popen=fkproc.Popen, which=None, env=None, platform=None, now=None, say=False):
     """-> {"ok", "terminal", "log", "pid"} or {"ok": False, "why", "command"}."""
     env = os.environ if env is None else env
     platform = platform or sys.platform
@@ -199,7 +199,7 @@ def open_window(command, mode="ask", title=None, popen=subprocess.Popen, which=N
     if platform.startswith("win"):
         import base64
         enc = base64.b64encode(powershell_script(command, mode, log, title).encode("utf-16-le")).decode("ascii")
-        if popen is not subprocess.Popen:
+        if popen is not subprocess.Popen and popen is not fkproc.Popen:
             argv = ["cmd", "/c", "start", "", "powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
                     "-EncodedCommand", enc]
             p = popen(argv)

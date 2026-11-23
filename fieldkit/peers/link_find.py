@@ -23,6 +23,7 @@ import json
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 from . import link
@@ -190,7 +191,7 @@ def explain(f):
     return out
 
 
-def windows_facts(iface, run=subprocess.run):
+def windows_facts(iface, run=fkproc.run):
     ps = (f"$i = (Get-NetAdapter -Name '{iface}').ifIndex; "
           "ping -6 -n 2 -w 800 \"ff02::1%$i\" | Out-Null; "
           f"$st = Get-NetAdapterStatistics -Name '{iface}'; "
@@ -206,7 +207,7 @@ def windows_facts(iface, run=subprocess.run):
     return d
 
 
-def linux_facts(iface, run=subprocess.run):
+def linux_facts(iface, run=fkproc.run):
     rx = 0
     try:
         rx = int(open(f"/sys/class/net/{iface}/statistics/rx_packets").read())

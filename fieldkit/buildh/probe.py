@@ -225,7 +225,7 @@ def stop_tree(pid, platform=None, run=None):
     import signal as _signal
     import sys as _sys
     if (platform or _sys.platform) == "win32":
-        (run or subprocess.run)(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        (run or fkproc.run)(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
         return
     try:
         import psutil

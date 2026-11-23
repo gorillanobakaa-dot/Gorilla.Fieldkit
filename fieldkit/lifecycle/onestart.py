@@ -193,7 +193,7 @@ def _asked_recently(ids, ttl_h, now=None):
     return False
 
 
-def _run_apply(a, run=subprocess.run):
+def _run_apply(a, run=fkproc.run):
     from ..core import settings
     argv = [str(x).replace("{state}", str(settings.state_root() / "state")) for x in a["apply"]]
     if argv[0] in ("python3", "python") and argv[1:3] == ["-m", "fieldkit"]:
@@ -206,7 +206,7 @@ def _run_apply(a, run=subprocess.run):
 
 
 def start_check(kind, job="", force_ask=False, ask_present=None, prove=None, say=print, checks=None, data=None,
-                run=subprocess.run, now=None):
+                run=fkproc.run, now=None):
     """-> {"missing": [ids], "asked": bool, "outcome": ..., "applied": [ids], "lines": [...]}. NEVER raises, NEVER waits
     for anyone: the job starts whatever the answer. FIELDKIT_ONESTART=off skips (tests, nested runs)."""
     out = {"missing": [], "asked": False, "outcome": "none", "applied": [], "lines": []}

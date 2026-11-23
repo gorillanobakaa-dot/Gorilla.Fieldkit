@@ -15,6 +15,7 @@ here as 3; anything else is 1. preview never elevates (R6.16). Windows only.
 import ctypes
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -89,7 +90,7 @@ def elevated_wrapper(argv, outfile):
             f"-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-Command',{_quote(inner)}); exit $p.ExitCode"]
 
 
-def run(module_id, action, values=None, repo=None, runner=subprocess.run, admin=None):
+def run(module_id, action, values=None, repo=None, runner=fkproc.run, admin=None):
     """-> (exit code for Fieldkit, text). runner and admin are for tests."""
     mods = modules()
     if module_id not in mods:

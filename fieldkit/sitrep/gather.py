@@ -102,7 +102,7 @@ def ci_state(rollup):
     return "passing"
 
 
-def prs(run=subprocess.run):
+def prs(run=fkproc.run):
     r = run(["gh", "pr", "list", "--state", "open", "--limit", "30", "--json",
              "number,title,headRefName,statusCheckRollup"], capture_output=True, text=True, timeout=40)
     if r.returncode != 0:

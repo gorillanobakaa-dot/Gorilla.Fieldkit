@@ -86,7 +86,7 @@ def _plan_budget(repo, os_name, expected_n, findings):
     try:
         cfg = _yaml.safe_load((repo / ".github" / "ci.yaml").read_text(encoding="utf-8")) or {}
         n = int((cfg.get("budget") or {}).get(key))
-    except Exception:
+    except (OSError, ValueError, TypeError, AttributeError, _yaml.YAMLError):
         findings.append({"rule": "workflow-shard-count-vs-policy",
                          "message": f"tests.yml shard-{os_name} is a dynamic matrix but .github/ci.yaml has no budget.{key}",
                          "fix": "set budget in .github/ci.yaml"})

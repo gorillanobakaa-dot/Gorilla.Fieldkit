@@ -14,6 +14,7 @@ The model never chooses a source. This module decides, the same way every time:
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import urllib.request
 
 FIREFOX_VERSIONS = "https://product-details.mozilla.org/1.0/firefox_versions.json"
@@ -35,7 +36,7 @@ def firefox_tag(version):
     return "FIREFOX_" + version.replace(".", "_") + "_RELEASE"
 
 
-def remote_commit(repo, tag, runner=subprocess.run):
+def remote_commit(repo, tag, runner=fkproc.run):
     """The commit a tag points to on the remote (peeled for annotated tags), or None."""
     r = runner(["git", "ls-remote", "--tags", repo, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"],
                capture_output=True, text=True, timeout=120)
@@ -43,7 +44,7 @@ def remote_commit(repo, tag, runner=subprocess.run):
     return refs.get(f"refs/tags/{tag}^{{}}") or refs.get(f"refs/tags/{tag}")
 
 
-def latest_firefox(versions=None, repo=FIREFOX_REPO, runner=subprocess.run):
+def latest_firefox(versions=None, repo=FIREFOX_REPO, runner=fkproc.run):
     versions = versions if versions is not None else _get_json(FIREFOX_VERSIONS)
     version = versions["LATEST_FIREFOX_VERSION"]
     tag = firefox_tag(version)

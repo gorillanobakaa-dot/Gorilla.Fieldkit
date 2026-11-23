@@ -92,7 +92,7 @@ def linux_installs(run=None):
     2026-10-15: the register looked only in the Windows uninstall registry, so on Linux every check against the
     installed browser (prefs, absent files) was silently UNCHECKABLE."""
     import subprocess
-    run = run or subprocess.run
+    run = run or fkproc.run
     try:
         r = run(["dpkg-query", "-L", "gorilla-unleashed"], capture_output=True, text=True)
     except OSError:

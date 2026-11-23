@@ -22,6 +22,7 @@ than one), so a hot computer starts nothing new beside its running job. No model
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -245,7 +246,7 @@ def admitted(kind="other", label="", wait=None, root=None, say=lambda s: print(s
             slot.release()
 
 
-def run(cmd, kind="other", label="", wait=None, root=None, call=subprocess.call, cwd=None):
+def run(cmd, kind="other", label="", wait=None, root=None, call=fkproc.call, cwd=None):
     """-> CMD's exit code, run inside one slot; 75 (EX_TEMPFAIL) when `wait` ran out with no slot. CMD gets this
     process's standard handles explicitly (core/proc.std_handles: under pythonw it would get none and die silent)."""
     from .core.proc import std_handles

@@ -30,6 +30,7 @@ Stops by PID and creation time, never by name: nothing outside the container is 
 import os
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -576,7 +577,7 @@ class Container:
         deadline_s = deadline_s if deadline_s is not None else self.deadline_s
         if busy_s is None:
             busy_s, on_busy = busy_for(self.label)
-        if popen is not None and popen is not subprocess.Popen:
+        if popen is not None and popen is not subprocess.Popen and popen is not fkproc.Popen:
             return _run_seam(popen, cmd, cwd, env, stdin_text, deadline_s)
         tmp = Path(tempfile.mkdtemp(prefix="fk-contain-"))
         out_p = Path(stdout_path) if stdout_path else tmp / "out.txt"

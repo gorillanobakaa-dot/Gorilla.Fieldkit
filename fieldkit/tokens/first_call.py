@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def parse(lines):
     return out
 
 
-def run(cwd, extra=(), model=None, runner=subprocess.run):
+def run(cwd, extra=(), model=None, runner=fkproc.run):
     r = runner(command(extra, model), cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
                errors="replace", timeout=600)
     out = parse((r.stdout or "").splitlines())
@@ -91,7 +92,7 @@ def rules_files(cwd, home=None):
     return found
 
 
-def measure(cwd, parts=False, model=None, runner=subprocess.run, home=None):
+def measure(cwd, parts=False, model=None, runner=fkproc.run, home=None):
     res = {"cwd": str(Path(cwd).resolve()), "calls": {}}
     for name, extra in VARIANTS.items():
         if name != "full" and not parts:

@@ -26,6 +26,7 @@ the first failure (the scheduled task is removed), and writes and speaks the mor
 import hashlib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -81,7 +82,7 @@ def prepare(task_id, release=None, rejudge=None, dep=None, rerun=None, gate=True
     return pack
 
 
-def _systemd_register(task_id, hours, runner=subprocess.run, now=None):
+def _systemd_register(task_id, hours, runner=fkproc.run, now=None):
     """Linux twin of the scheduled task: one transient systemd USER timer (no root), first run in 1 minute, then every
     10 minutes, plus a second one-shot timer that stops it at the expiry. A run is killed after 2 hours
     (RuntimeMaxSec). Transient units live in /run/user, so a reboot ends them, like the Windows task's expiry.
@@ -106,13 +107,13 @@ def _systemd_register(task_id, hours, runner=subprocess.run, now=None):
     return True, "registered"
 
 
-def _systemd_remove(runner=subprocess.run):
+def _systemd_remove(runner=fkproc.run):
     for u in (f"{UNIT}.timer", f"{UNIT}.service", f"{UNIT}-expire.timer", f"{UNIT}-expire.service"):
         runner(["systemctl", "--user", "stop", u], capture_output=True, text=True, errors="replace")
     runner(["systemctl", "--user", "reset-failed", f"{UNIT}.service"], capture_output=True, text=True, errors="replace")
 
 
-def _scheduler_register(task_id, hours, runner=subprocess.run):
+def _scheduler_register(task_id, hours, runner=fkproc.run):
     """One scheduled task under the owner's account, every 10 minutes until the expiry (no elevation)."""
     if sys.platform != "win32":
         return _systemd_register(task_id, hours, runner)
@@ -130,7 +131,7 @@ def _scheduler_register(task_id, hours, runner=subprocess.run):
     return r.returncode == 0 and "registered" in (r.stdout or ""), (r.stdout + r.stderr).strip()[-300:]
 
 
-def _scheduler_remove(runner=subprocess.run):
+def _scheduler_remove(runner=fkproc.run):
     if sys.platform != "win32":
         return _systemd_remove(runner)
     runner(["powershell", "-NoProfile", "-Command",

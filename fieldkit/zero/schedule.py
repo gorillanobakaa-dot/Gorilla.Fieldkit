@@ -10,6 +10,7 @@ Without --apply it prints what it would write and run, and changes nothing.
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -139,7 +140,7 @@ def remove_plan(platform=None, home=None, job=NET):
     return []
 
 
-def apply(steps, run=subprocess.run, say=print):
+def apply(steps, run=fkproc.run, say=print):
     """Carry the steps out. -> 0, or 1 when a command failed (launchctl bootout of a missing agent is not a failure)."""
     rc = 0
     for s in steps:
@@ -159,7 +160,7 @@ def apply(steps, run=subprocess.run, say=print):
     return rc
 
 
-def scheduled(platform=None, run=subprocess.run, home=None, job=NET):
+def scheduled(platform=None, run=fkproc.run, home=None, job=NET):
     """-> (installed?, detail)."""
     platform = platform or sys.platform
     try:
