@@ -639,3 +639,28 @@ def test_main_moving_during_ci_means_update_first_not_a_merge_attempt(world):
     gh.merge = merge
     r = run_train(w, w["clone"]("zero"))
     assert gh.merges == [1], r
+
+
+def _gh_with(answers):
+    """A train.GH whose gh answers come from `answers` in order; records every call and every back-off wait."""
+    gh = object.__new__(train.GH)
+    gh.repo, gh.slug, gh.calls, gh.waits = ".", "o/r", [], []
+    gh.run = lambda cmd, **k: gh.calls.append(cmd) or subprocess.CompletedProcess(cmd, *answers[len(gh.calls) - 1])
+    gh.sleep = gh.waits.append
+    return gh
+
+
+def test_a_github_rate_limit_is_waited_out_then_asked_again():
+    # main CI 45229122266, 2026-11-23: three e2e jobs at once got this from actions/runs?head_sha=
+    limited = (1, "", "gh: You have exceeded a secondary rate limit ... For more on scraping GitHub (HTTP 403)")
+    gh = _gh_with([limited, limited, (0, "[]", "")])
+    assert gh._gh("api", "repos/o/r/actions/runs?head_sha=abc") == (0, "[]", "")
+    assert len(gh.calls) == 3 and gh.waits == list(train.RATE_WAITS)
+
+
+def test_a_rate_limit_that_never_clears_still_fails_and_other_errors_fail_at_once():
+    limited = (1, "", "gh: API rate limit exceeded (HTTP 403)")
+    gh = _gh_with([limited] * 5)
+    assert gh._gh("api", "x")[0] == 1 and len(gh.calls) == len(train.RATE_WAITS) + 1
+    gh = _gh_with([(1, "", "gh: Not Found (HTTP 404)")])
+    assert gh._gh("api", "x")[0] == 1 and len(gh.calls) == 1 and gh.waits == []

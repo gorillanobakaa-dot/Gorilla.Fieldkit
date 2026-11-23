@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-11-02-02-30
+# Version: 1.2.1 · updated 26-11-23-18-00
 """The merge train: a PR is merged only when its session declared it final, one at a time, never red (part 2).
 
     fieldkit ship ready PR [--pending TEXT | --withdraw]
@@ -55,6 +55,12 @@ MARK = re.compile(r"<!-- fieldkit-(ready|not-ready) (\{.*?\}) -->")
 HOOK_FRESH_S = 2 * 3600            # a pre-commit marker younger than this is a commit still in the hook
 OLD_MARK_S = 3600                  # a marker without its checkout (an older hook) counts only this long
 STALE_H = 24
+# 2026-11-23: main CI 45229122266 went red twice on "secondary rate limit ... scraping (HTTP 403)" from
+# actions/runs?head_sha= (three e2e jobs at once, one call per open PR). That is GitHub saying "slow down", not
+# an answer: wait and ask again, at most len(RATE_WAITS) times; every other error still fails at once.
+RATE_LIMITED = re.compile(r"secondary rate limit|API rate limit exceeded|abuse detection|scraping GitHub|HTTP 429",
+                          re.I)
+RATE_WAITS = (30, 90)
 
 FAILURE_MODES = [
     {"name": "merged-before-final", "happened": "#126 merged on green CI at 18:51 while its session still had a commit "
@@ -118,11 +124,17 @@ class GH:
         from ..core import sync
         self.slug = sync._slug(repo)
 
+    sleep = staticmethod(time.sleep)
+
     def _gh(self, *args, timeout=120):
         from .ship import ship_env                    # inside an autopilot run: ship's own credential (inbox #145)
-        r = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                     cwd=self.repo, timeout=timeout, env=ship_env())
-        return r.returncode, (r.stdout or ""), (r.stderr or "")
+        for wait in (*RATE_WAITS, None):
+            r = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         cwd=self.repo, timeout=timeout, env=ship_env())
+            rc, out, err = r.returncode, (r.stdout or ""), (r.stderr or "")
+            if not rc or wait is None or not RATE_LIMITED.search(err):
+                return rc, out, err
+            self.sleep(wait)                          # GitHub asked us to slow down: back off, then ask again
 
     def _json(self, *args):
         rc, out, err = self._gh(*args)
