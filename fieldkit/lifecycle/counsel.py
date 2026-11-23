@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 
 PATHS = ("advise", "review", "tiebreak", "climb")       # the order: cheapest (no restart) first
@@ -296,7 +297,7 @@ def mark_if_gone(model, out, r, found):
     return m.until_text(hit["until"])
 
 
-def ask(model, prompt, purpose="review", pol=None, run=subprocess.run):
+def ask(model, prompt, purpose="review", pol=None, run=fkproc.run):
     """One question to a stronger model through the reviewer command (stdin in, stdout out; no tools, no advisor).
     purpose "review": -> {"yes", "why", "answer", "unavailable"?}; the LAST `VERDICT: YES|NO` line counts; no verdict,
     an error, a timeout: no (fail closed). purpose "tiebreak": -> {"ok", "answer", "why", "unavailable"?}, the whole
@@ -483,7 +484,7 @@ def waste_note(text, model, data=None):
             f"more per token for the same answer (models.yaml work_kinds). Pinned anyway.")
 
 
-def prose_ask(prompt, data=None, run=subprocess.run):
+def prose_ask(prompt, data=None, run=fkproc.run):
     """-> {"ok", "text", "why", "model"}: one cheap model writes prose (`sitrep gather --words`). Never above haiku
     (CHEAP_KINDS rung), no verdict rule: a reply with no VERDICT line is an answer here, never a reason to mark the
     model unavailable. A budget / limit error still marks it (mark_if_gone)."""

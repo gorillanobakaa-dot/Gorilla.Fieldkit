@@ -262,8 +262,10 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         rec.update(accept=accept, accept_cwd=str(Path(cwd or os.getcwd()).resolve()), failures=0)
     if on:
         from ..peers import link
+        from . import sessionmode
         r = (call or link.call)({"verb": "ask", "agent": chosen_agent, "brief": brief, "model": model,
-                                 "thinking": thinking}, timeout=30, device=on)
+                                 "thinking": thinking, "session_mode": sessionmode.current(sessionmode.session_id({}))},
+                                timeout=30, device=on)
         ok = bool(r.get("ok") and r.get("started"))
         rec.update(how="link ask", answer=r.get("why") or r.get("error") or "",
                    status="started" if ok else "not-started")
@@ -585,8 +587,8 @@ def _agent_quota(t, read=None):
     except OSError:
         return None
     last = [ln.strip() for ln in tail.splitlines() if ln.strip()][-1:]
-    if last == ["exit 0"]:                       # the run itself finished fine: its status lines are not a quota error
-        return None                              # (2026-11-17: a finished runbook blocked Claude for two hours)
+    if last in (["exit 0"], ["exit 75"]):        # finished fine, or a deliberate budget PAUSE (autopilot EXIT_PAUSED = 75):
+        return None                              # neither is an agent quota error (2026-11-17 exit 0; 2026-11-23 exit 75)
     from . import choice
     return choice.note_failure(t.get("agent") or "claude", tail)
 

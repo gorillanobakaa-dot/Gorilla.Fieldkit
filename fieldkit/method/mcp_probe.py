@@ -21,6 +21,7 @@ import argparse
 import json
 import queue
 import subprocess
+from fieldkit import proc as fkproc
 import threading
 import time
 
@@ -31,7 +32,7 @@ CLIENT = {"name": "fieldkit-mcp-probe", "version": "1"}
 
 class Session:
     def __init__(self, argv, cwd=None, env=None):
-        self.p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        self.p = fkproc.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env, bufsize=1)
         self.lines = queue.Queue()
         self.junk = []

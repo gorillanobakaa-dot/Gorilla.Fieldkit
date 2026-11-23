@@ -21,6 +21,7 @@ Deterministic, no model:
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import zlib
 from pathlib import Path
 
@@ -69,7 +70,7 @@ def sections(patchset, policy=None, platform=None):
 
 
 def blob_hash(path):
-    r = subprocess.run(["git", "hash-object", str(path)], capture_output=True, text=True)
+    r = fkproc.run(["git", "hash-object", str(path)], capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -174,8 +175,8 @@ def restore(tree, patchset, policy=None, commit=True):
         done.append(f"{path} <- {s['patch']}")
     if done and commit:
         env = {**os.environ, **IDENT}
-        subprocess.run(["git", "-C", str(tree), "add", "--", *[d.split(" <- ")[0] for d in done]], capture_output=True)
-        r = subprocess.run(["git", "-C", str(tree), "commit", "-q", "--no-verify", "-m",
+        fkproc.run(["git", "-C", str(tree), "add", "--", *[d.split(" <- ")[0] for d in done]], capture_output=True)
+        r = fkproc.run(["git", "-C", str(tree), "commit", "-q", "--no-verify", "-m",
                             "binary-patches: pictures the set carries restored, each verified by its git hash\n\n"
                             + "\n".join(done)], capture_output=True, text=True, env=env)
         if r.returncode != 0:

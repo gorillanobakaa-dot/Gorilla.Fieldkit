@@ -12,6 +12,7 @@ time typed in; the next run needed a new script. Everything comes from the run's
             gate's PID); for a run older than that file: artifacts.json when the run has finished, else the
             launcher's log header ("repeat 3, release durations -> <run>") with the scenario table as it is now
   progress  runs/profile-* folders (one per scenario run started), the newest by modification time
+  captured  scenario-checkpoints/*.json for scenario runs with a complete sensor snapshot
   alive     the PID from gate-plan.json (or the task's writer lock, when it names `leakgate`) is still that process
   result    test-results.json present: the run has judged (FINAL_RESULT)
   CPU       the thermal watcher's log (thermal/watchlog.py) since the start; default <owner>/state/thermal_watch.log
@@ -68,7 +69,8 @@ def plan(d, launcher_dir=None):
     if p.is_file():
         pl = json.loads(p.read_text(encoding="utf-8"))
         return {"runs": pl["runs"], "total": len(pl["runs"]), "source": gate.PLAN_FILE, "pid": pl.get("pid"),
-                "repeat": pl.get("repeat"), "quick": pl.get("quick")}
+                "repeat": pl.get("repeat"), "quick": pl.get("quick"), "attempt_started": pl.get("started"),
+                "recovered_runs": pl.get("recovered_runs", 0)}
     art = Path(d) / "artifacts.json"
     if art.is_file():
         runs = list(json.loads(art.read_text(encoding="utf-8")))
@@ -128,12 +130,22 @@ def writer_pid(task_id):
 def status(task_id, name=None, thermal_log=None, hot=70.0, launcher_dir=None):
     from ..core import settings
     from ..thermal import watchlog
+    from .gate import CHECKPOINT_DIR
     d = run_dir(task_id, name)
     t0 = started_at(d)
     pl = plan(d, launcher_dir or settings.state_root() / "state" / "leakgate-launcher")
     profiles = sorted((d / "runs").glob("profile-*"), key=lambda p: p.stat().st_mtime) if (d / "runs").is_dir() else []
     started = [p.name[len("profile-"):] for p in profiles]
+    checkpoints = d / CHECKPOINT_DIR
+    captured = None
+    if checkpoints.is_dir():
+        recorded = {p.stem for p in checkpoints.glob("*.json") if p.is_file()}
+        captured = [run for run in pl["runs"] or [] if run in recorded]
     pid = pl.get("pid") or writer_pid(task_id)
+    try:
+        attempt_at = dt.datetime.fromisoformat(pl.get("attempt_started") or "")
+    except ValueError:
+        attempt_at = t0
     res_path = d / "test-results.json"
     final, ended = None, None
     if res_path.is_file():
@@ -145,8 +157,10 @@ def status(task_id, name=None, thermal_log=None, hot=70.0, launcher_dir=None):
     therm = watchlog.summary(watchlog.read(thermal_log), since=t0, until=ended, hot=hot) if thermal_log else None
     return {"task": task_id, "run": str(d), "started": t0.isoformat(sep=" "), "plan_source": pl["source"],
             "expected": pl["total"], "started_runs": len(started), "latest": started[-1] if started else None,
+            "captured_runs": captured,
             "not_yet": [r for r in (pl["runs"] or []) if r not in set(started)],
-            "pid": pid, "alive": alive(pid, t0), "result": final,
+            "pid": pid, "alive": alive(pid, attempt_at), "result": final,
+            "recovered_runs": pl.get("recovered_runs", 0),
             "thermal_log": str(thermal_log) if thermal_log else None, "thermal": therm,
             "elapsed_min": round((dt.datetime.now() - t0).total_seconds() / 60)}
 
@@ -162,6 +176,10 @@ def lines(s):
            f"  run {s['run']}, started {s['started']} ({s['elapsed_min']} min ago)" + (f", gate PID {s['pid']}" if s["pid"] else ""),
            f"  {s['started_runs']} of {exp if exp else '?'} scenario runs started{pct}; latest: {s['latest'] or '-'}"
            + f"  [expected from {s['plan_source']}]"]
+    if s.get("captured_runs") is not None:
+        out.append(f"  {len(s['captured_runs'])} scenario runs captured; see scenario-checkpoints for sensor observations")
+    if s.get("recovered_runs"):
+        out.append(f"  {s['recovered_runs']} verified scenario runs reused from the previous attempt")
     if s["not_yet"] and not s["result"]:
         out.append(f"  next: {', '.join(s['not_yet'][:4])}" + (f" ... ({len(s['not_yet'])} to go)" if len(s["not_yet"]) > 4 else ""))
     if s["thermal_log"]:

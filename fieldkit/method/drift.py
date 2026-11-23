@@ -17,6 +17,7 @@ import argparse
 import difflib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import emit, split_command
@@ -57,7 +58,7 @@ def drift(gen, file, cwd=None, timeout=600, env=None):
     try:
         # UTF-8 both ways (2026-10-26, the merge train): on Windows a pipe was decoded as cp1252, so a generator that
         # prints non-ASCII text drifted from its own committed file
-        r = subprocess.run(gen, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+        r = fkproc.run(gen, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
                            timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"ok": False, "error": f"the generator did not run: {e}"}

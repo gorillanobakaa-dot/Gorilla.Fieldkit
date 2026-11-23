@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def _v(ctx, key):
 
 
 def _run(cmd, cwd=None, env=None, timeout=None):
-    r = subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, capture_output=True, text=True,
+    r = fkproc.run([str(c) for c in cmd], cwd=cwd, env=env, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
     return r.returncode, r.stdout + r.stderr
 
@@ -174,7 +175,7 @@ _COUNTS = re.compile(r"(\d+) clean, (\d+) applied-with-fuzz, (\d+) failed|patche
 
 def ported_commits(src):
     """Commits on top of the pristine root commit (Mozilla's release) -> int, or None when src is not a git tree."""
-    r = subprocess.run(["git", "-C", str(src), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(src), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
     return int(r.stdout.strip()) - 1 if r.returncode == 0 and r.stdout.strip().isdigit() else None
 
 
@@ -362,7 +363,7 @@ def build_mode(src, objdir=None):
     if not (od / "dist" / "bin").is_dir() or not stamp.is_file():
         return "full", "no successful build recorded in the objdir"
     last = stamp.read_text().strip()
-    r = subprocess.run(["git", "-C", str(src), "diff", "--name-only", last], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(src), "diff", "--name-only", last], capture_output=True, text=True)
     if r.returncode != 0:
         return "full", f"cannot compare with the last built commit {last[:12]}"
     changed = [f for f in r.stdout.split() if not f.startswith("build_logs/")]

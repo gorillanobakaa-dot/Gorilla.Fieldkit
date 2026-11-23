@@ -31,6 +31,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -118,7 +119,7 @@ DETACHED_PROCESS = 0x00000008
 AWAKE_CREATE_FLAGS = DETACHED_PROCESS | nowindow.NO_WINDOW
 
 
-def hold_awake(pid, run=subprocess.run, platform=None, popen=subprocess.Popen, which=shutil.which):
+def hold_awake(pid, run=fkproc.run, platform=None, popen=fkproc.Popen, which=shutil.which):
     """Start (through WMI, so it outlives the session) a hidden PowerShell holding the stay-awake request until `pid`
     exits -> {"pid": the holder's pid}; refuses a pid that is not running. On Linux: systemd-inhibit holding off idle
     sleep in a detached session until `pid` exits; refused where there is no systemd-inhibit (nothing would hold it)."""
@@ -198,7 +199,7 @@ def sh_script(args, log, python=None, herald=True, which=shutil.which):
     return "\n".join(lines)
 
 
-def _launch_posix(args, log, popen=subprocess.Popen, herald=True):
+def _launch_posix(args, log, popen=fkproc.Popen, herald=True):
     bash = shutil.which("bash")
     if not bash:
         raise task.Refused("window: bash is not on this machine")
@@ -207,7 +208,7 @@ def _launch_posix(args, log, popen=subprocess.Popen, herald=True):
     return {"pid": p.pid, "log": str(log)}
 
 
-def launch(args, run=subprocess.run, platform=None, popen=subprocess.Popen, herald=True):
+def launch(args, run=fkproc.run, platform=None, popen=fkproc.Popen, herald=True):
     """Start the window through WMI (Windows) or a detached session (Linux) -> {"pid", "log"}; raises task.Refused when
     it was not started."""
     if not args:

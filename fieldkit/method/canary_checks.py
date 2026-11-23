@@ -10,6 +10,7 @@ raises on its plant (decisions.Unreadable) counts as "not passed" too: it did no
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -18,7 +19,7 @@ FLAGGED, PASSED = 3, 0
 
 
 def _git(w, *a):
-    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t", *a], check=True,
+    fkproc.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t", *a], check=True,
                    capture_output=True)
 
 

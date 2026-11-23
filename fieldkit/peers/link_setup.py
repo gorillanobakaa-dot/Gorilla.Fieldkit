@@ -27,6 +27,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -59,7 +60,7 @@ def pick_cable(cards, internet_iface):
     return cands[0]["name"], f"{cands[0]['name']}: wired, link up, not the internet route"
 
 
-def windows_cards(run=subprocess.run):
+def windows_cards(run=fkproc.run):
     ps = ("Get-NetAdapter -Physical | Where-Object { $_.MediaType -eq '802.3' } | ForEach-Object { "
           "[ordered]@{ name = $_.Name; wired = $true; up = ($_.Status -eq 'Up'); addresses = @(Get-NetIPAddress "
           "-InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { "
@@ -73,7 +74,7 @@ def windows_cards(run=subprocess.run):
     return cards, (rt.stdout or "").strip()
 
 
-def linux_cards(sysfs="/sys", run=subprocess.run):
+def linux_cards(sysfs="/sys", run=fkproc.run):
     cards = []
     for d in sorted(Path(sysfs, "class", "net").iterdir()) if Path(sysfs, "class", "net").is_dir() else []:
         if d.name == "lo" or (d / "wireless").is_dir() or not (d / "device").exists():
@@ -109,7 +110,7 @@ def windows_admin_script(iface, ip, peer, need_ip, need_rule):
     return "\n".join(L) + "\n"
 
 
-def windows_rule_exists(run=subprocess.run):
+def windows_rule_exists(run=fkproc.run):
     r = run(["powershell", "-NoProfile", "-Command",
              f"if (Get-NetFirewallRule -DisplayName '{RULE}' -ErrorAction SilentlyContinue) {{ 'yes' }}"],
             capture_output=True, text=True)
@@ -138,7 +139,7 @@ def linux_firewall_plan(active, iface, ip, peer):
     return []
 
 
-def linux_firewall_active(run=subprocess.run):
+def linux_firewall_active(run=fkproc.run):
     for name, cmd in (("ufw", ["ufw", "status"]), ("firewalld", ["firewall-cmd", "--state"])):
         if shutil.which(cmd[0]):
             r = run(cmd, capture_output=True, text=True)
@@ -151,7 +152,7 @@ def linux_firewall_active(run=subprocess.run):
     return ""
 
 
-def run_root(cmds, run=subprocess.run):
+def run_root(cmds, run=fkproc.run):
     """Each command as this user first; refused -> once more through pkexec (the owner's password prompt)."""
     for c in cmds:
         r = run(c, capture_output=True, text=True)
@@ -212,7 +213,7 @@ exec python3 -m fieldkit peers link setup --join "$HERE"
 """
 
 
-def write_usb_kit(dest, bundle_from, pair_file, run=subprocess.run):
+def write_usb_kit(dest, bundle_from, pair_file, run=fkproc.run):
     """-> list of files written into <dest>/fieldkit-link."""
     import hashlib
     d = Path(dest) / "fieldkit-link"
@@ -251,7 +252,7 @@ def listening(ip, port=link.PORT, sock=socket.socket):
         s.close()
 
 
-def start_serve(popen=subprocess.Popen):
+def start_serve(popen=fkproc.Popen):
     log = open(link.home() / "serve.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
     p = popen([sys.executable, "-m", "fieldkit", "peers", "link", "serve"], stdout=log, stderr=subprocess.STDOUT,
@@ -264,7 +265,7 @@ def start_serve(popen=subprocess.Popen):
 
 
 # ---- the whole thing -------------------------------------------------------------------------------------------
-def setup(first=False, join=None, usb=None, iface=None, run=subprocess.run, popen=subprocess.Popen, cards_fn=None,
+def setup(first=False, join=None, usb=None, iface=None, run=fkproc.run, popen=fkproc.Popen, cards_fn=None,
           elevate_fn=None, root_fn=None, firewall_fn=None, roots_fn=removable_roots, wait_listen=10):
     """-> (exit, VERDICT, NEXT)."""
     win = WINDOWS
@@ -363,8 +364,8 @@ def _elevate(script):
             stamp = time.strftime("%Y%m%d-%H%M%S")
             sp, log = res / f"setup-{stamp}.ps1", res / f"setup-{stamp}.log"
             sp.write_text(script, encoding="utf-8-sig")
-            subprocess.run([sys.executable, str(kit), "run", str(sp), "--log", str(log), "--close"], capture_output=True)
-            w = subprocess.run([sys.executable, str(kit), "wait", str(log), "--marker", "ELEVATE: script finished",
+            fkproc.run([sys.executable, str(kit), "run", str(sp), "--log", str(log), "--close"], capture_output=True)
+            w = fkproc.run([sys.executable, str(kit), "wait", str(log), "--marker", "ELEVATE: script finished",
                                 "--timeout", "10"], capture_output=True, text=True)
             return w.returncode, log.read_text(encoding="utf-8", errors="replace") if log.is_file() else w.stdout
     return 3, "the elevate kit is not on this computer (local/kits/Elevate)"

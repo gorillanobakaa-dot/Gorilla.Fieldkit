@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -35,7 +36,7 @@ def _sha(path):
 
 
 def _git(wd, *args):
-    return subprocess.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout.strip()
+    return fkproc.run(["git", "-C", str(wd), *args], capture_output=True, text=True, errors="replace").stdout.strip()
 
 
 def mozconfig_path(harness_root=None):
@@ -237,8 +238,9 @@ def verify(task_id, run_binary=True):
         except ValueError:
             pass
     moz = mozconfig_path()
-    row("mozconfig unchanged since the gate", moz.is_file() and _sha(moz) == rec["mozconfig_sha256"],
-        "unchanged" if moz.is_file() and _sha(moz) == rec["mozconfig_sha256"] else "mozconfig differs from what was gated")
+    same_config = moz.is_file() and _sha(moz) == rec["mozconfig_sha256"]
+    row("mozconfig unchanged since the gate", same_config,
+        "unchanged" if same_config else "mozconfig differs from what was gated")
     dist = Path(rec["objdir"]) / "dist"
     found = {}
     win, lnx = ("windows",), ("linux",)
@@ -261,7 +263,7 @@ def verify(task_id, run_binary=True):
     def _version_row():
         if not exe.is_file():
             return False, str(exe)
-        out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
+        out = fkproc.run([str(exe), "--version"], capture_output=True, text=True, timeout=60, errors="replace").stdout
         return rec["version"] in out, out.strip() or "no output"
     if run_binary:
         host.os_row(rows, win, "built firefox.exe exists and reports the pinned version", _version_row)
@@ -291,8 +293,9 @@ def verify(task_id, run_binary=True):
         def _embedded():
             if not (brand and brand.is_dir()):
                 return False, "no --with-branding dir found from the mozconfig"
-            bad = [(n, h, t, d) for n, h, t, d in icons.embedded(exe, brand) if not (h == t and t > 0)]
-            return not bad, "; ".join(f"{n} {h} of {t} image(s): {d}" for n, h, t, d in (bad or icons.embedded(exe, brand)))[:300]
+            found_icons = icons.embedded(exe, brand)
+            bad = [(n, h, t, d) for n, h, t, d in found_icons if not (h == t and t > 0)]
+            return not bad, "; ".join(f"{n} {h} of {t} image(s): {d}" for n, h, t, d in (bad or found_icons))[:300]
         host.os_row(rows, win, "branding icons are embedded in firefox.exe", _embedded)
     if found.get("installer") and brand and (brand / "firefox.ico").is_file():
         # the owner's verify_installer.py, as a row: the branding icon's pixel data inside the packaged installer

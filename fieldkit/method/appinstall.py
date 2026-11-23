@@ -23,6 +23,7 @@ import shutil
 import signal
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 import zlib
@@ -393,6 +394,48 @@ def _trash_move_linux(path: Path, trash_dir: Path) -> str:
     return str(dest)
 
 
+PURGE_GRACE_SECS = 10.0
+
+
+def _pid_alive(pid: int, kill=os.kill) -> bool:
+    try:
+        kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True      # exists but not ours to signal
+    return True
+
+
+def stop_processes(procs, ops_done, errors, grace=PURGE_GRACE_SECS, kill=os.kill, sleep=time.sleep,
+                   clock=time.monotonic):
+    """SIGTERM every process, wait for it to exit (up to `grace` s: an app may save its state), SIGKILL only the
+    survivors. Every step is a row in ops_done: stop, exited (with the seconds waited), kill."""
+    pending = {}
+    for proc in procs:
+        pid = proc["pid"]
+        try:
+            kill(pid, signal.SIGTERM)
+            ops_done.append({"op": "stop", "pid": pid, "exe": proc["exe"]})
+            pending[pid] = proc
+        except OSError as e:
+            errors.append(f"stop pid {pid}: {e}")
+    started = clock()
+    while pending:
+        for pid in [p for p in pending if not _pid_alive(p, kill)]:
+            ops_done.append({"op": "exited", "pid": pid, "exe": pending.pop(pid)["exe"],
+                             "waited_s": round(clock() - started, 2)})
+        if not pending or clock() - started >= grace:
+            break
+        sleep(0.2)
+    for pid, proc in pending.items():
+        try:
+            kill(pid, getattr(signal, "SIGKILL", 9))
+            ops_done.append({"op": "kill", "pid": pid, "exe": proc["exe"], "after_s": round(clock() - started, 2)})
+        except OSError as e:
+            errors.append(f"kill pid {pid}: {e}")
+
+
 def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, home: Path | None = None) -> dict:
     """Purge an application on Linux: stop processes, disable user systemd unit, move files to ~/Agents.Work.Trash,
     and update hicolor icon cache + desktop database."""
@@ -467,25 +510,10 @@ def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, 
     errors = []
 
     if apply:
-        for proc in procs:
-            pid = proc["pid"]
-            try:
-                os.kill(pid, signal.SIGTERM)
-                ops_done.append({"op": "stop", "pid": pid, "exe": proc["exe"]})
-            except OSError as e:
-                errors.append(f"stop pid {pid}: {e}")
-        if procs:
-            time.sleep(0.3)
-            for proc in procs:
-                pid = proc["pid"]
-                try:
-                    os.kill(pid, 0)
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+        stop_processes(procs, ops_done, errors)
 
         for u in systemd_units:
-            subprocess.run(["systemctl", "--user", "disable", "--now", u.name], capture_output=True)
+            fkproc.run(["systemctl", "--user", "disable", "--now", u.name], capture_output=True)
 
         for target in file_targets:
             if target.exists() or target.is_symlink():
@@ -508,9 +536,9 @@ def purge_linux(name: str, apply: bool = False, install_dir: str | None = None, 
             (trash_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
         if hicolor_root.is_dir() and shutil.which("gtk-update-icon-cache"):
-            subprocess.run(["gtk-update-icon-cache", "-f", "-t", str(hicolor_root)], capture_output=True)
+            fkproc.run(["gtk-update-icon-cache", "-f", "-t", str(hicolor_root)], capture_output=True)
         if apps_root.is_dir() and shutil.which("update-desktop-database"):
-            subprocess.run(["update-desktop-database", str(apps_root)], capture_output=True)
+            fkproc.run(["update-desktop-database", str(apps_root)], capture_output=True)
 
     still_present = [str(p) for p in file_targets if p.exists() or p.is_symlink()] if apply else []
     return {
@@ -546,10 +574,10 @@ def purge_windows(name: str, apply: bool = False, install_dir: str | None = None
         cmd += ["--backup-dir", str(backup_dir)]
     if apply:
         cmd.append("--apply")
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = fkproc.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     out_text = (r.stdout or "") + (r.stderr or "")
     if apply and shutil.which("ie4uinit.exe"):
-        subprocess.run(["ie4uinit.exe", "-show"], capture_output=True)
+        fkproc.run(["ie4uinit.exe", "-show"], capture_output=True)
     # Exit 1 with "no installed program" and no install_dir means nothing was installed to purge (clean state)
     nothing_installed = r.returncode == 1 and "no installed program" in out_text and not install_dir
     ok = (r.returncode == 0) or nothing_installed
@@ -718,7 +746,7 @@ def install_linux(
         desktop_shortcut.chmod(0o755)
         if shutil.which("gio"):
             from ..app import start as app_start
-            subprocess.run(
+            fkproc.run(
                 ["gio", "set", str(desktop_shortcut), "metadata::trusted", "true"],
                 env=app_start.linux_gui_env(),
                 capture_output=True,
@@ -726,13 +754,13 @@ def install_linux(
 
     cache_runs = {}
     if shutil.which("desktop-file-validate"):
-        r = subprocess.run(["desktop-file-validate", str(desktop_file)], capture_output=True, text=True)
+        r = fkproc.run(["desktop-file-validate", str(desktop_file)], capture_output=True, text=True)
         cache_runs["desktop-file-validate"] = {"returncode": r.returncode, "output": (r.stdout + r.stderr).strip()}
     if shutil.which("gtk-update-icon-cache"):
-        r = subprocess.run(["gtk-update-icon-cache", "-f", "-t", str(hicolor_root)], capture_output=True, text=True)
+        r = fkproc.run(["gtk-update-icon-cache", "-f", "-t", str(hicolor_root)], capture_output=True, text=True)
         cache_runs["gtk-update-icon-cache"] = {"returncode": r.returncode, "output": (r.stdout + r.stderr).strip()}
     if shutil.which("update-desktop-database"):
-        r = subprocess.run(["update-desktop-database", str(desktop_file.parent)], capture_output=True, text=True)
+        r = fkproc.run(["update-desktop-database", str(desktop_file.parent)], capture_output=True, text=True)
         cache_runs["update-desktop-database"] = {"returncode": r.returncode, "output": (r.stdout + r.stderr).strip()}
 
     ref = iv.reference_from_local(app_id, opt_dir, home=home, version=ver)
@@ -766,7 +794,7 @@ def _create_windows_shortcut(lnk_path: Path, target_exe: Path, icon_path: Path, 
         f"$s.Description = '{description.replace(chr(39), chr(39)*2)}'; "
         "$s.Save()"
     )
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
+    r = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
     return r.returncode == 0 and lnk_path.is_file(), (r.stdout + r.stderr).strip()
 
 
@@ -901,7 +929,7 @@ def install_windows(
             ok_lnk, msg = _create_windows_shortcut(lnk, dst_exe, ico_path, meta["comment"])
             shortcuts.append({"path": str(lnk), "ok": ok_lnk, "msg": msg})
         if shutil.which("ie4uinit.exe"):
-            subprocess.run(["ie4uinit.exe", "-show"], capture_output=True)
+            fkproc.run(["ie4uinit.exe", "-show"], capture_output=True)
 
     return {
         "ok": True,
@@ -936,7 +964,7 @@ def run_purge(
             cmd += ["--dir", install_dir]
         if apply:
             cmd.append("--apply")
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        r = fkproc.run(cmd, capture_output=True, text=True, timeout=120)
         return json.loads(r.stdout) if r.returncode in (0, 3) and r.stdout.strip().startswith("{") else {
             "ok": False, "error": (r.stderr or r.stdout).strip()
         }
@@ -967,7 +995,7 @@ def run_install(
             cmd.append("--replace")
         if apply:
             cmd.append("--apply")
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        r = fkproc.run(cmd, capture_output=True, text=True, timeout=300)
         return json.loads(r.stdout) if r.returncode in (0, 3) and r.stdout.strip().startswith("{") else {
             "ok": False, "error": (r.stderr or r.stdout).strip()
         }

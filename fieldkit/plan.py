@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -72,7 +73,7 @@ def order(text):
     return out
 
 
-def _git(root, *args, run=subprocess.run):
+def _git(root, *args, run=fkproc.run):
     try:
         r = run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
@@ -80,7 +81,7 @@ def _git(root, *args, run=subprocess.run):
     return r.stdout if r.returncode == 0 else ""
 
 
-def merged(root, run=subprocess.run):
+def merged(root, run=fkproc.run):
     """-> {id: "#N"} from the merge commits since the plan was added (origin/main, else HEAD). Offline: local refs."""
     added = _git(root, "log", "--diff-filter=A", "--format=%H", "--", PLAN, run=run).split()
     if not added:
@@ -128,7 +129,7 @@ def is_held(status):
     return u.startswith("FINAL GOAL") or "NOT NOW" in u
 
 
-def next_(root=None, run=subprocess.run):
+def next_(root=None, run=fkproc.run):
     """-> {"phase", "open", "done", "line", ...}: the first phase with an open item, and the plan's one line."""
     root = Path(root or ROOT)
     p = root / PLAN

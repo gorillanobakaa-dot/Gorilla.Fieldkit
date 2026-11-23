@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from fieldkit.desk import size
+from fieldkit.desk import size_install
 
 
 def _fake(tmp_path, body_rc=0):
@@ -26,6 +27,46 @@ def _fake(tmp_path, body_rc=0):
         exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
         exe.chmod(0o755)
     return exe
+
+
+def test_integrate_dispatches_without_building(tmp_path, monkeypatch):
+    monkeypatch.setattr(size, "source_dir", lambda: tmp_path)
+    seen = []
+    monkeypatch.setattr(size_install, "main", lambda args, default: seen.append((args, default)) or 0)
+    assert size.main(["integrate", "--from-dir", "release"]) == 0
+    assert seen == [(["--from-dir", "release"], tmp_path / "target" / "release")]
+
+
+def test_integrate_runs_only_safe_binary_probes_and_installs_both(tmp_path, monkeypatch):
+    source = tmp_path / "release"
+    source.mkdir()
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("LOCALAPPDATA", str(home))
+    windows = sys.platform == "win32"
+    suffix = ".exe" if windows else ""
+    names = ("gorilla-size", "gorilla-trash")
+    for name in names:
+        (source / (name + suffix)).write_text(name, encoding="utf-8")
+    probes = []
+    registry = []
+
+    def probe(args, **kwargs):
+        probes.append(args)
+        return subprocess.CompletedProcess(args, 0, Path(args[0]).stem + " description", "")
+
+    from fieldkit.desk import install_preflight
+    monkeypatch.setattr(install_preflight, "run_preflight", lambda **kw: {"status": "ok"})
+    monkeypatch.setattr(size_install.subprocess, "run", probe)
+    monkeypatch.setattr(size_install, "install_windows", lambda *args: registry.append(args))
+    assert size_install.main([], source) == 0
+    assert size_install.main([], source) == 0
+    bindir = home / "Fieldkit" / "bin" if windows else home / ".local" / "bin"
+    for name in names:
+        assert (bindir / (name + suffix)).read_text(encoding="utf-8") == name
+    expected = [[str(source / (name + suffix)), flag] for name, flag in zip(names, ("--version", "--help"))]
+    assert probes == expected * 2
+    assert registry == ([(bindir, bindir / "gorilla-trash.exe")] * 2 if windows else [])
 
 
 def test_missing_program_is_said_with_the_fix(tmp_path, monkeypatch, capsys):

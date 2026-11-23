@@ -27,9 +27,7 @@ def test_hand_rolled_scans_are_routed_to_the_tool(cmd, route):
 @pytest.mark.parametrize("cmd", [
     "git status --short",
     "ls -la /c/Users",
-    "Get-ChildItem C:\\gfobj\\dist\\*.zip",
     "python -m fieldkit size find --name vctip.exe --type f C:/",
-    "find . -maxdepth 1",
     "Get-ChildItem -Recurse x  # toolrouter-ok: a 3-file fixture folder in a test",
 ])
 def test_ordinary_commands_and_the_tools_pass(cmd):
@@ -192,7 +190,8 @@ def test_the_claude_hook_denies_with_the_tool_command(capsys):
     out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
     assert out["permissionDecision"] == "deny" and "size find" in out["permissionDecisionReason"]
     tr.hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "x"}})))
-    assert capsys.readouterr().out == ""
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and "static-file-read" in out["permissionDecisionReason"]
 
 
 # -- C6 (2026-10-28): one Python start per tool call. The room's part (room line, net lease, hog registry, rotation
@@ -240,13 +239,16 @@ def test_an_allowed_call_gets_the_room_in_the_same_process(tmp_path, monkeypatch
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
     monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
     room.unseen("s2")
+    (tmp_path / "rot" / "said").mkdir(parents=True)                # marks for both sessions (a missing mark now blocks)
+    for sid in ("s1", "s2"):
+        (tmp_path / "rot" / "said" / f"{sid}.json").write_text(json.dumps({"level": "OK", "t": 0}), encoding="utf-8")
     commit = {"session_id": "s1", "cwd": "C:/x/Fieldkit", "tool_name": "Bash", "transcript_path": "C:/t/s1.jsonl",
               "tool_input": {"command": "git commit -m a"}, "hook_event_name": "PreToolUse"}
     tr.hook(io.StringIO(json.dumps(commit)))
     assert "permissionDecision" not in capsys.readouterr().out
     assert room.tail()[-1].split("\t")[3] == "commit"              # written by the router's process
     tr.hook(io.StringIO(json.dumps(dict(commit, session_id="s2", transcript_path="C:/t/s2.jsonl",
-                                        tool_name="Read", tool_input={"file_path": "x"}))))
+                                        tool_name="NotebookRead", tool_input={"file_path": "x"}))))
     out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
     assert out["hookEventName"] == "PreToolUse" and "permissionDecision" not in out
     assert "commit" in out["additionalContext"]                     # the other session is shown it
@@ -274,9 +276,10 @@ def test_a_sleep_between_two_measurements_is_a_sampling_interval():
 
 
 def test_a_habit_named_inside_quotes_or_a_search_is_data():
-    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', "grep -n Get-FileHash docs/x.md",
-                'echo "wget https://example.org/x"', "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
+    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', 'echo "wget https://example.org/x"']:
         assert tr.route(cmd) is None, cmd
+    for cmd in ["grep -n Get-FileHash docs/x.md", "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
+        assert tr.route(cmd)["route"] == "text-search-in-tree", cmd
     for cmd, name in [("robocopy C:\\src D:\\dst /E", "tree-copy-by-hand"),
                       ('bash -c "robocopy a b /E"', "tree-copy-by-hand"),
                       ("grep -n x f; robocopy a b /E", "tree-copy-by-hand"),
@@ -363,3 +366,132 @@ def test_a_started_session_or_a_proposal_id_start_is_not_a_card(initiation):
     if initiation:
         ti["initiation"] = initiation
     assert tr._no_card({"tool_name": "mcp__ccd_session__start_session", "tool_input": ti}) is None
+
+
+def test_audit_only_blocks_shell_python_and_native_search(monkeypatch):
+    monkeypatch.setenv("FIELDKIT_AUDIT_ONLY", "1")
+    for tool, command in [("Bash", "python -c pass"), ("PowerShell", "rg x ."), ("Grep", "")]:
+        out = tr.verdict({"tool_name": tool, "tool_input": {"command": command}})["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny"
+    assert tr.verdict({"tool_name": "mcp__fieldkit__clean_slate_audit"}) is None
+
+
+@pytest.mark.parametrize(("cmd", "route"), [
+    ("rg needle .", "text-search-in-tree"),
+    ("rg --files .", "recursive-file-search"),
+    ("find . -maxdepth 1", "recursive-file-search"),
+    ("Get-ChildItem -Recurse", "recursive-file-search"),
+    ("tail -n 20 app.log", "static-file-read"),
+    ('bash -c "rg needle ."', "text-search-in-tree"),
+    ("du .", "folder-size"),
+])
+def test_raw_searches_go_to_fieldkit(cmd, route):
+    assert tr.route(cmd)["route"] == route
+
+
+def test_follow_is_live_and_simple_rg_rewrites_in_place():
+    assert tr.route("tail -f app.log") is None
+    assert tr.route("Get-Content app.log -Tail 20 -Wait", shell="PowerShell") is None
+    call = {"tool_name": "PowerShell", "tool_input": {"command": "rg needle ."}}
+    decision = tr.verdict(call)["hookSpecificOutput"]
+    assert decision["updatedInput"]["command"] == "python -B -m fieldkit.desk.pfind --content --regex -- needle ."
+
+
+# --- F3.3 (owner 2026-11-22): clean read-only find/cat/sed -n/wc in a git checkout; model guard on worker starts ---
+
+@pytest.fixture
+def gitdir(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "sub").mkdir()
+    return str(tmp_path / "sub")
+
+
+@pytest.mark.parametrize("cmd", [
+    "find . -name '*.py'",
+    "find fieldkit -name '*.py' -type f | wc -l",
+    "find . -name x 2>/dev/null",
+    "cat README.md",
+    "cat -n a.py b.py",
+    "sed -n '1,20p' a.py",
+    "sed -n 5p a.py",
+    "wc -l a.py",
+])
+def test_clean_read_only_commands_pass_in_a_git_checkout(cmd, gitdir):
+    assert tr.readonly_clean(cmd, gitdir)
+    assert tr.route(cmd, gitdir) is None
+
+
+@pytest.mark.parametrize("cmd", [
+    "find . -delete",
+    "find . -name x -exec rm {} ;",
+    "find . -fprint o.txt",
+    "find / -name x",
+    "find .. -name x",
+    "cat x > y",
+    "cat x | grep y",
+    "cat a; rm b",
+    "find . -name x | xargs rm",
+    "sed -i s/a/b/ f",
+    "sed -n '1,2p' f > g",
+])
+def test_dangerous_forms_are_not_clean_read_only(cmd, gitdir):
+    assert not tr.readonly_clean(cmd, gitdir)
+
+
+def test_a_find_from_the_root_is_still_routed_to_the_tool(gitdir):
+    assert tr.route("find / -name x", gitdir)["route"] == "recursive-file-search"
+
+
+def test_the_read_only_door_needs_a_git_checkout(tmp_path):
+    assert not tr.readonly_clean("find . -name x", str(tmp_path))
+    assert not tr.readonly_clean("find . -name x", "")
+    assert tr.route("find / -name vctip.exe 2>/dev/null")["route"] == "recursive-file-search"
+
+
+def test_a_note_opens_the_runner_refusal_only_when_no_runner_runs():
+    assert tr.local_tests_refusal("echo x  # toolrouter-ok: no runner here") is None
+    assert tr.local_tests_refusal("pytest tests  # toolrouter-ok: really") is not None
+    assert tr.local_tests_refusal("pytest tests") is not None
+
+
+def _start(**ti):
+    return {"tool_name": "mcp__ccd_session__start_session", "tool_input": dict({"initiation": "user_asked"}, **ti)}
+
+
+@pytest.mark.parametrize("ti", [{}, {"model": ""}, {"model": "claude-opus-5-5"}, {"model": "fable"}])
+def test_a_worker_start_without_sonnet_or_haiku_is_refused(ti):
+    assert tr._model_guard(_start(title="x", prompt="y", **ti)) == tr.MODEL_WHY
+    out = tr.verdict(_start(title="x", prompt="y", **ti))
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "claude-sonnet-5-5" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "sonnet", "claude-haiku-5-5", "haiku"])
+def test_sonnet_and_haiku_pass(model):
+    assert tr._model_guard(_start(title="x", prompt="y", model=model)) is None
+
+
+@pytest.mark.parametrize("ti", [
+    {"title": "parked repair of the router", "prompt": "fix"},
+    {"title": "review PR 12", "prompt": "look"},
+    {"title": "x", "prompt": "Parked repair: CI red twice"},
+    {"proposal_id": "task_1"},
+])
+def test_parked_repairs_reviews_and_stored_proposals_may_run_stronger(ti):
+    assert tr._model_guard(_start(model="claude-opus-5-5", **ti)) is None
+
+
+def test_a_repair_that_is_not_parked_is_not_exempt():
+    assert tr._model_guard(_start(model="opus", title="repair x", prompt="y")) == tr.MODEL_WHY
+
+
+@pytest.mark.parametrize("tool", ["Agent", "Task"])
+def test_agent_and_task_need_a_model_too(tool):
+    call = {"tool_name": tool, "tool_input": {"prompt": "x"}}
+    assert tr._model_guard(call) == tr.MODEL_WHY
+    call["tool_input"]["model"] = "sonnet"
+    assert tr._model_guard(call) is None
+
+
+def test_other_tools_are_not_subject_to_the_model_guard():
+    assert tr._model_guard({"tool_name": "Bash", "tool_input": {"command": "ls"}}) is None

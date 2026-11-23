@@ -21,6 +21,7 @@ set. read_cap/set_cap pick the system's own lever; no Windows command is started
 """
 import csv
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -49,7 +50,7 @@ def build_target(local=None):
 
 
 def _powercfg(*args):
-    r = subprocess.run(["powercfg", *args], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True, errors="replace")
+    r = fkproc.run(["powercfg", *args], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True, errors="replace")
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
@@ -76,7 +77,7 @@ def _linux_read_cap(pstate=None, cpufreq=None):
     return None
 
 
-def _write(path, value, run=subprocess.run):
+def _write(path, value, run=fkproc.run):
     """Write one sysfs value: directly when allowed, else `sudo -n tee` (fails at once instead of asking)."""
     try:
         Path(path).write_text(str(value))
@@ -90,7 +91,7 @@ def _write(path, value, run=subprocess.run):
         return False
 
 
-def _linux_set_cap(pct, pstate=None, cpufreq=None, run=subprocess.run):
+def _linux_set_cap(pct, pstate=None, cpufreq=None, run=fkproc.run):
     pct = max(1, min(100, int(pct)))
     pstate = Path(pstate or PSTATE)
     if pstate.exists():
@@ -332,4 +333,4 @@ class Governor(threading.Thread):
 
 
 def kill_tree(pid):
-    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)

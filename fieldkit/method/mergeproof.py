@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -45,7 +46,7 @@ CLEAN_KINDS = SKIP_KINDS | {"line-merged"}
 
 
 def _git(repo, *args, check=True, env=None, text=True):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=text, env=env,
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=text, env=env,
                        **({"encoding": "utf-8", "errors": "replace"} if text else {}))
     if check and r.returncode:
         err = r.stderr if text else r.stderr.decode("utf-8", "replace")
@@ -59,7 +60,7 @@ FALLBACK_IDENTITY = ("fieldkit-train", "fieldkit-train@users.noreply.github.com"
 def gh_noreply(repo="."):
     """-> (login, ID+LOGIN@users.noreply.github.com) of the gh account, or None (not signed in, offline)."""
     try:
-        r = subprocess.run(["gh", "api", "user", "--jq", '[.id, .login] | @tsv'], capture_output=True, text=True,
+        r = fkproc.run(["gh", "api", "user", "--jq", '[.id, .login] | @tsv'], capture_output=True, text=True,
                            cwd=str(repo), timeout=30)
         uid, login = r.stdout.strip().split("\t")
         return (login, f"{uid}+{login}@users.noreply.github.com") if r.returncode == 0 else None
@@ -125,7 +126,7 @@ def gen_matches(tree_dir, path, argv):
 
 def regenerate(tree_dir, path, argv):
     """Write the generator's output to `path` -> True when the file changed. Raises when the generator fails."""
-    r = subprocess.run(argv, cwd=str(tree_dir), capture_output=True, text=True, encoding="utf-8", errors="replace",
+    r = fkproc.run(argv, cwd=str(tree_dir), capture_output=True, text=True, encoding="utf-8", errors="replace",
                        env=_gen_env(), timeout=600)
     if r.returncode:
         raise RuntimeError(f"the generator of {path} failed (exit {r.returncode}): {r.stderr.strip()[-300:]}")
@@ -178,7 +179,7 @@ def line_merge(repo, b, o, t):
     """git's own line merge of the three blobs -> bytes when clean, else None."""
     with tempfile.TemporaryDirectory() as td:
         fb, fo, ft = _three_files(repo, b, o, t, td)
-        r = subprocess.run(["git", "merge-file", "-p", fo, fb, ft], capture_output=True)
+        r = fkproc.run(["git", "merge-file", "-p", fo, fb, ft], capture_output=True)
         return r.stdout if r.returncode == 0 else None
 
 
@@ -191,7 +192,7 @@ def driver_merge(repo, result, path, b, o, t):
         fb, fo, ft = _three_files(repo, b, o, t, td)
         drv = Path(td) / "mergedriver.py"
         drv.write_bytes(_git(repo, "show", f"{result}:{DRIVER}", text=False))
-        r = subprocess.run([sys.executable, str(drv), "merge", fb, fo, ft, path], capture_output=True, cwd=td)
+        r = fkproc.run([sys.executable, str(drv), "merge", fb, fo, ft, path], capture_output=True, cwd=td)
         return Path(fo).read_bytes() if r.returncode == 0 else None
 
 
@@ -339,7 +340,7 @@ def _resolve_with_driver(repo, path):
             r = _git(repo, "show", f":{stage}:{path}", check=False, text=False)
             p.write_bytes(r.stdout if r.returncode == 0 else b"")
             files.append(str(p))
-        r = subprocess.run([sys.executable, str(drv), "merge", *files, path], capture_output=True, cwd=td)
+        r = fkproc.run([sys.executable, str(drv), "merge", *files, path], capture_output=True, cwd=td)
         if r.returncode != 0:
             return False
         (Path(repo) / path).write_bytes(Path(files[1]).read_bytes())

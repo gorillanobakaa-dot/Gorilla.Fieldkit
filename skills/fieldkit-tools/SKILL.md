@@ -21,6 +21,10 @@ the dual-track generator and the debian-kernel tooling. `fieldkit gather --test`
 suites, and `fieldkit gather --check` shows where a copy differs from its source.
 Change the source, not the toolbox copy: the toolbox is regenerated.
 
+Use `fieldkit pfind` for text and code references. `fieldkit gather --only pfind`
+prepares its checked bytecode when it gathers the source. `fieldkit compileonce build`
+repairs missing, stale or incompatible artifacts. The launcher uses bytecode for every search.
+
 The list shows each tool's purpose, the systems it runs on, whether it changes things,
 and whether it has a test. If a tool already does the job, use it. Tools marked
 `changes` modify files or system state, so ask the owner before running one.
@@ -67,6 +71,10 @@ even when called with `--help` (on 2026-09-29 `organize.py --help` created folde
 Read the code of such a tool instead of running it.
 
 `fieldkit tools check --run-tests` runs only the tests listed in the registry.
+
+## Windows 11 first right-click menu (Gorilla Trash)
+
+`fieldkit trashmenu build|install-admin|register|status` builds, trusts (elevated, via the elevate tool) and registers the signed sparse package that puts "Empty with Gorilla Trash..." in the first menu. Windows only.
 
 ## Before any commit, push or release
 
@@ -121,3 +129,7 @@ and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe`
 `fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
 inbox items), `fieldkit onestart` (card onestart: every owner-only action a job may need, checked and asked once before the job starts), `fieldkit cmd check TEXT|--file F` (card cmd: before you give anyone a command, a sudoers line or a brief, check that every fieldkit verb exists; exit 3 names the closest real command).
 fieldkit appcapture start|show|stop|recycle|status APP   capture a desktop app's real requests (tokens redacted) before writing any client code; fieldkit modelcatalog verify checks a client's model ids/UA against the backend's real reply (docs/APP-TRAFFIC-FIRST.md)
+
+## Cheapest session that passes: escalate
+
+`fieldkit escalate run BRIEF.md (--test CMD | --verify CMD | --ci-wait PR) [--skip-if-green] [--no-xhigh]` (card escalate): a NEW headless session at low effort, checked by a deterministic signal (command exit code or `fieldkit ship ci-wait`); on a red a NEW session at high effort whose brief is the original plus the failure tail, then xhigh on Opus only if the model-spend guard allows it. Every attempt is a line in state/escalate.jsonl (`fieldkit escalate ledger`). `fieldkit escalate cache` (also `fieldkit integration cache`) exits 3 unless the 1h prompt-cache settings and env vars are set in ~/.claude/settings.json.

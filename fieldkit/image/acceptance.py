@@ -3,6 +3,7 @@ tesseract, and run magick identify and convert on it. A missing binary is a fail
 counts. `fieldkit image accept` exits 0 only when every step passed."""
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 
 from . import tools
@@ -32,7 +33,7 @@ def _run(argv, run, timeout=120):
     return r.returncode, (r.stdout or ""), (r.stderr or "")
 
 
-def check(workdir=None, local=None, which=None, run=subprocess.run):
+def check(workdir=None, local=None, which=None, run=fkproc.run):
     """-> {'ok', 'steps': [{'step','ok','detail'}]}. Absent binaries fail their steps; nothing is skipped."""
     kw = {} if which is None else {"which": which}
     magick, tess = tools.find("magick", local, **kw), tools.find("tesseract", local, **kw)

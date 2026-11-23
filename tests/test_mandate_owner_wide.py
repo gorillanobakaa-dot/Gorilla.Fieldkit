@@ -148,6 +148,23 @@ def test_a_release_needs_from_tag_the_tag_on_origin_and_green_ci(home):
     assert M.allows(g, "release_tag", DAY, repo_path=".", tag="v1", provers=Facts())[0] == "ask"
 
 
+def test_candidate_publication_accepts_existing_approval_and_honors_signed_publisher(home, monkeypatch):
+    import socket
+
+    policy = dict(repo_path=".", tag="v1", provers=Facts(), single_publisher=True)
+    no_publisher = write_mandate(home)
+    assert M.allows(no_publisher, "release_tag", DAY, **policy)[0] == "allow"
+    untested = dict(policy, provers=Facts(green=False))
+    assert M.allows(no_publisher, "release_tag", DAY, **untested)[0] == "ask"
+    data = yaml.safe_load(yaml.safe_dump(GOOD))
+    data["orchestrator"] = {"device": "publisher"}
+    signed = write_mandate(home, data, name="with-publisher")
+    monkeypatch.setattr(socket, "gethostname", lambda: "worker")
+    assert M.allows(signed, "release_tag", DAY, **policy)[0] == "deny"
+    monkeypatch.setattr(socket, "gethostname", lambda: "Publisher")
+    assert M.allows(signed, "release_tag", DAY, **policy)[0] == "allow"
+
+
 @pytest.mark.parametrize("what,cmd", [("kernel", "sudo dpkg -i linux-image-7.0.9-unleashed_amd64.deb"),
                                       ("linux-headers-7.0.9", "apt install ./x.deb"),
                                       ("grub", "sudo update-grub"), ("boot it", "sudo kexec -l vmlinuz"),
@@ -205,6 +222,19 @@ def test_gate_allows_a_mandated_branch_and_logs_it(home, clone):
     ok, why, p = G.check(clone, line("refs/heads/feat/x", sha(clone), "refs/heads/feat/x"), env=SHIP, today=DAY)
     assert ok, why
     assert any(e["what"] == "push-gate" for e in M.read_log(f))
+
+
+def test_repo_preflight_checks_the_existing_seal_without_pushing(home, clone):
+    f = write_mandate(home)
+    log = list(M.read_log(f))
+    result = G.preflight(clone, today=DAY)
+    assert result["ok"] and result["mandate"] == f.stem
+    assert result["repo"] and result["expires"]
+    assert M.read_log(f) == log
+
+    git(clone, "remote", "set-url", "origin", "https://example.org/elsewhere.git")
+    refused = G.preflight(clone, today=DAY)
+    assert not refused["ok"] and "does not name elsewhere" in refused["reason"]
 
 
 def test_gate_refuses_a_push_that_did_not_come_through_ship(home, clone):

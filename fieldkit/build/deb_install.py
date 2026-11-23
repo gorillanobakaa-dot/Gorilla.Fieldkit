@@ -28,6 +28,7 @@ Where to look by hand, in lookup order: ~/.local/share/applications then /usr/sh
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 PKG = "gorilla-unleashed"
@@ -88,7 +89,7 @@ def stale_shell_note(paths, started):
 
 def _run(cmd, timeout=900):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout + r.stderr)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)

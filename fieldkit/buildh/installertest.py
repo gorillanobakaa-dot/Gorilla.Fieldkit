@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 import zipfile
@@ -123,14 +124,14 @@ def compare(install_dir, expected):
     return missing, different, extra
 
 
-def run(task_id, say=print, runner=subprocess.run, work=None, opts=None):
+def run(task_id, say=print, runner=fkproc.run, work=None, opts=None):
     """Windows: the NSIS installer (run_exe). Elsewhere: the .deb (run_deb)."""
     if sys.platform != "win32":
         return run_deb(task_id, say=say, runner=runner, work=work, opts=opts)
     return run_exe(task_id, say=say, runner=runner, work=work)
 
 
-def run_exe(task_id, say=print, runner=subprocess.run, work=None):
+def run_exe(task_id, say=print, runner=fkproc.run, work=None):
     t = task.load(task_id)
     res = json.loads((task.STATE / task_id / "build-result.json").read_text(encoding="utf-8"))
     installer = Path(res["artifacts"]["installer"]["file"])
@@ -238,7 +239,7 @@ def gate_artifact(res, t=None, linux=None):
     return str(deb)
 
 
-def deb_snapshot(runner=subprocess.run):
+def deb_snapshot(runner=fkproc.run):
     """-> what a package could leave on a Linux desktop: dpkg's state of the package and every launcher file."""
     r = runner(["dpkg-query", "-W", "-f=${Status}|${Version}", PKG], capture_output=True, text=True, errors="replace")
     state, _, version = (r.stdout or "").partition("|") if r.returncode == 0 else ("not-installed", "", "")
@@ -248,7 +249,7 @@ def deb_snapshot(runner=subprocess.run):
             "launchers": launchers}
 
 
-def deb_files(deb, runner=subprocess.run):
+def deb_files(deb, runner=fkproc.run):
     """-> the regular files the .deb installs, as absolute paths (dpkg-deb -c)."""
     r = runner(["dpkg-deb", "-c", str(deb)], capture_output=True, text=True, errors="replace")
     out = []
@@ -259,7 +260,7 @@ def deb_files(deb, runner=subprocess.run):
     return out
 
 
-def run_deb(task_id, say=print, runner=subprocess.run, work=None, opts=None, find=None, snap=None):
+def run_deb(task_id, say=print, runner=fkproc.run, work=None, opts=None, find=None, snap=None):
     """The Linux twin of run(): the .deb installed with sudo -n, every file checked against the package, removed
     with apt-get purge, and the machine as before. Never removes a package that was already installed (it would take
     the owner's browser): that is a refusal, not a silent uninstall (pass remove-existing=1 to allow it)."""

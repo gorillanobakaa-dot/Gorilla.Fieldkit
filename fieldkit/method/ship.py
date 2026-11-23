@@ -13,6 +13,8 @@
     fieldkit ship gh-release vX.Y.Z -- ARGS   gh release create --verify-tag of a tag on origin, under a mandate's
                                            release: from_tag, once CI is green on the tag's commit; does nothing when
                                            the repository's release.yml publishes on tags
+    fieldkit ship gh-release TAG -- --candidate FILE   verify required installers and promote the complete draft to Latest
+    fieldkit ship gh-release TAG -- --check-candidate FILE   verify a candidate with read-only GitHub access
     fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
                                            SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
     (gh-release, push --tag and release refuse inside releasegate.yaml's min_hours of the repository's last release:
@@ -66,6 +68,7 @@ import argparse
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -74,7 +77,7 @@ from . import emit
 
 
 def git(repo, *args, check=False, timeout=600, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=timeout, env=env)   # git output is UTF-8; cp1252 crashed --all (2026-11-09)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {(r.stderr or r.stdout).strip()[-300:]}")
@@ -228,7 +231,7 @@ def _waiting_prs(run, repo):
         return 0
 
 
-def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add,
+def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=None, inbox=_inbox_add,
          counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
     gh says. Exit 3 for PARKED (2+ commits of the branch red on CI): no auto-merge, a note in the owner's inbox."""
@@ -302,9 +305,11 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
     if "required_status_checks" not in rules:
         why = (f"PR #{pr['number']} ({pr['url']}): {base} requires no status check here, so GitHub would merge it "
                f"before CI ends. Auto-merge NOT enabled; the PR stays open.")
-        inbox(f"No required CI check on {base}: PR #{pr['number']} left open", why + " Fix: a ruleset on " + base +
-              " requiring the CI checks, and 'Allow auto-merge' on (as Gorilla.Fieldkit has; `fieldkit github`).",
-              f"gh pr view {pr['number']} --web")
+        try:                                            # F2.4: a Board line, not an inbox item; the PR stays open
+            from ..lifecycle import board
+            board.note(f"No required CI check on {base}: PR #{pr['number']} left open", why)
+        except Exception:  # noqa: BLE001
+            pass
         return dict(rep, ok=False, state="no-required-checks", error=why,
                     next="the PR stays open; it merges once the base branch requires CI (owner: repository settings)")
     ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)
@@ -392,12 +397,13 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
     from . import releasegate
     from ..core import sync
-    rg = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)      # one release per batch
+    slug = sync._slug(repo)
+    rg = gate(slug, tag, hotfix) if gate else releasegate.guard(slug, tag, hotfix, published_only=True)
     if not rg["ok"]:
         return rg
     from . import tagguard
     # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
-    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
+    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: fkproc.run(
         *a, **{**k, "env": ship_env()}))))(repo, tag)
     if not g["ok"]:
         bad = [x for x in g["rows"] if not x["ok"]]
@@ -462,31 +468,68 @@ def release_is_empty(repo, extra, tag=""):
     return ""
 
 
-def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run, hotfix="", gate=None):
+def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=fkproc.run, hotfix="", gate=None):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
-    wf = Path(repo) / ".github" / "workflows" / "release.yml"
-    if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
-        return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
-                "next": "the tag workflow publishes; do not run gh-release"}
+    from ..core import sync
+    from . import releasecandidate, releasegate
+
     bad = [x for x in extra if x in ("--target", "-t", "-R", "--repo") or x.startswith(("--target=", "--repo=", "-R"))]
     if bad:
         return {"ok": False, "state": "bad-input", "tag": tag, "error": f"not allowed here: {' '.join(bad)}",
                 "next": "the tag's commit and the repository come from git, never from the caller"}
+    if extra and extra[0] in ("--candidate", "--check-candidate"):
+        try:
+            slug = sync._slug(repo)
+        except RuntimeError as exc:
+            return {"ok": False, "state": "bad-input", "tag": tag, "error": str(exc)}
+        if len(extra) != 2 or not slug or not re.fullmatch(r"v[0-9][a-zA-Z0-9.+-]*", tag):
+            return {"ok": False, "state": "bad-input", "error": "expected a GitHub repo, version tag and one candidate file"}
+
+        def authorize():
+            verdict, why, path = mandate("release_tag", repo_path=repo, tag=tag, single_publisher=True)
+            if verdict != "allow":
+                raise releasecandidate.Refused(why)
+            return why, path
+
+        try:
+            if extra[0] == "--check-candidate":
+                releasecandidate.verify(repo, releasecandidate.GitHub(slug), tag, extra[1])
+                return {"ok": True, "state": "candidate-verified", "tag": tag}
+            releasecandidate.effective_policy(repo, f"refs/tags/{tag}", slug)
+            why, path = authorize()
+            url = releasecandidate.publish(repo, slug, tag, extra[1], authorize, hotfix=hotfix, gate=gate)
+            _mandate_log(path, "release", why, tag=tag, url=url)
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, releasecandidate.yaml.YAMLError) as exc:
+            return {"ok": False, "state": "candidate-refused", "tag": tag, "error": str(exc),
+                    "next": "resolve the candidate failure and resume with the same tag"}
+        return {"ok": True, "state": "released", "tag": tag, "mandate": why, "next": url}
+    try:
+        slug = sync._slug(repo)
+    except RuntimeError:
+        slug = ""
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag)
+    if blocker:
+        return {"ok": False, "state": "candidate-required", "tag": tag,
+                "error": blocker}
+    wf = Path(repo) / ".github" / "workflows" / "release.yml"
+    if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
+        return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
+                "next": "the tag workflow publishes; do not run gh-release"}
     verdict, why, mpath = mandate("release_tag", repo_path=repo, tag=tag)
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "publishing a release is the owner's unless a mandate allows it"}
-    from ..core import sync
-    from . import releasegate                                  # one release per batch (owner order 2026-11-15)
-    g = (gate or releasegate.guard)(sync._slug(repo), tag, hotfix)
+    if not releasecandidate.SLUG.fullmatch(slug):
+        return {"ok": False, "state": "bad-input", "tag": tag, "error": "expected a GitHub origin"}
+    g = (gate or releasegate.guard)(slug, tag, hotfix)
     if not g["ok"]:
         return g
     empty = release_is_empty(repo, extra, tag=tag)
     if empty:          # v0.1.164 (2026-11-16) was created with no files and no page: its own install checks failed
         return {"ok": False, "state": "bad-input", "tag": tag, "error": empty,
                 "next": "give the release files and --notes-file PAGE after --; nothing was published"}
-    r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
+    r = run(["gh", "release", "create", tag, "--verify-tag", "-R", slug, *extra], cwd=str(repo),
             capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
         return {"ok": False, "state": "refused", "tag": tag, "error": (r.stderr or r.stdout).strip()[-300:],
@@ -538,13 +581,15 @@ def add_rows(page, rows):
     return page
 
 
-def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.run, workdir=None):
+def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=fkproc.run, workdir=None):
     """Add FILES to the published release TAG through the same mandate door as gh-release (release_tag): each file
     hashed, SHA256SUMS-TAG.txt downloaded, its lines added and uploaded again (--clobber), the files uploaded, and a
     row per file put in the page's 'File | Bytes | SHA-256' table. Never creates a release or touches a tag."""
     import tempfile
     from ..build import relfiles
     from ..core import sync
+    from . import releasecandidate
+
     paths = [Path(f) for f in files]
     missing = [str(p) for p in paths if not p.is_file()]
     sums_name = f"SHA256SUMS-{tag}.txt"
@@ -552,12 +597,18 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
         return {"ok": False, "state": "bad-input", "tag": tag,
                 "error": f"missing: {' '.join(missing)}" if missing else "no files, or a SHA256SUMS file given",
                 "next": f"give the files to add; {sums_name} is regenerated, never given"}
+    try:
+        slug = sync._slug(repo)
+    except RuntimeError as exc:
+        return {"ok": False, "tag": tag, "state": "bad-input", "error": str(exc)}
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag)
+    if blocker:
+        return {"ok": False, "tag": tag, "state": "candidate-required",
+                "error": blocker}
     verdict, why, mpath = mandate("release_tag", repo_path=repo, tag=tag)
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "changing a release is the owner's unless a mandate allows it"}
-    slug = sync._slug(repo)
-
     def gh(*args):
         r = run(["gh", *args, "-R", slug], cwd=str(repo), capture_output=True, text=True, env=ship_env())
         if r.returncode != 0:
@@ -595,7 +646,7 @@ def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.
             "next": f"fieldkit release verify {tag} --repo {slug}"}
 
 
-def rerun_release_checks(slug, tag, run=subprocess.run):
+def rerun_release_checks(slug, tag, run=fkproc.run):
     """Re-run the failed workflow runs a release event started for TAG (they check the published files, so they must
     see the files just added). -> the run ids re-run; nothing on any error (the files are added either way)."""
     r = run(["gh", "api", f"repos/{slug}/actions/runs?event=release&per_page=50", "--jq",
@@ -621,7 +672,7 @@ def request_test_job(repo, commit, call=None):
     return jobs.send("test", name, commit, mp, call=call)
 
 
-def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_call=None):
+def merge(repo=".", base="main", mandate=_mandate, run=fkproc.run, verdict_call=None):
     """Merge the current branch into `base` under a project mandate, or refuse with what is missing."""
     branch = git(repo, "branch", "--show-current").stdout.strip()
     if not branch or branch == base:
@@ -672,7 +723,16 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
         return dict(rep, ok=False, state="not-landed", error=f"{commit[:10]} is not on origin/{base} after the merge",
                     next="look at the pull request or the remote")
     _mandate_log(mpath, "merge_main", why, branch=branch, commit=commit, how=how)
-    return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
+    out = dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
+    try:                                               # the copy `fieldkit` runs follows main (core/installed.py)
+        from ..core import installed
+        line = installed.after_merge(repo, base) if base == "main" else ""
+        if line:
+            out["installed_copy"] = line
+            print(line, file=sys.stderr)
+    except Exception:  # noqa: BLE001 - a courtesy sync never fails a landed merge
+        pass
+    return out
 
 
 TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
@@ -719,7 +779,8 @@ def main(argv=None, prog="fieldkit ship"):
                     help="gh-release: add these files to the published release (sums and page table updated)")
     ap.add_argument("--hotfix", default="", metavar="WHY",
                     help="gh-release, push --tag, release: publish inside the one-release-per-batch window "
-                         "(security fix or broken release); logged in the room and the ledger, one per window")
+                         "(security fix or broken release); logged in the room and the ledger, "
+                         "up to 10 per repository and operating system in 24 hours")
     ap.add_argument("--base", default=None,
                     help="the base branch; default: the repository's own (origin/HEAD, core/concepts.default_branch): "
                          "gorilla-firefox is master, Fieldkit main (P38 seam 4)")

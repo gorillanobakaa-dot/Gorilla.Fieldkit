@@ -128,6 +128,9 @@ def test_check_fails_on_a_secret_and_pack_refuses(world, tmp_path):
 
 def test_pack_writes_a_verified_zip_and_never_overwrites(world, tmp_path):
     src = world["d"] / "bundle"
+    if not (src / "README-FIRST.txt").is_file():  # sharded runs do not keep the collect test's output
+        code, out = run("collect", "--out", src, "--config", world["cfg"], "--since", "2000-01-01")
+        assert code == 0, out
     dest = tmp_path / "stick"
     code, out = run("pack", src, dest)
     assert code == 0, out
@@ -166,6 +169,9 @@ def test_patch_carries_staged_work_and_proves_it(tmp_path):
 
 def test_manifest_and_pack_replace(world, tmp_path):
     src = world["d"] / "bundle"
+    if not (src / "README-FIRST.txt").is_file():  # sharded runs do not keep the collect test's output
+        code, out = run("collect", "--out", src, "--config", world["cfg"], "--since", "2000-01-01")
+        assert code == 0, out
     (src / "HANDOFF.md").write_text("added by hand\n", encoding="utf-8")
     code, out = run("manifest", src)
     assert code == 0, out

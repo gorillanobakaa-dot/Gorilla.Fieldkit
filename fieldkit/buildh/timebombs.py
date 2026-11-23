@@ -29,6 +29,7 @@ With write=1 the files are written into the tree; record them like any change (b
 import datetime
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 CONST = re.compile(r"\b([kg][A-Za-z]*Expir[A-Za-z]*Time)\s*=\s*INT64_C\((\d{13,19})\)")
@@ -50,7 +51,7 @@ def when(us):
     return datetime.datetime.fromtimestamp(int(us) / 1e6, datetime.timezone.utc).date()
 
 
-def scan(workdir, run=subprocess.run):
+def scan(workdir, run=fkproc.run):
     """-> [{name, file, line, expires}] for every expiry constant the tree's tracked files hold."""
     r = run(["git", "-C", str(workdir), "grep", "-nE", GREP, "--", ".", ":!third_party", ":!**/test/**",
              ":!**/tests/**"], capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -89,7 +90,7 @@ def judge(found, at, margin=MARGIN_DAYS):
     return rows
 
 
-def rows(workdir, at=None, margin=MARGIN_DAYS, run=subprocess.run):
+def rows(workdir, at=None, margin=MARGIN_DAYS, run=fkproc.run):
     return judge(scan(workdir, run=run), at or datetime.date.today(), margin)
 
 
@@ -145,7 +146,7 @@ def expiry_of(text):
     return when(m.group(2)) if m else None
 
 
-def fetch(ref, cache, repo=None, run=subprocess.run):
+def fetch(ref, cache, repo=None, run=fkproc.run):
     """The three files at `ref` of the upstream repository -> ({path: text}, commit, commit date)."""
     from . import upstream
     repo = repo or upstream.FIREFOX_REPO

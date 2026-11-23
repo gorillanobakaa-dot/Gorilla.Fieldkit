@@ -21,6 +21,7 @@ import getpass
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -51,16 +52,16 @@ def _dialog_passphrase(action):
         for cmd in (["zenity", "--password", "--title", "Fieldkit owner proof"],
                     ["kdialog", "--password", text, "--title", "Fieldkit owner proof"]):
             if shutil.which(cmd[0]):
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                r = fkproc.run(cmd, capture_output=True, text=True, timeout=300)
                 return r.stdout.rstrip("\n") if r.returncode == 0 and r.stdout.strip() else None
     if sys.platform == "win32" and shutil.which("powershell"):
         ps = ("$c = Get-Credential -UserName 'owner' -Message " + "'" + text.replace("'", "''")[:900] + "'; "
               "if ($c) { [Runtime.InteropServices.Marshal]::PtrToStringBSTR("
               "[Runtime.InteropServices.Marshal]::SecureStringToBSTR($c.Password)) }")
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=300)
+        r = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=300)
         return r.stdout.rstrip("\r\n") if r.returncode == 0 and r.stdout.strip() else None
     if sys.platform == "darwin" and shutil.which("osascript"):
-        r = subprocess.run(["osascript", "-e", f'text returned of (display dialog "{text[:300]!s}" default answer "" '
+        r = fkproc.run(["osascript", "-e", f'text returned of (display dialog "{text[:300]!s}" default answer "" '
                             'with hidden answer)'], capture_output=True, text=True, timeout=300)
         return r.stdout.rstrip("\n") if r.returncode == 0 and r.stdout.strip() else None
     return None

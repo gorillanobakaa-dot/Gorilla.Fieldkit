@@ -26,6 +26,7 @@ and no text this tool prints for a row not in sync contains "IN SYNC" or "IN-SYN
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import ghhidden
@@ -55,7 +56,7 @@ def missing_os(runs, need, slug, path=None):
 
 
 def _git(repo, *a, check=True):
-    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
     if check and r.returncode:
         raise RuntimeError(f"git {' '.join(a)}: {(r.stderr or r.stdout).strip()[:200]}")
     return r.stdout.strip()
@@ -80,7 +81,7 @@ def _public_check_runs(slug, sha, timeout=15):
             for x in data.get("check_runs") or []]
 
 
-def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
+def ci_green(slug, sha, run=fkproc.run, public=_public_check_runs):
     """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one. Read with gh;
     when gh cannot (no login, not installed), from the public API without a credential; neither -> not green."""
     try:
@@ -260,6 +261,15 @@ def run(do_apply=False, extra=(), fetch=True):
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
                 rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
+    try:                                              # the copy the `fieldkit` command runs (detached worktree)
+        from . import installed
+        tree = installed.locate()
+        if tree and Path(tree).resolve() != ROOT.resolve() and (Path(tree) / ".git").exists():
+            r = installed.sync(tree, fetch=fetch) if do_apply else installed.inspect(tree, fetch=fetch)
+            ok = r.get("ok", r["verdict"] == "OK") if do_apply else r["verdict"] == "OK"
+            rows.append({"repo": str(tree), "ok": ok, "verdict": "LEVEL" if ok else r["verdict"], "why": r["why"]})
+    except Exception as e:  # noqa: BLE001 - informational row, never a crash
+        rows.append({"repo": "installed copy", "ok": True, "verdict": "SKIPPED", "why": str(e)[:100]})
     try:                                              # P37: the private store of untracked instruction files
         from .. import rules_song
         stored = rules_song.store_apply(rules_song.inventory(), restore=False) if do_apply else []

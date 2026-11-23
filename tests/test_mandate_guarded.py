@@ -1,6 +1,7 @@
-# Version: 1.0.0 · updated 26-10-23-18-38
+# Version: 1.1.0 · updated 26-11-22-12-00
 """The mandate's guarded store (fieldkit/mandate/guarded.py): trust and stops live where the agent's OS user cannot
 write (M1.2, the Windows review of M1.1: a regex on command text cannot stop a write by indirection; the OS can)."""
+import os
 import subprocess
 import sys
 
@@ -100,6 +101,29 @@ def test_a_windows_store_is_judged_by_its_acl_never_by_write_access(tmp_path, mo
     assert not G._guarded_windows(tmp_path / "absent", acl_reader=lambda p: GOOD)[0]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="uses the native Windows ACL reader")
+def test_windows_acl_probe_ignores_parent_shell_module_path(tmp_path, monkeypatch):
+    inherited = str(tmp_path / "PowerShell-7-Modules")
+    monkeypatch.setenv("PSModulePath", inherited)
+    acl = G._read_acl(tmp_path)
+    assert acl["owner"] and isinstance(acl["access"], list)
+    assert os.environ["PSModulePath"] == inherited
+
+
+def test_windows_acl_probe_reports_module_failure(monkeypatch, tmp_path):
+    shell = tmp_path / "WindowsPowerShell" / "v1.0"
+    monkeypatch.setattr(G, "_windows_powershell_home", lambda: shell)
+
+    def failed(command, **options):
+        assert command[0] == str(shell / "powershell.exe")
+        assert options["env"]["PSModulePath"] == str(shell / "Modules")
+        return subprocess.CompletedProcess(command, 0, '{"owner": null, "access": ["||"]}',
+                                           "Get-Acl: CouldNotAutoloadMatchingModule")
+
+    ok, why = G._guarded_windows(tmp_path, acl_reader=lambda path: G._read_acl(path, run=failed))
+    assert not ok and "CouldNotAutoloadMatchingModule" in why
+
+
 def test_the_elevated_script_sets_the_acl_before_writing_and_shows_what_it_pins():
     s = G.ps1_for(r"C:\ProgramData\Fieldkit\mandate-trust", f"trusted/{FP}.pub", KEY, False)
     acl, write = s.index("icacls $root /inheritance:r"), s.index("Set-Content")
@@ -117,3 +141,30 @@ def test_the_elevate_kit_is_found_where_it_was_adopted(tmp_path):
     adopted.write_text("")
     assert G._elevate_kit([adopted, old]) == adopted
     assert any("local" in str(k) and "kits" in str(k) for k in G._elevate_kits())
+
+
+def test_generic_rights_count_as_write():
+    # Get-Acl printed GENERIC_ALL / GENERIC_WRITE as bare numbers, which no write name matched
+    for mask in (0x10000000, 0x40000000, 0x001F01FF, 0x2, 0x4, 0x40000):
+        acl = dict(GOOD, access=GOOD["access"] + [f"S-1-5-32-545|{G.rights_names(mask)}|Allow"])
+        assert not G.acl_verdict(acl, None)[0], hex(mask)
+    acl = dict(GOOD, access=GOOD["access"] + [f"S-1-5-32-545|{G.rights_names(0x001200A9)}|Allow"])   # ReadAndExecute
+    assert G.acl_verdict(acl, None)[0]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="uses the native Windows ACL reader")
+def test_the_native_acl_reader_starts_no_process(tmp_path, monkeypatch):
+    # 2026-11-22: one powershell.exe + one conhost per path, 12 per prompt in every session; the reader is in-process now
+    def no(*a, **k):
+        raise AssertionError("the ACL reader started a process")
+    monkeypatch.setattr(subprocess, "run", no)
+    monkeypatch.setattr(subprocess, "Popen", no)
+    acl = G._read_acl(tmp_path)
+    assert acl["owner"].startswith("S-1-") and acl["access"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="compares the native reader with Get-Acl")
+def test_the_native_reader_judges_like_get_acl(tmp_path):
+    me = f"{os.environ.get('USERDOMAIN', '')}\\{os.environ.get('USERNAME', '')}".strip("\\")
+    for q in [tmp_path] + ([G.root()] if G.root().exists() else []):
+        assert G.acl_verdict(G._read_acl(q), me)[0] is G.acl_verdict(G._read_acl_powershell(q), me)[0], q

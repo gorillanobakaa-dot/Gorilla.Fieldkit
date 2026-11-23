@@ -168,6 +168,65 @@
    "open": false,
    "v": {}
   },
+  "agent-models": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "audit": {
+     "c": [],
+     "f": {
+      "--days": 1,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "doctor": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--install": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "enforce": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "template": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "antigravity": {
    "c": [],
    "f": {
@@ -437,7 +496,8 @@
   "board": {
    "c": [
     "add",
-    "check"
+    "check",
+    "cost"
    ],
    "f": {
     "--date": 1,
@@ -672,12 +732,39 @@
      "open": false,
      "v": {}
     },
+    "audit": {
+     "c": [],
+     "f": {
+      "--device": 1,
+      "--help": 0,
+      "--json": 0,
+      "--via": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "classify": {
      "c": [],
      "f": {
       "--apply": 0,
       "--help": 0,
       "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "clean": {
+     "c": [],
+     "f": {
+      "--all": 0,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--keep-last": 1,
+      "--older-than": 1,
+      "--retire-sessions": 0,
       "-h": 0
      },
      "open": false,
@@ -804,6 +891,7 @@
      "f": {
       "--help": 0,
       "--json": 0,
+      "--legacy": 0,
       "--limit": 1,
       "--scheduled": 0,
       "-h": 0
@@ -837,6 +925,8 @@
     "start": {
      "c": [],
      "f": {
+      "--agents": 1,
+      "--all": 0,
       "--because": 1,
       "--dispose": 1,
       "--dry-run": 0,
@@ -844,8 +934,13 @@
       "--force-undigested": 0,
       "--help": 0,
       "--json": 0,
+      "--keep-last": 1,
       "--lesson": 1,
+      "--lookback": 1,
+      "--older-than": 1,
       "--project": 1,
+      "--session": 1,
+      "--workspace": 1,
       "-h": 0
      },
      "open": false,
@@ -927,6 +1022,54 @@
    "open": false,
    "v": {}
   },
+  "ci": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "durations": {
+     "c": [
+      "fetch",
+      "merge"
+     ],
+     "f": {
+      "--complete": 0,
+      "--help": 0,
+      "--os": 1,
+      "--out": 1,
+      "--prev": 1,
+      "--repo": 1,
+      "--run": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "plan": {
+     "c": [],
+     "f": {
+      "--adapter": 1,
+      "--check": 0,
+      "--collect": 1,
+      "--config": 1,
+      "--explain": 0,
+      "--github-output": 0,
+      "--help": 0,
+      "--min": 1,
+      "--os": 1,
+      "--raw-durations": 1,
+      "--selection": 1,
+      "--slice": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "ci-steps": {
    "c": [],
    "f": {
@@ -949,6 +1092,7 @@
     "--limit": 1,
     "--max-whole-share": 1,
     "--repo": 1,
+    "--run": 1,
     "--since": 1,
     "--workflow": 1,
     "-h": 0
@@ -1174,6 +1318,55 @@
    },
    "open": false,
    "v": {}
+  },
+  "escalate": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "cache": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--settings": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ledger": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--last": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "run": {
+     "c": [],
+     "f": {
+      "--ci-wait": 1,
+      "--cwd": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-xhigh": 0,
+      "--skip-if-green": 0,
+      "--test": 1,
+      "--verify": 1,
+      "--wall": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "eta": {
    "c": [
@@ -1675,6 +1868,64 @@
      "open": false,
      "v": {}
     },
+    "churn": {
+     "c": [],
+     "f": {
+      "--event": 1,
+      "--help": 0,
+      "--json": 0,
+      "--secs": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {
+      "hooks": {
+       "c": [],
+       "f": {
+        "--event": 1,
+        "--help": 0,
+        "--hook-arg": 1,
+        "--json": 0,
+        "--module": 1,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      },
+      "scan": {
+       "c": [],
+       "f": {
+        "--help": 0,
+        "--json": 0,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      },
+      "trace": {
+       "c": [],
+       "f": {
+        "--help": 0,
+        "--json": 0,
+        "--secs": 1,
+        "-h": 0
+       },
+       "open": false,
+       "v": {}
+      }
+     }
+    },
+    "consoles": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--reap": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "doctor": {
      "c": [],
      "f": {
@@ -1699,6 +1950,7 @@
      "c": [],
      "f": {
       "--act": 0,
+      "--check": 0,
       "--help": 0,
       "--json": 0,
       "-h": 0
@@ -2130,16 +2382,20 @@
   "install": {
    "c": [
     "app",
+    "preflight",
     "purge",
     "self-test",
     "verify"
    ],
    "f": {
+    "--allow-missing-terminal": 0,
     "--apply": 0,
     "--dir": 1,
+    "--full": 0,
     "--help": 0,
     "--host": 1,
     "--json": 0,
+    "--lean": 0,
     "--name": 1,
     "--os": 1,
     "--peer": 0,
@@ -2153,6 +2409,45 @@
    "open": false,
    "v": {}
   },
+  "installed": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "check": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "sync": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "where": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "integration": {
    "c": [],
    "f": {
@@ -2161,6 +2456,17 @@
    },
    "open": false,
    "v": {
+    "cache": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--settings": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
     "check": {
      "c": [],
      "f": {
@@ -2834,6 +3140,7 @@
    ],
    "f": {
     "--help": 0,
+    "--repo": 1,
     "-h": 0
    },
    "open": false,
@@ -3118,6 +3425,7 @@
     "--json": 0,
     "--key": 1,
     "--state": 1,
+    "--timeout": 1,
     "-h": 0
    },
    "open": false,
@@ -3152,16 +3460,58 @@
    "c": [],
    "f": {
     "--bare": 1,
+    "--fixture": 1,
     "--help": 0,
     "--json": 0,
     "--session": 1,
     "--since": 1,
     "--state": 1,
     "--until": 1,
+    "--work-id": 1,
     "-h": 0
    },
    "open": false,
    "v": {}
+  },
+  "ownership": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "install-explorer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "take-drive": {
+     "c": [],
+     "f": {
+      "--explorer": 0,
+      "--help": 0,
+      "--recover-inaccessible": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
   },
   "parity": {
    "c": [
@@ -3224,6 +3574,15 @@
     "-h": 0
    },
    "open": false,
+   "v": {}
+  },
+  "pfind": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "-h": 0
+   },
+   "open": true,
    "v": {}
   },
   "pins": {
@@ -3619,6 +3978,7 @@
     "missing-import-fix",
     "pid-guarded-stop",
     "plan-row-insert",
+    "ps-compat-check",
     "pwsh-parent-chains",
     "pwsh-syntax-check",
     "tpfan-config-verify",
@@ -3715,11 +4075,14 @@
     "handover": {
      "c": [],
      "f": {
+      "--ci-run": 1,
       "--done": 1,
       "--help": 0,
+      "--job-id": 1,
       "--json": 0,
       "--next": 1,
       "--not-verified": 1,
+      "--plan-file": 1,
       "--session": 1,
       "--title": 1,
       "--transcript": 1,
@@ -3754,6 +4117,19 @@
       "--help": 0,
       "--origin": 1,
       "--title": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "takeover": {
+     "c": [],
+     "f": {
+      "--as-session": 1,
+      "--help": 0,
+      "--job-id": 1,
+      "--json": 0,
+      "--note": 1,
       "-h": 0
      },
      "open": false,
@@ -4370,6 +4746,8 @@
      "c": [],
      "f": {
       "--base": 1,
+      "--covmap": 1,
+      "--gate": 1,
       "--help": 0,
       "--json": 0,
       "--repo": 1,
@@ -4512,6 +4890,25 @@
     "--id": 1,
     "--json": 0,
     "--run-tests": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "trashmenu": {
+   "c": [
+    "build",
+    "install-admin",
+    "recycle-dir",
+    "register",
+    "status"
+   ],
+   "f": {
+    "--bindir": 1,
+    "--dll": 1,
+    "--help": 0,
+    "--path": 1,
+    "--types": 1,
     "-h": 0
    },
    "open": false,
@@ -4839,6 +5236,7 @@
     "doctor",
     "establish",
     "handover",
+    "hooks",
     "log",
     "open",
     "orders",

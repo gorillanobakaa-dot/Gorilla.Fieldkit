@@ -375,6 +375,7 @@ def catalogue(cards=None, results=None, public_only=True):
     needs to pick one (id, title, trust, safety, inputs). Drafts and gathered scripts are left out: a model is never
     pointed at a tool nobody reviewed. Stamped with the Fieldkit commit it came from, so it is never a typed fact."""
     import subprocess
+    from fieldkit import proc as fkproc
     cards = cards if cards is not None else all_cards()
     results = results if results is not None else test_results()
     public = None
@@ -393,7 +394,7 @@ def catalogue(cards=None, results=None, public_only=True):
                       "inputs": [{"name": i["name"], "required": bool(i.get("required"))} for i in c.get("inputs") or []]})
     tools.sort(key=lambda t: t["id"])
     try:
-        commit = subprocess.run(["git", "-C", str(settings.ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
+        commit = fkproc.run(["git", "-C", str(settings.ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
                                 text=True, timeout=20).stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):
         commit = "unknown"

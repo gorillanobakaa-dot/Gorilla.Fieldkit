@@ -18,6 +18,10 @@ WHY (owner, 2026-10-26 01:3x)
 
 THE RULES (numbers in thresholds.json; override in state/hog/thresholds.json; see rules.py)
     ram        used >= 80% warn, >= 90% act (used = total - available); commit charge 85% / 95%; top processes
+    limits     desktop heap (visible windows 300 / 600), USER or GDI objects of one process 7000 / 9000 (quota
+               10000), handles of one process 50k / 150k, processes 700 / 1200, copies of one program 100 / 250,
+               pagefile thrashing 1000 / 4000 pages/s. Born 2026-11-23: 802 terminal windows froze the laptop
+               (desktop heap) while RAM looked fine. Any of them at warn makes the preflight refuse heavy jobs.
     model      LM Studio (lms ps) or Ollama (/api/ps on loopback) model idle > 15 min (5 min when RAM is at the act
                line) -> unload. Idle = no request in LM Studio's server log (lms's own questions do not count) /
                Ollama's expires_at unmoved across samples. No log evidence = no unload. Reversible: it reloads.
@@ -139,7 +143,8 @@ def _ram_used():
 
 def unload_lms(a, facts, run=None):
     import subprocess
-    run = run or subprocess.run
+    from fieldkit import proc as fkproc
+    run = run or fkproc.run
     exe = (facts.get("lms") or {}).get("exe")
     if not exe:
         return False, "no lms CLI"
@@ -245,9 +250,10 @@ def _liveness(watch):
         return ""
     try:
         from ..core import liveness, procs
-        from . import leaks
+        from . import consoles, leaks
         return (liveness.summary(liveness.check(act=True)) + " | " + procs.pass_line(act=True)
-                + " | " + leaks.line(leaks.sweep(act=True, cfg=config())) + _ear_wake())
+                + " | " + leaks.line(leaks.sweep(act=True, cfg=config()))
+                + " | " + consoles.flood_line(consoles.reap_floods(act=True)) + _ear_wake())
     except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
         return f"liveness: error {type(e).__name__}: {e}"
 
@@ -385,6 +391,16 @@ def main(argv=None, prog="fieldkit hog"):
     lk = sub.add_parser("leaks", help="process leaks: console hosts, duplicate singletons, orphans, zombies")
     lk.add_argument("--act", action="store_true", help="stop the empty console hosts and the spare singletons")
     lk.add_argument("--json", action="store_true")
+    lk.add_argument("--check", action="store_true",
+                    help="exit 1 on any empty console host, hosts over the warn line or a spare singleton "
+                         "(with --act: after the stop)")
+    from . import churn as _churn
+    _churn.add_parser(sub)
+    co = sub.add_parser("consoles", help="console hosts by owner and visible terminal windows; exit 1 if a "
+                                         "fieldkit process owns one or 20+ terminal windows are open")
+    co.add_argument("--reap", action="store_true", help="stop, by PID, the empty console hosts and any terminal "
+                                                        "holding 20+ windows with no live program under it")
+    co.add_argument("--json", action="store_true")
     sub.add_parser("preflight")
     r = sub.add_parser("register")
     r.add_argument("pid", type=int)
@@ -443,7 +459,21 @@ def main(argv=None, prog="fieldkit hog"):
             print("NEXT: " + ("fieldkit hog leaks --act stops the empty console hosts and the spare singletons"
                               if stoppable and not ns.act else "orphans and zombies are named, never stopped: "
                               "find their starter" if res["findings"] else "nothing to do"))
+        if getattr(ns, "check", False):
+            snap = res
+            if ns.act and res["stopped"]:
+                snap = leaks.sweep(act=False, cfg=config())
+            bad = leaks.check_failed(snap, config())
+            print("leaks check: " + ("FAIL - " + "; ".join(bad) if bad else "PASS"))
+            if bad:
+                return 1
         return 3 if res["findings"] else 0
+    if cmd == "consoles":
+        from . import consoles
+        return consoles.main(ns)
+    if cmd == "churn":
+        from . import churn
+        return churn.main(ns, config())
     if cmd == "preflight":
         from ..core import preflight
         return preflight.RANK[preflight.run("fieldkit hog preflight", steps=preflight.STEPS)["status"]]

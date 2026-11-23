@@ -1,0 +1,13 @@
+{
+  "tests/test_ci_tests.py": [
+    ".github",
+    "fieldkit",
+    "tests/testmap.yaml"
+  ],
+  "tests/test_ci_templates.py": [
+    ".github",
+    "fieldkit",
+    "projects",
+    "releases"
+  ]
+}

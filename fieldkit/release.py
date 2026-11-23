@@ -49,6 +49,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import zipfile
@@ -60,7 +61,7 @@ from .core import privacy, settings
 def _sh(cmd, cwd=None, timeout=900, input=None):
     cmd = [sys.executable if c in ("python", "python3") else str(c) for c in cmd]
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        r = fkproc.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=timeout, input=input)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as e:

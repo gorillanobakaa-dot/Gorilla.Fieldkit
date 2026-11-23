@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from .. import scratch
@@ -19,7 +20,7 @@ def _run(cmd, run, timeout=600):
         raise measure.ImageError(f"{Path(cmd[0]).stem} failed: {(r.stderr or r.stdout or '').strip()[:200]}")
 
 
-def encode(fmt, src, dst, q, tmp, run=subprocess.run):
+def encode(fmt, src, dst, q, tmp, run=fkproc.run):
     """-> (codec, settings). The real codec when it is installed, else ImageMagick's own encoder."""
     mg = tools.find("magick")
     if fmt == "webp" and (t := tools.find("cwebp")):
@@ -61,7 +62,7 @@ def _search(fmt, src, ref, target, tmp, run):
     return best
 
 
-def squash_one(path, fmt, out_dir, quality=None, target=None, max_px=None, run=subprocess.run):
+def squash_one(path, fmt, out_dir, quality=None, target=None, max_px=None, run=fkproc.run):
     path = Path(path)
     row = {"file": str(path), "out": "", "to": fmt, "kept": False, "why": ""}
     if not path.is_file():

@@ -10,6 +10,7 @@ import argparse
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from ._common import emit
@@ -50,7 +51,7 @@ def check_source(text):
     return issues
 
 
-def real_parse(path, run=subprocess.run, which=shutil.which):
+def real_parse(path, run=fkproc.run, which=shutil.which):
     """-> list of {line, rule} from the PowerShell parser, [] when clean, None when no PowerShell is installed."""
     exe = which("pwsh") or which("powershell")
     if not exe:

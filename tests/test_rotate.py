@@ -261,6 +261,83 @@ def test_handover_never_creates_a_missing_plan(tmp_path):
     assert rotate.main(["handover", "--transcript", str(p), "--title", "t", "--next", "n", "--done", "d"]) == 1
 
 
+def test_durable_handoff_preserves_current_complete_scope_and_ci(tmp_path):
+    import hashlib
+
+    transcript = monster(tmp_path)
+    plan = tmp_path / "approved.md"
+    approved = b"# Approved Fieldkit plan\n\nWork only in Fieldkit.\n\nKeep the complete checklist.\n"
+    plan.write_bytes(approved)
+    result = rotate.handover(transcript, "job", "watch CI", "changes pushed", job_id="work-123",
+                             plan_file=plan, ci_runs=[654], now=1_800_000_000)
+    plan.write_text("later changes", encoding="utf-8")
+    assert Path(result["scope_plan"]).read_bytes() == approved
+    assert result["plan_sha256"] == hashlib.sha256(approved).hexdigest()
+    assert "Outstanding CI run IDs: 654" in result["brief"]
+    assert "original task" not in result["brief"] and result["scope_plan"] in result["brief"]
+    assert json.loads((tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8"))["job_id"] == "work-123"
+
+
+def test_scoped_takeover_claims_one_successor_and_keeps_pending_ci(tmp_path, capsys):
+    from concurrent.futures import ThreadPoolExecutor
+
+    transcript = monster(tmp_path)
+    plan = tmp_path / "approved.md"
+    plan.write_text("# Approved plan\n\nOnly Fieldkit.\n", encoding="utf-8")
+    first = rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped",
+                            plan_file=plan, ci_runs=[123])
+    second = rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped",
+                             plan_file=plan, ci_runs=[456])
+    assert first["note"] != second["note"] and "rotate takeover" in second["brief"]
+    assert rotate.takeover("scoped")["successor"] is None
+    with pytest.raises(ValueError, match="superseded"):
+        rotate.takeover("scoped", first["note"], "old-start")
+
+    def claim(session):
+        try:
+            return rotate.takeover("scoped", second["note"], session)["successor"]
+        except ValueError as exc:
+            assert "already accepted" in str(exc)
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = [s for s in pool.map(claim, ["candidate-a", "candidate-b"]) if s]
+    assert len(claimed) == 1 and claim(claimed[0]) == claimed[0]
+    assert rotate.main(["takeover", "--job-id", "scoped", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["successor"] == claimed[0] and report["ci_runs"] == [456]
+    assert report["branch"] == "feat/x" and report["plan_sha256"] == second["plan_sha256"]
+    with pytest.raises(ValueError, match="held by session"):
+        rotate.handover(transcript, "scope", "follow CI", "changes pushed", job_id="scoped", plan_file=plan)
+    Path(second["scope_plan"]).write_text("tampered", encoding="utf-8")
+    with pytest.raises(ValueError, match="recorded digest"):
+        rotate.takeover("scoped", second["note"], claimed[0])
+    plan.write_text("# Next approved plan\n\nOnly Fieldkit.\n", encoding="utf-8")
+    successor_transcript = monster(tmp_path, name=claimed[0])
+    rotate.handover(successor_transcript, "scope", "follow CI", "changes pushed", job_id="scoped", plan_file=plan)
+    assert rotate.takeover("scoped")["successor"] is None
+
+
+def test_scoped_launch_is_dispatched_once(tmp_path):
+    from fieldkit.tokens import budget as token_budget
+
+    plan = tmp_path / "approved.md"
+    plan.write_text("# Fieldkit only\n", encoding="utf-8")
+    result = rotate.handover(monster(tmp_path), "scope", "follow CI", "changes pushed",
+                             job_id="launch-once", plan_file=plan, ci_runs=[546])
+    sent = []
+
+    def send(message):
+        sent.append(message)
+        return "zero"
+
+    first = token_budget.start_successor(result["launch_brief"], "scope", "session", send=send)
+    second = token_budget.start_successor(result["launch_brief"], "scope", "session", send=send)
+    assert first["step"] == "zero" and second["step"] == "already-requested"
+    assert len(sent) == 1
+    assert rotate.takeover("launch-once", result["note"], "successor")["ci_runs"] == [546]
+
+
 # ---------------------------------------------------------------- finished side sessions
 
 def test_finished_needs_end_turn_idle_and_no_open_pr(tmp_path):
@@ -456,13 +533,15 @@ def test_stop_lets_the_handover_through(tmp_path):
         assert rotate.stop_refusal(pre(tp, "Bash", command=cmd)) is None, cmd
     assert rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/state/coordination/PLAN.md")) is None
     assert rotate.stop_refusal(pre(tp, "Edit", file_path="C:/r/HANDOFF.md")) is None
-    assert rotate.stop_refusal(pre(tp, "Read", file_path="C:/r/x.py")) is None
+    assert rotate.stop_refusal(pre(tp, "Read", file_path="C:/r/HANDOFF.md")) is None
 
 
 def test_stop_only_at_rotate_and_never_inside_a_job(tmp_path, monkeypatch):
     for level in ("OK", "WARN"):
         assert rotate.stop_refusal(pre(_said(tmp_path, level), "Bash", command="make")) is None
-    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="make")) is None   # no mark
+    none = pre(str(tmp_path / "none.jsonl"), "Bash", command="make")
+    assert "unknown state" in rotate.stop_refusal(none)                                              # no mark: fails closed
+    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="python -m fieldkit rotate check")) is None
     tp = _said(tmp_path, "ROTATE")
     monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path))
     assert rotate.stop_refusal(pre(tp, "Bash", command="make")) is None
@@ -603,3 +682,40 @@ def test_p24_handover_with_no_net_open_proceeds_and_says_so(tmp_path):
     p = monster(tmp_path)
     r = rotate.handover(p, "job", "next", done="done")
     assert not r["report"]["sent"] and "no net open" in r["report"]["why"] and Path(r["note"]).is_file()
+
+
+def test_stop_fails_closed_without_a_mark_and_blocks_every_tool_at_rotate(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    monkeypatch.delenv("FIELDKIT_ROTATE", raising=False)
+    monkeypatch.delenv("FIELDKIT_JOB_DIR", raising=False)
+    tp = str(tmp_path / "nomark.jsonl")                    # no mark file for this session: the state is unknown
+    assert "unknown state" in rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/new.py"))
+    assert rotate.stop_refusal(pre(tp, "Read", file_path="C:/r/x.py"))
+    assert rotate.stop_refusal(pre(tp, "Bash", command="python -m fieldkit rotate handover --title x")) is None
+    bad = tmp_path / "rot" / "said"
+    bad.mkdir(parents=True)
+    (bad / "nomark.json").write_text("{not json", encoding="utf-8")
+    assert rotate.stop_refusal(pre(tp, "Agent", prompt="x"))
+    tp2 = _said(tmp_path, "ROTATE", "s2")
+    for tool, ti in (("Read", {"file_path": "C:/r/x.py"}), ("Grep", {"pattern": "x"}), ("Agent", {"prompt": "x"})):
+        assert rotate.stop_refusal(pre(tp2, tool, **ti)), tool
+    assert rotate.stop_refusal(pre(tp2, "Bash", command="python -m fieldkit rotate handover --title x")) is None
+
+
+def test_the_rotate_off_opt_out_is_logged(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    monkeypatch.setenv("FIELDKIT_ROTATE", "off")
+    assert rotate.stop_refusal(pre("x.jsonl", "Read", file_path="a")) is None
+    assert "FIELDKIT_ROTATE=off" in (tmp_path / "rot" / "optout.log").read_text(encoding="utf-8")
+
+
+def test_handover_carries_the_session_mode(tmp_path, monkeypatch):
+    from fieldkit.lifecycle import sessionmode
+    from fieldkit import plan as harness_plan
+    monkeypatch.setenv("FIELDKIT_MODE_DIR", str(tmp_path / "mode"))
+    monkeypatch.setattr(harness_plan, "line", lambda *a, **k: "PLAN: x")
+    p = monster(tmp_path)
+    sessionmode.write("sess-big", "2")
+    r = rotate.handover(p, "Rotation | job", "next", done="d", not_verified="n", now=1_800_000_000)
+    assert r["session_mode"]["mode"] == "2" and r["session_mode"]["cap"] == 6
+    assert "SESSION MODE" in r["brief"] and "--session-mode 2" in r["brief"]

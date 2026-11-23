@@ -4,8 +4,12 @@
     fieldkit capture off [--distill]                         hooks out, periodic scan disabled; --distill then makes candidate tools
                                                              (fieldkit emerge run does on/off/distill by itself, see capture/loop.py)
     fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
-    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
-    fieldkit capture scan [--json] [--limit N]               journal the work calls the transcripts hold that no hook captured (idempotent)
+    fieldkit capture clean (--all | --keep-last AGE) [--apply] preview scratch retention, or recycle eligible items
+    fieldkit capture start --project NAME --lesson WHY      scoped lessons accept --workspace DIR --agents LIST
+                                                            and --session AGENT=ID --lookback AGE for transcript catch-up
+    fieldkit capture hook --agent claude|gemini|opencode|agy one hook event on stdin -> the journal (only while on); exit 0
+    fieldkit capture scan [--json] [--limit N]               catch up only from the active lesson's selected sources
+    fieldkit capture scan --legacy                          explicitly backfill Claude Code projects while capture is off
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
@@ -28,9 +32,10 @@ import argparse
 import collections
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from . import store as st
+from . import lesson, store as st
 
 LATER_FLAGS = ["kinds", "roots", "transform", "procedure", "failure-to-check", "languages", "workflows", "registration",
                "fresh-session"]
@@ -53,23 +58,51 @@ def _emit(a, data, lines):
 
 def cmd_hook(a):
     try:
-        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+        observed = datetime.now(timezone.utc)
+        if a.agent == "agy":
+            raw = sys.stdin.buffer.read(lesson.MAX_TRANSCRIPT_ROW + 1)
+            if len(raw) > lesson.MAX_TRANSCRIPT_ROW:
+                print("capture hook: Antigravity payload exceeds 16 MiB", file=sys.stderr)
+                return 0
+        else:
+            raw = sys.stdin.buffer.read()
+        text = raw.decode("utf-8", "replace")
         from . import switch
         if not switch.is_on():                             # off or expired: record nothing (owner, 2026-11-08)
             return 0
         from . import hook
-        hook.handle(a.agent, text)
-        switch.ensure_schedule()                           # the scan timer comes back if a path switched on without it
+        with lesson.lock():
+            state = switch.read()
+            if switch.is_on(state):
+                hook.handle(a.agent, text, scope=state.get("scope"), observed=observed)
+                switch.ensure_schedule()                   # heal the timer while this switch still owns it
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
         print(f"capture hook: {exc}", file=sys.stderr)
+    finally:
+        if a.agent == "agy":
+            print("{}")
     return 0
 
 
 def cmd_scan(a):
     from . import scan, switch
-    if a.scheduled and not switch.is_on():
-        return 0
-    r = scan.scan(st.Store(), limit=a.limit)
+    with lesson.lock():
+        state = switch.read()
+        active = switch.is_on(state)
+        scope = state.get("scope") if active else None
+        if a.scheduled and (not scope or a.legacy):
+            return 0
+        if a.legacy and active:
+            print("capture scan: stop the lesson before explicitly backfilling Claude history", file=sys.stderr)
+            return 3
+        if not scope and not a.legacy:
+            print("capture scan: no active scoped lesson; use --legacy for explicit Claude history backfill", file=sys.stderr)
+            return 3
+        try:
+            r = scan.scan(st.Store(), limit=a.limit, scope=scope)
+        except (OSError, ValueError) as exc:
+            print(f"capture scan: {exc}", file=sys.stderr)
+            return 3
     if a.scheduled:
         return 0
     r["next"] = "fieldkit capture coverage --strict, then fieldkit capture ledger --strict"
@@ -114,6 +147,17 @@ def cmd_ledger(a):
 
 
 def cmd_absorb(a):
+    from . import switch
+
+    with lesson.lock():
+        if switch.read().get("scope"):
+            _emit(a, {"next": "finish and archive the scoped lesson before importing another store"},
+                  ["capture absorb refused during a scoped lesson's store lifetime"])
+            return 3
+        return _absorb(a)
+
+
+def _absorb(a):
     """absorb DIR...: each stray store (a worktree's state/capture, or the worktree itself) into the shared one."""
     s, rows = st.Store(), []
     for d in a.dirs:
@@ -166,7 +210,7 @@ def cmd_coverage(a):
     from . import episodes
     cov = episodes.coverage(st.Store().state())
     gaps = sum(1 for g in cov["agents"].values() for u in g["uncaptured"] if u["reason"].startswith("GAP"))
-    cov["next"] = "run the capture scan for the GAP sessions" if gaps else "every transcript is read or listed with a reason"
+    cov["next"] = "run capture scan --legacy to backfill GAP sessions while capture is off" if gaps else "every transcript is read or listed with a reason"
     lines = [f"machine {cov['machine']} ({cov['platform']})"]
     for name, g in cov["agents"].items():
         why = collections.Counter(u["reason"] for u in g["uncaptured"])
@@ -338,7 +382,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="action", required=True)
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
-    h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
+    h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode", "agy"])
     on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
     on.add_argument("--lesson", default=None, help="what the harness is being taught (omit it, with capture on, to extend it)")
     on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 10080, one week)")
@@ -347,20 +391,40 @@ def main(argv=None):
     stt.add_argument("--project", default=None, help="the project this capture is for (episodes of other projects never mix in)")
     stt.add_argument("--lesson", default=None)
     stt.add_argument("--for", dest="minutes", type=int, default=None)
-    stt.add_argument("--dry-run", action="store_true", help="only the digest check")
-    stt.add_argument("--force-undigested", action="store_true", help="OWNER ONLY, at a real terminal: wipe undigested material too (it stays in the archive bundle)")
+    stt.add_argument("--dry-run", action="store_true", help="preview scratch eligibility and the store gate without changes")
+    stt.add_argument("--force-undigested", action="store_true", help="OWNER ONLY: proceed past an open queue after verifying its archive. Scratch still requires disposition.")
     stt.add_argument("--dispose", metavar="PATH", help="record that a scattered script is not worth keeping (needs --because)")
     stt.add_argument("--because")
     stt.add_argument("--json", action="store_true")
+    stt.add_argument("--workspace", help="existing project directory for the lesson boundary")
+    stt.add_argument("--agents", help="comma-separated agents: claude,codex,agy,gemini,opencode")
+    stt.add_argument("--lookback", metavar="AGE", help="read recent calls (for example 30m) from selected Claude or Codex transcripts")
+    stt.add_argument("--session", metavar="AGENT=ID", action="append", default=[],
+                     help="restrict capture to this session for the selected agent; repeat for other agents")
+    audit = sub.add_parser("audit", help="read-only clean-slate audit of configured scratch roots")
+    audit.add_argument("--json", action="store_true", help="machine-readable report")
+    audit.add_argument("--device", help="audit this configured household peer instead of this computer")
+    audit.add_argument("--via", choices=("cable", "ssh", "both"), help="transport choice for this remote audit")
+    clean = sub.add_parser("clean", help="inventory temp and session stores and preview scratch retention")
+    clean.add_argument("--apply", action="store_true", help="recycle eligible scratch while capture is off")
+    clean.add_argument("--retire-sessions", action="store_true",
+                       help="with --apply, also archive and recycle eligible closed native transcripts")
+    clean.add_argument("--json", action="store_true")
+    for parser in (stt, clean):
+        selection = parser.add_mutually_exclusive_group(required=parser is clean)
+        selection.add_argument("--all", action="store_true", help="select scratch and eligible session history of any age")
+        selection.add_argument("--keep-last", "--older-than", metavar="AGE",
+                               help="retain newer scratch and eligible session history, for example 30m, 2w, or '1 month'")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
     off.add_argument("--json", action="store_true")
     off.add_argument("--distill", action="store_true", help="then turn what was captured into candidate tools or ledger lines")
     sw = sub.add_parser("state", help="is capture on, for which lesson, until when")
     sw.add_argument("--json", action="store_true")
     sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
-    sc = sub.add_parser("scan", help="journal what the transcripts hold that no hook captured")
+    sc = sub.add_parser("scan", help="catch up from the active lesson's selected sources")
     sc.add_argument("--json", action="store_true")
     sc.add_argument("--limit", type=int, default=None, help="stop after N calls (a trial)")
+    sc.add_argument("--legacy", action="store_true", help="explicitly backfill all Claude Code projects while capture is off")
     sc.add_argument("--scheduled", action="store_true", help="the timer's run: does nothing while capture is off, prints nothing")
     ab = sub.add_parser("absorb", help="bring a stray store (a worktree's state/capture) into the shared one")
     ab.add_argument("dirs", nargs="+")
@@ -410,9 +474,12 @@ def main(argv=None):
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
         t.add_argument("--" + k.replace("_", "-"), dest=k, action="store_true")
     a = ap.parse_args(argv)
-    if a.action == "start":
+    if a.action == "audit":
+        from . import audit
+        return audit.cmd(a)
+    if a.action in ("start", "clean"):
         from . import cleanslate
-        if not a.dispose and not (a.project and a.lesson):
+        if a.action == "start" and not a.dispose and not (a.project and a.lesson):
             print("capture start: --project NAME and --lesson WHY are required", file=sys.stderr)
             return 2
         return cleanslate.cmd(a)
@@ -421,7 +488,10 @@ def main(argv=None):
         return projects.cmd(a)
     if a.action in ("on", "off", "state"):
         from . import switch
-        return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
+        if a.action == "state":
+            return switch.cmd_state(a)
+        with lesson.lock():
+            return (switch.cmd_on if a.action == "on" else switch.cmd_off)(a)
     return {"absorb": cmd_absorb, "hook": cmd_hook, "scan": cmd_scan, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
             "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "adopted": cmd_adopted, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 

@@ -686,19 +686,20 @@ def _pipeline_in_screen(a):
     and the last line says the pipeline's exit status, so silence never looks like success."""
     import shutil
     import subprocess
+    from fieldkit import proc as fkproc
     import time
     if not shutil.which("screen"):
         print("fieldkit pipeline: GNU screen is not installed (sudo apt install screen); nothing was started")
         return 2
     name = a.screen
-    if subprocess.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
+    if fkproc.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
         print(f"fieldkit pipeline: a screen session named {name} is already running; nothing was started")
         return 2
     logs = settings.state_root() / "state" / "pipelines"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"{a.name}-{name}-{time.strftime('%y-%m-%d-%H-%M')}.log"
     cmd = screen_command(a, log)
-    subprocess.run(["screen", "-dmS", name, "bash", "-c", cmd], check=True)
+    fkproc.run(["screen", "-dmS", name, "bash", "-c", cmd], check=True)
     print(f"started in screen session {name}\n  log:    {log}\n  watch:  tail -f {log}\n"
           f"  attach: screen -r {name}   (detach again with Ctrl-a d)\n  done when the log's last line is 'pipeline exit N'")
     return 0
@@ -1678,6 +1679,8 @@ METHODS = {
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
     "install": ("installverify", "a program is installed, purged or verified on Linux and Windows: binary, .desktop/.lnk, icons, caches, registry (verify PRODUCT | self-test | app SRC --name APP | purge APP)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
+    "escalate": ("escalate", "Low effort first, a fresh high-effort retry only on a failed check (run | cache | ledger)"),
+    "trashmenu": ("trashmenu", "Windows 11 first right-click menu: Empty with Gorilla Trash... (build | install-admin | register | status)"),
 }
 
 
@@ -1826,6 +1829,10 @@ def build_parser():
                    help="one machine-wide gate for heavy jobs (suite, mutate, builds, go test): N at once, the rest "
                         "queue and never ask (fieldkit admit status)")
 
+    pf = sub.add_parser("pfind", add_help=False, help="search locally with prepared pfind bytecode")
+    pf.add_argument("args", nargs=argparse.REMAINDER)
+    pf.set_defaults(_external_parser=True)
+    sub.add_parser("ownership", add_help=False, help="Windows Take Ownership and Explorer registration")
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
                               "safely (fieldkit win11)")
@@ -1873,6 +1880,8 @@ def build_parser():
                                        "hook text (fieldkit token-audit)"),
                        ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
                                 "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
+                       ("agent-models", "keep Claude Code's Explore subagent on Haiku: check, enforce (template back), audit (models subagents really ran on)"),
+                       ("installed", "the installed Fieldkit follows origin/main: check (PASS/FAIL), sync (fast-forward, verify), where"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
@@ -1924,6 +1933,10 @@ def build_parser():
                         help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
                              "to the whole suite (fieldkit ciaudit)")
     ca.add_argument("args", nargs=argparse.REMAINDER)
+    ci = sub.add_parser("ci", add_help=False,
+                        help="CI speed: per-test durations kept as an artifact, and what the shard split uses "
+                             "(fieldkit ci durations|plan|quarantine)")
+    ci.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -3243,6 +3256,12 @@ def main(argv=None):
     if args[:1] == ["orchestrate"]:                   # the boss's side of the household (fieldkit/orchestrate.py)
         from . import orchestrate
         return orchestrate.main(args[1:])
+    if args[:1] == ["pfind"]:
+        from .desk import pfind
+        return pfind.main(args[1:])
+    if args[:1] == ["ownership"]:
+        from .desk import ownership
+        return ownership.main(args[1:])
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
@@ -3279,10 +3298,13 @@ def main(argv=None):
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])
-    if args[:1] in (["session-cost"], ["token-audit"], ["rotate"]):   # what sessions cost; rotate the monsters
+    if args[:1] in (["session-cost"], ["token-audit"], ["rotate"], ["agent-models"]):   # what sessions cost; rotate the monsters
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["installed"]:                     # the installed copy follows origin/main
+        from .core import installed
+        return installed.main(args[1:])
     if args[:1] == ["cost"]:                          # one daily cost line for the owner (fieldkit/tokens/cost_daily)
         from .tokens import cost_daily
         return cost_daily.main(args[1:])
@@ -3328,6 +3350,12 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ci"]:                            # CI-SPEED-PLAN C1: durations the shard split balances by
+        from .method import ciplan
+        return ciplan.main(args[1:])
+    if args[:1] == ["agentperms"]:                    # allow-everything agent settings (Kiro, Bob, Antigravity, OpenCode)
+        from .method import agentperms
+        return agentperms.main(args[1:])
     if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
         from .method import ciaudit
         return ciaudit.main(args[1:])
@@ -3400,6 +3428,12 @@ def main(argv=None):
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])
+    if args[:1] == ["escalate"]:                      # low effort, fresh high retry on a red (fieldkit/escalate)
+        from .escalate import cli as escalate_cli
+        return escalate_cli.main(args[1:])
+    if args[:1] == ["trashmenu"]:                     # Windows 11 first-menu Gorilla Trash (fieldkit/desk/trashmenu.py)
+        from .desk import trashmenu
+        return trashmenu.main(args[1:])
     if args[:1] and args[0] in METHODS:              # methods as tools (docs/METHODS.md): each has its own parser
         import importlib
         mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)

@@ -79,12 +79,66 @@ def test_a_page_the_check_never_measured_is_a_failure(tmp_path):
     assert not res["ok"] and "about:newtab: not measured" in res["problems"]
 
 
+def test_reuse_requires_the_same_runtime_dependencies(tmp_path, monkeypatch, record_property):
+    from fieldkit.emerge import repairproof
+
+    _, install = _world(tmp_path)
+    preference = install / "preferences.js"
+    preference.write_bytes(b"one")
+    calls = []
+
+    def check(directory, *, only, dprs, say):
+        calls.append((directory, only, dprs))
+        return {"items": [*GOOD["items"], {
+            "rule": "RT-RUN", "item": "dpr 1", "verdict": "PASS", "evidence": "run complete",
+        }]}
+
+    monkeypatch.setattr(repairproof.runtime, "run", check)
+    monkeypatch.setattr(repairproof.settings, "state_root", lambda: tmp_path)
+
+    def repair_at(sequence):
+        return rp.repair(FakeRecipe(tmp_path), ["browser/Logo.mjs"], install_dir=install,
+                         say=lambda _: None, procs=lambda _: [], stamp=f"20261001-100000-{sequence:06d}")
+
+    first = repair_at(1)["proof_reused"]
+    second = repair_at(2)["proof_reused"]
+    assert not first and second
+    assert len(calls) == 1
+    preference.write_bytes(b"two")
+    third = repair_at(3)["proof_reused"]
+    assert not third
+    assert len(calls) == 2
+    record_property("fieldkit_fixture_runtime_checks", len(calls))
+    record_property("fieldkit_fixture_runtime_checks_reused", sum((first, second, third)))
+
+
 def test_a_running_product_is_stopped_and_reopened(tmp_path):
     src, inst = _world(tmp_path)
     stopped, opened = [], []
     rp.repair(FakeRecipe(tmp_path), ["browser/Logo.mjs"], install_dir=inst, say=lambda m: None,
               check=lambda d, p: GOOD, procs=lambda d: [41], stop=stopped.append, reopen=opened.append, stamp="T")
     assert stopped == [41] and opened == [inst / "firefox.exe"]
+
+
+@pytest.mark.parametrize("failure", ["runtime", "export"])
+def test_operational_failure_restores_exact_archive_and_reopens(tmp_path, failure):
+    _, install = _world(tmp_path)
+    archive = install / "browser" / "omni.ja"
+    before = archive.read_bytes()
+    opened = []
+
+    def check(*args):
+        if failure == "runtime":
+            raise OSError("runtime unavailable")
+        return GOOD
+
+    error = OSError if failure == "runtime" else rp.Refused
+    with pytest.raises(error):
+        rp.repair(FakeRecipe(tmp_path), ["browser/Logo.mjs"], install_dir=install, base="missing-ref",
+                  check=check, procs=lambda _: [41], stop=lambda _: None, reopen=opened.append, stamp="T")
+    assert archive.read_bytes() == before
+    assert opened == [install / "firefox.exe"]
+    assert not (tmp_path / "patches").exists()
 
 
 def test_what_needs_a_build_is_refused(tmp_path):

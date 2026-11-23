@@ -25,6 +25,7 @@ Every allowed push is written to the mandate's log.
 import argparse
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 ZERO = "0" * 40
@@ -32,7 +33,7 @@ MARKER = "FIELDKIT_SHIP_PUSH"
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=120)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=120)
 
 
 def _ancestor(repo, a, b):
@@ -110,6 +111,18 @@ def check(repo_path, stdin_text, env=None, today=None, where=None):
     M.log(path, "push-gate", f"{repo}: " + ", ".join(x[2] for x in lines), by="pre-push gate",
           refs=[f"{x[2]} {x[1][:12]}" for x in lines])
     return True, [f"allowed by the mandate {path.stem} for {repo}: " + ", ".join(x[2] for x in lines)], path
+
+
+def preflight(repo_path, today=None):
+    """Check the existing approval before work starts, without pushing or logging an approval."""
+    from . import proofs
+    repo, _ = proofs.where(repo_path)
+    if not repo:
+        return {"ok": False, "reason": "checkout has no Git origin"}
+    path, m, cfg = _mandate_for(repo, today)
+    if path is None:
+        return {"ok": False, "repo": repo, "reason": str(cfg)}
+    return {"ok": True, "repo": repo, "mandate": path.stem, "expires": str(m["expires"])}
 
 
 def main(argv=None):

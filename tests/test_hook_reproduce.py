@@ -40,11 +40,13 @@ def _repo(tmp_path, test_body):
     (r / "tests").mkdir()
     shutil.copy(HOOK, r / "hooks" / "pre-commit")
     (r / "tests" / "test_x.py").write_text(test_body, encoding="utf-8")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # PYTEST_*, FIELDKIT_*: CI sets test-evidence and reuse variables; a sharded (xdist) run hands its worker variables down, and the hook's own inner pytest must not inherit them
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "PYTEST_", "FIELDKIT_"))}
     env["PATH"] = f"{_bin_with_python(tmp_path)}:{env.get('PATH', '')}"
     env.pop("VIRTUAL_ENV", None)
     # the temp repo is not fieldkit, so the privacy scan needs the real package
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    env["FIELDKIT_ADMISSION_HOME"] = str(tmp_path / "admission")   # parallel workers must not queue on one machine-wide slot
     env["FIELDKIT_FULL_SUITE"] = "1"        # the reproduce logic of a suite run is under test, not the selection
     subprocess.run(["git", "init", "-q", str(r)], check=True, env=env)
     return r, env

@@ -14,6 +14,7 @@ The missing admin steps (audit policy, command-line flag, group) are written as 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -49,7 +50,7 @@ $all | ?{ $_.NewProcessName -and ((Split-Path $_.NewProcessName -Leaf) -ieq '%PR
 """
 
 
-def probe(run=subprocess.run):
+def probe(run=fkproc.run):
     if sys.platform != "win32":
         return {"status": "not-this-platform"}
     r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", PROBE], capture_output=True, text=True, timeout=60)
@@ -93,7 +94,7 @@ def fix_script(steps):
             + body + "\nauditpol.exe /get /subcategory:\"Process Creation\"\nRead-Host 'Done. Sign out and in once, then press Enter'\n")
 
 
-def callers(proc, since, run=subprocess.run):
+def callers(proc, since, run=fkproc.run):
     s = CALLERS.replace("%SINCE%", time.strftime("%Y-%m-%d", time.localtime(since))).replace("%PROC%", proc)
     r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", s], capture_output=True, text=True, timeout=300)
     if not r.stdout.strip():
@@ -102,7 +103,7 @@ def callers(proc, since, run=subprocess.run):
     return {"rows": [j] if isinstance(j, dict) else j}
 
 
-def run_cmd(write_fix=False, proc=None, since=None, as_json=False, out=print, state_dir=None, runner=subprocess.run):
+def run_cmd(write_fix=False, proc=None, since=None, as_json=False, out=print, state_dir=None, runner=fkproc.run):
     p = probe(runner)
     v, need = verdict(p)
     res = {"verdict": v, "probe": p, "missing": need}

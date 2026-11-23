@@ -47,6 +47,7 @@ import shutil
 import argparse
 import tempfile
 import subprocess
+from fieldkit import proc as fkproc
 from collections import Counter
 
 try:
@@ -563,7 +564,7 @@ def _convert_with_office(path, target, ext):
               "$a = New-Object -ComObject %s; try { %s } finally { $a.Quit() }"
               % (app, body))
     try:
-        subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+        fkproc.run(["powershell", "-NoProfile", "-NonInteractive",
                         "-Command", script], check=True, timeout=180,
                        capture_output=True)
         return os.path.isfile(target)
@@ -586,7 +587,7 @@ def convert_legacy(path, out_dir=None):
     soffice = _find_soffice()
     if soffice:
         try:
-            subprocess.run([soffice, "--headless", "--convert-to", new_ext,
+            fkproc.run([soffice, "--headless", "--convert-to", new_ext,
                             "--outdir", out_dir, path], check=True,
                            timeout=240, capture_output=True)
             if os.path.isfile(target):

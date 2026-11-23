@@ -20,6 +20,7 @@ import shutil
 from dataclasses import dataclass, field
 import sys
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 BLOCKER, WARN = "BLOCKER", "WARN"
@@ -310,7 +311,7 @@ def _c_api_drift(ctx):
 AUGUST_GATES = Path.home() / ".agents" / "skills" / "browser-release-pipeline" / "scripts" / "release_pipeline.py"
 
 
-def august_gates(src, phase="preflight", script=AUGUST_GATES, run=subprocess.run):
+def august_gates(src, phase="preflight", script=AUGUST_GATES, run=fkproc.run):
     """-> (ok, failed gate ids, the failing lines). A script that is missing or ran no gate is a failure."""
     if not Path(script).is_file():
         return False, ["MISSING"], [f"{script} is gone: the theme and text gates cannot run"]
@@ -364,10 +365,10 @@ def must_keep(root, platform="linux"):
 
 def _changed(src):
     import subprocess
-    r = subprocess.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
         return None
-    d = subprocess.run(["git", "-C", str(src), "diff", "--name-only", r.stdout.split()[0]], capture_output=True, text=True)
+    d = fkproc.run(["git", "-C", str(src), "diff", "--name-only", r.stdout.split()[0]], capture_output=True, text=True)
     return set(d.stdout.split())
 
 

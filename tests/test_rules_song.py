@@ -143,3 +143,15 @@ def test_cli_lint_exit_codes_and_inventory(tmp_path, pol, capsys, monkeypatch):
     capsys.readouterr()
     assert S.main(["inventory", "--home", str(clean), "--json"]) == 0
     assert json.loads(capsys.readouterr().out.split("NEXT:")[0])[0]["kind"] == "global"
+
+
+def test_tracked_reports_a_git_timeout_on_stderr(tmp_path, monkeypatch, capsys):
+    """F4.1: a git call that times out is a receipt on stderr and None, never a silent guess."""
+    import subprocess
+
+    def hang(argv, **kw):
+        assert kw.get("timeout")
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+    monkeypatch.setattr(S.subprocess, "run", hang)
+    assert S.tracked(tmp_path / "f.md") is None
+    assert "timed out" in capsys.readouterr().err

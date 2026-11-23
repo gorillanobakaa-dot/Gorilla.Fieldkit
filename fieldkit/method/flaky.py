@@ -17,6 +17,7 @@ code: on Windows every test in one pytest process named its pipe after the same 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -41,7 +42,7 @@ GLOBAL_NAMES = (
 
 def run_once(test, cwd=ROOT, timeout=900):
     bt = tempfile.mkdtemp(prefix="fkflaky-")
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", bt, "-rw",
+    r = fkproc.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", bt, "-rw",
                         test], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=timeout)
     out = r.stdout + r.stderr

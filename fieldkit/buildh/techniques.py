@@ -22,6 +22,7 @@ Signals are searches over the TREE (git grep, tests and the defining modules exc
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 TECHNIQUES = [
@@ -459,7 +460,7 @@ GUARD = re.compile(r"GORILLA (TECHNIQUE|UNLEASHED)")
 def _append_only(workdir, header):
     """Files upstream marks `header` that the tree changed against pristine: each must be pristine, byte for byte,
     followed only by a block that starts with `/* GORILLA`. -> (bad, checked)"""
-    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
+    git = lambda *a: fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
     root = git("rev-list", "--max-parents=0", "HEAD").stdout.decode().split()
     if not root:
         return [("(tree)", "no pristine root commit")], 0
@@ -479,7 +480,7 @@ def _append_only(workdir, header):
 
 
 def _grep(workdir, regex, pathspec):
-    r = subprocess.run(["git", "-C", str(workdir), "grep", "-n", "-E", regex, "--", *pathspec],
+    r = fkproc.run(["git", "-C", str(workdir), "grep", "-n", "-E", regex, "--", *pathspec],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     out = []
     for line in r.stdout.splitlines():

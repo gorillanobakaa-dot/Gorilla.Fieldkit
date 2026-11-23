@@ -31,6 +31,7 @@ import os
 import shlex
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -52,7 +53,7 @@ def sha256(p):
 
 def _run(cmd, timeout=60):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return 127, "", str(e)
@@ -739,7 +740,7 @@ def self_test_all(which="all"):
 
 def main(argv=None, prog="fieldkit install"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["verify", "self-test", "app", "purge"])
+    ap.add_argument("action", choices=["verify", "self-test", "app", "purge", "preflight"])
     ap.add_argument("product", nargs="?", help="product name (verify/purge) or source path (app)")
     ap.add_argument("--name", default="antigravity", help="app: application name (default: antigravity)")
     ap.add_argument("--replace", action="store_true", help="app: purge any existing/corrupted installation before installing")
@@ -752,8 +753,23 @@ def main(argv=None, prog="fieldkit install"):
     ap.add_argument("--peer", action="store_true", help="run on the paired computer instead (its link listener runs the verb)")
     ap.add_argument("--host", help="run on this remote host over ssh")
     ap.add_argument("--os", default="all", choices=["all", "linux", "windows", "macos"], help="self-test: which fixtures")
+    ap.add_argument("--lean", action="store_true", default=True, help="preflight: check lean package requirements (default)")
+    ap.add_argument("--full", dest="lean", action="store_false", help="preflight: check full package requirements")
+    ap.add_argument("--allow-missing-terminal", action="store_true", help="preflight: exit 0 when terminal commands are missing so installation can proceed, while still exiting 3 on service discovery failure")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "preflight":
+        from ..desk import install_preflight
+        rep = install_preflight.run_preflight(lean=a.lean)
+        if a.json:
+            print(json.dumps(rep, indent=2))
+        else:
+            print(install_preflight.format_report(rep))
+        if rep["status"] == "ok":
+            return 0
+        if a.allow_missing_terminal and rep["status"] == "terminal_install_required":
+            return 0
+        return 3
     if a.action == "purge":
         if not a.product:
             print("REFUSED: purge needs an application name (e.g. antigravity)")

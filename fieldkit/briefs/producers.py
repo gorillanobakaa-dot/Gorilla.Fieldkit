@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 import yaml
@@ -623,7 +624,7 @@ def from_deferred(ctx):
 
 def from_owner_edits(ctx):
     from ..buildh import decision
-    r = subprocess.run(["git", "-C", str(ctx.owner), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+    r = fkproc.run(["git", "-C", str(ctx.owner), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
                        text=True, errors="replace")
     if r.returncode != 0:
         return []

@@ -34,6 +34,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -48,7 +49,7 @@ MAIN_NAMES = ("main", "master")
 def _git(root, *args, timeout=30):
     """-> stdout of a git command in root, or None when it failed."""
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=timeout,
+        r = fkproc.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError):
         return None
@@ -58,7 +59,7 @@ def _git(root, *args, timeout=30):
 def _gh_prs(root, branch):
     """-> [{number, state, url, headRefOid}] of the PRs whose head is the branch, or None when gh cannot say."""
     try:
-        r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all", "--limit", "10", "--json",
+        r = fkproc.run(["gh", "pr", "list", "--head", branch, "--state", "all", "--limit", "10", "--json",
                             "number,state,url,headRefOid,mergedAt"], cwd=str(root), capture_output=True, text=True,
                            timeout=40, encoding="utf-8", errors="replace")
         return json.loads(r.stdout) if r.returncode == 0 else None

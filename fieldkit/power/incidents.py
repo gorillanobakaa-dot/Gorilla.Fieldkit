@@ -16,6 +16,7 @@ import csv
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from datetime import datetime, timedelta
@@ -62,7 +63,7 @@ def _ts(iso):
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
 
 
-def read_windows(since, run=subprocess.run):
+def read_windows(since, run=fkproc.run):
     """-> ({events: [{t, id, prov, msg, data}], resets: [{day, process, changed, n}]}) from one PowerShell call."""
     if sys.platform != "win32":
         return {"events": [], "resets": []}
@@ -88,7 +89,7 @@ def read_windows(since, run=subprocess.run):
     return {"events": ev, "resets": resets, "sources": j.get("sources") or {}}
 
 
-def read_linux(since, run=subprocess.run):
+def read_linux(since, run=fkproc.run):
     """journalctl: the last line of every earlier boot (no shutdown target = a cut) and the sleep/button/heat lines."""
     if not sys.platform.startswith("linux"):
         return []
@@ -119,7 +120,7 @@ def read_linux(since, run=subprocess.run):
     return out
 
 
-def read_macos(since, run=subprocess.run):
+def read_macos(since, run=fkproc.run):
     """pmset -g log: Sleep / Wake / Shutdown Cause lines."""
     if sys.platform != "darwin":
         return []
@@ -178,7 +179,7 @@ def last_line_before(rows, t):
 
 # ---- battery --------------------------------------------------------------------------------------------------
 
-def battery_usage(run=subprocess.run, tmp=None):
+def battery_usage(run=fkproc.run, tmp=None):
     """Windows `powercfg /batteryreport /xml` Recent usage -> [(epoch, 'AC'|'Battery', charge %|None)]; [] when unavailable."""
     if sys.platform != "win32":
         return []

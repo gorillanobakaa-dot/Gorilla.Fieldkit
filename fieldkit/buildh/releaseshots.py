@@ -12,6 +12,7 @@ Born 2026-10-23, Linux 158.0-2. Announce it first: the window takes the screen f
 """
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 TOOLS = (["gnome-screenshot", "-f"], ["scrot", "-o"], ["import", "-window", "root"])
@@ -39,7 +40,7 @@ def parse(line):
     return None
 
 
-def run(install_dir, out_dir, prefix="", say=print, capture=None, runner=subprocess.run, probe_run=None):
+def run(install_dir, out_dir, prefix="", say=print, capture=None, runner=fkproc.run, probe_run=None):
     """-> {"ok", "shots": [{"name", "file", "proves"}], "skipped": [(name, why)]}"""
     from . import probe
     cmd = capture or capture_cmd()

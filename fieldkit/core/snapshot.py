@@ -30,6 +30,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def check_name(name):
 def _run(cmd, timeout=QUERY_TIMEOUT):
     """Run a read-only query. -> stdout. Raises NotCaptured when it cannot be trusted."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        r = fkproc.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired:
         raise NotCaptured(f"{cmd[0]} timed out after {timeout} s") from None
     except OSError as e:
@@ -130,7 +131,7 @@ def _systemd_services():
         start = enabled.get(unit)
         if start is None:                                        # e.g. template instances: ask for this unit
             try:
-                r = subprocess.run(["systemctl", "is-enabled", unit], capture_output=True, text=True,
+                r = fkproc.run(["systemctl", "is-enabled", unit], capture_output=True, text=True,
                                    timeout=30)
                 start = (r.stdout or "").strip().splitlines()[0] if (r.stdout or "").strip() else "unknown"
             except (OSError, subprocess.TimeoutExpired):

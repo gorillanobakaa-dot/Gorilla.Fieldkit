@@ -11,6 +11,7 @@ import os
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -64,7 +65,7 @@ def kill_tree(proc):
         return
     try:
         if sys.platform.startswith("win"):
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=30)
+            fkproc.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=30)
         else:
             import signal
             os.killpg(proc.pid, signal.SIGKILL)
@@ -80,7 +81,7 @@ def kill_tree(proc):
 def _popen(cmd, **kw):
     if not sys.platform.startswith("win"):
         kw["start_new_session"] = True
-    return subprocess.Popen(cmd, **kw)
+    return fkproc.Popen(cmd, **kw)
 
 
 def _page(html, final_url, text=None, title=None):

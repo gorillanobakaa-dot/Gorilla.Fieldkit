@@ -41,6 +41,7 @@ import os
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import threading
 import time
@@ -342,7 +343,7 @@ def covered_action(reg, kind, repo, branch):
     return None
 
 
-def do_action(gid, kind, repo, branch, spec, title="", body="", run=subprocess.run, say=print):
+def do_action(gid, kind, repo, branch, spec, title="", body="", run=fkproc.run, say=print):
     """push_branch / open_pr, done by the harness (never a model) under a pre-approval. -> (ok, evidence)."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         return False, "refused inside an autopilot run (no credential there by design)"
@@ -383,7 +384,7 @@ def history(gid, cid, n=10):
     return out[-n:]
 
 
-def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
+def run_check(c, default_cwd, run=fkproc.run, timeout=None, hist=()):
     """One command criterion -> {verdict PASS|FAIL|TIMEOUT, rc, evidence, seconds}. The command's exit code, or a line
     it printed (expect.line), decides; nothing a model said does. It runs in a container (fieldkit/core/contain.py)
     with a WALL deadline (liveness.deadline_for: its own timeout, else 3 x its slowest measured run, capped at 1 h):
@@ -395,7 +396,7 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
               "$global:LASTEXITCODE = 0; " + c["run"] + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE"] if os.name == "nt" else ["bash", "-lc", c["run"]])
     from ..thermal import buildguard
-    if os.name == "nt" and run is subprocess.run and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
+    if os.name == "nt" and (run is subprocess.run or run is fkproc.run) and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
         # 2026-10-27 (crash ~04:14, owner: "guard obligatoriu"): a criterion on the laptop (the fan control's status
         # file is there) runs under fieldkit guard (one machine-wide slot, the fan check, the governor at
         # thermal.build_target), never beside another heavy job; inside a guard already: no second one
@@ -403,7 +404,7 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
     deadline = liveness.deadline_for(hist, c.get("timeout") or timeout)
     t0 = time.time()
     extra, timed = "", False
-    if run is subprocess.run:
+    if (run is subprocess.run or run is fkproc.run):
         o = contain.run(shell, label=f"verify {c.get('id') or c['run'][:60]}", deadline_s=deadline, cwd=cwd)
         out, rc = o.out + o.err, o.rc
         if o.status == "timeout":
@@ -475,7 +476,7 @@ def _run_check(fx, c, goal, gid, run):
     return r
 
 
-def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, who="goal"):
+def verify(gid, goal, st, ids=None, extra=(), claude=None, run=fkproc.run, who="goal"):
     """Run criteria (all, or ids) and extra job checks in a fresh worktree of origin/main (goal_fresh); record every
     verdict in verdicts.jsonl and the criteria records. -> list of results."""
     try:
@@ -664,7 +665,7 @@ def plan(gid, goal, st, claude, say=print):
 
 def apply_plan(gid, goal, st, p, reg, inbox_add, say=print):
     """Merge the plan into the state. Verified/done jobs never re-open; questions go through the pre-approvals
-    first and to the inbox only when nothing covers them."""
+    first; nothing covering one takes the planner default (REPORT.md "Decisions", no inbox item, F2.4)."""
     for j in p.get("jobs") or []:
         cur = st["jobs"].get(j["id"])
         if cur and cur["status"] in ("verified", "running"):
@@ -684,8 +685,6 @@ def apply_plan(gid, goal, st, p, reg, inbox_add, say=print):
         # (a HARD LINE is never a planner question: the worker stops there by itself).
         st["answers"][q["id"]] = {"answer": q.get("default") or "", "by": "default (no owner questions, 2026-11-01)"}
         st["questions"][q["id"]] = {**q, "inbox": 0}
-        inbox_add(f"goal {gid}: {q['title']}", f"{q.get('why', '')} Taken: the default {q.get('default')!r}.",
-                  kind="decision")
         event(gid, f"question {q['id']} answered by its default (no pre-approval covers category {q.get('category')})")
 
 
@@ -790,6 +789,7 @@ def runnable(st, t=None):
 # ---- workers: one thread per running job ------------------------------------------------------------------------
 _POOL = None
 _WORKERS = {}                        # gid -> {jid: {"future", "spend": [..]}} (this process only)
+IO_WAIT = 5                         # seconds the heartbeat waits for _IO before it skips a beat
 _IO = threading.Lock()               # inbox numbering and the lock file are shared by the worker threads
 
 
@@ -1005,7 +1005,7 @@ def _final_if_due(gid, goal, st, claude, run):
         st["needs_plan"] = True
 
 
-def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
+def step(gid, claude=None, run_job=None, run=fkproc.run, inbox_add=None, inbox_items=None, now=time.time,
          sleep=time.sleep, say=print, action=None, peer=None, start_task=None):
     """One round of one goal. -> {"status", "why", "wait_until"}. `peer`: () -> the idle peer's load row or None;
     `start_task`: tasks.start, for a heavy job sent to the peer while the laptop's slot is held."""
@@ -1132,7 +1132,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
     return {"status": "active", "why": "; ".join(ended) + (f"; still running: {left}" if left else "")}
 
 
-def expand_branches(repo, branch, run=subprocess.run):
+def expand_branches(repo, branch, run=fkproc.run):
     """A branch name, or a glob (night/*) -> the local branches it names (job branch names are not known when the
     goal is written)."""
     if not any(ch in branch for ch in "*?["):
@@ -1143,7 +1143,7 @@ def expand_branches(repo, branch, run=subprocess.run):
 
 
 def _actions(gid, goal, st, reg, action, say):
-    """At the end: the pre-approved harness actions for the goal's branches; the rest to the inbox."""
+    """At the end: the pre-approved harness actions for the goal's branches; the rest are recorded "not done" (F2.4: no inbox item)."""
     todo = []
     for a in goal.get("on_done") or []:
         for b in expand_branches(a.get("repo", "."), a.get("branch", "")) if a.get("repo") else []:
@@ -1155,10 +1155,9 @@ def _actions(gid, goal, st, reg, action, say):
             continue
         spec = covered_action(reg, kind, repo, branch) if kind in ACTIONS else None
         if spec is None:
-            st["actions"][key] = {"ok": False, "why": "no pre-approval covers it: in the inbox"}
-            from .inbox import add
-            add(f"goal {gid}: {kind} {branch}", f"the goal is done; {kind} of {branch} in {repo} is not pre-approved",
-                a.get("command", ""), kind="approval")
+            # F2.4: no inbox item; the recorded fallback is "not done", shown in REPORT.md (hard lines only reach the inbox)
+            st["actions"][key] = {"ok": False, "why": "no pre-approval covers it: not done, recorded in REPORT.md"}
+            event(gid, f"action {key}: not pre-approved, not done")
             continue
         ok, ev = action(gid, kind, repo, branch, spec, title=a.get("title", ""), body=a.get("body", ""))
         st["actions"][key] = {"ok": ok, "why": ev, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -1170,7 +1169,8 @@ def _finish(gid, st, status, why, inbox_add):
     save_state(gid, st)
     event(gid, f"goal {status}: {why}")
     report(gid)
-    inbox_add(f"goal {gid}: {status}", f"{why}. Report: {gdir(gid) / 'REPORT.md'}", kind="report")
+    from ..lifecycle import board                       # F2.4: the finish report is REPORT.md + a Board line, not an inbox item
+    board.note(f"goal {gid}: {status}", f"{why}. Report: {gdir(gid) / 'REPORT.md'}")
     return {"status": status, "why": why}
 
 
@@ -1224,6 +1224,8 @@ def report(gid):
         L.append(f"| {k} | {v['status']} | {str(v.get('why', ''))[:160]} |")
     if st["answers"]:
         L += ["", "Decisions:"] + [f"- {q}: {a['answer']} ({a['by']})" for q, a in st["answers"].items()]
+    if st.get("idle_alarms"):
+        L += ["", "Idle alarms (F2.9):"] + [f"- {a}" for a in st["idle_alarms"]]
     if st["actions"]:
         L += ["", "Harness actions:"] + [f"- {k}: {'done' if v['ok'] else 'not done'} ({v['why'][:160]})"
                                          for k, v in st["actions"].items()]
@@ -1264,7 +1266,9 @@ def lock(now=time.time):
 
 def heartbeat(now=time.time, note=None):
     p = GOALS / ".supervisor.lock"
-    with _IO:
+    if not _IO.acquire(timeout=IO_WAIT):           # a worker stuck holding _IO must not freeze this thread (F2.8)
+        return
+    try:
         cur = _rj(p) or {}
         if cur.get("pid") == os.getpid():
             cur["heartbeat"] = now()
@@ -1272,6 +1276,17 @@ def heartbeat(now=time.time, note=None):
                 cur["note"] = note
             cur["running"] = {g: sorted(w) for g, w in _WORKERS.items() if w}
             _wj(p, cur)
+    finally:
+        _IO.release()
+
+
+def _goal_idle(gid):
+    """True when nothing of the goal runs here or on the peer and it waits for no reason (owner answer, pause)."""
+    _, st = load(gid)
+    if not st or _WORKERS.get(gid):
+        return False
+    reason = bool(st.get("paused_until")) or any(q not in (st.get("answers") or {}) for q in st.get("questions") or {})
+    return not reason and st.get("status") in ("active", "waiting")
 
 
 def _heartbeat_thread(now, every=HEARTBEAT_EVERY):
@@ -1282,9 +1297,12 @@ def _heartbeat_thread(now, every=HEARTBEAT_EVERY):
 
     def beat():
         while not stop_ev.wait(every):
+            try:                                       # the alarm first and alone: 2026-11-01 it sat behind the
+                goal_peer.check_alarms(unfinished(), now)      # lock, which a hung round held; it speaks when the
+            except OSError:                                    # main loop is silent
+                pass
             try:
                 heartbeat(now)
-                goal_peer.check_alarms(unfinished(), now)      # from here: it speaks when the main loop is silent
             except OSError:
                 pass
     threading.Thread(target=beat, name="goal-heartbeat", daemon=True).start()
@@ -1336,6 +1354,7 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
             hold_awake(os.getpid())
         except Exception as e:  # noqa: BLE001
             say(f"  [WARN] stay awake: not held ({e})")
+    goal_peer._STAMP["path"] = GOALS / ".progress.json"
     goal_peer.beat("start", now)
     born = set(unfinished())           # a goal created after the start joins even when the supervisor was given ids
     last_line = {}
@@ -1354,6 +1373,8 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
                 sleep(60)
                 continue
             waits, progressed = [], False
+            round_t0 = now()
+            idle0 = {g: _goal_idle(g) for g in goals}
             for gid in goals:
                 heartbeat(now, f"goal {gid}")
                 goal_peer.beat(f"goal {gid}", now)
@@ -1371,6 +1392,16 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
                     waits.append(r.get("wait_until") or now() + IDLE_POLL)
                 elif r["status"] == "active":
                     progressed = True
+            wall = now() - round_t0
+            for gid in goals:                          # F2.9: a goal idle over half of the round's wall time
+                idle_s = wall * ((idle0.get(gid, False) + _goal_idle(gid)) / 2)
+                text = goal_peer.round_idle(gid, idle_s, wall, say)
+                if text:
+                    _, gst = load(gid)
+                    if gst:
+                        gst["idle_alarms"] = (gst.get("idle_alarms") or [])[-19:] + [
+                            f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}"]
+                        save_state(gid, gst)
             if once:
                 return 0
             live = [g for g in dict.fromkeys(goals + [g for g in unfinished() if g not in born])

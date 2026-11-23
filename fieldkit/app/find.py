@@ -13,6 +13,7 @@ import os
 import plistlib
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def _entry(name, path, how, launch, version="", **extra):
     return {"name": name, "path": path, "version": version, "how": how, "launch": launch, "running": [], **extra}
 
 
-def _run(argv, run=subprocess.run, timeout=20):
+def _run(argv, run=fkproc.run, timeout=20):
     try:
         r = run(argv, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
@@ -185,17 +186,17 @@ def _powershell_json(script, run):
     return d if isinstance(d, list) else [d]
 
 
-def real_start_apps(run=subprocess.run):
+def real_start_apps(run=fkproc.run):
     rows = _powershell_json("Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress", run)
     return [(r.get("Name", ""), r.get("AppID", "")) for r in rows if r.get("Name") and r.get("AppID")]
 
 
-def real_lnk_target(path, run=subprocess.run):
+def real_lnk_target(path, run=fkproc.run):
     s = "(New-Object -ComObject WScript.Shell).CreateShortcut('%s').TargetPath" % path.replace("'", "''")
     return _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", s], run).strip()
 
 
-def real_lnk_args(path, run=subprocess.run):
+def real_lnk_args(path, run=fkproc.run):
     s = "(New-Object -ComObject WScript.Shell).CreateShortcut('%s').Arguments" % path.replace("'", "''")
     return _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", s], run).strip()
 
@@ -238,7 +239,7 @@ def real_walk_lnk(folder):
 
 def _dpkg_version(path, run=None):
     import subprocess
-    run = run or subprocess.run
+    run = run or fkproc.run
     try:
         real = os.path.realpath(path)
         for p in dict.fromkeys((str(path), real)):
@@ -416,7 +417,7 @@ def real_env(osname=None):
 
     ra, pd = environ.get("APPDATA", ""), environ.get("ProgramData", "")
     return {"osname": osname or sys.platform, "environ": environ, "home": home, "procs": None,
-            "listdir": listdir, "isfile": os.path.isfile, "glob": _g.glob, "which": shutil.which, "run": subprocess.run,
+            "listdir": listdir, "isfile": os.path.isfile, "glob": _g.glob, "which": shutil.which, "run": fkproc.run,
             "isexec": lambda p: os.access(p, os.X_OK), "lines": lines,
             "read": lambda p: Path(p).read_text(encoding="utf-8", errors="replace"),
             "read_bytes": lambda p: Path(p).read_bytes(),

@@ -17,6 +17,7 @@ Rows (each {check, ok, evidence}):
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import zipfile
 from pathlib import Path
 
@@ -72,13 +73,13 @@ def pref_lines(text, judge_conditionals=False):
 def pref_intent(workdir):
     """{name: (value, flag, conditional, source)}: prefs whose line the port added or changed against pristine upstream."""
     w = Path(workdir)
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
     intent = {}
     for src, _, _ in PREF_SOURCES:
         now = pref_lines((w / src).read_text(encoding="utf-8", errors="replace"))
         before = {}
         if root:
-            r = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{src}"], capture_output=True)
+            r = fkproc.run(["git", "-C", str(w), "show", f"{root[0]}:{src}"], capture_output=True)
             if r.returncode == 0:
                 before = pref_lines(r.stdout.decode("utf-8", "replace"))
         for name, (val, flag, cond) in now.items():
@@ -306,7 +307,7 @@ def rows(workdir, install_dir, deleted_paths=(), which=("prefs", "excised", "sta
     if "excised" in which:
         files = None
         try:
-            files = subprocess.run(["git", "-C", str(workdir), "ls-files"], capture_output=True, text=True, encoding="utf-8").stdout.split("\n")
+            files = fkproc.run(["git", "-C", str(workdir), "ls-files"], capture_output=True, text=True, encoding="utf-8").stdout.split("\n")
         except Exception:
             pass
         out.append(excised_row(install_dir, deleted_paths, truth_root, files))

@@ -17,13 +17,14 @@ installed build, and the release gate was the first place a missing patch or a b
 Fail closed: any row that fails makes the check FAIL. The 8-minute full step verify stays in the build gate.
 """
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from . import task
 
 
 def _git(w, *a, env=None):
-    return subprocess.run(["git", "-C", str(w), *a], capture_output=True, text=True, encoding="utf-8", errors="replace",
+    return fkproc.run(["git", "-C", str(w), *a], capture_output=True, text=True, encoding="utf-8", errors="replace",
                           env=env)
 
 

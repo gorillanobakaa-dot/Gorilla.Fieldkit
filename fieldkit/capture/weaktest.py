@@ -8,6 +8,7 @@ PASS or FAIL. The answer is scored against the known verdict. The model is loade
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import urllib.request
 from pathlib import Path
 
@@ -94,7 +95,7 @@ def model_check(recipe, runner):
 
 
 def lms(*args):
-    return subprocess.run(["lms", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    return fkproc.run(["lms", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
 
 
 def run(recipes, model=None, runner=None):

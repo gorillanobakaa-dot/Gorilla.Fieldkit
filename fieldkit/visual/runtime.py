@@ -51,6 +51,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from pathlib import Path
@@ -126,6 +127,11 @@ def _inside(path, base):
         return False
 
 
+def copy_ignored(directory, names):
+    return shutil.ignore_patterns("gvisual*", "mozilla.cfg", "*.ja.before-repair-????????-??????-??????")(
+        directory, names)
+
+
 def copy_build(install_dir, root):
     """The installed build copied into the throwaway root. The install itself is only read."""
     src, dest = Path(install_dir).resolve(), Path(root) / "browser"
@@ -136,7 +142,7 @@ def copy_build(install_dir, root):
         raise Refused(f"no {layout.exe(src).name} in {src}")
     if _inside(src, root) or _inside(root, src):
         raise Refused("the install and the throwaway copy overlap")
-    shutil.copytree(src, dest, ignore=shutil.ignore_patterns("gvisual*", "mozilla.cfg"))
+    shutil.copytree(src, dest, ignore=copy_ignored)
     for left in ("defaults/pref/autoconfig.js", "gvisual.cfg"):
         if (dest / left).exists():
             raise Refused(f"the install already carries {left}: refusing to run someone else's autoconfig")
@@ -208,7 +214,7 @@ def make_profile(root, dpr):
     return prof
 
 
-def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=time.monotonic, sleep=time.sleep):
+def launch(copy, prof, dpr, timeout_s, popen=fkproc.Popen, kill=None, clock=time.monotonic, sleep=time.sleep):
     """Start the copy headless, wait for it to quit by itself; past the timeout stop exactly the process started
     here (with its children). -> {rc, seconds, timed_out, pid}."""
     from ..buildh import layout
@@ -230,7 +236,7 @@ def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=
     if timed_out:
         kill(proc.pid)            # still alive, so the PID is still ours; never after exit (the PID may be reused)
     sleep(1)
-    left = stop_leftovers(copy) if popen is subprocess.Popen else []
+    left = stop_leftovers(copy) if (popen is subprocess.Popen or popen is fkproc.Popen) else []
     return {"rc": rc, "seconds": round(clock() - t0, 1), "timed_out": timed_out, "pid": proc.pid, "stopped_leftovers": left}
 
 
@@ -261,14 +267,14 @@ def stop_leftovers(copy):
         return []
     ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | "
           "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
     pids = []
     for line in out.splitlines():
         pid, _, exe = line.partition("|")
         if exe.strip().lower().startswith(copy + os.sep) and pid.strip().isdigit():
             pids.append(int(pid))
     for pid in pids:
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
     return pids
 
 

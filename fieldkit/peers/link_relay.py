@@ -201,7 +201,8 @@ def restart(spawn=None):
     kwargs = {"cwd": str(ROOT), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
               "stderr": subprocess.DEVNULL}
     kwargs["creationflags" if os.name == "nt" else "start_new_session"] = 0x00000208 if os.name == "nt" else True
-    p = (spawn or subprocess.Popen)(cmd, **kwargs)
+    from fieldkit import proc as fkproc
+    p = (spawn or fkproc.Popen)(cmd, **kwargs)
     if getattr(p, "pid", None):
         from ..core import procs
         procs.record(p.pid, "link-relay", "the relay listener restarted by the watchdog")

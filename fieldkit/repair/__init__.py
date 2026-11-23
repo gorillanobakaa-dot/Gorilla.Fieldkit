@@ -16,6 +16,7 @@ ACTIONS = {
     "plan-row-insert": "plan_row_insert",
     "evidence-macho-extract": "evidence_macho_extract",
     "tpfan-config-verify": "tpfan_config_verify",
+    "ps-compat-check": "ps_compat_check",
 }
 
 

@@ -11,6 +11,7 @@ Registry only: no file search, no filesystem walk (projects/<id>/project.yaml, s
 import argparse
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 from . import registry
@@ -20,7 +21,7 @@ TOKEN_CHARS = 4  # a token is about 4 characters
 
 def _emerge_line(recipe):
     try:
-        r = subprocess.run([sys.executable, "-m", "fieldkit", "emerge", "status", recipe], capture_output=True,
+        r = fkproc.run([sys.executable, "-m", "fieldkit", "emerge", "status", recipe], capture_output=True,
                            text=True, timeout=20)
         d, _ = json.JSONDecoder().raw_decode(r.stdout)   # the JSON, then a NEXT: line
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -53,6 +54,8 @@ def build(proj, with_state=True):
          "recipes": proj.get("recipes"),
          "entry": [f"{e['cmd']} - {e.get('what', '')}" for e in proj.get("entry") or []],
          "tests": [f"{t['cmd']}  [{', '.join(t['paths'])}]" for t in proj.get("tests") or []]}
+    if proj.get("release"):
+        p["release"] = proj["release"]
     dec = proj.get("decisions")
     if dec:
         base = registry.repo_path(proj, dec["repo"])
@@ -68,6 +71,9 @@ def render(p, budget):
          "Platforms: " + ", ".join(p["platforms"] or []),
          "Cookbook (read these, search nothing):"] + [f"  {x}" for x in p["cookbook"]]
     L += ["Recipes: " + ", ".join(p["recipes"] or []), "Entry commands:"] + [f"  {x}" for x in p["entry"]]
+    if release := p.get("release"):
+        L.append("Release targets: " + ", ".join(release.get("targets", {})))
+        L.append("Publish: fieldkit ship gh-release TAG -- --candidate FILE")
     if p.get("decisions"):
         L.append("Owner decisions (settled, do not re-argue): " + p["decisions"])
     L += ["Tests: " + "; ".join(p["tests"])]
@@ -97,7 +103,7 @@ def hook(stdin_text):
     text = render(build(proj), 2000)
     if proj["id"] == "firefox":
         try:
-            r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "migrate", "brief"],
+            r = fkproc.run([sys.executable, "-m", "fieldkit", "build-harness", "migrate", "brief"],
                                capture_output=True, text=True, timeout=25)
             if r.stdout.strip():
                 text += "\nFirefox migration state:\n" + r.stdout.strip()

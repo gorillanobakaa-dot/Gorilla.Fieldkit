@@ -20,6 +20,7 @@ working TV that changes nothing; on a stuck one it is the same repair the backgr
 """
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -50,7 +51,7 @@ def argv_for(command, extra=(), path=None):
     return [python_exe(), str(harness_dir(path) / "hdmi.py")] + pre + words, command in ELEVATED
 
 
-def run(command, extra=(), path=None, runner=subprocess.run, admin=None):
+def run(command, extra=(), path=None, runner=fkproc.run, admin=None):
     """-> (exit code, output)."""
     argv, elevate = argv_for(command, extra, path)
     if not Path(argv[1]).is_file():

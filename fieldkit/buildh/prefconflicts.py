@@ -15,6 +15,7 @@ Runs (fail closed): set-proof on pristine + each system's selection (the patch s
 the build gate, and `fieldkit build-harness pref-conflicts TASK`."""
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 PREF_FILES = ("modules/libpref/init/all.js", "browser/app/profile/firefox.js",
@@ -66,7 +67,7 @@ def conflicts(defs_by_file):
 
 
 def _show(tree, rev, rel):
-    r = subprocess.run(["git", "-C", str(tree), "show", f"{rev}:{rel}"], capture_output=True)
+    r = fkproc.run(["git", "-C", str(tree), "show", f"{rev}:{rel}"], capture_output=True)
     return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
 
 
@@ -76,7 +77,7 @@ def scan(tree, pristine_tree=None, pristine_rev=None):
     tree = Path(tree)
     src = Path(pristine_tree) if pristine_tree else tree
     if pristine_rev is None:
-        r = subprocess.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+        r = fkproc.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
         pristine_rev = (r.stdout.split() or [None])[0]
     defs = {}
     for rel in PREF_FILES:

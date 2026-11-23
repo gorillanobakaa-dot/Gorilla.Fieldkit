@@ -381,7 +381,8 @@ def _scan_pdf(data, terms, label, **kw):
 def git_publishable(folder):
     """Files git would publish from `folder`: tracked + untracked-but-not-ignored. None if not a repo."""
     import subprocess
-    r = subprocess.run(["git", "-C", str(folder), "ls-files", "-co", "--exclude-standard", "-z"],
+    from fieldkit import proc as fkproc
+    r = fkproc.run(["git", "-C", str(folder), "ls-files", "-co", "--exclude-standard", "-z"],
                        capture_output=True)
     if r.returncode != 0:
         return None
@@ -487,7 +488,8 @@ def drop_upstream_emails(hits, rel, exists):
 def push_files(repo, rng):
     """Files a push publishes: added, copied, modified or renamed in the commit range `rng` (A..B). Fails closed."""
     import subprocess
-    r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMR", rng],
+    from fieldkit import proc as fkproc
+    r = fkproc.run(["git", "-C", str(repo), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMR", rng],
                        capture_output=True)
     if r.returncode != 0:
         raise ValueError(f"git could not list the range {rng}: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
@@ -499,19 +501,20 @@ def push_check(repo, rng, terms=None):
     Scans each file AS IT IS IN THE PUSHED COMMIT (git show B:path), not the working copy, so what is checked is
     exactly what reaches the remote. Profile data is matched on the repository path as well."""
     import subprocess
+    from fieldkit import proc as fkproc
     terms = private_terms() if terms is None else terms
     tip = rng.split("..")[-1] or "HEAD"
     files = push_files(repo, rng)
     report = {}
     for rel in files:
-        r = subprocess.run(["git", "-C", str(repo), "show", f"{tip}:{rel}"], capture_output=True)
+        r = fkproc.run(["git", "-C", str(repo), "show", f"{tip}:{rel}"], capture_output=True)
         if r.returncode != 0:
             report[rel] = [not_scanned("not readable from the pushed commit")]
             continue
         data = r.stdout
         hits = profile_findings(rel, data)
         hits += scan_text(_as_text(data), terms) if len(data) <= LARGE_LIMIT else [not_scanned("over the size limit")]
-        in_tip = lambda p: subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{tip}:{p}"],
+        in_tip = lambda p: fkproc.run(["git", "-C", str(repo), "cat-file", "-e", f"{tip}:{p}"],
                                           capture_output=True).returncode == 0
         hits = drop_upstream_emails(hits, rel, in_tip)
         if hits:
@@ -527,17 +530,18 @@ def push_history(repo, rng, terms, seen=None):
     removed in gorilla-size's history passed the old check, which read only the tip. Keys: '<commit>:<path>'.
     Text lines only (git prints 'Binary files differ' for binaries; the tip check reads binaries)."""
     import subprocess
+    from fieldkit import proc as fkproc
     base, _, tip = rng.partition("..")
     tip = tip or "HEAD"
-    kind = subprocess.run(["git", "-C", str(repo), "cat-file", "-t", base], capture_output=True, text=True).stdout.strip()
+    kind = fkproc.run(["git", "-C", str(repo), "cat-file", "-t", base], capture_output=True, text=True).stdout.strip()
     revs = [tip] if kind == "tree" or not base else [rng]
-    r = subprocess.run(["git", "-C", str(repo), "rev-list", *revs], capture_output=True, text=True)
+    r = fkproc.run(["git", "-C", str(repo), "rev-list", *revs], capture_output=True, text=True)
     if r.returncode != 0:
         return {f"history {rng}": [not_scanned("the commits of the push could not be listed")]}
     seen_keys = {(p, h["kind"], h.get("excerpt")) for p, hs in (seen or {}).items() for h in hs}
     out = {}
     for c in r.stdout.split():
-        d = subprocess.run(["git", "-C", str(repo), "show", "--format=", "--no-renames", "-p", "--unified=0", c],
+        d = fkproc.run(["git", "-C", str(repo), "show", "--format=", "--no-renames", "-p", "--unified=0", c],
                            capture_output=True)
         added, cur = {}, None
         for line in d.stdout.decode("utf-8", "replace").splitlines():
@@ -545,7 +549,7 @@ def push_history(repo, rng, terms, seen=None):
                 cur = line[6:] if line.startswith("+++ b/") else None
             elif cur and line.startswith("+") and not line.startswith("+++"):
                 added.setdefault(cur, []).append(line[1:])
-        exists = lambda p, c=c: subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{c}:{p}"],
+        exists = lambda p, c=c: fkproc.run(["git", "-C", str(repo), "cat-file", "-e", f"{c}:{p}"],
                                                capture_output=True).returncode == 0
         for rel, lines in added.items():
             hits = profile_findings(rel, b"") + scan_text("\n".join(lines), terms)
@@ -597,7 +601,8 @@ exit 0
 def install_hook(repo, fieldkit_cmd):
     """Write .git/hooks/pre-push (the repository's own hooks folder, never committed). -> its path."""
     import subprocess
-    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-path", "hooks"], capture_output=True, text=True)
+    from fieldkit import proc as fkproc
+    r = fkproc.run(["git", "-C", str(repo), "rev-parse", "--git-path", "hooks"], capture_output=True, text=True)
     if r.returncode != 0:
         raise ValueError(f"{repo} is not a git repository")
     hooks = Path(r.stdout.strip())

@@ -10,6 +10,7 @@ inside its own worktree; never by name. Linux/macOS read /proc or `ps`; on Windo
 import os
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -48,7 +49,7 @@ def targets(pid, worktree, rows=None, me=None):
     return sorted(out)
 
 
-def stop(t, rows=None, kill=os.kill, alive=None, sleep=time.sleep, grace=GRACE_S, run=subprocess.run):
+def stop(t, rows=None, kill=os.kill, alive=None, sleep=time.sleep, grace=GRACE_S, run=fkproc.run):
     """Stop the task record `t`. -> {"signalled": [pids], "killed": [pids], "left": [pids]}."""
     if alive is None:
         from ..peers.peers import pid_alive as alive

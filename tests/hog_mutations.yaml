@@ -257,3 +257,18 @@
   - '            + orphans(facts, registry, cfg, now) + services(facts, registry, cfg) + pileup(facts, cfg))'
   - '            + orphans(facts, registry, cfg, now) + pileup(facts, cfg))'
   why: a dead service is reported by every pass
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    return "act" if v >= act else "warn" if v >= warn else None'
+  - '    return "act" if v > act else "warn" if v > warn else None'
+  why: kernel limits warn/act are inclusive
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    return (ram(facts, cfg) + commit(facts, cfg) + limits(facts, cfg) + lms_models(facts, cfg, now, crit)'
+  - '    return (ram(facts, cfg) + commit(facts, cfg) + lms_models(facts, cfg, now, crit)'
+  why: kernel limits are part of every check, watch and preflight
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if name in cfg["same_name_exempt"]:'
+  - '        if False:'
+  why: same-name exemptions honored

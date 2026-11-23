@@ -40,6 +40,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -112,7 +113,7 @@ def _now():
 class GH:
     FIELDS = "number,title,headRefName,baseRefName,headRefOid,labels,isDraft,updatedAt,state"
 
-    def __init__(self, repo, run=subprocess.run):
+    def __init__(self, repo, run=fkproc.run):
         self.repo, self.run = str(repo), run
         from ..core import sync
         self.slug = sync._slug(repo)
@@ -157,17 +158,21 @@ class GH:
 
     def ci_state(self, sha):
         """-> ("green" | "pending" | "red" | "none", why) from GitHub's check runs for exactly `sha`."""
-        rc, out, err = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                                "[.check_runs[] | {name, status, conclusion}]")
+        try:
+            checks = self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+            # A rerun can be in progress while the previous attempt's check runs still read as finished.
+            workflows = self._ci_pages(f"actions/runs?head_sha={sha}", "workflow_runs")
+        except (RuntimeError, ValueError) as exc:
+            return "none", f"CI unreadable (gh): {str(exc)[:160]}"
+        return ci_verdict(checks, sha, workflows=workflows, slug=self.slug)
+
+    def _ci_pages(self, endpoint, key):
+        # Emit a JSON object per item. With --paginate, selecting an array would emit a separate array per page.
+        rc, out, err = self._gh("api", "--paginate", f"repos/{self.slug}/{endpoint}", "--jq",
+                                f".{key}[] | {{name,status,conclusion}}")
         if rc:
-            return "none", f"CI unreadable (gh): {err.strip()[:160]}"
-        # the workflow runs too: a re-run puts its run back to queued/in_progress while the old check runs still read
-        # green or red (2026-10-26: #124 merged while its windows re-run was still running)
-        rc2, out2, err2 = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
-                                   "[.workflow_runs[] | {name, status, conclusion}]")
-        if rc2:
-            return "none", f"workflow runs unreadable (gh): {err2.strip()[:160]}"
-        return ci_verdict(json.loads(out or "[]"), sha, workflows=json.loads(out2 or "[]"), slug=self.slug)
+            raise RuntimeError(err.strip())
+        return [json.loads(line) for line in out.splitlines() if line]
 
     def wait_checks(self, n, timeout):
         try:
@@ -177,13 +182,21 @@ class GH:
             pass
 
     def failed_log(self, sha, lines=30):
-        """The last `lines` lines of `gh run view --log-failed` for each failed workflow run of `sha`."""
+        """Keep failing pytest IDs alongside the tail, even when aggregate jobs log last."""
         rc, out, _ = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
                               "[.workflow_runs[] | select(.conclusion == \"failure\") | .id]")
         out_lines = []
         for rid in (json.loads(out or "[]") if rc == 0 else [])[:3]:
             rc2, log, _ = self._gh("run", "view", str(rid), "-R", self.slug, "--log-failed", timeout=300)
-            out_lines += [f"-- run {rid}"] + (log.splitlines()[-lines:] if rc2 == 0 else ["(log unreadable)"])
+            out_lines.append(f"-- run {rid}")
+            if rc2:
+                out_lines.append("(log unreadable)")
+                continue
+            log_lines = log.splitlines()
+            tail = log_lines[-lines:]
+            omitted = strikes.failed_tests(log_lines) - strikes.failed_tests(tail)
+            out_lines.extend(f"FAILED {test_id}" for test_id in sorted(omitted))
+            out_lines.extend(tail)
         return out_lines
 
     def rerun_failed(self, sha):
@@ -202,9 +215,7 @@ class GH:
 
     def failed_checks(self, sha):
         """-> the names of the check runs of `sha` that failed (empty when unreadable)."""
-        rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                              "[.check_runs[] | select(.conclusion == \"failure\") | .name]")
-        return set(json.loads(out or "[]")) if rc == 0 else set()
+        return {check["name"] for check in self.check_runs(sha) if check["conclusion"] == "failure"}
 
     def base_head(self, base="main"):
         """-> the head commit of `base` on GitHub, or ""."""
@@ -232,8 +243,10 @@ class GH:
 
     def check_runs(self, sha):
         """-> [{name, status, conclusion}] of the check runs GitHub has registered for exactly `sha`."""
-        return self._json("api", "--paginate", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
-                          "[.check_runs[] | {name, status, conclusion}]") or []
+        try:
+            return self._ci_pages(f"commits/{sha}/check-runs", "check_runs")
+        except (RuntimeError, ValueError):
+            return []
 
     def behind(self, n):
         """True when GitHub reads the PR as BEHIND its base (the rule wants it up to date before the merge)."""
@@ -507,7 +520,7 @@ def frozen(repo):
     return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else []
 
 
-def unfreeze(repo, base="main", checkout=None, run=subprocess.run):
+def unfreeze(repo, base="main", checkout=None, run=fkproc.run):
     rows = frozen(repo)
     co = str(Path(checkout or main_checkout(repo)))
     if not any(r["checkout"] == co for r in rows):
@@ -583,13 +596,13 @@ def _mandate(action, **kw):
     return m(action, **kw)
 
 
-def clone_for(repo):
+def clone_for(repo, purpose="train-clone"):
     """The train's own clone (in the clone's git folder): there a PR branch can be checked out even while the
     session's worktree has it. Pushes go through its hooks (core.hooksPath hooks) and fieldkit ship push."""
-    work = mp.state_dir(repo) / "train-clone"
+    work = mp.state_dir(repo) / purpose
     url = _git(repo, "remote", "get-url", "origin").stdout.strip()
     if not (work / ".git").is_dir():
-        r = subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(mp.common_dir(repo)), str(work)],
+        r = fkproc.run(["git", "clone", "--quiet", "--no-checkout", str(mp.common_dir(repo)), str(work)],
                            capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError(f"git clone: {r.stderr.strip()[-200:]}")
@@ -619,17 +632,29 @@ def _local_update(repo, branch, base, gens, ci, push):
     return dict(r, head=mp.rev(work, "HEAD"))
 
 
+# 2026-11-22: 60 s chunks re-spawned ci_state (2 gh) + pr (1 gh) + checks (1 gh) every ~90 s per waiting PR; with
+# several sessions waiting that was ~40 console hosts per 2 min. `gh pr checks --watch` polls inside ONE process and
+# exits as soon as the checks finish, so a long chunk costs nothing in latency and cuts the starts ~4x.
+WATCH_CHUNK_S = 300
+
+
 def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
     end = clock() + max_wait_s
+    waited = False
     while True:
         state, why = gh.ci_state(head)
-        if state in ("green", "red") or clock() >= end:
+        pr = gh.pr(n)
+        if pr.get("state", "OPEN") != "OPEN" or pr["headRefOid"] != head:
+            return "pr-changed", f"PR now reads {pr.get('state')} at {pr['headRefOid'][:10]}"
+        if state in ("green", "red"):
             return state, why
-        gh.wait_checks(n, timeout=max(60, min(1800, end - clock())))
-        state, why = gh.ci_state(head)
-        if state in ("green", "red") or clock() >= end:
+        if waited:
+            sleep(max(0, min(30, end - clock())))
+        remaining = end - clock()
+        if remaining <= 0:
             return state, why
-        sleep(30)
+        gh.wait_checks(n, timeout=min(WATCH_CHUNK_S, remaining))
+        waited = True
 
 
 def _mains_failure(gh, head, log, base):
@@ -706,7 +731,7 @@ def wait_required(gh, head, base, max_wait_s, sleep=time.sleep, clock=time.monot
 def _record_refusal(repo, n, msg):
     """R14: a repeated refusal becomes a defect row. `fieldkit refusals record` when it exists; the train log always."""
     try:
-        subprocess.run([sys.executable, "-m", "fieldkit", "refusals", "record", "train", f"PR #{n}: {msg[:200]}"],
+        fkproc.run([sys.executable, "-m", "fieldkit", "refusals", "record", "train", f"PR #{n}: {msg[:200]}"],
                        capture_output=True, text=True, timeout=30)
     except Exception:  # noqa: BLE001 - recording must never block the train
         pass
@@ -756,7 +781,18 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
     if strikes.parked_for(r["branch"]):
         return dict(r, ok=False, state="parked", why=strikes.refusal([r["branch"]]),
                     next="parked, go on with the plan")
-    state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
+    deadline = clock() + max_wait_s
+    while True:
+        state, why = wait_green(gh, n, head, max(0, deadline - clock()), sleep, clock)
+        if state != "pr-changed":
+            break
+        pr = gh.pr(n)
+        head = pr["headRefOid"]
+        r.update(head=head, branch=pr["headRefName"])
+        if pr.get("state") != "OPEN":
+            return dict(r, ok=pr.get("state") == "MERGED", state=pr.get("state", "?").lower(), why=why)
+        if clock() >= deadline:
+            return dict(r, ok=False, state="timeout", why=why, next="the PR changed before the wait budget expired")
     log, reruns = None, []
     while state == "red":                               # P9: the runner's own outage is re-run, never a strike
         log = gh.failed_log(head)
@@ -772,6 +808,9 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
                         next=f"the runner is still down: the same CI locally counts (owner 2026-11-11): "
                              f"fieldkit ship ci-local {n}")
         sleep(strikes.infra_backoff(k))
+        current = gh.pr(n)
+        if current.get("state") != "OPEN" or current["headRefOid"] != head:
+            return dict(r, ok=False, state="pr-changed", why="the PR changed before the failed jobs could be retried")
         ok, runs, msg = gh.rerun_failed(head)
         strikes.record_infra(r["branch"], head, inf, pr=n, runs=runs)
         reruns.append({"rerun": k, "runs": runs, "why": inf, "ok": ok})
@@ -781,6 +820,9 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
                         next=f"re-run the failed jobs by hand, then ci-wait {n} again")
         for _ in range(RERUN_POLLS):                    # the re-run puts the workflow run back to queued
             sleep(RERUN_POLL_S)
+            current = gh.pr(n)
+            if current.get("state") != "OPEN" or current["headRefOid"] != head:
+                return dict(r, ok=False, state="pr-changed", why="the PR changed during the runner retry")
             if gh.ci_state(head)[0] != "red":
                 break
         state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
@@ -839,12 +881,13 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if state != "green":
             return dict(r, ok=False, state="timeout" if state == "pending" else state, why=why,
                         next="the updated head's CI did not turn green; run ci-wait again in the background")
-    ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(None, k, m), sleep, clock)
-    after = gh.pr(n).get("state")
-    if not ok or after != "MERGED":                     # the artefact, not the exit code
-        return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after}",
+    _ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(None, k, m), sleep, clock)
+    after = gh.pr(n)
+    if after.get("state") != "MERGED":                   # the artefact, not the exit code
+        return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after.get('state')}",
                     next="read the PR; nothing was forced")
-    return dict(r, ok=True, state="merged", next=f"#{n} is merged at {head[:10]}")
+    merged_head = after["headRefOid"]
+    return dict(r, ok=True, state="merged", head=merged_head, next=f"#{n} is merged at {merged_head[:10]}")
 
 
 def _ci_wait_lines(d):
@@ -946,11 +989,15 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
             _log(repo, st, n, "update-local", state=r.get("state"), proof=r.get("proof"), error=r.get("error"))
             if not r.get("ok"):
                 return {"pr": n, "why": f"update here: {r.get('state')}: {r.get('error') or r.get('paths') or ''}"}
-        pr = gh.pr(n)
+        pr = gh.pr(n)                                  # the head is read again after the update (F2.5)
         if pr["headRefOid"] != head:
             made.append(pr["headRefOid"])
             head = pr["headRefOid"]
             save_state(repo, st)
+        elif need == "update-api":                     # accepted, but the merge commit did not land within the
+            _log(repo, st, n, "update-lag", head=head[:10], polls=UPDATE_POLLS)    # poll budget: CI on the old head
+            return {"pr": n, "why": "update-branch was accepted but the head did not move within "      # proves
+                    f"{UPDATE_POLLS * UPDATE_POLL_S}s: refusing to test the old head; next pass retries"}   # nothing
     state, why = wait_green(gh, n, head, max_wait_s, sleep)
     _log(repo, st, n, "ci", state=state, why=why)
     if state != "green":
@@ -991,7 +1038,7 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
 
 
 # -- doctor ------------------------------------------------------------------------------------------------------------
-def doctor(repo=".", run=subprocess.run):
+def doctor(repo=".", run=fkproc.run):
     """Everything the train needs here -> [(ok, what, why)]."""
     rows = []
     v = _git(repo, "version").stdout.strip()

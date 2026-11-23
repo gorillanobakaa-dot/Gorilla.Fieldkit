@@ -11,6 +11,31 @@ compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorilla
 Look in docs/METHODS.md before inventing a procedure. When you invent one, add a row there, and turn it into a
 tool with a test. Every command below takes `--json`; text output ends with `NEXT:` when there is a next step.
 
+## A clean capture lesson
+
+`fieldkit capture clean --keep-last 2w` reports per-user and system temp, native session-store file ages,
+and scratch eligible for Trash. Add `--apply` for scratch and `--retire-sessions` for native transcripts.
+Use `fieldkit capture start --project kernel --lesson "Debian kernel build" --workspace PATH --agents claude --keep-last 3d`
+to run the same eligibility checks before starting a lesson. With `--dry-run`, only metadata is inspected.
+A month is 30 elapsed days and `--all` admits every age to the same closure checks.
+Trash requires a completed native session, an inactive engine, an event window wholly before the cutoff,
+and a local read-back of the original bytes and identity manifest. Scratch still needs its own disposition.
+Standalone Claude Code, Codex rollouts, Gemini CLI JSON and Kiro V3 messages have adapters. Protected and
+unsupported stores, including shared databases, Kiro Crew transcripts and Antigravity, stay in place.
+Use `--lookback 30m --session claude=ID` with `--agents claude` to include recent completed work from one
+existing Claude Code session. For Codex, use `--agents codex --session codex=ID`. Fieldkit reads only the named
+rollout under `CODEX_HOME/sessions` (default `~/.codex/sessions`). Use `--session` once per selected session.
+Fresh Claude lessons use live hooks. Fresh Codex lessons read only the bytes appended to their selected rollout.
+`fieldkit capture scan` collects from selected lesson sources and `fieldkit capture off` closes that window.
+`fieldkit capture scan --legacy` is a separate, explicit Claude history backfill while capture is off.
+Use `--agents agy` before starting an Antigravity CLI session. It records new tool events from the CLI's
+[PostToolUse hook](https://antigravity.google/docs/hooks?tab=cli) in the selected workspace. `capture off`
+removes Fieldkit's named hook from the shared Antigravity hook settings.
+Kiro Crew coverage is limited to default `~/.kiro/crew/scratch` allocations with verified, inactive owners.
+Gorilla OpenCode coverage includes `opencode-tools-test<digits>` directories under default OS temp.
+Both require P40 disposition evidence. Kiro lesson capture still requires a verified adapter.
+`fieldkit capture off --distill` closes the window and distils that lesson.
+
 ## Before a change: the baseline
 ```
 fieldkit regress record before -- python -m pytest -q -rA      (or go test -v ./..., or their own suite)
@@ -26,6 +51,8 @@ fieldkit testcost plan                                         changed files -> 
 fieldkit testcost staged                                       names the covering tests; GitHub CI (Linux and Windows) runs them, never this computer (--local only when the owner asks)
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
+fieldkit ciaudit --run RUN                                    queue, active time and gaps for all attempts of one Actions run
+fieldkit ci plan --selection F [--check|--explain] | ci durations merge|fetch | ci quarantine --check | ci covmap build|merge|show|key | ci runner | agentperms audit|fix   CI runners N, durations, hung tests, covmap, runner CPU/RAM (xdist workers), allow-everything agent settings
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
@@ -39,6 +66,11 @@ CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fa
 ## An xz archive or program you made or ship (.xz, .tar.xz, a .deb, an unpacked app)
 ```
 fieldkit once run|check [--key K] [--state PATH] -- CMD   skip a command the journal records as a success on the same inputs; watch --key K < OUTPUT says done:true (stop) when nothing changed; never re-run or re-ask the owner what already succeeded
+fieldkit capture audit --json   read-only clean-slate audit of configured Windows or Linux scratch roots
+fieldkit capture audit --device PEER --via cable --json   audit a peer through the selected transport
+fieldkit ownership take PATH   Windows UAC action on one file or directory, with owner and DACL verification
+fieldkit ownership take-drive DRIVE   take ownership recursively on a selected local drive
+fieldkit ownership install-explorer   register the current user's file, folder and drive actions
 fieldkit compileonce build [--force] | check   pre-compile all Python modules in fieldkit/ and kits/ to .pyc ahead of time; check verifies 0 stale/missing
 fieldkit install app SRC --name APP [--replace] [--apply] [--peer]   install a program on Linux or Windows (or on the peer over the cable) with icons, .desktop / .lnk, caches, and verification
 fieldkit install purge APP [--dir PATH] [--apply] [--peer]           completely remove/quarantine a program on Linux or Windows (processes, folders, shortcuts, registry keys, icon caches)
@@ -78,6 +110,8 @@ helper, tool or command.
 fieldkit parity manifest [--hash]                  this machine: versions + sha256, capabilities, OS (stable JSON)
 fieldkit parity compare                            against every household device over the link: SAME / PARTIAL / DRIFT
 fieldkit parity os [--write|--briefs DIR|--since REF|--live]  Windows-Linux gaps: one record each (action, target, mechanism, effort, proof), exit 3 while gaps exist
+fieldkit parity os --check [--json]  read-only PR and release gate: valid parity records and current docs/PLATFORMS.md
+fieldkit ship release TAG --hotfix WHY  logged security or broken-release fix, up to 10 per repository and operating system in 24 hours
 fieldkit parity align [--apply]                    to releases/parity-pin.yaml FROM THE RELEASE (sha256 + SHA256SUMS);
                                                    Windows installs (old exe kept); Linux/macOS get the root line to run
 fieldkit parity preflight --kind bench             the run guard's check alone: pin, other sessions' processes in this
@@ -122,6 +156,9 @@ fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
 fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit ship gh-release vX -- --check-candidate FILE   validate the tagged policy and installer proofs with read-only access
+fieldkit ship gh-release vX -- --candidate FILE   publish the verified candidate through the mandate
+fieldkit overhead --fixture RECEIPT [--json]      measured release and repair fixtures from CI test receipts
 fieldkit ship prune [--archive-unproven]   delete remote branches proven merged; a delete a hook refuses is a DO row with git's words
 fieldkit ship tags [--repo R | --all] [--fix-local]   every tag classed (release / version-no-release / archive / other), only real
                             candidates flagged (unreachable, duplicate, local-only); GitHub tags are never deleted by an agent: the
@@ -165,6 +202,7 @@ fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff
 fieldkit ship train --modes       every failure mode this closes, with its check
 fieldkit cmd check TEXT|--file F   a command is checked before it is given: every fieldkit verb looked up in the live command tree (exit 3 + did-you-mean)
 fieldkit ship batch run           many ready PRs, one branch (night/batch-STAMP), one CI, one merge (SOP for 100 machines):
+fieldkit ship batch before-pr --branches BRANCH ...  combine local changes first and open only the protected batch PR
                                   `batch collect` takes only PRs green on every required check at their head; `build`
                                   joins them (a generated-file conflict is regenerated, a real one leaves that PR out);
                                   red -> the culprit from the failing test names (infra re-runs, never bisects), dropped
@@ -196,3 +234,6 @@ no bytecode .pth, or an import cost over the budget in `fieldkit/pycache/hotpath
 --install-pth` fixes it, `fieldkit pycache profile MODULE[:FUNC]` finds where a hook's time goes. A new hook module goes
 into `hotpath.yaml`; `fieldkit integration check` row `1-hotpath` ("hot path compiled") refuses one that does not compile.
 A probe you write twice becomes a verb (docs/METHODS.md method 54).
+## Installer preflight (P47)
+
+`fieldkit install preflight [--lean|--full] [--allow-missing-terminal] [--json]` (`fieldkit.desk.install_preflight`) runs deterministic, read-only installer preflight before install or update changes on Windows and Linux. It reuses the existing installer checks, resolves `gorilla-size --version` and `gorilla-trash --help` from a fresh user terminal outside the install folder first, and then checks consuming background services (starting with Gorilla Size in the VAIO cable listener). When the terminal works and the service cannot resolve the tool, it stops before install or replacement and reports service discovery as the failure; when a terminal tool is missing, it routes through `fieldkit size integrate`.

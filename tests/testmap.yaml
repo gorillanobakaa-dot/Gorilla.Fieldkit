@@ -3,6 +3,9 @@
 # 2026-10-26 and 2026-11-01 because data files had no mapping. `fieldkit testcost unmapped --all` must print 0.
 # tests: [] is a declaration, with its why, that no test reads the file (the whole suite would prove nothing more).
 - {glob: ".github/**", tests: [tests/test_ci_tests.py, tests/test_ci_templates.py]}
+- {glob: ".github/ci_file_proof.py", tests: [tests/test_releasecandidate.py, tests/test_emerge_repair.py]}
+- {glob: "projects/*/project.yaml", tests: [tests/test_cookbook_registry.py, tests/test_releasecandidate.py]}
+- {glob: "tests/fixtures/release-policy/**", tests: [tests/test_releasecandidate.py]}
 - {glob: ".gitattributes", tests: [tests/test_mergedriver.py]}
 - {glob: ".gitignore", tests: [tests/test_privacy_scan_checkout.py]}
 - {glob: "docs/dual-track/*/.gitignore", tests: [tests/test_dual_track.py]}

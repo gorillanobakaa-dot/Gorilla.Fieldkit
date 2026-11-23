@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -107,7 +108,7 @@ def _git_flag_error(line):
     if len(words) < 3 or words[0] != "git" or words[1].startswith("-") or not any(w.startswith("-") for w in words[2:]):
         return ""
     try:
-        r = subprocess.run(["git", words[1], "-h"], capture_output=True, text=True, timeout=20)
+        r = fkproc.run(["git", words[1], "-h"], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return ""
     usage = r.stdout + r.stderr
@@ -204,7 +205,7 @@ def try_candidate(cdir, run_test=None, replays=None):
 
 # ---- adopt: a worktree of origin/main, a branch, one pull request ---------------------------------------------------
 def _git(wt, *a, check=True):
-    r = subprocess.run(["git", "-C", str(wt), *a], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    r = fkproc.run(["git", "-C", str(wt), *a], capture_output=True, text=True, encoding="utf-8", timeout=300)
     if check and r.returncode:
         raise RuntimeError(f"git {' '.join(a)}: {(r.stderr or r.stdout).strip()[:300]}")
     return r
@@ -245,7 +246,7 @@ def install(wt, cdir):
 
 
 def _default_ship(wt):
-    r = subprocess.run(["fieldkit", "ship", "push", "--auto"], cwd=str(wt), capture_output=True, text=True, encoding="utf-8", timeout=3600)
+    r = fkproc.run(["fieldkit", "ship", "push", "--auto"], cwd=str(wt), capture_output=True, text=True, encoding="utf-8", timeout=3600)
     return r.returncode == 0, (r.stdout + r.stderr)[-400:].strip()
 
 
@@ -269,7 +270,7 @@ def adopt_all(passed, repo, run_id, ship=None, base="origin/main"):
                 out["failed"][Path(cdir).name] = f"adopt: {e}"
         if not out["adopted"]:
             return out
-        subprocess.run([sys.executable, "-m", "fieldkit.core.platform_gate", "--write"], cwd=str(wt), check=True, capture_output=True)
+        fkproc.run([sys.executable, "-m", "fieldkit.core.platform_gate", "--write"], cwd=str(wt), check=True, capture_output=True)
         files.add("fieldkit/desk/platform_index.json")
         _git(wt, "add", "--", *sorted(files))
         ident = [] if _git(wt, "config", "user.email", check=False).stdout.strip() else [
@@ -283,7 +284,7 @@ def adopt_all(passed, repo, run_id, ship=None, base="origin/main"):
         out["failed"].update({i: out["note"] for i in out["adopted"]})
         out["adopted"] = []
     finally:
-        subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(wt)], capture_output=True)
+        fkproc.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(wt)], capture_output=True)
         try:
             scratch.rmdir()                  # our own, now empty folder: git removed the worktree above
         except OSError:
@@ -303,4 +304,4 @@ def run(cid, root=None):
     if p is None:
         print(f"no adopted tool {cid}; `fieldkit capture adopted` lists them", file=sys.stderr)
         return 2
-    return subprocess.run(["bash", str(p)]).returncode
+    return fkproc.run(["bash", str(p)]).returncode

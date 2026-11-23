@@ -37,6 +37,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import threading
 import time
@@ -242,7 +243,7 @@ def _save_done(part, done):
     os.replace(tmp, part / "done.json")
 
 
-def receive_stream(sock, req, pre=b"", windows=None, case_insensitive=None):
+def receive_stream(sock, req, pre=b"", windows=None, case_insensitive=None, dirs=None):
     """The receiving side of one put-stream connection (req already verified). -> the last answer sent."""
     from . import link
     w = Wire(sock, pre)
@@ -275,14 +276,14 @@ def receive_stream(sock, req, pre=b"", windows=None, case_insensitive=None):
             return ans
         _ACTIVE[tid] = sock
     try:
-        return _receive(w, req, tid, msize, windows, case_insensitive, link)
+        return _receive(w, req, tid, msize, windows, case_insensitive, link, dirs=dirs)
     finally:
         with _ACTIVE_LOCK:
             if _ACTIVE.get(tid) is sock:
                 del _ACTIVE[tid]
 
 
-def _receive(w, req, tid, msize, windows, case_insensitive, link):
+def _receive(w, req, tid, msize, windows, case_insensitive, link, dirs=None):
     w.send({"ok": True, "go": "manifest"})
     raw = w.exact(msize)
     if hashlib.sha256(raw).hexdigest() != str(req.get("manifest_sha256", "")).lower() or tid_of(raw) != tid:
@@ -322,7 +323,7 @@ def _receive(w, req, tid, msize, windows, case_insensitive, link):
         bad, rows, total = _files(w, files, tree, have, done, part, windows)
     finally:
         _save_done(part, done)
-    return _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, tree, link)
+    return _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, tree, link, dirs=dirs)
 
 
 def _files(w, files, tree, have, done, part, windows):
@@ -375,7 +376,7 @@ def _files(w, files, tree, have, done, part, windows):
     return bad, rows, total
 
 
-def _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, tree, link):
+def _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, tree, link, dirs=None):
     if bad:
         ans = {"ok": False, "bad": bad[:50], "count": len(bad),
                "error": f"{len(bad)} file(s) did not arrive whole (sha256 mismatch: discarded; or not writable "
@@ -400,15 +401,16 @@ def _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, 
            "received_bytes": total, "digest": receipt["digest"]}
     if man["kind"] == "file" and len(rows) == 1:
         ans["sha256"] = rows[0][1]
-        if req.get("to_desktop"):
-            ans["saved"] += link.to_desktop_copy(dest, name)
+    folders = link.requested_folders(req)
+    if folders:
+        ans["saved"] += link.copy_to_approved_folders(dest, name, folders, dirs=dirs)
     if name.endswith(".bundle"):
         ans["bundle"] = bundle_heads(dest)
     link._log(f"stream {man['kind']} {name} ({len(files)} files, {nbytes} bytes, resumed {resumed}) from "
-              f"{req.get('from_host')}: {dest}")
+              f"{req.get('from_host')}: {'; '.join(ans['saved'])}")
     link.store("file", {"from_host": req.get("from_host"),
                         "text": f"{man['kind']} {name} ({len(files)} files, {nbytes} bytes, every sha256 checked) "
-                                f"saved: {dest}"})
+                                f"saved: {'; '.join(ans['saved'])}"})
     w.send(ans)
     return ans
 
@@ -419,7 +421,7 @@ def bundle_heads(path):
     if not git:
         return "not checked: no git on this computer"
     try:
-        r = subprocess.run([git, "bundle", "list-heads", str(path)], capture_output=True, text=True, timeout=120)
+        r = fkproc.run([git, "bundle", "list-heads", str(path)], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"not checked: {e}"
     if r.returncode:
@@ -433,20 +435,20 @@ def make_bundle(repo, out_dir=None):
     git = shutil.which("git")
     if not git:
         raise ValueError("no git on this computer")
-    top = subprocess.run([git, "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    top = fkproc.run([git, "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if top.returncode:
         raise ValueError(f"{repo}: not a git repository")
     name = Path(top.stdout.strip()).name
     d = Path(out_dir or tempfile.mkdtemp(prefix="fieldkit-bundle-"))
     out = d / f"{name}.bundle"
-    r = subprocess.run([git, "-C", str(repo), "bundle", "create", str(out), "--all"], capture_output=True, text=True)
+    r = fkproc.run([git, "-C", str(repo), "bundle", "create", str(out), "--all"], capture_output=True, text=True)
     if r.returncode or not out.is_file():
         raise ValueError(f"git bundle create failed: {(r.stderr or r.stdout).strip()[:300]}")
     return out
 
 
 def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, connect=None, man=None,
-               to_desktop=False):
+               to_desktop=False, to_folders=None):
     """Send a file or a folder; resume after a drop (up to `retries` more tries). -> the receiver's answer, plus
     attempts, seconds and MB/s measured here."""
     own = man is None                                 # a manifest we made ourselves may be made again
@@ -462,7 +464,7 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
             if own and attempt > 1 and "changed while it was being sent" in str(last):
                 man, root, skipped = manifest_for(path)   # a file (.git/config) moved on: send what is there now
                 raw = manifest_bytes(man)
-            r = _send_once(man, raw, root, device, progress, connect, to_desktop)
+            r = _send_once(man, raw, root, device, progress, connect, to_desktop, to_folders=to_folders)
             r.update(attempts=attempt, skipped=[list(x) for x in skipped[:50]], skipped_count=len(skipped))
             secs = max(time.time() - t0, 1e-6)
             if r.get("ok"):
@@ -477,7 +479,7 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
                                   "and it carries on from where it stopped"}
 
 
-def _send_once(man, raw, root, device, progress, connect, to_desktop=False):
+def _send_once(man, raw, root, device, progress, connect, to_desktop=False, to_folders=None):
     from . import link
     if connect is None:
         sock, k = link.connect_device(device, timeout=TIMEOUT)
@@ -487,9 +489,13 @@ def _send_once(man, raw, root, device, progress, connect, to_desktop=False):
         sock.settimeout(TIMEOUT)
         w = Wire(sock)
         tid = tid_of(raw)
-        head = link.sign({"verb": "put-stream", "tid": tid, "kind": man["kind"], "name": man["name"],
-                          "manifest_size": len(raw), "manifest_sha256": hashlib.sha256(raw).hexdigest(),
-                          "files": len(man["files"]), "to_desktop": bool(to_desktop)}, k)
+        folders = link._combine_folders(to_desktop, to_folders)
+        head_dict = {"verb": "put-stream", "tid": tid, "kind": man["kind"], "name": man["name"],
+                     "manifest_size": len(raw), "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+                     "files": len(man["files"]), "to_desktop": ("desktop" in folders)}
+        if folders:
+            head_dict["to_folders"] = folders
+        head = link.sign(head_dict, k)
         sock.sendall(json.dumps(head, ensure_ascii=False).encode("utf-8") + b"\n")
         r = w.line()
         if not r.get("ok") or r.get("go") != "manifest":

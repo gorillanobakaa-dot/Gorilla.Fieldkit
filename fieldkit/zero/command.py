@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 from pathlib import Path
@@ -95,7 +96,7 @@ def write_claims(st, net=None):
 
 def _git(args, cwd, timeout=30):
     try:
-        r = subprocess.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, timeout=timeout,
+        r = fkproc.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
         return r.stdout if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
@@ -157,6 +158,8 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
                  "idle_min": float(idle_min or net.get("idle_min") or IDLE_MIN)}
         if (done_cmd or "").strip():
             order["done_cmd"] = done_cmd.strip()
+        from ..lifecycle import sessionmode           # F0.6: the order carries the mode (and so the cap) of Zero's session
+        order["session_mode"] = sessionmode.current(sessionmode.session_id({}))
         if old:
             order["replaces"] = old["id"]
         rec["order"] = order
@@ -167,11 +170,13 @@ def task(me, station, objective, area, done, epoch=None, drift_min=None, idle_mi
              data={"order": {k: order[k] for k in ("id", "objective", "area", "done")}}, now=now)
     sent = _send(net, me, station, f"ORDER {order['id']} from Zero: {order['objective']}. Your ground: "
                  f"{', '.join(paths)} (writes outside it are refused). Done when: {order['done']}. Report with "
-                 "fieldkit zero checkin.", channels, now)
+                 "fieldkit zero checkin. Session mode " + f"{order['session_mode']['mode']} (cap {order['session_mode'].get('cap')}"
+                 ", no sub-agents past it): `python -m fieldkit route choose --session-mode "
+                 f"{order['session_mode']['mode']}`.", channels, now)
     return {"order": order, "station": station, "sent": sent}
 
 
-def run_done_cmd(o, run=subprocess.run):
+def run_done_cmd(o, run=fkproc.run):
     """P24: run the order's done command (cwd = its first area folder that exists, else the repo). -> {"exit": int,
     "tail": [last output lines], "cwd": path}. A timeout or a failure to start is exit -1 with the reason in tail."""
     cwd = next((a for a in o.get("area") or [] if Path(a).is_dir()), None) or str(N.ROOT)
@@ -186,7 +191,7 @@ def run_done_cmd(o, run=subprocess.run):
         return {"exit": -1, "tail": [f"could not run: {e}"], "cwd": cwd}
 
 
-def release(me, station, finished=False, epoch=None, now=None, run=subprocess.run):
+def release(me, station, finished=False, epoch=None, now=None, run=fkproc.run):
     now = time.time() if now is None else now
     net = N.load_net()
     N.require_zero(net, me, epoch)

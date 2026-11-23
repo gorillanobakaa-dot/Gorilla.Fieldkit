@@ -29,6 +29,38 @@ def test_approve_writes_shows_and_pins_in_one_command(tmp_path, monkeypatch):
     assert link.approvals()[0]["allow_start"] == ["claude", "codex"]
 
 
+def test_approve_accept_folders_subset_preserves_comments_and_other_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "h"))
+    work = tmp_path / "work"
+    work.mkdir()
+    said = []
+    assert link.approve(confirm=True, say=said.append, allow=["claude"], cwd=str(work),
+                        accept_folders=["downloads,documents"]) == 0
+    raw = (tmp_path / "h" / "link.yaml").read_text(encoding="utf-8")
+    assert "# true: a file sent with `put --to-downloads`" in raw
+    d = yaml.safe_load(raw)
+    assert d["accept_to_desktop"] is False
+    assert d["accept_to_downloads"] is True and d["accept_to_documents"] is True
+    assert d["allow_start"] == ["claude"] and d["cwd"] == str(work.resolve())
+    # subsequent approve without accept_folders keeps approved folders intact
+    assert link.approve(confirm=True, say=said.append, wall_minutes=20) == 0
+    reg, why = link.approvals()
+    assert why == "approved" and reg["accept_to_downloads"] is True and reg["accept_to_documents"] is True
+    assert reg["accept_to_desktop"] is False and reg["wall_minutes"] == 20
+    # CLI --accept-folders / --accept-to parses and updates cleanly
+    with monkeypatch.context() as m:
+        m.setattr(link, "approve", lambda **kw: kw)
+        assert link.main(["approve", "--accept-to", "desktop", "--accept-folders", "downloads"]) == {
+            "allow": None, "cwd": None, "wall_minutes": None, "accept_folders": ["desktop", "downloads"],
+        }
+    # unknown folder refused without touching link.yaml
+    assert link.approve(confirm=True, say=said.append, accept_folders=["music"]) == 2
+    assert "unknown folder" in said[-1]
+    assert link.approve(confirm=True, say=said.append, accept_folders=["none"]) == 0
+    reg, _ = link.approvals()
+    assert not reg["accept_to_downloads"] and not reg["accept_to_documents"] and not reg["accept_to_desktop"]
+
+
 def test_approve_with_flags_refuses_bad_input_and_no_terminal(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
     said = []

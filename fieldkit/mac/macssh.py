@@ -50,6 +50,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -80,7 +81,7 @@ def _run(argv, timeout=20, runner=None):
     if runner:
         return runner(argv)
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout + r.stderr).strip()
     except FileNotFoundError:
         return 127, f"{argv[0]}: not installed"
@@ -409,7 +410,7 @@ def sensors(mac, address, json_out=False, open_live=False, runner=None):
         argv[1:1] = ["-tt"]
     if runner:
         return runner(argv)[0]
-    return subprocess.run(argv).returncode
+    return fkproc.run(argv).returncode
 
 
 PUBKEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$")
@@ -681,7 +682,7 @@ def run_retry(argv, tries=4, wait=6, runner=None, sleep=None):
     from .macdrive import DROP
     sleep = sleep or time.sleep
     for attempt in range(1, tries + 1):
-        r = (runner or (lambda a: subprocess.run(a, capture_output=True, text=True)))(argv)
+        r = (runner or (lambda a: fkproc.run(a, capture_output=True, text=True)))(argv)
         out, err = r.stdout or "", r.stderr or ""
         if r.returncode == 255 and any(d in err for d in DROP) and attempt < tries:
             sleep(wait)

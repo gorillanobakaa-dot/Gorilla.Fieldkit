@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -74,10 +75,10 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None
     lines, last_beat, started, csv_path, last_check = [], time.time(), time.time(), None, time.time()
     with open(log_path, "a", encoding="utf-8", newline="\n") as lf:
         lf.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} $ {' '.join(cmd)}\n")
-        proc = subprocess.Popen(cmd, cwd=str(cwd), env={**_env(), **(env or {})}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        proc = fkproc.Popen(cmd, cwd=str(cwd), env={**_env(), **(env or {})}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
         if governor is not None:                         # the thermald: moves the cap, kills this tree on its verdict
-            governor.kill = lambda why, p=proc: subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+            governor.kill = lambda why, p=proc: fkproc.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
             governor.start()
         for line in proc.stdout:
             lf.write(line)
@@ -92,7 +93,7 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None
                 if why:
                     say(f"  THERMAL WATCHDOG: {why} - killing the build")
                     lines.append(f"FIELDKIT THERMAL WATCHDOG: {why}")
-                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+                    fkproc.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
             if now - last_beat >= HEARTBEAT_S:
                 say(f"  ... {int((now - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
                 if eta is not None:                  # owner 2026-10-18: an ETA from measurements, every heartbeat
@@ -132,7 +133,7 @@ def fix_clobber(t, root, say):
     env["MOZILLABUILD"] = r"C:\mozilla-build"
     from .compile import mozconfig_path
     env["MOZCONFIG"] = str(mozconfig_path(root))
-    r = subprocess.run([str(bash), "-l", "/" + str(script).replace(":", "").replace("\\", "/")], cwd=str(root), env=env,
+    r = fkproc.run([str(bash), "-l", "/" + str(script).replace(":", "").replace("\\", "/")], cwd=str(root), env=env,
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
     say(f"  clobber exit {r.returncode}: {(r.stdout or r.stderr).strip()[-200:]}")
     return r.returncode == 0, f"clobber exit {r.returncode}"
@@ -200,7 +201,7 @@ def fix_toolchain(t, root, say, lines=()):
     # `mach artifact toolchain` unpacks into the CURRENT directory (the first run left the folder inside the source
     # tree, where the gate then saw an untracked folder): run it from ~/.mozbuild, where bootstrap puts toolchains
     msys = lambda p: "/" + str(p).replace(":", "").replace("\\", "/")
-    r = subprocess.run([str(MOZBUILD_BASH), "-l", "-c",
+    r = fkproc.run([str(MOZBUILD_BASH), "-l", "-c",
                         f"cd {msys(folder.parent)} && {msys(src)}/mach artifact toolchain --from-build {job}"],
                        cwd=str(folder.parent), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
     have = (folder / missing).exists()
@@ -210,7 +211,7 @@ def fix_toolchain(t, root, say, lines=()):
 
 
 def active_power_scheme():
-    r = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, errors="replace")
+    r = fkproc.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, errors="replace")
     m = re.search(r"GUID:\s*([0-9a-f-]{36})\s*\((.*?)\)", r.stdout or "")
     return (m.group(1), m.group(2)) if m else (None, (r.stdout or r.stderr).strip()[:80])
 
@@ -221,7 +222,7 @@ def restore_power_scheme(before, say):
     scheme it found back whenever the stage left another one active."""
     guid, name = active_power_scheme()
     if before[0] and guid and guid != before[0]:
-        subprocess.run(["powercfg", "/setactive", before[0]], capture_output=True)
+        fkproc.run(["powercfg", "/setactive", before[0]], capture_output=True)
         now = active_power_scheme()
         say(f"  power scheme was left on '{name}': put back to '{before[1]}' -> now '{now[1]}'")
         return True
@@ -435,10 +436,10 @@ def deleted_sources(workdir):
     """Every file the tree has deleted since its pristine root, by history (a file Gorilla added and later removed is
     in no pristine..HEAD diff), and that does not exist again. -> {basename: [paths]}"""
     w = str(workdir)
-    root = subprocess.run(["git", "-C", w, "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    root = fkproc.run(["git", "-C", w, "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
     if not root:
         return {}
-    out = subprocess.run(["git", "-C", w, "log", "--diff-filter=D", "--name-only", "--format=", f"{root[0]}..HEAD"],
+    out = fkproc.run(["git", "-C", w, "log", "--diff-filter=D", "--name-only", "--format=", f"{root[0]}..HEAD"],
                          capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     gone = {}
     for rel in {l.strip() for l in out.splitlines() if l.strip()}:
@@ -793,7 +794,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     from . import compile as _cg
     rec = _cg._record_path(task_id)
     gated = rec.is_file() and json.loads(rec.read_text(encoding="utf-8")).get("tree") == \
-        subprocess.run(["git", "-C", t["workdir"], "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        fkproc.run(["git", "-C", t["workdir"], "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
     if gated:
         say("  [ok] lists-refresh: skipped, the gate passed this exact tree (a refresh now would change what it approved)")
         lr = {"ok": True, "written": [], "why": ""}
@@ -886,7 +887,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "interrupted from the console", "stops": stops, "log": str(log_path)}
 
 
-def sccache_size(root, say=print, run=subprocess.run):
+def sccache_size(root, say=print, run=fkproc.run):
     """The cache size the mozconfig asks for, on the server that will serve the build. 2026-10-17: the mozconfig says
     SCCACHE_CACHE_SIZE="30G", but the server had started earlier at the 10 GiB default and a running server keeps its
     size. A server smaller than configured is stopped; the build starts it again with the mozconfig's size."""

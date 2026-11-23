@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -34,7 +35,7 @@ FIXABLE = ("no-pytest", "env-tests", "platform-index")
 
 
 def _state(repo):
-    top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
+    top = fkproc.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
                          text=True).stdout.strip() or str(repo)
     d = Path(top) / "state" / "ship-commit"
     d.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,7 @@ def _state(repo):
 
 def venv_for(repo):
     """The .venv of this checkout, or of the main checkout when this is a worktree."""
-    common = subprocess.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    common = fkproc.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
                             capture_output=True, text=True).stdout.strip()
     for root in (Path(repo), Path(common).parent if common else None):
         if root and (root / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")).is_dir():
@@ -70,7 +71,7 @@ def classify(out, passes_alone=None):
     return "unknown", [ln for ln in out.splitlines() if ln.strip()][-8:]
 
 
-def _passes_alone(repo, env, run=subprocess.run):
+def _passes_alone(repo, env, run=fkproc.run):
     def check(tests):
         py = Path(env.get("VIRTUAL_ENV", "")) / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
         r = run([str(py) if py.is_file() else sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests],
@@ -79,7 +80,7 @@ def _passes_alone(repo, env, run=subprocess.run):
     return check
 
 
-def fix(cls, repo, env, run=subprocess.run):
+def fix(cls, repo, env, run=fkproc.run):
     """-> (env for the next try, what was done)."""
     env = dict(env)
     if cls == "no-pytest":
@@ -102,7 +103,7 @@ def fix(cls, repo, env, run=subprocess.run):
     return env, ""
 
 
-def commit(repo, message_file, run=subprocess.run, env=None, max_tries=5):
+def commit(repo, message_file, run=fkproc.run, env=None, max_tries=5):
     """-> {ok, commit, attempts: [{class, done}], stopped, log}. Never --no-verify; a class seen twice stops."""
     top, d = _state(repo)
     env = dict(env if env is not None else os.environ)

@@ -46,7 +46,10 @@ def test_off_switch_and_no_transcript(monkeypatch):
         assert breaker.repeat_refusal(call("x")) is None
 
 
-def test_toolrouter_hook_denies_the_loop(capsys):
+def test_toolrouter_hook_denies_the_loop(capsys, tmp_path):
+    d = tmp_path / "rot" / "said"                                  # a session with a mark (a missing mark now blocks)
+    d.mkdir(parents=True)
+    (d / "s1.json").write_text(json.dumps({"level": "OK", "t": 0}), encoding="utf-8")
     for _ in range(breaker.LIMIT):
         toolrouter.hook(io.StringIO(json.dumps(call("echo again"))))
     outs = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]

@@ -19,6 +19,7 @@ import json
 import socket
 import ssl
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import threading
 import time
@@ -289,9 +290,9 @@ def firewall_block(exe, name):
     ranges = "0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255,::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
     ps = (f"New-NetFirewallRule -DisplayName '{name}' -Direction Outbound -Program '{exe}' -RemoteAddress {ranges} "
           "-Action Block -Profile Any | Out-Null")
-    return subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).returncode == 0
+    return fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).returncode == 0
 
 
 def firewall_unblock(name):
-    subprocess.run(["powershell", "-NoProfile", "-Command", f"Remove-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue"],
+    fkproc.run(["powershell", "-NoProfile", "-Command", f"Remove-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue"],
                    capture_output=True)

@@ -4,6 +4,21 @@
   "ram_act_pct": 90,
   "commit_warn_pct": 85,
   "commit_act_pct": 95,
+  "_limits": "kernel limits that freeze Windows while RAM looks fine (2026-11-23: 802 terminal windows exhausted the desktop heap). windows = visible top-level windows; gui = USER or GDI objects of one process (Windows quota 10000); handles = open handles of one process; procs = all processes; same_name = copies of one program; thrash = pages read back from the pagefile per second (one 1 s sample).",
+  "windows_warn": 300,
+  "windows_act": 600,
+  "gui_warn": 7000,
+  "gui_act": 9000,
+  "handles_warn": 50000,
+  "handles_act": 150000,
+  "procs_warn": 700,
+  "procs_act": 1200,
+  "same_name_warn": 100,
+  "same_name_act": 250,
+  "same_name_exempt": [],
+  "thrash_warn": 1000,
+  "thrash_act": 4000,
+  "thrash_pagefile_pct": 50,
   "top_n": 8,
   "model_idle_min": 15,
   "model_idle_min_critical": 5,
@@ -36,8 +51,16 @@
     "cmd": "^cmd(\\.exe)?$"
   },
   "pileup_fixes": [
-    ["^claude(\\.exe)?$", "Claude", "restart Claude Desktop (or end that claude session) when no session is working"],
-    ["^(systemd|init|launchd)$", "init (their own parent died)", "find who started them (pgrep -alP {pid}) and close what nobody uses"]
+    [
+      "^claude(\\.exe)?$",
+      "Claude",
+      "restart Claude Desktop (or end that claude session) when no session is working"
+    ],
+    [
+      "^(systemd|init|launchd)$",
+      "init (their own parent died)",
+      "find who started them (pgrep -alP {pid}) and close what nobody uses"
+    ]
   ],
   "orphan_classes": {
     "pytest": "\\bpytest\\b",
@@ -54,5 +77,13 @@
     "link-listener": "fieldkit peers link restart (keep-alive: fieldkit peers link keepalive install)",
     "thermal-governor": "fieldkit thermal ensure (the keeper restarts it every 5 min)",
     "link-relay": "fieldkit peers link relay doctor, then start fieldkit peers link relay listen as the relay session's background command"
+  },
+  "_churn_budget": "fieldkit hog churn hooks: the most processes the room hook may start per event (2026-11-22: 60,000 console hosts from a hook that shelled out on every event). 0 on every per-prompt and per-tool event.",
+  "churn_budget": {
+    "SessionStart": 8,
+    "UserPromptSubmit": 0,
+    "PreToolUse": 0,
+    "PostToolUse": 0,
+    "Stop": 0
   }
 }

@@ -9,9 +9,11 @@ cookbook:
   - {repo: fieldkit, path: rules/CORE.md, what: "the rules for every project"}
   - {repo: fieldkit, path: docs/HARNESS-PLAN.md, what: "the plan, item by item"}
   - {repo: fieldkit, path: docs/COOKBOOK-VISION.md, what: "the cookbook design (P41)"}
+  - {repo: fieldkit, path: projects/README.md, what: "candidate policy, release evidence, and test proof reuse"}
 entry:
   - {cmd: "fieldkit plan next", what: "the next plan item"}
   - {cmd: "fieldkit testcost staged", what: "the tests covering what you changed"}
+  - {cmd: "fieldkit overhead --fixture RECEIPT", what: "measured CI release and repair fixture timings"}
 tests:
   - {cmd: "fieldkit testcost staged", paths: ["fieldkit/", "tests/"]}
 platforms: [linux, windows]

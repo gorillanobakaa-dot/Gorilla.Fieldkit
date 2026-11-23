@@ -29,6 +29,7 @@ import re
 import shutil
 import statistics
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -61,7 +62,7 @@ def state_dir():
 
 
 def _git(repo, *args, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=env)
     if r.returncode:
         raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()[:200]}")
@@ -103,9 +104,12 @@ def _read(name):
     return rows
 
 
-def record(check, status, seconds, key=None, note=""):
+def record(check, status, seconds, key=None, note="", *, job_id=None):
     row = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "check": check, "status": status, "seconds": round(float(seconds), 1),
            "key": key or "", "note": note}
+    job_id = job_id or os.environ.get("FIELDKIT_WORK_ID")
+    if job_id:
+        row["job_id"] = str(job_id)
     if os.environ.get("FIELDKIT_PARITY_MANIFEST"):      # what it ran on (fieldkit/parity.py, set by the run guard)
         row["manifest"] = os.environ["FIELDKIT_PARITY_MANIFEST"]
     if os.environ.get("FIELDKIT_PARITY_DEFENDER"):     # Defender state on every result, baseline or not
@@ -337,7 +341,7 @@ _NAME = re.compile(r"^[a-z][a-z0-9_-]{3,}$")
 
 def _show(repo, ref, path):
     import subprocess
-    r = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
+    r = fkproc.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return r.stdout if r.returncode == 0 else None
 
@@ -481,6 +485,60 @@ def plan(repo=".", base=None, paths=None, diff_lines=None, own_base=None):
             "changed": paths}
 
 
+def plan_selected(repo=".", base=None, covmap=None, gate=None, **kw):
+    """plan() plus the coverage selection (C4.2-C4.4). Both selections are kept side by side:
+    "import_selection" and "coverage_selection" (None without a map or base); "gate" names the one that decides
+    (ci.yaml `selection_gate`: import | coverage | union, default import), and "tests"/"unmapped" are that one's.
+    `covmap` is a path to covmap.json or an already loaded dict; a missing or unreadable map is no map."""
+    from .method import covsel
+    imp = plan(repo, base, **kw)
+    if gate is None:
+        try:
+            from .method import ciplan
+            gate = ciplan.load_config(str(Path(repo) / ".github" / "ci.yaml")).get("selection_gate", "import")
+        except (OSError, ValueError, ImportError):
+            gate = "import"
+    cmap = covmap
+    if isinstance(cmap, (str, os.PathLike)):
+        try:
+            cmap = json.loads(Path(cmap).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cmap = None
+    cov = None
+    if base and isinstance(cmap, dict) and cmap.get("schema") == 1 and not kw.get("own_base"):
+        try:
+            mb = _git(repo, "merge-base", base, "HEAD").strip()
+        except RuntimeError:
+            mb = None
+        if mb:
+            def hunks_of(q):
+                try:
+                    if _git(repo, "diff", "-U0", "HEAD", "--", q).strip() or _git(repo, "ls-files", "--others", "--exclude-standard", "--", q).strip():
+                        return None                                  # dirty or untracked: the map cannot speak for it
+                    return covsel.parse_hunks(_git(repo, "diff", "-U0", f"{mb}...HEAD", "--", q))
+                except RuntimeError:
+                    return None
+
+            def old_source_of(q):
+                try:
+                    return _git(repo, "show", f"{mb}:{q}")
+                except RuntimeError:
+                    return None
+            cov = covsel.coverage_plan(imp["changed"], cmap, hunks_of, old_source_of,
+                                       lambda files: plan(repo, base, paths=files, diff_lines=kw.get("diff_lines")))
+            for q in list(cov["unmapped"]):                           # same mutation-plan carve-out as ci_tests.py
+                if MUTATION_PLAN.match(q):
+                    cov["unmapped"].remove(q)
+    tests, unmapped = covsel.combine(gate, imp, cov)
+    out = dict(imp)
+    out["import_selection"] = {"tests": list(imp["tests"]), "unmapped": list(imp["unmapped"])}
+    out["coverage_selection"] = cov
+    out["gate"] = gate if cov is not None else "import"
+    out["tests"], out["unmapped"] = sorted(tests), list(unmapped)
+    out["direct"] = sorted(set(out["direct"]) & set(tests))
+    return out
+
+
 def report(last=200):
     rows = _read("runs.jsonl")[-last:]
     if not rows:
@@ -535,6 +593,10 @@ def main(argv=None, prog="fieldkit testcost"):
     p.add_argument("--base")
     p.add_argument("--repo", default=".")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--covmap", default=os.environ.get("FIELDKIT_COVMAP"),
+                   help="covmap.json (C4): also select by changed lines; both selections are printed")
+    p.add_argument("--gate", choices=("import", "coverage", "union"),
+                   help="which selection decides (default: selection_gate in .github/ci.yaml, import)")
     ru = sub.add_parser("run")
     ru.add_argument("--fast", action="store_true", required=True)
     ru.add_argument("--base")
@@ -596,14 +658,15 @@ def main(argv=None, prog="fieldkit testcost"):
                   + ", ".join(covering[:5]) + (" ..." if len(covering) > 5 else "") + "; nothing runs here unless --local",
                   file=sys.stderr)
         if a.local and sel["local"]:
-            return subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *sel["local"]], cwd=a.repo)
+            return fkproc.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *sel["local"]], cwd=a.repo)
         if not sel["local"]:
             print("testcost: " + ("every covering test already passed on this tree" if sel["skipped"] else
                   "no test directly covers the staged files") + " - nothing runs here; CI runs the covering tests",
                   file=sys.stderr)
         return 0
     if a.cmd in ("plan", "run"):
-        pl = plan(a.repo, a.base)
+        pl = (plan_selected(a.repo, a.base, getattr(a, "covmap", None), getattr(a, "gate", None))
+              if a.cmd == "plan" else plan(a.repo, a.base))
         if a.cmd == "plan":
             if getattr(a, "json", False):
                 print(json.dumps(pl, indent=1))
@@ -626,7 +689,7 @@ def main(argv=None, prog="fieldkit testcost"):
             print(f"testcost: these {len(pl['tests'])} test file(s) passed on this exact tree at {hit['t']}: not run again")
             return 0
         t0 = time.time()
-        rc = subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
+        rc = fkproc.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
         record(check, "pass" if rc == 0 else "fail", time.time() - t0, key=key, note=f"{len(pl['tests'])} files")
         if rc == 0:
             record_files(key, [os.path.relpath(t, a.repo) for t in pl["tests"]], note="fast run")

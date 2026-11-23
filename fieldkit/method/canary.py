@@ -41,6 +41,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 from pathlib import Path
@@ -111,7 +112,7 @@ def _run(argv, cwd=None, timeout=600):
     with tempfile.TemporaryDirectory(prefix="fkoffline-") as d:
         log = Path(d) / "refused.txt"
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+            r = fkproc.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
                                timeout=timeout, env=offline.child_env(log))
         except FileNotFoundError as e:
             return None, f"not found: {e}"

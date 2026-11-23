@@ -9,6 +9,9 @@
 rows:
   # ---- Windows-only cards: what Linux gets -----------------------------------------------------------------------
   install-ps1: {status: EQUIVALENT, counterpart: install-sh}
+  trashmenu: {status: NATIVE-ONLY, reason: "the Windows 11 first right-click menu (sparse MSIX + IExplorerCommand) exists only on Windows; Linux file managers take a plain .desktop action"}
+  take-ownership: {status: NATIVE-ONLY, reason: "interactive Windows ownership recovery uses Explorer, UAC and Windows security descriptors"}
+  take-drive-ownership: {status: NATIVE-ONLY, reason: "recursive Windows drive recovery uses Explorer, UAC and Windows security descriptors"}
   laptop-sound: {status: EQUIVALENT, counterpart: fieldkit-audio}
   laptop-video: {status: NATIVE-ONLY, reason: "the missing NVIDIA Control Panel is a Microsoft Store (DCH) packaging problem; on Linux nvidia-settings ships in the distro driver package"}
   power-drift: {status: PORT, order: 3, mechanism: "journalctl -u systemd-logind and systemd-sleep for sleep events plus /sys/power; Lenovo ibmpmsvc has no Linux twin, the sleep-during-work proof does"}
@@ -93,9 +96,16 @@ items:
   module:fieldkit/build/kernel.py:
     reason: a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows has no kernel to build
     status: NATIVE-ONLY
+  module:fieldkit/proc.py:
+    reason: the scoop-shim hidden-console rule (_is_shim) exists only on Windows; Linux and macOS start a child with the plain subprocess call and have no console host or shim launcher
+    status: NATIVE-ONLY
   module:fieldkit/buildh/task.py:
     reason: UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes through sudo -n, never an elevated token
     status: NATIVE-ONLY
+  module:fieldkit/capture/session_history.py:
+    action: DOCUMENT
+    status: PARTIAL
+    target: Session archival runs on both systems. POSIX additionally verifies the archive directory owner and mode.
   module:fieldkit/core/longpath.py:
     reason: the Windows 260-character path limit and its registry switch have no Linux twin; Linux PATH_MAX is 4096 with no setting to turn on
     status: NATIVE-ONLY
@@ -107,6 +117,9 @@ items:
     proof: test with a fake dpkg-query and a tmp applications folder
     status: PARTIAL
     target: adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux
+  module:fieldkit/hog/consoles.py:
+    reason: console hosts (conhost, OpenConsole, Windows Terminal) and the desktop heap they fill exist only on Windows; a Linux terminal emulator is an ordinary process the hog's process and RAM rules already see
+    status: NATIVE-ONLY
   module:fieldkit/leakgate/sensors.py:
     action: ADAPT
     effort: L
@@ -123,6 +136,9 @@ items:
     proof: test with a tmp XDG_CONFIG_HOME holding fake session JSON
     status: PARTIAL
     target: nested.records_glob finds the Claude desktop session records on Linux
+  module:fieldkit/peers/link.py:
+    reason: _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windows; resolve_put_folder handles Linux (~/.config/user-dirs.dirs) and macOS (~/Desktop) directly
+    status: NATIVE-ONLY
   module:fieldkit/power/drift.py:
     action: PORT
     effort: M
@@ -131,9 +147,16 @@ items:
     proof: tests/test_power_drift.py case with a fixture /sys tree and a fake powerprofilesctl
     status: PARTIAL
     target: power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and power-profiles daemon
+  module:fieldkit/thermal/pdh.py:
+    reason: reads Windows performance counters through pdh.dll in-process (no PowerShell, no console host); Linux reads the same temperatures and load from /sys hwmon and /proc, which start no process either
+    status: NATIVE-ONLY
   module:fieldkit/thermal/sensors.py:
     reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
     status: NATIVE-ONLY
+  module:fieldkit/zero/hooks.py:
+    action: DOCUMENT
+    status: PARTIAL
+    target: Hook commands quote executable paths on both systems. Windows additionally rejects unsafe cmd characters.
   skill:fieldkit-evidence:
     action: ADAPT
     effort: S

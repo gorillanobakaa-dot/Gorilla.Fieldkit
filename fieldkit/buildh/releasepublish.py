@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -42,7 +43,7 @@ def _sha(p):
     return h.hexdigest()
 
 
-def _git(repo, *a, runner=subprocess.run):
+def _git(repo, *a, runner=fkproc.run):
     return runner(["git", "-C", str(repo), *a], capture_output=True, text=True, errors="replace")
 
 
@@ -69,7 +70,7 @@ def _installer_test_ok(task_id):
 
 
 def prepare(task_id, repo, tag, title, notes, assets, supersede=None, supersede_title=None, supersede_notes=None,
-            gh_repo=None, pushes=None, ci=None, checks=None, runner=subprocess.run, say=print):
+            gh_repo=None, pushes=None, ci=None, checks=None, runner=fkproc.run, say=print):
     """-> {"ok", "rows", "plan"}; writes the plan file when every row passes."""
     rows = []
 
@@ -147,7 +148,7 @@ def prepare(task_id, repo, tag, title, notes, assets, supersede=None, supersede_
     return {"ok": ok, "rows": rows, "plan": plan}
 
 
-def _stream(cmd, say, env=None, cwd=None, popen=subprocess.Popen):
+def _stream(cmd, say, env=None, cwd=None, popen=fkproc.Popen):
     """Run with every output line shown as it comes (the 2026-10-19 push sat silent for 4 minutes). -> exit code."""
     p = popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=env, cwd=cwd)
     for line in p.stdout:
@@ -155,7 +156,7 @@ def _stream(cmd, say, env=None, cwd=None, popen=subprocess.Popen):
     return p.wait()
 
 
-def send(tag, runner=subprocess.run, popen=subprocess.Popen, say=print, confirm=None, owner=None, speak=None):
+def send(tag, runner=fkproc.run, popen=fkproc.Popen, say=print, confirm=None, owner=None, speak=None):
     """The owner's one action. -> exit code (0 = live and verified)."""
     owner = task.owner_terminal if owner is None else owner
     if not owner():
@@ -166,6 +167,12 @@ def send(tag, runner=subprocess.run, popen=subprocess.Popen, say=print, confirm=
         say(f"REFUSED: no prepared plan for {tag} ({pp}): run prepare first")
         return 3
     plan = json.loads(pp.read_text(encoding="utf-8"))
+    from ..method import releasecandidate
+
+    blocker = releasecandidate.legacy_blocker(plan["repo"], plan["gh_repo"], plan["tag"])
+    if blocker:
+        say(f"REFUSED: {blocker}")
+        return 3
     changed = [n for n, a in plan["assets"].items() if not Path(a["path"]).is_file() or _sha(a["path"]) != a["sha256"]]
     if changed:
         say(f"REFUSED: asset(s) changed since prepare: {changed}")

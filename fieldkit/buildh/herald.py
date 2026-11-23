@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -66,7 +67,7 @@ WIN_PROBE = ("Add-Type -AssemblyName System.Speech; "
              "(New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices().Count")
 
 
-def voice_check(platform=None, which=shutil.which, run=subprocess.run, h=None):
+def voice_check(platform=None, which=shutil.which, run=fkproc.run, h=None):
     """Is there an offline voice on THIS machine? Checked, never assumed (2026-10-10: the owner's laptop printed
     instead of speaking, and the message blamed a program that is not used on Windows).
     -> {"ok", "voice", "why", "install": [lines], "purpose"}"""
@@ -129,7 +130,7 @@ def silent():
     return os.environ.get(SILENT_ENV, "").strip() not in ("", "0", "false", "no")
 
 
-def say(text, platform=None, which=shutil.which, run=subprocess.run, out=print):
+def say(text, platform=None, which=shutil.which, run=fkproc.run, out=print):
     """Speak `text`. -> "spoken" or "printed" (no voice on this machine, or the voice failed: LAST_PROBLEM says why)."""
     # Fix the text for speech before anything says it, so every caller gets it
     # without having to remember. A hyphen between letters is spoken as a PAUSE

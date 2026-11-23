@@ -30,6 +30,7 @@ after writing them: a scaffold is never published.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -43,7 +44,7 @@ MAX_DAYS = 7
 
 def _gh(args, timeout=60):
     try:
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        r = fkproc.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)
     return (r.stdout if r.returncode == 0 else None), (r.stderr or "").strip()
@@ -92,8 +93,8 @@ def content_on_base(repo, ref, base="main"):
         return True
     with tempfile.TemporaryDirectory() as d:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(d) / "index")}
-        subprocess.run(["git", "-C", str(repo), "read-tree", f"origin/{base}"], env=env, capture_output=True)
-        r = subprocess.run(["git", "-C", str(repo), "apply", "--cached", "--check", "-R", "-"], input=diff, env=env,
+        fkproc.run(["git", "-C", str(repo), "read-tree", f"origin/{base}"], env=env, capture_output=True)
+        r = fkproc.run(["git", "-C", str(repo), "apply", "--cached", "--check", "-R", "-"], input=diff, env=env,
                            capture_output=True, text=True, encoding="utf-8", errors="replace")   # cp1252 crashed on emoji (2026-11-09)
     return r.returncode == 0
 
@@ -345,6 +346,8 @@ def scaffold(repo, tag, base="main"):
 
 def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, sleep=time.sleep, py=sys.executable, hotfix="", gate=None):
     """-> {"ok", "rows": [...], "next"}"""
+    from . import releasecandidate
+
     rows = []
 
     def row(c, ok, say):
@@ -370,6 +373,10 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                f"{base} through a pull request first)"):
         return {"ok": False, "rows": rows}
     slug = repo_slug(repo)
+    blocker = releasecandidate.legacy_blocker(repo, slug, tag, base)
+    if blocker:
+        row("candidate", False, blocker)
+        return {"ok": False, "rows": rows}
     # CI starts again on the merge commit: wait while checks run and none has failed (2026-10-16: v0.4.0 was refused
     # twice for 'in_progress' right after the release PR merged)
     deadline = time.time() + wait
@@ -388,16 +395,20 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
     v = package_version(repo)
     if not row("version", v == tag[1:], f"package version {v}, tag {tag}"):
         return {"ok": False, "rows": rows}
+    from . import tagguard
+    parity = tagguard.parity_row(repo, head)
+    if parity is not None and not row("parity", *parity):
+        return {"ok": False, "rows": rows, "next": tagguard.PARITY_FIX}
     files = {n: notes / f"{n}.md" for n in ("opening", "layman", "developer")}
     missing = [str(f) for f in files.values() if not f.is_file()]
     if not row("notes", not missing, "every note file present" if not missing else f"missing {missing}: --scaffold writes them"):
         return {"ok": False, "rows": rows}
     page = notes / "page.md"
-    comp = subprocess.run([py, "-m", "fieldkit", "release-page", "compose", "--opening", str(files["opening"]),
+    comp = fkproc.run([py, "-m", "fieldkit", "release-page", "compose", "--opening", str(files["opening"]),
                            "--layman", str(files["layman"]), "--developer", str(files["developer"]), "--out", str(page)]
                           + (["--extra", str(notes / "extra.md")] if (notes / "extra.md").is_file() else []),
                           capture_output=True, text=True, cwd=repo)
-    chk = subprocess.run([py, "-m", "fieldkit", "release-page", "check", str(page), "--layman", str(files["layman"]),
+    chk = fkproc.run([py, "-m", "fieldkit", "release-page", "check", str(page), "--layman", str(files["layman"]),
                           "--developer", str(files["developer"])], capture_output=True, text=True, cwd=repo)
     committed = not git(repo, "status", "--porcelain", "--", str(page)).stdout.strip()
     if not row("page", comp.returncode == 0 and chk.returncode == 0 and committed,

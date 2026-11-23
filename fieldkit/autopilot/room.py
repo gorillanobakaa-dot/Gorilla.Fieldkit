@@ -159,13 +159,16 @@ def classify(call):
     return None
 
 
+LOCK_CAP_S = 0.5      # F3.4: a hook never waits longer than this for the room lock; a held lock skips the write
+
+
 class _Lock:
     """A short exclusive lock on ROOM.lock (msvcrt on Windows, fcntl elsewhere): one whole line per writer."""
 
     def __enter__(self):
         ROOM_DIR.mkdir(parents=True, exist_ok=True)
         self.f = open(ROOM_DIR / "ROOM.lock", "a+b")
-        deadline = time.time() + 3
+        deadline = time.time() + LOCK_CAP_S
         while True:
             try:
                 if os.name == "nt":
@@ -205,9 +208,15 @@ def line_for(session_id, cwd, verb, obj, detail="", now=None):
 
 
 def append(line):
-    with _Lock():
-        with open(_log(), "a", encoding="utf-8", newline="\n") as f:
-            f.write(line.replace("\n", " ") + "\n")
+    """-> True when written, False when the lock stayed held past LOCK_CAP_S (the line is skipped: a hook must stay
+    fast, the room is a courtesy log)."""
+    try:
+        with _Lock():
+            with open(_log(), "a", encoding="utf-8", newline="\n") as f:
+                f.write(line.replace("\n", " ") + "\n")
+        return True
+    except OSError:
+        return False
 
 
 REPEAT_S = 60
@@ -396,6 +405,31 @@ def _rotate(call, event, ctx):
     return ctx
 
 
+def _agentmodels(call, event, ctx):
+    """Claude Code's Explore subagent kept on Haiku (fieldkit/tokens/agent_models.py): silent when the file is right,
+    one line when it was repaired or an override was ignored."""
+    try:
+        from ..tokens import agent_models
+        line = agent_models.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
+def _installed(call, event, ctx):
+    """The installed Fieldkit behind origin/main (fieldkit/core/installed.py): SessionStart, report only, silent when level."""
+    try:
+        from ..core import installed
+        line = installed.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def _net(call, event, ctx):
     """The agent net rides on this hook (2026-10-26, fieldkit/zero/net.py): every session is checked in by it, shown
     its unseen net traffic, and told who Zero is; Zero is told which stations went quiet. Never fails the hook."""
@@ -427,10 +461,9 @@ def _plan(call, event, ctx):
 def _ear(call, event):
     """I-27 (owner, 2026-11-10: "that is not real-time communication"): every session runs its own ear, `relay listen
     --as STATION` as a background command (fieldkit/peers/link_relay.py): it ends when net traffic for the station
-    arrives, which wakes the session even when idle. A session whose ear is not running is told the exact line on
-    every prompt and at most every EAR_NAG_S on tool calls: NOT through only_new, because an ear that ended after a
-    note must be restarted every time (the old one-relay-per-computer line was said once and the relay died with its
-    session, 97 notes unheard). Not in a headless run (it ends too soon to listen), not on the call that starts the
+    arrives, which wakes the session even when idle. A session whose ear is not running is told the exact line ONCE
+    per session (F3.1: through only_new; the 97-unheard-notes history is why the line exists, the repeat cost a line on
+    every prompt). Not in a headless run (it ends too soon to listen), not on the call that starts the
     ear, not when this computer has no household. Never fails the hook."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1" or not call.get("session_id"):
         return ""
@@ -465,12 +498,9 @@ def _ear(call, event):
             full = ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
                     f"call. Start your ear with the Monitor tool (each line it prints wakes you; --follow never ends): "
                     f"{link_relay.ear_line(me)} ; no Monitor tool: run it as a background Bash command instead")
-        # P37 (hook text on a budget): every injected line stays in the conversation, so the 450-byte line is said in
-        # full once per session; the nag after it is the short one (same frequency, the line is already in context)
-        if only_new(call["session_id"] + ".ear", full):
-            return full
-        from .. import rules_song
-        return rules_song.policy()["hooks"]["ear_short"]
+        # F3.1 (FIX-PLAN, 2026-11-22): the EAR line is said once per session, through only_new; every later prompt
+        # and tool call carries nothing (the short reminder after it still cost a line on every prompt)
+        return full if only_new(call["session_id"] + ".ear", full) else ""
     except Exception:
         return ""
 
@@ -548,6 +578,25 @@ def _workflows(call, event, ctx):
     return ctx
 
 
+def _mode(call, event, ctx):
+    """The session mode question (owner O4, 2026-11-22), asked ONCE per session on its first prompt (or start), never
+    mid-run: the five modes word for word, Economy in force until the owner answers. Writing the Economy default is
+    what makes it once: the next call finds the mode file and stays silent. Never fails the hook."""
+    if event not in ("UserPromptSubmit", "SessionStart") or os.environ.get("FIELDKIT_AUTOPILOT") == "1"             or os.environ.get("FIELDKIT_MODE_ASK") == "off":      # off: the test suite only; the tool-layer cap stays
+        return ctx
+    try:
+        from ..lifecycle import sessionmode as sm
+        sid = sm.session_id(call)
+        if sm.asked(sid):
+            return ctx
+        sm.write(sid, sm.DEFAULT)
+        text = (sm.QUESTION + " " + " | ".join(f"{k} {v}" for k, v in sm.LABELS.items())
+                + ". Economy applies until the owner answers: `python -m fieldkit route choose --session-mode CODE`.")
+        return (ctx + "\n" if ctx else "") + text
+    except Exception:
+        return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -558,8 +607,11 @@ def _context(call, event):
             ctx = upkeep.session_warning(call.get("session_id")) or ""
         except Exception:
             pass
+    ctx = _mode(call, event, ctx)
     ctx = _hog(call, event, ctx)
     ctx = _rotate(call, event, ctx)
+    ctx = _agentmodels(call, event, ctx)
+    ctx = _installed(call, event, ctx)
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)
@@ -682,8 +734,8 @@ STOP_CMD = '"{py}" -m fieldkit.tokens.rotate --stop-hook'
 ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 #: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve;
 #: archive_session: Zero retires only into a new Zero, fieldkit/zero/retire.py; start_session: no own_initiative card)
-TOOL_MATCH = ("Bash|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage|mcp__ccd_session_mgmt__archive_session"
-              "|mcp__ccd_session__start_session")
+TOOL_MATCH = ("Bash|Grep|Glob|Read|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage|mcp__ccd_session_mgmt__archive_session"
+              "|mcp__ccd_session__start_session|Agent|Task")
 
 
 def _console_hooks(groups):

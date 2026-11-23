@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -118,7 +119,7 @@ def parse_win_video(js):
 
 def _run(argv, timeout=20):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, errors="replace")
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=timeout, errors="replace")
         return r.stdout if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -436,7 +437,7 @@ def apply(model_key, s, rules=None, run=_run, lms=None):
     argv, skipped = build_load(model_key, s, help_text, rules)
     lines = [f"RUN  lms load {' '.join(argv)}"] + ([f"NOT PASSED (this lms has no such flag): {', '.join(skipped)}"] if skipped else [])
     try:
-        r = subprocess.run([lms, "load"] + argv, capture_output=True, text=True, timeout=1800, errors="replace")
+        r = fkproc.run([lms, "load"] + argv, capture_output=True, text=True, timeout=1800, errors="replace")
     except (OSError, subprocess.SubprocessError) as e:
         return False, lines + [f"lms load failed: {e}"]
     if r.returncode != 0:

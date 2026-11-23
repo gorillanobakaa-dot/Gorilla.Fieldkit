@@ -1,5 +1,7 @@
-"""One release per batch: the gate refuses inside the window, allows outside it, logs --hotfix, one hotfix per window."""
+"""Release windows and the logged hotfix quota."""
 import json
+
+import pytest
 
 from fieldkit.method import releasegate as rg, ship
 
@@ -26,16 +28,91 @@ def test_allows_outside_the_window_or_first_release(monkeypatch, tmp_path):
     assert rg.guard("o/r", "v2", now=NOW, hours=24)["ok"]                              # conftest: no release yet
 
 
-def test_hotfix_is_logged_and_only_one_per_window(monkeypatch, tmp_path):
+def test_hotfix_limit_and_retry_are_deterministic(monkeypatch, tmp_path):
     _state(monkeypatch, tmp_path)
-    r = rg.guard("o/r", "v2", "security fix", last=("v1", NOW - 3 * H), now=NOW, hours=24)
-    assert r["ok"] and r["state"] == "hotfix"
+    for version in range(2, 12):
+        stamp = NOW + version
+        r = rg.guard("o/r", f"v{version}-linux", "security fix", last=("v1-linux", NOW - H), now=stamp)
+        assert r["ok"] and r["state"] == "hotfix"
+    recent = [("v11-linux", NOW), ("v1-windows", NOW)]
+    refused = rg.guard("o/r", "v12-linux", "another", last=recent, now=NOW + H)
+    assert not refused["ok"] and refused["state"] == "hotfix-used"
+    assert "10 of 10" in refused["error"]
+    assert rg.guard("o/r", "v2-linux", "retry", last=recent, now=NOW + H)["ok"]
     rows = [json.loads(l) for l in (tmp_path / "releasegate" / "hotfixes.jsonl").read_text().splitlines()]
-    assert rows[0]["why"] == "security fix" and rows[0]["tag"] == "v2" and rows[0]["repo"] == "o/r"
-    again = rg.guard("o/r", "v3", "another", last=("v2", NOW - 1 * H), now=NOW + H, hours=24)
-    assert not again["ok"] and again["state"] == "hotfix-used"
-    assert rg.guard("o/r", "v2", "security fix", last=("v1", NOW - 3 * H), now=NOW + H, hours=24)["ok"]  # same tag again
-    assert len((tmp_path / "releasegate" / "hotfixes.jsonl").read_text().splitlines()) == 1
+    assert len(rows) == 10 and rows[0] == {
+        "why": "security fix", "tag": "v2-linux", "repo": "o/r", "t": NOW + 2}
+
+    assert rg.guard("o/r", "v12-windows", "another OS", last=recent, now=NOW + H)["ok"]
+    assert rg.guard("o/s", "v12-linux", "another repo", last=recent, now=NOW + H)["ok"]
+    stamp = NOW + 24 * H + 2
+    assert rg.guard("o/r", "v12-linux", "oldest expired", last=("v11-linux", stamp - H), now=stamp)["ok"]
+
+
+def test_hotfix_fails_closed_when_the_ledger_is_unreadable(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    log = tmp_path / "releasegate" / "hotfixes.jsonl"
+    log.parent.mkdir()
+    log.write_text("partial record\n", encoding="utf-8")
+    result = rg.guard("o/r", "v2", "retry", last=("v1", NOW - H), now=NOW)
+    assert not result["ok"] and result["state"] == "hotfix-ledger-error"
+    assert log.read_text(encoding="utf-8") == "partial record\n"
+
+
+def test_candidate_reserves_only_blocked_platforms_and_only_when_all_have_room(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg, "hotfix_limit", lambda: 1)
+    windows = ("v1-win64", NOW - H)
+    mac = ("v1-macos", NOW - H)
+    platforms = ["debian", "windows", "darwin"]
+    refused = rg.guard("o/r", "v2", last=[windows, mac], now=NOW, platforms=platforms)
+    assert "mac, windows" in refused["error"]
+    assert rg.guard("o/r", "v2-windows", "broken", last=[windows], now=NOW)["ok"]
+    assert rg.guard("O/R", "v3", "broken", last=[windows, mac], now=NOW, platforms=platforms)["state"] == "hotfix-used"
+    assert rg.guard("o/r", "v3", "broken", last=[mac], now=NOW, platforms=platforms)["ok"]
+    assert rg.guard("o/r", "v3", "retry", last=[mac], now=NOW, platforms=platforms)["ok"]
+    log = tmp_path / "releasegate" / "hotfixes.jsonl"
+    assert [json.loads(line).get("systems") for line in log.read_text().splitlines()] == [None, ["mac"]]
+
+
+def test_platform_candidates_treat_older_unscoped_releases_as_covering_the_matrix():
+    assert not rg.guard("o/r", "v2", last=[("v1-rc1", NOW - H)], now=NOW, platforms=["debian"])["ok"]
+    assert rg.guard("o/r", "v2", last=[("v1-windows", NOW - H)], now=NOW, platforms=["debian"])["ok"]
+
+
+def test_public_quota_ignores_attempts_and_uses_shared_history(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path / "publisher-a")
+    published = [("v1-windows", NOW - 25 * H), ("v2-windows", NOW - 3 * H)]
+    monkeypatch.setattr(rg, "_gh_published", lambda slug: list(published))
+    for version in range(3, 15):
+        tag = f"v{version}"
+        verdict = rg.guard("o/r", tag, "broken", now=NOW, platforms=["windows"], published_only=True)
+        assert verdict["ok"]
+        rg.record_hotfix_attempt("o/r", tag, "broken", verdict["systems"])
+    assert len(rg._hotfixes()) == 12
+
+    published.extend((f"v{version}-windows", NOW - H + version) for version in range(3, 11))
+    _state(monkeypatch, tmp_path / "publisher-b")
+    assert rg.guard("o/r", "v15", "last slot", now=NOW, platforms=["windows"], published_only=True)["ok"]
+    published.append(("v15-windows", NOW - 15))
+    denied = rg.guard("o/r", "v16", "broken", now=NOW, platforms=["windows"], published_only=True)
+    assert denied["state"] == "hotfix-used" and "10 of 10" in denied["error"]
+    assert rg.guard("o/r", "v15-windows", "retry", now=NOW, platforms=["windows"], published_only=True)["ok"]
+    assert rg.guard("o/r", "v16", "broken", now=NOW, platforms=["debian"], published_only=True)["ok"]
+
+
+def test_signed_publisher_lock_is_shared_between_checkouts(monkeypatch, tmp_path):
+    monkeypatch.setattr(rg.Path, "home", lambda: tmp_path)
+    _state(monkeypatch, tmp_path / "checkout-a")
+    with rg.publication_slot(slug="owner/repo", single_publisher=True):
+        _state(monkeypatch, tmp_path / "checkout-b")
+        with rg.publication_slot(slug="owner/unrelated", single_publisher=True):
+            pass
+        with pytest.raises(ValueError, match="another ship command"):
+            with rg.publication_slot(slug="Owner/Repo", single_publisher=True):
+                pytest.fail("the second checkout acquired the lock")
+    with rg.publication_slot(slug="owner/repo", single_publisher=True):
+        pass
 
 
 def test_gh_failure_fails_closed(monkeypatch, tmp_path):
@@ -104,3 +181,37 @@ def test_every_place_that_publishes_a_release_goes_through_the_gate():
     assert publishers, "the scan found no publisher: fix the pattern"
     missing = [str(f.relative_to(root)) for f in publishers if "releasegate" not in f.read_text(encoding="utf-8", errors="replace")]
     assert not missing, f"publishes a release without the one-release-per-batch gate: {missing}"
+
+
+def test_gh_recent_skips_draft_and_zero_timestamps_and_uses_utc(monkeypatch):
+    """Windows mktime overflows on gh's 0001-01-01T00:00:00Z draft timestamp (2026-11-18)."""
+    import calendar
+    import time
+    from types import SimpleNamespace
+
+    payload = json.dumps([
+        {"tagName": "leakgate-ci-160", "publishedAt": "0001-01-01T00:00:00Z"},
+        {"tagName": "v0.10.0-draft", "publishedAt": "2026-11-18T01:00:00Z", "isDraft": True},
+        {"tagName": "v0.9.4", "publishedAt": "2026-11-10T07:25:29Z", "isDraft": False},
+    ])
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout=payload, stderr=""))
+    got = rg._gh_recent("o/r")
+    want_ts = calendar.timegm(time.strptime("2026-11-10T07:25:29", "%Y-%m-%dT%H:%M:%S"))
+    assert got == [("v0.9.4", want_ts)]
+
+
+def test_unreadable_config_fails_closed(monkeypatch, tmp_path):
+    """F4.4: a broken releasegate.yaml must refuse the release, never fall back to defaults."""
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg.Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("denied")))
+    r = rg.guard("o/r", "v2", last=("v1", NOW - 25 * H), now=NOW)
+    assert not r["ok"] and r["state"] == "gate-config-unreadable"
+    with pytest.raises(rg.ConfigUnreadable):
+        rg.min_hours()
+
+
+def test_non_mapping_config_fails_closed(monkeypatch, tmp_path):
+    _state(monkeypatch, tmp_path)
+    monkeypatch.setattr(rg.yaml, "safe_load", lambda text: ["not", "a", "mapping"])
+    r = rg.guard("o/r", "v2", last=("v1", NOW - 25 * H), now=NOW)
+    assert not r["ok"] and r["state"] == "gate-config-unreadable"

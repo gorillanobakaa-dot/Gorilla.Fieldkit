@@ -4,8 +4,9 @@
 # min_hours ago gets no second release FOR THAT SYSTEM; every other system publishes freely. The system is read from
 # the tag's suffix after the version (v160.0.0-linux -> linux, v158.0-win64-build2 -> windows); a tag with no system
 # (v1.2.3) counts as its own kind, so a plain project still gets one release per batch. `--hotfix WHY` is the logged
-# escape inside one system's window.
+# escape inside one system's window. The owner raised the logged hotfix limit on 2026-11-18.
 min_hours: 24
+hotfix_limit: 10
 # suffix word -> system; a word not listed is its own system
 systems:
   linux: linux

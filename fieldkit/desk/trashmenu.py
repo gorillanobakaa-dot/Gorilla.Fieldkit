@@ -1,0 +1,266 @@
+"""P41: "Empty with Gorilla Trash..." in the Windows 11 first right-click menu (owner decision 2026-11-23).
+
+The modern menu lists only commands of a package with identity. This module builds a signed sparse MSIX (manifest +
+logo only; the files stay in %LOCALAPPDATA%\\Fieldkit\\bin) whose manifest registers the IExplorerCommand DLL built from
+rust/gorilla-trash-menu. The certificate is self-signed and generated here: the private key stays in the current user's
+certificate store (never a file, never committed); only the PUBLIC .cer is imported into LocalMachine\\TrustedPeople,
+which is what lets the package install on any other PC (that import needs administrator rights: run `install --admin`
+through the elevate tool, or the installer script).
+
+    python -m fieldkit.desk.trashmenu build  --dll DLL [--bindir DIR] [--types Directory,*]
+    python -m fieldkit.desk.trashmenu install-admin     (elevated: trust the public certificate)
+    python -m fieldkit.desk.trashmenu register          (register the package for the current user)
+    python -m fieldkit.desk.trashmenu status
+    python -m fieldkit trashmenu recycle-dir --path DIR  (what the menu runs on a folder: list, ask, recycle)
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import struct
+import sys
+import zlib
+from pathlib import Path
+
+from fieldkit import proc as fkproc
+
+CLSID = "7C3A1F52-9D4B-4E8A-B2C6-1F0E5A9D3B71"  # the same value as CLSID_TRASH_MENU in rust/gorilla-trash-menu
+SUBJECT = "CN=Fieldkit Gorilla Trash"
+PACKAGE = "Fieldkit.GorillaTrashMenu"
+VERSION = "1.0.3.0"
+DLL_NAME = "gorilla-trash-menu.dll"
+KITS = r"C:\Program Files (x86)\Windows Kits\10\bin"
+
+MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 com desktop4 desktop5 rescap">
+  <Identity Name="{name}" Publisher="{subject}" Version="{version}" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Gorilla Trash menu</DisplayName>
+    <PublisherDisplayName>Fieldkit</PublisherDisplayName>
+    <Logo>logo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+  <Resources><Resource Language="en-us" /></Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities><rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" /></Capabilities>
+  <Applications>
+    <Application Id="GorillaTrash" Executable="gorilla-trash.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="Gorilla Trash" Description="Empty the Recycle Bin with a list first"
+        BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="logo.png" />
+      <Extensions>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+{items}
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Gorilla Trash menu">
+              <com:Class Id="{clsid}" Path="{dll}" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
+"""
+
+
+RECYCLE_TYPES = ("*", "Directory", "Directory\\Background")  # MakeAppx rejects Folder and CLSID types; GetState hides the verb outside the Recycle Bin
+
+
+def manifest(types=RECYCLE_TYPES) -> str:
+    items = "\n".join(
+        f'            <desktop5:ItemType Type="{t}">\n'
+        f'              <desktop5:Verb Id="GorillaTrash" Clsid="{CLSID}" />\n'
+        f'            </desktop5:ItemType>' for t in types)
+    return MANIFEST.format(name=PACKAGE, subject=SUBJECT, version=VERSION, clsid=CLSID, dll=DLL_NAME, items=items)
+
+
+def _png(size=44) -> bytes:
+    """A flat dark square: the menu icon comes from GetIcon, this only satisfies the manifest."""
+    def chunk(tag, data):
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+    rows = b"".join(b"\x00" + b"\x22\x22\x22\xff" * size for _ in range(size))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def state_dir() -> Path:
+    d = Path(__file__).resolve().parents[2] / "state" / "trashmenu"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def bindir() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "Fieldkit" / "bin"
+
+
+def _tool(name: str) -> str:
+    found = sorted(Path(KITS).glob(f"*/x64/{name}"), reverse=True)
+    if not found:
+        raise FileNotFoundError(f"{name} not found under {KITS} (install the Windows SDK)")
+    return str(found[0])
+
+
+def _ps(script: str, check=True):
+    r = fkproc.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                   capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError((r.stderr or r.stdout).strip())
+    return r.stdout.strip()
+
+
+def ensure_cert() -> tuple[str, Path]:
+    """The signing certificate (created once, key in the user store) and its exported PUBLIC .cer."""
+    cer = state_dir() / "fieldkit-gorilla-trash.cer"
+    thumb = _ps(
+        "$c = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object Subject -eq '%s' | Select-Object -First 1;"
+        "if (-not $c) { $c = New-SelfSignedCertificate -Type Custom -Subject '%s' -KeyUsage DigitalSignature "
+        "-FriendlyName 'Fieldkit Gorilla Trash' -CertStoreLocation Cert:\\CurrentUser\\My -NotAfter (Get-Date).AddYears(10) "
+        "-TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3','2.5.29.19={text}') };"
+        "Export-Certificate -Cert $c -FilePath '%s' | Out-Null; $c.Thumbprint" % (SUBJECT, SUBJECT, cer))
+    return thumb.splitlines()[-1].strip(), cer
+
+
+def build(dll: Path, types=RECYCLE_TYPES, target: Path | None = None) -> Path:
+    """Copy the DLL next to gorilla-trash.exe, pack and sign the sparse MSIX; returns the .msix path."""
+    target = Path(target or bindir())
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(dll, target / DLL_NAME)
+    write_folder_launcher(target)
+    pkg = state_dir() / "pkg"
+    shutil.rmtree(pkg, ignore_errors=True)
+    pkg.mkdir(parents=True)
+    (pkg / "AppxManifest.xml").write_text(manifest(types), encoding="utf-8")
+    (pkg / "logo.png").write_bytes(_png())
+    msix = state_dir() / "gorilla-trash-menu.msix"
+    msix.unlink(missing_ok=True)
+    for cmd in ([_tool("makeappx.exe"), "pack", "/d", str(pkg), "/p", str(msix), "/nv", "/o"],):
+        r = fkproc.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            raise RuntimeError(r.stdout + r.stderr)
+    thumb, _ = ensure_cert()
+    r = fkproc.run([_tool("signtool.exe"), "sign", "/fd", "SHA256", "/sha1", thumb, "/s", "My", str(msix)],
+                   capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(r.stdout + r.stderr)
+    return msix
+
+
+def _unsafe_dir(path: Path) -> str:
+    """Why a folder must never be emptied by the menu ('' when it may be)."""
+    p = os.path.normcase(os.path.abspath(path))
+    if "$recycle.bin" in p or os.path.dirname(p) == p:
+        return "that is the Recycle Bin or a drive root"
+    for var in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "USERPROFILE"):
+        v = os.environ.get(var)
+        if v and p == os.path.normcase(os.path.abspath(v)):
+            return f"{v} is a system folder"
+    return ""
+
+
+KEEP_NAMES = ("desktop.ini", "thumbs.db")  # folder display name/icon files: never recycled
+
+
+def recycle_dir(path, ask=input, run=None) -> int:
+    """List what is inside PATH, ask once, then move it to the Recycle Bin (a recycle, never a permanent delete)."""
+    d = Path(path)
+    why = _unsafe_dir(d) if d.is_dir() else "not a folder"
+    if why:
+        print("refused:", why)
+        return 4
+    everything = sorted(d.iterdir(), key=lambda x: x.name.lower())
+    items = [x for x in everything if x.name.lower() not in KEEP_NAMES]
+    kept = [x for x in everything if x.name.lower() in KEEP_NAMES]
+    if not items:
+        print("empty already:", d)
+        return 0
+    print(f"{len(items)} item(s) in {d} will go to the Recycle Bin:")
+    for it in items[:200]:
+        print("  " + it.name + ("\\" if it.is_dir() else ""))
+    if len(items) > 200:
+        print(f"  ... and {len(items) - 200} more")
+    for it in kept:
+        print("  " + it.name + " (kept: system file)")
+    if ask("Move all of it to the Recycle Bin? [y/N] ").strip().lower() != "y":
+        print("cancelled; nothing moved")
+        return 4
+    run = run or (lambda script: _ps(script, check=False))
+    run("Add-Type -AssemblyName Microsoft.VisualBasic; "
+        f"Get-ChildItem -LiteralPath '{str(d).replace(chr(39), chr(39) * 2)}' -Force | Where-Object {{ @('desktop.ini','thumbs.db') -notcontains $_.Name.ToLower() }} | ForEach-Object {{ "
+        "if ($_.PSIsContainer) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } "
+        "else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') } }")
+    left = len([x for x in d.iterdir() if x.name.lower() not in KEEP_NAMES])
+    print("done" if not left else f"{left} item(s) could not be moved")
+    return 0 if not left else 3
+
+
+def write_folder_launcher(target: Path) -> Path:
+    """gorilla-trash-folder.cmd: the DLL runs it with the folder path; it starts recycle-dir in a console."""
+    root = Path(__file__).resolve().parents[2]
+    cmd = Path(target) / "gorilla-trash-folder.cmd"
+    cmd.write_text(f'@echo off\r\ncd /d "{root}"\r\n"{sys.executable}" -m fieldkit trashmenu recycle-dir --path %1\r\n'
+                   "pause\r\n", encoding="ascii")
+    return cmd
+
+
+def trust_public_cert() -> str:
+    """Needs administrator rights: the public certificate into LocalMachine\\TrustedPeople."""
+    _, cer = ensure_cert()
+    return _ps(f"Import-Certificate -FilePath '{cer}' -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople | "
+               "Select-Object -ExpandProperty Thumbprint")
+
+
+def register(target: Path | None = None) -> str:
+    target = Path(target or bindir())
+    msix = state_dir() / "gorilla-trash-menu.msix"
+    _ps(f"Get-AppxPackage {PACKAGE} | Remove-AppxPackage", check=False)
+    _ps(f"Add-AppxPackage -Path '{msix}' -ExternalLocation '{target}'")
+    return status()
+
+
+def status() -> str:
+    return _ps(f"$p = Get-AppxPackage {PACKAGE}; if ($p) {{ 'registered ' + $p.PackageFullName }} else {{ 'not registered' }}; "
+               "$t = Get-ChildItem Cert:\\LocalMachine\\TrustedPeople | Where-Object Subject -eq '%s'; "
+               "if ($t) { 'trusted ' + $t.Thumbprint } else { 'public certificate not trusted' }" % SUBJECT, check=False)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="fieldkit trashmenu")
+    ap.add_argument("cmd", choices=["build", "install-admin", "register", "status", "recycle-dir"])
+    ap.add_argument("--path")
+    ap.add_argument("--dll")
+    ap.add_argument("--bindir")
+    ap.add_argument("--types", default=",".join(RECYCLE_TYPES))
+    a = ap.parse_args(argv)
+    if sys.platform != "win32":
+        print("not-this-platform: the Windows 11 menu exists only on Windows")
+        return 0
+    if a.cmd == "recycle-dir":
+        return recycle_dir(a.path)
+    if a.cmd == "build":
+        print(build(Path(a.dll), tuple(a.types.split(",")), a.bindir))
+    elif a.cmd == "install-admin":
+        print("trusted", trust_public_cert())
+    elif a.cmd == "register":
+        print(register(a.bindir))
+    else:
+        print(status())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

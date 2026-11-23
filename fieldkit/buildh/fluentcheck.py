@@ -19,6 +19,7 @@ A file the port deleted is not judged (the deletion is checked by final-checks' 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 MESSAGE = re.compile(r"^([a-z][a-z0-9_-]*)\s*=", re.M)
@@ -27,7 +28,7 @@ MSG_EMPTY = re.compile(r"^([a-z][a-z0-9_-]*)\s*=\s*$")
 
 
 def _git(w, *args):
-    r = subprocess.run(["git", "-C", str(w), *args], capture_output=True)
+    r = fkproc.run(["git", "-C", str(w), *args], capture_output=True)
     return r.returncode, r.stdout.decode("utf-8", "replace")
 
 

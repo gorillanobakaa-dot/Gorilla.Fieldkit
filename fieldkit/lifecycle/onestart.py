@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -93,7 +94,7 @@ def claude_cli_login():
     if not exe:
         return None
     try:
-        r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=30)
+        r = fkproc.run([exe, "auth", "status"], capture_output=True, text=True, timeout=30)
         return bool(json.loads(r.stdout).get("loggedIn")) if r.stdout.strip() else r.returncode == 0
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
@@ -192,7 +193,7 @@ def _asked_recently(ids, ttl_h, now=None):
     return False
 
 
-def _run_apply(a, run=subprocess.run):
+def _run_apply(a, run=fkproc.run):
     from ..core import settings
     argv = [str(x).replace("{state}", str(settings.state_root() / "state")) for x in a["apply"]]
     if argv[0] in ("python3", "python") and argv[1:3] == ["-m", "fieldkit"]:
@@ -205,7 +206,7 @@ def _run_apply(a, run=subprocess.run):
 
 
 def start_check(kind, job="", force_ask=False, ask_present=None, prove=None, say=print, checks=None, data=None,
-                run=subprocess.run, now=None):
+                run=fkproc.run, now=None):
     """-> {"missing": [ids], "asked": bool, "outcome": ..., "applied": [ids], "lines": [...]}. NEVER raises, NEVER waits
     for anyone: the job starts whatever the answer. FIELDKIT_ONESTART=off skips (tests, nested runs)."""
     out = {"missing": [], "asked": False, "outcome": "none", "applied": [], "lines": []}

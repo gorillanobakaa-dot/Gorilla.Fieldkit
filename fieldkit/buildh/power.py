@@ -13,6 +13,7 @@ On Linux (2026-10-10) the same answer comes from the kernel's /sys/class/power_s
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -48,7 +49,7 @@ def _linux_status(root=SYSFS):
     return {"mains": online, "percent": min(caps) if caps else None, "battery": True}
 
 
-def status(run=subprocess.run, platform=None, root=SYSFS):
+def status(run=fkproc.run, platform=None, root=SYSFS):
     """-> {"mains": bool|None, "percent": int|None, "battery": bool}; None when the system cannot be asked."""
     if (platform or sys.platform) != "win32":
         return _linux_status(root)

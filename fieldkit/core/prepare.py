@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 import urllib.request
@@ -73,7 +74,7 @@ def _have_root():
     if os.geteuid() == 0:
         return True
     try:
-        return subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=10).returncode == 0
+        return fkproc.run(["sudo", "-n", "true"], capture_output=True, timeout=10).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -162,7 +163,7 @@ def _sha256(path):
 def install_user(tool, spec, run=None, fetch=None):
     """The no-root step of one missing tool. -> (ok, line). pipx when present, else a venv under USER_VENVS with a
     link in ~/.local/bin; a download only when the table gives its sha256 (a mismatch deletes nothing the user had)."""
-    run = run or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=1800))
+    run = run or (lambda argv: fkproc.run(argv, capture_output=True, text=True, timeout=1800))
     if spec.get("download"):
         d = spec["download"]
         if not d.get("sha256"):

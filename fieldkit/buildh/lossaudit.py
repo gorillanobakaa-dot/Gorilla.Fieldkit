@@ -20,6 +20,7 @@ Deterministic: text in, counts out. It does not judge intent: a deliberate remov
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 from .companions import sections
@@ -30,7 +31,7 @@ YAML_NAME = re.compile(r"^-\s*name:\s*(\S+)")
 
 
 def _git(repo, *args, text=True):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
+    r = fkproc.run(["git", "-C", str(repo), *args], capture_output=True)
     out = r.stdout.decode("utf-8", "replace") if text else r.stdout
     return r.returncode, out
 

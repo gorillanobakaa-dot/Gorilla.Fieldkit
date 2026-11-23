@@ -17,6 +17,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -162,7 +163,7 @@ $all | ConvertTo-Json -Compress -Depth 2
 
 
 def snapshot_processes():
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", _PS_SNAPSHOT], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", _PS_SNAPSHOT], capture_output=True, text=True, errors="replace").stdout
     try:
         rows = json.loads(out) if out.strip() else []
     except ValueError:
@@ -248,7 +249,7 @@ def snapshot_all_sockets():
           "$($_.LocalPort)|$($_.RemoteAddress)|$($_.RemotePort)|$($_.OwningProcess)\" }; "
           "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object { \"udp|Bound|$($_.LocalAddress)|"
           "$($_.LocalPort)|||$($_.OwningProcess)\" }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
     return [tuple(l.strip().split("|")) for l in out.splitlines() if l.count("|") == 6]
 
 
@@ -286,7 +287,7 @@ def snapshot_sockets(pids):
           "ForEach-Object { \"tcp|$($_.State)|$($_.LocalAddress)|$($_.LocalPort)|$($_.RemoteAddress)|$($_.RemotePort)|$($_.OwningProcess)\" }; "
           "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | "
           "ForEach-Object { \"udp|Bound|$($_.LocalAddress)|$($_.LocalPort)|||$($_.OwningProcess)\" }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
     return [tuple(l.strip().split("|")) for l in out.splitlines() if l.count("|") == 6]
 
 
@@ -354,7 +355,7 @@ def confirm_exit(rows, wait=30, kill=None, waiter=None):
         except Exception as e:                            # NoSuchProcess = already gone; TimeoutExpired = alive
             return type(e).__name__ == "NoSuchProcess"
     waiter = waiter or _wait
-    kill = kill or (lambda pid: subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+    kill = kill or (lambda pid: fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
                                                text=True).returncode)
     out = []
     for r in rows:
@@ -406,19 +407,19 @@ DNS_CLIENT_LOG = "Microsoft-Windows-DNS-Client/Operational"
 
 def dnsclient_enable():
     """Switch the DNS-client log on. -> its previous state (True/False), or None when it could not be read."""
-    r = subprocess.run(["wevtutil", "gl", DNS_CLIENT_LOG], capture_output=True, text=True, errors="replace")
+    r = fkproc.run(["wevtutil", "gl", DNS_CLIENT_LOG], capture_output=True, text=True, errors="replace")
     if r.returncode != 0:
         return None
     prev = "enabled: true" in r.stdout.lower()
     if not prev:
-        subprocess.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:true"], capture_output=True)
+        fkproc.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:true"], capture_output=True)
     return prev
 
 
 def dnsclient_restore(prev):
     """Put the log back as it was (only switched off again when it was off before)."""
     if prev is False:
-        subprocess.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:false"], capture_output=True)
+        fkproc.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:false"], capture_output=True)
 
 
 def dnsclient_queries(since_iso):
@@ -426,7 +427,7 @@ def dnsclient_queries(since_iso):
     ps = ("$s=[datetime]::Parse('" + since_iso + "'); "
           "Get-WinEvent -FilterHashtable @{LogName='" + DNS_CLIENT_LOG + "'; Id=3006; StartTime=$s} -ErrorAction SilentlyContinue | "
           "ForEach-Object { \"$($_.TimeCreated.ToString('o'))|$($_.ProcessId)|$($_.Properties[0].Value)\" }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    out = fkproc.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
     rows = []
     for line in out.splitlines():
         parts = line.strip().split("|", 2)
@@ -536,7 +537,7 @@ try {
 class ElevatedPktmon:
     """Starts the packet sensor worker once per gate run through elevate.py (ELEVATE_PY; one UAC click)."""
 
-    def __init__(self, workdir, elevate_py=None, runner=subprocess.run, timeout_min=15):
+    def __init__(self, workdir, elevate_py=None, runner=fkproc.run, timeout_min=15):
         self.dir = Path(workdir) / "pktmon-elevated"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.elevate_py = Path(elevate_py or ELEVATE_PY)
@@ -594,7 +595,7 @@ class ElevatedPktmon:
             self.active = False
 
 
-def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=subprocess.run):
+def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=fkproc.run):
     """Ensure the packet sensor can run: directly when already elevated, or via elevate.py (ELEVATE_PY)."""
     global _ELEVATED_PKTMON
     if is_admin():
@@ -623,7 +624,7 @@ def pktmon_watchdog():
     if os.name != "nt":
         return
     ps = f"Wait-Process -Id {os.getpid()} -ErrorAction SilentlyContinue; pktmon stop | Out-Null"
-    _WATCHDOG = subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+    _WATCHDOG = fkproc.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
@@ -633,17 +634,17 @@ def pktmon_start(etl):
         _ELEVATED_PKTMON.send("start", etl=str(etl))
         return
     pktmon_watchdog()
-    subprocess.run(["pktmon", "stop"], capture_output=True)
-    subprocess.run(["pktmon", "filter", "remove"], capture_output=True)
-    subprocess.run(["pktmon", "start", "--capture", "--pkt-size", "0", "--file-name", str(etl)], capture_output=True)
+    fkproc.run(["pktmon", "stop"], capture_output=True)
+    fkproc.run(["pktmon", "filter", "remove"], capture_output=True)
+    fkproc.run(["pktmon", "start", "--capture", "--pkt-size", "0", "--file-name", str(etl)], capture_output=True)
 
 
 def pktmon_stop(etl, pcap):
     if _ELEVATED_PKTMON is not None and _ELEVATED_PKTMON.active:
         _ELEVATED_PKTMON.send("stop", etl=str(etl), pcap=str(pcap))
         return
-    subprocess.run(["pktmon", "stop"], capture_output=True)
-    subprocess.run(["pktmon", "etl2pcap", str(etl), "--out", str(pcap)], capture_output=True)
+    fkproc.run(["pktmon", "stop"], capture_output=True)
+    fkproc.run(["pktmon", "etl2pcap", str(etl), "--out", str(pcap)], capture_output=True)
 
 
 def tls_sni(payload):
@@ -872,7 +873,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
         addon.write_text(MITM_ADDON, encoding="utf-8")
         menv = dict(os.environ, LEAKGATE_MITM_OUT=str(mitm_out), LEAKGATE_MITM_RAW=str(mitm_raw), LEAKGATE_POISON="1" if poison else "")
         mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe")
-        mitm = subprocess.Popen([mitmdump, "--listen-host", "127.0.0.1", "--listen-port", str(proxy_port), "--set",
+        mitm = fkproc.Popen([mitmdump, "--listen-host", "127.0.0.1", "--listen-port", str(proxy_port), "--set",
                                  f"confdir={work / 'mitm-conf'}", "-s", str(addon), "-q"], env=menv,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
@@ -886,7 +887,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     from . import extras
     head = [] if graceful else ["-headless"]
     cmd = [str(Path(build_dir) / "firefox.exe")] + head + ["-no-remote", "-profile", str(prof)] + list(args) + [url]
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    proc = fkproc.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             startupinfo=extras.startupinfo_minimized() if graceful else None)
     sampler = Sampler(proc.pid, build_dir=build_dir)
     sampler.start()
@@ -904,15 +905,15 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     sampler.stop_flag.set()
     sampler.join(timeout=30)
     killed_at = time.time()
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    fkproc.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     for pid in build_pids(build_dir):                 # a de-elevated browser is not in the launcher's tree
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
     after_kill = confirm_exit(watch_after_kill(build_dir, watch, killed_at=killed_at))
     after = fs_snapshot(watch_dirs())
     if packets:
         pktmon_stop(etl, pcap)
     if mitm:
-        subprocess.run(["taskkill", "/PID", str(mitm.pid), "/T", "/F"], capture_output=True)
+        fkproc.run(["taskkill", "/PID", str(mitm.pid), "/T", "/F"], capture_output=True)
 
     ev = []
     base = {"scenario": name, "mode": mode}

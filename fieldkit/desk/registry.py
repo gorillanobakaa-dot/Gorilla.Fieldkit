@@ -25,6 +25,7 @@ import ast
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -343,7 +344,7 @@ def check(run_tests=False, only=None, timeout=300):
                 shutil.rmtree(base, ignore_errors=True)
                 base.mkdir(parents=True, exist_ok=True)
                 env["PYTEST_ADDOPTS"] = f'--basetemp="{base}" -p no:cacheprovider'
-            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            r = fkproc.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                timeout=timeout, cwd=p.parent if p.is_file() else p, env=env)
             row["test_ok"] = r.returncode == 0
             row["test_tail"] = (r.stdout + r.stderr).strip().splitlines()[-5:]

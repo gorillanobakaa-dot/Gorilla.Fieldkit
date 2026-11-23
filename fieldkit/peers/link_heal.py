@@ -26,6 +26,7 @@ import json
 import re
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 
@@ -93,7 +94,7 @@ def classify(exc):
 # ---- probes (each one replaceable in the tests) -------------------------------------------------------------------
 def _run(argv, timeout=20):
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(argv, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except (OSError, subprocess.SubprocessError) as e:
         return 127, str(e)

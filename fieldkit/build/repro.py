@@ -20,6 +20,7 @@ import re
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import tarfile
 import zipfile
 from pathlib import Path
@@ -151,7 +152,7 @@ def _zstd(data):
     exe = shutil.which("zstd")
     if not exe:
         return None
-    r = subprocess.run([exe, "-d", "-c", "-q"], input=data, capture_output=True, timeout=600)
+    r = fkproc.run([exe, "-d", "-c", "-q"], input=data, capture_output=True, timeout=600)
     return r.stdout if r.returncode == 0 else None
 
 

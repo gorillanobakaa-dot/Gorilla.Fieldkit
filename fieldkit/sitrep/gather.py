@@ -16,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -101,7 +102,7 @@ def ci_state(rollup):
     return "passing"
 
 
-def prs(run=subprocess.run):
+def prs(run=fkproc.run):
     r = run(["gh", "pr", "list", "--state", "open", "--limit", "30", "--json",
              "number,title,headRefName,statusCheckRollup"], capture_output=True, text=True, timeout=40)
     if r.returncode != 0:
@@ -145,7 +146,7 @@ def watchers():
     """-> the running `task watch` / `ci-wait` processes (Linux; empty elsewhere)."""
     if not sys.platform.startswith("linux"):
         return []
-    r = subprocess.run(["ps", "-eo", "pid,args"], capture_output=True, text=True, timeout=10)
+    r = fkproc.run(["ps", "-eo", "pid,args"], capture_output=True, text=True, timeout=10)
     return [{"pid": int(l.split(None, 1)[0]), "what": l.split(None, 1)[1][:100]} for l in r.stdout.splitlines()[1:]
             if re.search(r"fieldkit.*(task watch|ci-wait)", l) and "grep" not in l and "ps -eo" not in l]
 

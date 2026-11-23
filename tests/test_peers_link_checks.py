@@ -41,7 +41,12 @@ def test_stale_all_zero_neighbor_after_a_cable_move():
 def test_put_says_where_files_land(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
     r = c.put()
-    assert r["verdict"] == "OK" and str(tmp_path / "received") in r["detail"] and "not the Desktop" in r["detail"]
+    assert r["verdict"] == "OK" and str(tmp_path / "received") in r["detail"]
+    assert "not the Desktop" in r["detail"] and "Downloads" in r["detail"] and "Documents" in r["detail"]
+    from fieldkit.peers import link
+    assert link.approve(confirm=True, say=lambda m: None, accept_folders=["downloads", "documents"]) == 0
+    r2 = c.put()
+    assert r2["verdict"] == "OK" and "also Downloads, Documents" in r2["detail"] and "not the Desktop" in r2["detail"]
     (tmp_path / "received").rmdir()
     (tmp_path / "received").write_text("a file where the folder should be")
     assert c.put()["verdict"] == "PROBLEM"

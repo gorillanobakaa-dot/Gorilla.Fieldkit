@@ -235,7 +235,10 @@ try {
     Write-Host "2. Unpack it into $Target ($(Format-Bytes $zipBytes) zip)"
     if (-not (Read-Answer '   Unpack it?')) { Write-Host 'STOPPED at step 2: nothing was written.'; exit 3 }
     $stage = Join-Path $work 'unpacked'
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $stage
+    # Expand-Archive on windows-latest uses pwsh 7 which has an incompatible .NET overload; use ZipFile directly
+    # (works on PowerShell 5.1 and PowerShell 7 without hitting the broken ExtractToDirectory overload)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $stage)
     $top = Get-ChildItem -LiteralPath $stage -Directory | Select-Object -First 1
     if (-not (Test-Path -LiteralPath $Target)) { New-Item -ItemType Directory -Path $Target | Out-Null }
     Get-ChildItem -LiteralPath $top.FullName -Force | Move-Item -Destination $Target
@@ -256,6 +259,14 @@ try {
         # the machine and the way in, for the reader; standard library only, informational (as install.sh)
         Push-Location -LiteralPath $Target
         try { Invoke-Quiet { & $py.Path -m fieldkit.core.doctor --probe } | ForEach-Object { Write-Host "   $_" } } finally { Pop-Location }
+    }
+    if (Test-Path -LiteralPath (Join-Path $Target 'fieldkit\desk\install_preflight.py')) {
+        # read-only installer preflight before creating .venv or installing packages
+        Push-Location -LiteralPath $Target
+        try {
+            & $py.Path -m fieldkit.desk.install_preflight --lean --allow-missing-terminal
+            if ($LASTEXITCODE -ne 0) { Stop-Install "installer preflight exit $LASTEXITCODE" }
+        } finally { Pop-Location }
     }
 
     # 4. the private environment and the lean packages
@@ -305,7 +316,12 @@ for name in sys.argv[1:]:
     Write-Host ''
     Write-Host '5. fieldkit doctor --lean'
     Push-Location -LiteralPath $Target
-    try { & $vpy -m fieldkit.core.doctor --lean; $doctor = $LASTEXITCODE } finally { Pop-Location }
+    try {
+        & $vpy -m fieldkit.compileonce build
+        if ($LASTEXITCODE -ne 0) { Stop-Install 'compileonce failed' }
+        & $vpy -m fieldkit.core.doctor --lean
+        $doctor = $LASTEXITCODE
+    } finally { Pop-Location }
     Add-Record "python -m fieldkit.core.doctor --lean: exit $doctor"
 
     # 6. the record

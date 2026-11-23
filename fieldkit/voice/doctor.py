@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -30,7 +31,7 @@ SD_USER_DIR = HOME / ".config/speech-dispatcher"
 
 def _run(args, timeout=20):
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:                                    # fail closed: unknown is not ok
         return 1, str(e)
@@ -45,7 +46,7 @@ def _onnxruntime_present():
         # with no discrete graphics, and _run merges the streams, so reading both
         # put that warning in the version field.
         try:
-            r = subprocess.run([py, "-c", "import onnxruntime;print(onnxruntime.__version__)"],
+            r = fkproc.run([py, "-c", "import onnxruntime;print(onnxruntime.__version__)"],
                                capture_output=True, text=True, timeout=20)
         except Exception:
             continue

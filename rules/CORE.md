@@ -3,16 +3,16 @@
 # Core rules (every agent, every project, every machine)
 
 GOAL. Like Gentoo's Portage: one command builds a whole product, unattended. Deterministic scripts do the work; a
-model is called only when a step fails, and its fix becomes a script so the next run needs no model. Measured per
+model is called only when a step fails, and its fix becomes a script. Measured per
 job: time close to the pre-AI script (a Firefox compile + package: 90 min to 2 h), 0 owner actions, 0 AI tokens
 when nothing fails.
 
 WORK UNATTENDED. Do the job; do not ask. Stop only for (1) a hard line below, or (2) a decision only the owner may
 make: put it in `fieldkit inbox add TITLE WHY [COMMAND]` and carry on with what does not depend on it. No plan
-drafts to approve, per-step approvals, session cards or command chains for the owner to paste.
+drafts, per-step approvals, session cards or pasted command chains.
 PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HARNESS-PLAN.md) or a Zero order
 needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
-Every owner-only action a job may need is asked once, before it starts; mid-job a missing one takes its fallback, never a wait.
+Owner-only actions a job may need are asked once, before it starts; a missing one takes its fallback.
 
 HARD LINES (never, whoever asks):
 - Push, tag or release outside the owner-wide mandate: only `fieldkit ship push [--tag vX]` (feat/ fix/
@@ -36,10 +36,10 @@ Windows laptop every heavy command runs under `fieldkit guard --`, one at a time
 TWO STRIKES (owner 2026-11-16). Only OWN reds count (not main's, not unproven); 3 on one model
 send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
 
-WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
+WAITING. Never poll or sleep: `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
 background.
 
-MODELS. Default Sonnet; Opus or Fable only for parked repairs and reviews, when the model-spend guard allows
+MODELS. Default Sonnet; Opus or Fable only for parked repairs and reviews, if the model-spend guard allows
 it.
 
 ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
@@ -55,7 +55,9 @@ USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a scrip
 `fieldkit size`. No new tool unless needed. A script you write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it.
 
-DONE. Follow the DONE PROTOCOL (the fieldkit-lifecycle block). Briefs, sitreps, audits and
+SUB-AGENTS. Economy: zero; search via pfind or `fieldkit size find`, never Grep/Glob/Explore (Haiku, owner opt-in).
+
+DONE. Follow the DONE PROTOCOL (fieldkit-lifecycle block). Briefs, sitreps, audits and
 hand-overs stay in state/ (git-ignored); a document a plan row names goes to git in that row's PR, after
 `fieldkit privacy scan` (Gorilla.Fieldkit is PUBLIC). "Built in" means all six of docs/INTEGRATION.md
 (`fieldkit integration check`).
@@ -65,8 +67,7 @@ HONESTY. Quote the line a tool printed for every PASS, say what was NOT verified
 
 THREAT MODEL. The adversary is the vendor and whoever can compel its channels. Every channel (updates, telemetry,
 remote config, sync, AI features, store extensions) is a door: justify it or close it. Updates are pulled and
-verified on the owner's schedule. Fail closed. For any new dependency or service, say who can act through it and
-who learns what.
+verified on the owner's schedule. Fail closed. For a new dependency or service, say who can act through it and who learns what.
 
 THE OWNER. Handle "gorilla no baka", GitHub gorillanobakaa-dot. Blunt, evidence-first; money and time matter. Write
 US English. A command for the owner (only what truly needs them, in the morning inbox): one PowerShell

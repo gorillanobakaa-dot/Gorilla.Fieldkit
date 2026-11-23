@@ -24,9 +24,11 @@ mandate) and then the one run guard (fieldkit/core/preflight.py: hog, testcost, 
 Nothing asks the owner anything. Output: one line per stage with the ETA, the report (last-report.json), the
 overhead (overhead.json, in fieldkit overhead's shape) and a journal (journal.jsonl) the overhead meter reads.
 """
+import hashlib
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -73,7 +75,7 @@ class Store:
         except (OSError, ValueError):
             return None
 
-    def put(self, sid, key, who, outputs, seconds):
+    def put(self, sid, key, who, outputs, seconds, dependencies=None):
         """Record a pass for `who`. -> [differences against the other hosts' outputs of the same key]."""
         rec = self.get(sid, key) or {"stage": sid, "key": key, "hosts": {}}
         diffs = []
@@ -85,7 +87,8 @@ class Store:
                 if o["name"] in mine and mine[o["name"]] != o["sha256"]:
                     diffs.append({"stage": sid, "key": key, "name": o["name"], who: mine[o["name"]],
                                   other: o["sha256"]})
-        rec["hosts"][who] = {"outputs": outputs, "seconds": round(seconds, 1), "at": _now()}
+        rec["hosts"][who] = {"outputs": outputs, "seconds": round(seconds, 1), "at": _now(),
+                            "dependencies": dependencies}
         rec["status"] = "pass"
         p = self.path(sid, key)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +141,7 @@ def default_fixer(prompt, cwd=None):
 
 def _git(path, *a):
     try:
-        r = subprocess.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=120,
+        r = fkproc.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=120,
                            encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -502,6 +505,12 @@ class Emerge:
         self.who = who or hostname()
         self.checks = checks          # tests: the own checks given, not read from this machine
         self.store = Store(recipe.state_dir / "cache")
+        self.work_id = os.environ.get("FIELDKIT_WORK_ID") or recipe.vars.get("task")
+        self.artifact_stages = set()
+        for stage in recipe.stages:
+            sid = stage["id"]
+            if stage.get("outputs") or self.artifact_stages.intersection(recipe.needs(sid)):
+                self.artifact_stages.add(sid)
         self.llm_calls = 0
 
     # -- what would run ----------------------------------------------------------------------------------------------
@@ -529,43 +538,57 @@ class Emerge:
         from .. import testcost
         return testcost.is_docs_only(changed), f"{len(changed)} changed file(s)"
 
+    def _dependencies(self, sid, verified):
+        needed = self.artifact_stages.intersection(self.recipe.needs(sid))
+        if not needed <= verified.keys():
+            return None
+        return {dep: verified[dep] for dep in sorted(needed)}
+
+    def _remember(self, verified, stage, dependencies, outputs):
+        sid = stage["id"]
+        if sid in self.artifact_stages and dependencies is not None and (outputs or not stage.get("outputs")):
+            content = {"dependencies": dependencies, "outputs": [(o["name"], o["sha256"]) for o in outputs]}
+            verified[sid] = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+    def _classify_stage(self, s, key, docs, verified):
+        sid = s["id"]
+        tier = s.get("tier", "every")
+        dependencies = self._dependencies(sid, verified)
+        row = {"id": sid, "key": key, "tier": tier, "needs": self.recipe.needs(sid), "eta_s": self._eta(sid),
+               "dependencies": dependencies}
+        if tier not in MODES[self.mode]:
+            return dict(row, action="tier-skip", why=f"tier {tier}: runs with --mode {tier}"
+                        + (" (once per release, on the final build)" if tier == "release" else
+                           " (once, on the installed build)"))
+        if docs and not s.get("privacy"):
+            return dict(row, action="docs-skip", why="only documentation changed: the privacy stages run")
+        rec = self.store.get(sid, key)
+        if rec and not s.get("always_run") and dependencies is not None:
+            for cached, entry in rec["hosts"].items():
+                outputs = entry.get("outputs") or []
+                if (dependencies and entry.get("dependencies") != dependencies) or (s.get("outputs") and not outputs):
+                    continue
+                if (cached == self.who or outputs) and still_there(outputs) and self._verify_cached(s):
+                    self._remember(verified, s, dependencies, outputs)
+                    return dict(row, action="skip", why=f"key {key[:12]} built on {cached}, outputs verified",
+                                evidence=verified.get(sid))
+        o = s.get("offload")
+        here = platform_ok(s.get("platforms"))
+        if o and not self.local_only and (not here or o.get("prefer")):
+            return dict(row, action="offload", device=str(o.get("device") or ""),
+                        why=f"to {target_text(o.get('device'), self.household)}"
+                        + ("" if here else f" (needs {s.get('platforms')})"))
+        if not here:
+            return dict(row, action="not-here", why=f"needs {s.get('platforms')}, this is {host()['system']}"
+                        + (" (optional)" if s.get("optional") else ""))
+        why = ("always runs" if s.get("always_run") else "awaiting verified dependency outputs" if dependencies is None
+               else "dependency output or stage key changed" if rec or any(
+                   (self.recipe.state_dir / "cache" / sid).glob("*.json")) else "never built")
+        return dict(row, action="run", why=why)
+
     def classify(self, keys, docs=False):
-        rows = []
-        tiers = MODES[self.mode]
-        for s in self.recipe.stages:
-            sid, key = s["id"], keys[s["id"]]
-            tier = s.get("tier", "every")
-            row = {"id": sid, "key": key, "tier": tier, "needs": self.recipe.needs(sid), "eta_s": self._eta(sid)}
-            rec = self.store.get(sid, key)
-            cached = None
-            if rec and not s.get("always_run"):
-                cached = next((h for h, e in rec["hosts"].items() if still_there(e.get("outputs") or [])
-                               and (h == self.who or e.get("outputs"))), None)
-                if cached and not self._verify_cached(s):
-                    cached = None
-            o = s.get("offload")
-            here = platform_ok(s.get("platforms"))
-            if tier not in tiers:
-                row.update(action="tier-skip", why=f"tier {tier}: runs with --mode {tier}"
-                           + (" (once per release, on the final build)" if tier == "release" else
-                              " (once, on the installed build)"))
-            elif docs and not s.get("privacy"):
-                row.update(action="docs-skip", why="only documentation changed: the privacy stages run")
-            elif cached:
-                row.update(action="skip", why=f"key {key[:12]} built on {cached}, outputs verified")
-            elif o and not self.local_only and (not here or o.get("prefer")):
-                row.update(action="offload", device=str(o.get("device") or ""),
-                           why=f"to {target_text(o.get('device'), self.household)}"
-                           + ("" if here else f" (needs {s.get('platforms')})"))
-            elif not here:
-                row.update(action="not-here", why=f"needs {s.get('platforms')}, this is {host()['system']}"
-                           + (" (optional)" if s.get("optional") else ""))
-            else:
-                row.update(action="run", why="always runs" if s.get("always_run") else
-                           ("key changed" if any(True for _ in (self.recipe.state_dir / "cache" / sid).glob("*.json"))
-                            else "never built"))
-            rows.append(row)
-        return rows
+        verified = {}
+        return [self._classify_stage(s, keys[s["id"]], docs, verified) for s in self.recipe.stages]
 
     def _verify_cached(self, s):
         """The pipeline's own file and python checks still pass (its output checks passed when it was recorded)."""
@@ -609,7 +632,7 @@ class Emerge:
 
     def _journal(self, event, **kw):
         with open(self.recipe.state_dir / "journal.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(dict(t=_now(), event=event, recipe=self.recipe.name, **kw)) + "\n")
+            f.write(json.dumps(dict(t=_now(), event=event, recipe=self.recipe.name, work_id=self.work_id, **kw)) + "\n")
 
     def _inbox(self, title, why):
         add = self.inbox_add
@@ -711,7 +734,8 @@ class Emerge:
         t_start, wall0 = _now(), self.clock()
         r = self.recipe
         b = {"bare": 0.0, "rework": 0.0, "tests": 0.0, "tools": 0.0, "llm": 0.0, "owner": 0.0}
-        report = {"recipe": r.name, "mode": self.mode, "host": self.who, "started": t_start, "ok": True,
+        report = {"recipe": r.name, "mode": self.mode, "host": self.who, "work_id": self.work_id,
+                  "started": t_start, "ok": True,
                   "stages": [], "fixes": [], "repro": [], "advisories": [], "inbox": None}
         self._journal("build-start", mode=self.mode)
         t = self.clock()
@@ -759,12 +783,15 @@ class Emerge:
             t = self.clock()
             watch = watched_repos(self.recipe)
             base = snapshot(watch)
+            report["checkouts"] = base
             self.recipe.forget()
             keys = self.recipe.keys()
             docs, _ = self._docs_mode()
             rows = self.classify(keys, docs)
             b["tools"] += self.clock() - t
+            verified = {}
             if only:
+                verified = {x["id"]: x["evidence"] for x in rows if x["id"] not in only and x.get("evidence")}
                 rows = [x for x in rows if x["id"] in only]
             n, done_ids = len(rows), {x["id"] for x in rows if x["action"] in SKIPS}
             handles = {}
@@ -774,7 +801,10 @@ class Emerge:
             failed = None
             for i, x in enumerate(rows, 1):
                 sid, s = x["id"], self.recipe.by_id[x["id"]]
-                ent = {"id": sid, "key": x["key"], "action": x["action"]}
+                dependencies = self._dependencies(sid, verified)
+                if dependencies != x["dependencies"]:
+                    x = self._classify_stage(s, x["key"], docs, verified)
+                ent = {"id": sid, "key": x["key"], "action": x["action"], "dependencies": dependencies}
                 report["stages"] = [e for e in report["stages"] if e["id"] != sid] + [ent]
                 if hardlines.STOP_FILE.exists():
                     report.update(ok=False, stopped="the owner's STOP file")
@@ -787,6 +817,8 @@ class Emerge:
                              "it; work in a worktree (git worktree add ../wt-NAME -b BRANCH origin/main)")
                     return
                 if x["action"] in SKIPS:
+                    if x.get("evidence"):
+                        verified[sid] = x["evidence"]
                     ent["status"] = x["action"]
                     self._line(i, n, sid, x["action"].upper(), x["why"])
                     continue
@@ -805,10 +837,12 @@ class Emerge:
                     res = self.offloader.collect(h)
                     secs = self.clock() - t
                     if res.get("ok"):
+                        outs = res.get("outputs") or []
                         ent.update(status="pass", seconds=round(secs, 1), host=res.get("host"))
-                        diffs = self.store.put(sid, x["key"], res.get("host") or s["offload"]["device"],
-                                               res.get("outputs") or [], secs)
-                        self._passed(i, n, s, x, secs, res.get("outputs") or [], diffs, report, b, testcost)
+                        diffs = self.store.put(sid, x["key"], res.get("host") or s["offload"]["device"], outs, secs,
+                                               dependencies=dependencies)
+                        self._remember(verified, s, dependencies, outs)
+                        self._passed(i, n, s, x, secs, outs, diffs, report, b, testcost)
                         continue
                     self.say(f"    offload failed: {res.get('why')}")
                     if not platform_ok(s.get("platforms")):
@@ -820,7 +854,8 @@ class Emerge:
                 self._line(i, n, sid, "RUN", eta)
                 self._journal("build-stage-start", stage=sid, key=x["key"])
                 passed, secs, outs, tail = self._execute(s)
-                testcost.record(check_name(self.recipe.name, sid), "pass" if passed else "fail", secs, key=x["key"])
+                testcost.record(check_name(self.recipe.name, sid), "pass" if passed else "fail", secs, key=x["key"],
+                                job_id=self.work_id)
                 if passed:
                     bad_pin = self._pins_after(sid)     # before the record: a wrong pin is never cached as a pass
                     if bad_pin:
@@ -828,7 +863,8 @@ class Emerge:
                         failed = (sid, x["key"], bad_pin, False)
                         break
                     ent.update(status="pass", seconds=round(secs, 1))
-                    diffs = self.store.put(sid, x["key"], self.who, outs, secs)
+                    diffs = self.store.put(sid, x["key"], self.who, outs, secs, dependencies=dependencies)
+                    self._remember(verified, s, dependencies, outs)
                     self._passed(i, n, s, x, secs, outs, diffs, report, b, testcost, recorded=True)
                     continue
                 b["tests" if s.get("advisory") else "rework"] += secs
@@ -940,11 +976,12 @@ class Emerge:
     def _passed(self, i, n, s, x, secs, outs, diffs, report, b, testcost, recorded=False):
         sid = s["id"]
         if not recorded:
-            testcost.record(check_name(self.recipe.name, sid), "pass", secs, key=x["key"])
+            testcost.record(check_name(self.recipe.name, sid), "pass", secs, key=x["key"], job_id=self.work_id)
         b["tests" if s.get("bucket") == "tests" else "tools" if s.get("bucket") == "tools" else "bare"] += secs
         report.setdefault("bare_parts", {})[sid] = round(secs, 1)
         self._journal("build-stage-done", stage=sid, key=x["key"], seconds=round(secs, 1),
-                      outputs=[o["name"] for o in outs])
+                      outputs=[o["name"] for o in outs], output_digests={o["name"]: o["sha256"] for o in outs},
+                      dependencies=x["dependencies"])
         self._line(i, n, sid, "DONE", f"{_mins(secs)}, {len(outs)} output(s), key {x['key'][:12]}")
         for d in diffs:
             report["repro"].append(d)
@@ -965,7 +1002,8 @@ class Emerge:
         work = bare + b["tests"]      # the deterministic work a hand script also does: the ratio's denominator
         ratio = round(wall / work, 2) if work >= 1 else None
         base = self.recipe.baseline_minutes
-        ov = {"job": f"emerge {self.recipe.name}", "kind": "build", "start": t_start[:16], "end": report["finished"][:16],
+        ov = {"job": f"emerge {self.recipe.name}", "kind": "build", "work_id": self.work_id,
+              "start": t_start[:16], "end": report["finished"][:16],
               "wall_s": int(round(wall)), "bare_s": int(round(bare)) if bare else None,
               "bare_parts": report.get("bare_parts", {}), "ratio": ratio, "max_ratio": self.recipe.max_ratio,
               "level": "NOBASE" if ratio is None else ("OK" if ratio <= self.recipe.max_ratio else "WARN"),

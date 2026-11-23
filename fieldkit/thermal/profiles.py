@@ -203,7 +203,8 @@ def stop_monitor():
 
 def autostart(on, platform=None, home=None, run=None):
     import subprocess
-    run = run or subprocess.run
+    from fieldkit import proc as fkproc
+    run = run or fkproc.run
     if (platform or sys.platform) != "win32":
         return {"ok": False, "next": "on Linux the kernel and thermald cool the processor; nothing to start"}
     home = Path(home or Path.home())

@@ -44,6 +44,8 @@ commands:
   gtk-theme check: {route: none, why: "GTK user stylesheets and libraries exist only on a Linux desktop"}
   leftovers: {route: none, why: "XDG autostart, menu entries, systemd user units and dpkg exist only on a Linux desktop"}
   net route: {route: none, port: true, why: "reads the Linux routing table (ip route); a Windows reader (Get-NetRoute) is not written yet"}
+  ownership take: {route: none, why: "Windows Explorer registration and interactive ownership recovery use Windows ACLs and UAC on this machine"}
+  ownership take-drive: {route: none, why: "recursive Windows drive ownership uses Windows ACLs and interactive UAC on this machine"}
   update: {route: none, port: true, why: "compares this machine's Linux installs with what was published; the Windows side is not written yet"}
   voice: {route: none, port: true, why: "Linux speech (piper / speech-dispatcher); Windows SAPI is not wired yet"}
   voice clean: {route: none, port: true, why: "Linux speech files"}

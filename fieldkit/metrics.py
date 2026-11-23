@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -221,7 +222,7 @@ def money(since, until):
     return cr.combine(mine, pm, peer)
 
 
-def _gh(args, run=subprocess.run):
+def _gh(args, run=fkproc.run):
     r = run(["gh", *args], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip()[:200])

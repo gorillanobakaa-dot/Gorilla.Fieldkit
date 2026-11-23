@@ -1,0 +1,25 @@
+[package]
+name = "gorilla-trash-menu"
+version = "0.1.0"
+edition = "2021"
+description = "IExplorerCommand for the Windows 11 first right-click menu: Empty with Gorilla Trash (P41). Windows only."
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.62"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62.2"
+features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true

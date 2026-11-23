@@ -278,11 +278,25 @@ SHORT SESSIONS:
     test: tests/test_rotate.py::test_stop_refuses_new_work_past_rotate
     mutate:
     - fieldkit/tokens/rotate_stop.py
-    - 'if said.get("level") != "ROTATE":'
+    - 'if level != "ROTATE" or _handover_call(tool, ti):'
     - 'if True:'
   gaps:
   - demand: one job per session
     why: 'not deterministic; buildable: a rotate hook counting distinct plan items per session'
+SUB-AGENTS:
+  proofs:
+  - demand: an Agent call is refused in Economy (cap 0) and past the cap of Time-Sensitive
+    test: tests/test_session_mode.py::test_economy_refuses_agent
+    mutate:
+    - fieldkit/lifecycle/sessionmode.py
+    - 'if n >= cap:'
+    - 'if n > cap + 10**6:'
+  - demand: an Explore agent on a model other than Haiku is refused
+    test: tests/test_session_mode.py::test_explore_needs_haiku
+    mutate:
+    - fieldkit/lifecycle/sessionmode.py
+    - 'if kind == "explore" and "haiku" not in model:'
+    - 'if False:'
 USE THE HARNESS:
   proofs:
   - demand: hand-written recursive deletes are refused and routed to `fieldkit size recycle` (one of the router's does-by-hand
@@ -511,7 +525,7 @@ ROTATE:
     test: tests/test_rotate.py::test_stop_refuses_new_work_past_rotate
     mutate:
     - fieldkit/tokens/rotate_stop.py
-    - 'if said.get("level") != "ROTATE":'
+    - 'if level != "ROTATE" or _handover_call(tool, ti):'
     - 'if True:'
   gaps:
   - demand: run `fieldkit rotate check` at the start of each task and after each commit (Codex/Gemini, no hook)

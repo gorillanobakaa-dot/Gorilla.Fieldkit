@@ -30,6 +30,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -300,15 +301,18 @@ def default_runner(base_sha, ids, job="", repo="."):
     """Runs exactly `ids` with pytest on a fresh detached worktree of `base_sha` in the scratch root; on Windows under
     `fieldkit guard --`; a job named ubuntu goes to the peer (`fieldkit task start --on peer --run --tree DIR -- LINE`).
     -> {id: "pass" | "fail"}, ids missing from pytest's report left out (unproven)."""
-    out = subprocess.run([sys.executable, "-m", "fieldkit", "scratch", "new", "whose-red", "--print-path"],
+    from ..autopilot.toolrouter import LOCAL_TESTS_ENV
+    if os.environ.get(LOCAL_TESTS_ENV) != "1":
+        raise RuntimeError("local verification is disabled; use existing GitHub CI evidence")
+    out = fkproc.run([sys.executable, "-m", "fieldkit", "scratch", "new", "whose-red", "--print-path"],
                          capture_output=True, text=True, timeout=120, cwd=repo)
     scratch = out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else ""
     if not scratch:
         raise RuntimeError(f"fieldkit scratch new: {(out.stderr or out.stdout).strip()[-120:]}")
     tree = str(Path(scratch) / "base")
     try:
-        subprocess.run(["git", "fetch", "-q", "origin", base_sha], capture_output=True, timeout=300, cwd=repo)
-        r = subprocess.run(["git", "worktree", "add", "--detach", tree, base_sha], capture_output=True, text=True,
+        fkproc.run(["git", "fetch", "-q", "origin", base_sha], capture_output=True, timeout=300, cwd=repo)
+        r = fkproc.run(["git", "worktree", "add", "--detach", tree, base_sha], capture_output=True, text=True,
                            timeout=300, cwd=repo)
         if r.returncode:
             raise RuntimeError(f"git worktree add: {r.stderr.strip()[-120:]}")
@@ -320,7 +324,7 @@ def default_runner(base_sha, ids, job="", repo="."):
             cmd = [sys.executable, "-m", "fieldkit", "guard", "--", *line]
         else:
             cmd = line
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800,
+        r = fkproc.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800,
                            cwd=tree)
         text = (r.stdout or "") + (r.stderr or "")
         res = {}
@@ -328,8 +332,8 @@ def default_runner(base_sha, ids, job="", repo="."):
             res[m.group(2).replace("\\", "/")] = "pass" if m.group(1) == "PASSED" else "fail"
         return {i: res[i] for i in ids if i in res}
     finally:
-        subprocess.run(["git", "worktree", "remove", "--force", tree], capture_output=True, timeout=120, cwd=repo)
-        subprocess.run([sys.executable, "-m", "fieldkit", "scratch", "clean", "--mine"], capture_output=True,
+        fkproc.run(["git", "worktree", "remove", "--force", tree], capture_output=True, timeout=120, cwd=repo)
+        fkproc.run([sys.executable, "-m", "fieldkit", "scratch", "clean", "--mine"], capture_output=True,
                        timeout=300, cwd=repo)
 
 
@@ -359,7 +363,7 @@ def diff_note(ids, base_sha, head, repo="."):
     """-> a plain sentence on whether the branch touches the failing test files at all ("" when git cannot say). Only a
     note for the report: a branch can break a test it never touches, so it never decides."""
     try:
-        r = subprocess.run(["git", "diff", "--name-only", f"{base_sha}...{head}"], capture_output=True, text=True,
+        r = fkproc.run(["git", "diff", "--name-only", f"{base_sha}...{head}"], capture_output=True, text=True,
                            timeout=60, cwd=repo)
         if r.returncode:
             return ""
@@ -555,7 +559,7 @@ def parked_line(p=None):
 
 
 def runs_from_gh(branch):
-    r = subprocess.run(["gh", "run", "list", "--branch", branch, "--limit", "30", "--json",
+    r = fkproc.run(["gh", "run", "list", "--branch", branch, "--limit", "30", "--json",
                         "headSha,conclusion,status,name,databaseId"], capture_output=True, text=True, timeout=120)
     if r.returncode:
         raise RuntimeError(f"gh run list: {(r.stderr or r.stdout).strip()[-200:]}")
@@ -566,15 +570,15 @@ def run_log(run, lines=60):
     """-> the last lines of `gh run view --log-failed` for one run dict ([] when unreadable: the red is unproven)."""
     if not run.get("databaseId"):
         return []
-    r = subprocess.run(["gh", "run", "view", str(run["databaseId"]), "--log-failed"], capture_output=True, text=True,
+    r = fkproc.run(["gh", "run", "view", str(run["databaseId"]), "--log-failed"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=300)
     return r.stdout.splitlines()[-lines:] if r.returncode == 0 else []
 
 
 def merge_base(head, base="main", repo="."):
     """-> the merge base of `head` with origin/`base` (main at the same time), "" when it cannot be read."""
-    subprocess.run(["git", "fetch", "-q", "origin", base, head], capture_output=True, timeout=300, cwd=repo)
-    r = subprocess.run(["git", "merge-base", f"origin/{base}", head], capture_output=True, text=True, timeout=60,
+    fkproc.run(["git", "fetch", "-q", "origin", base, head], capture_output=True, timeout=300, cwd=repo)
+    r = fkproc.run(["git", "merge-base", f"origin/{base}", head], capture_output=True, text=True, timeout=60,
                        cwd=repo)
     return r.stdout.strip() if r.returncode == 0 else ""
 

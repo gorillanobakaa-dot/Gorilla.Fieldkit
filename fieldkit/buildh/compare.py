@@ -13,11 +13,12 @@ with the same file in the reference:
 import difflib
 import json
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 
 def changed_by_job(workdir, base_commit):
-    out = subprocess.run(["git", "-C", str(workdir), "diff", "--name-only", base_commit, "HEAD"], capture_output=True,
+    out = fkproc.run(["git", "-C", str(workdir), "diff", "--name-only", base_commit, "HEAD"], capture_output=True,
                          text=True, encoding="utf-8", errors="replace").stdout
     return [l.strip() for l in out.splitlines() if l.strip()]
 

@@ -22,7 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DIRS = ("fieldkit", "kits")
-DEFAULT_FILES = ("install_skills.py",)
+PFIND_FILE = "toolbox/pfind/pfind.py"
+DEFAULT_FILES = ("install_skills.py", PFIND_FILE)
 SKIP_PARTS = {".git", ".venv", "venv", "__pycache__", "node_modules", "state", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
 
@@ -46,8 +47,41 @@ def iter_py_files(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS) -> li
     return out
 
 
+def checked_pfind(py_file: Path):
+    """Return the exact checked payload, with no source loader or compile fallback."""
+    pyc = Path(importlib.util.cache_from_source(str(py_file), optimization=""))
+    artifact = pyc.read_bytes()
+    if len(artifact) <= 16 or artifact[:4] != importlib.util.MAGIC_NUMBER:
+        raise ValueError("incompatible bytecode header")
+    if artifact[4:8] != b"\x03\x00\x00\x00":
+        raise ValueError("pfind bytecode must use checked hashes")
+    if artifact[8:16] != importlib.util.source_hash(py_file.read_bytes()):
+        raise ValueError("stale pfind bytecode")
+    return artifact[16:]
+
+
+def prepare_pfind(py_file: Path):
+    pyc = importlib.util.cache_from_source(str(py_file), optimization="")
+    return py_compile.compile(str(py_file), cfile=pyc, doraise=True, optimize=0,
+                              invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH)
+
+
+def compile_source(py_file, root):
+    if py_file == root / PFIND_FILE:
+        prepare_pfind(py_file)
+    else:
+        py_compile.compile(str(py_file), doraise=True)
+
+
 def pyc_is_fresh(py_file: Path) -> tuple[bool, Path, str]:
     """Check whether `py_file` has an up-to-date PEP 3147 `.pyc` file with matching magic, source mtime, and size."""
+    if py_file.parts[-3:] == Path(PFIND_FILE).parts:
+        pyc_path = Path(importlib.util.cache_from_source(str(py_file), optimization=""))
+        try:
+            checked_pfind(py_file)
+        except (OSError, ValueError) as exc:
+            return False, pyc_path, str(exc)
+        return True, pyc_path, "ok"
     pyc_path = Path(importlib.util.cache_from_source(str(py_file)))
     if not pyc_path.is_file():
         return False, pyc_path, "missing"
@@ -106,7 +140,7 @@ def build(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS, force: bool =
         ok, _, _ = pyc_is_fresh(f)
         if force or not ok:
             try:
-                py_compile.compile(str(f), doraise=True)
+                compile_source(f, root)
                 stale_before.add(f)
             except (py_compile.PyCompileError, OSError) as e:
                 # If __pycache__ or its .pyc was left root-owned inside a user-writable package directory,
@@ -117,7 +151,7 @@ def build(root: Path = ROOT, dirs: tuple[str, ...] = DEFAULT_DIRS, force: bool =
                     try:
                         if pyc_dir.is_dir():
                             pyc_dir.rename(backup)
-                        py_compile.compile(str(f), doraise=True)
+                        compile_source(f, root)
                         stale_before.add(f)
                         continue
                     except (py_compile.PyCompileError, OSError) as e2:

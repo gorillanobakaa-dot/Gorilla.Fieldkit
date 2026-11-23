@@ -8,6 +8,7 @@ builds it here, offline, from the crates vendored in that source. Nothing is dow
     fieldkit size [ARGS ...]          run gorilla-size (fieldkit size --help for its options)
     fieldkit size doctor [--install]  is the program here and working? --install builds it (cargo, offline)
     fieldkit size where               the binary that would run
+    fieldkit size integrate            install both built programs for the current user
 
 Born 2026-10-16: a model measured four Firefox trees with `du` (stopped after 25 minutes on one folder of 480,000
 files), then with a hand-typed robocopy line, because the harness had no tool for "how big are these folders".
@@ -17,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -49,7 +51,7 @@ def locate():
 
 def version(exe):
     try:
-        r = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=30)
+        r = fkproc.run([str(exe), "--version"], capture_output=True, text=True, timeout=30)
     except OSError as e:
         return None, str(e)
     out = (r.stdout or "").strip()
@@ -69,9 +71,9 @@ def source_commit():
     if not (source_dir() / ".git").exists():
         return None
     try:
-        head = subprocess.run(["git", "-C", str(source_dir()), "rev-parse", "--short=7", "HEAD"], capture_output=True,
+        head = fkproc.run(["git", "-C", str(source_dir()), "rev-parse", "--short=7", "HEAD"], capture_output=True,
                               text=True, timeout=30)
-        dirty = subprocess.run(["git", "-C", str(source_dir()), "status", "--porcelain", "--untracked-files=no"],
+        dirty = fkproc.run(["git", "-C", str(source_dir()), "status", "--porcelain", "--untracked-files=no"],
                                capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -113,7 +115,7 @@ def doctor(install=False, out=print):
         out("        FIX: fieldkit size doctor --install   (builds it from the gathered source, offline, --locked)")
         return 1
     out(f"        building in {src} (offline, --locked: only the vendored crates are used)")
-    r = subprocess.run([cargo, "build", "--release", "--offline", "--locked"], cwd=src)
+    r = fkproc.run([cargo, "build", "--release", "--offline", "--locked"], cwd=src)
     built = src / "target" / "release" / EXE
     if r.returncode != 0 or not built.is_file():
         out("FAILED  the build did not produce the program (see the cargo output above)")
@@ -131,6 +133,9 @@ def doctor(install=False, out=print):
 
 
 def main(argv, prog="fieldkit size"):
+    if argv[:1] == ["integrate"]:
+        from .size_install import main as integrate
+        return integrate(argv[1:], source_dir() / "target" / "release")
     if argv[:1] == ["doctor"]:
         return doctor(install="--install" in argv[1:])
     if argv[:1] == ["where"]:
@@ -158,7 +163,7 @@ def main(argv, prog="fieldkit size"):
     sys.stdout.flush()
     if any(a in PLAN_SUBS for a in argv[:1]):
         return _run_renamed(exe, argv)
-    return subprocess.run([str(exe), *argv], stdout=sys.stdout, stderr=sys.stderr).returncode
+    return fkproc.run([str(exe), *argv], stdout=sys.stdout, stderr=sys.stderr).returncode
 
 
 #: the subcommands whose last lines tell the reader which command to run next
@@ -174,7 +179,7 @@ def rename_next(text):
 def _run_renamed(exe, argv):
     """Run the program with both streams read here, line by line (still live), and print them renamed."""
     import threading
-    p = subprocess.Popen([str(exe), *argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = fkproc.Popen([str(exe), *argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def pump(src, dst):
         for raw in iter(src.readline, b""):
@@ -202,7 +207,7 @@ def record_help():
         return 2
     HELP_DIR.mkdir(exist_ok=True)
     for sub in HELP_SUBS:
-        r = subprocess.run([str(exe), *([sub] if sub else []), "--help"], capture_output=True, text=True,
+        r = fkproc.run([str(exe), *([sub] if sub else []), "--help"], capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         (HELP_DIR / f"{sub or '_main'}.txt").write_bytes(r.stdout.replace("\r\n", "\n").encode("utf-8"))
     print(f"recorded {len(HELP_SUBS)} help text(s) in {HELP_DIR}")

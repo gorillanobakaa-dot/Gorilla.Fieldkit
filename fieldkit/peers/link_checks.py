@@ -19,6 +19,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -72,7 +73,7 @@ def firewall(platform=sys.platform, exists_fn=None):
 ZERO_MAC = re.compile(r"^\s*(\d+\.\d+\.\d+\.\d+)\s+(00-00-00-00-00-00)\b", re.M)
 
 
-def neighbor(peer=None, platform=sys.platform, run=subprocess.run):
+def neighbor(peer=None, platform=sys.platform, run=fkproc.run):
     peer = peer or (link.config() or {}).get("peer")
     if not peer:
         return row("neighbor", False, "no paired peer on this computer", "fieldkit peers link setup")
@@ -98,8 +99,16 @@ def put(home_fn=None):
     except OSError as e:
         return row("put", False, f"{d} is not writable: {e}", "fix the folder's permissions; nothing is received")
     reg, why = link.approvals()
-    desk = "also the Desktop" if reg.get("accept_to_desktop") is True else f"not the Desktop ({why})"
-    return row("put", True, f"received files land in {d}; {desk}")
+    approved = [info["label"] for info in link.PUT_FOLDERS.values() if reg.get(info["key"]) is True]
+    unapproved = [info["label"] for info in link.PUT_FOLDERS.values() if reg.get(info["key"]) is not True]
+    parts = []
+    if approved:
+        parts.append("also " + ", ".join(approved))
+    if unapproved:
+        names = ", ".join("the Desktop" if x == "Desktop" else x for x in unapproved)
+        reason = why if not reg else "not approved in link.yaml"
+        parts.append(f"not {names} ({reason})")
+    return row("put", True, f"received files land in {d}; {'; '.join(parts)}")
 
 
 # ---- shell --------------------------------------------------------------------------------------------------------
@@ -134,7 +143,7 @@ def shell(cmd, target):
 CRLF_OK = (".ps1", ".bat", ".cmd")
 
 
-def staged(run=subprocess.run, cwd="."):
+def staged(run=fkproc.run, cwd="."):
     r = run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"], capture_output=True, text=True, cwd=cwd)
     return [Path(cwd) / f for f in (r.stdout or "").split("\n") if f.strip()]
 
@@ -154,7 +163,7 @@ def crlf(files):
 # ---- commit -------------------------------------------------------------------------------------------------------
 # 2026-10-22: the commit hook runs the whole suite (about 16 minutes) and only then the privacy scan; a finding threw
 # the 16 minutes away. The fast checks go first.
-def commit(run=subprocess.run, cwd="."):
+def commit(run=fkproc.run, cwd="."):
     rows = [crlf(staged(run, cwd))]
     r = run([sys.executable, "-m", "fieldkit", "privacy", "scan", ".", "--git"], capture_output=True, text=True,
             cwd=cwd)

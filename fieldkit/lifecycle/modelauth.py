@@ -27,6 +27,7 @@ behind HARD LINE 3 for this run and is not changed here.
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -79,7 +80,7 @@ def fix_command():
     return f'"{exe}" auth login' if " " in exe else f"{exe} auth login"
 
 
-def status(run=subprocess.run):
+def status(run=fkproc.run):
     """-> {loggedIn, loginExpiresAt, authMethod} from `claude auth status --json`, or {"error": why}. Never a model
     call. Only what decides is kept: the account's e-mail and ids are dropped."""
     from ..autopilot.run import claude_cmd
@@ -100,7 +101,7 @@ def status(run=subprocess.run):
             "authMethod": d.get("authMethod")}
 
 
-def check(now=None, run=subprocess.run, fresh=False):
+def check(now=None, run=fkproc.run, fresh=False):
     now = time.time() if now is None else now
     st = _read()
     if not fresh and st.get("ok") and now - float(st.get("at") or 0) < OK_TTL:
@@ -124,7 +125,7 @@ def check(now=None, run=subprocess.run, fresh=False):
     return {"ok": out["ok"], "why": out["why"], "fix": "" if out["ok"] else fix_command(), "cached": False}
 
 
-def mark_failed(text, now=None, run=subprocess.run, inbox_add=None):
+def mark_failed(text, now=None, run=fkproc.run, inbox_add=None):
     now = time.time() if now is None else now
     s = status(run)
     d = _read()

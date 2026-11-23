@@ -33,6 +33,7 @@ Two saved outputs of a probe with KIND|key|...|value lines (design-tokens: TOK) 
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tempfile
 import time
 import zipfile
@@ -128,7 +129,7 @@ def tree_since(workdir, since, install_dir, out_dir, until="HEAD"):
     to measure the one-logo and small-icon changes (D-157-35) without a 40-minute build.
     -> ({"jar:member": local path}, [(path, why not applied)])"""
     import hashlib
-    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
+    git = lambda *a: fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
     index, names = {}, {}
     if not (Path(install_dir) / "omni.ja").is_file():
         # 2026-10-18: an UNPACKED build (the objdir's dist/bin: Gorilla builds without omni.ja so that CSS and JS
@@ -224,7 +225,7 @@ def stop_tree(pid, platform=None, run=None):
     import signal as _signal
     import sys as _sys
     if (platform or _sys.platform) == "win32":
-        (run or subprocess.run)(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        (run or fkproc.run)(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
         return
     try:
         import psutil
@@ -263,7 +264,7 @@ def processes_in(folder, platform=None):
         return out
     root = str(Path(folder).resolve()).lower()
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+        out = fkproc.run(["powershell", "-NoProfile", "-Command",
                               "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | "
                               "Select-Object ProcessId, ExecutablePath | ConvertTo-Json -Compress"],
                              capture_output=True, text=True, timeout=60).stdout
@@ -374,7 +375,7 @@ def launch(app, url="about:blank", timeout=90, headless=True, on_line=None, prof
         # visible walk browsers outlived their runs)
         import sys as _sys
         exe = Path(app) / ("firefox.exe" if _sys.platform == "win32" else "firefox")
-        proc = subprocess.Popen([str(exe)] + (["-headless"] if headless else [])
+        proc = fkproc.Popen([str(exe)] + (["-headless"] if headless else [])
                                 + ["-wait-for-browser", "-no-remote", "-profile", str(prof), url],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                                 errors="replace", **({} if _sys.platform == "win32" else {"start_new_session": True}))

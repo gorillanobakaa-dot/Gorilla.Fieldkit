@@ -1,46 +1,139 @@
-# A tag v* publishes a GitHub release, and only after the whole suite has passed for that exact commit on Windows
-# and on Linux. The page is releases/notes/<tag>/page.md, built by `fieldkit release-page compose` and checked here
-# again by `fieldkit release-page check`: both tracks in full, plain language first. The tag must name the version
-# the package carries, or nothing is published. Run by hand (workflow_dispatch) with a tag that does not exist yet,
-# it does the same for the commit it runs on and creates the tag there.
+# Prepare the source release candidate after Windows and Linux tests. The checked page travels with the
+# candidate. The mandate-controlled `fieldkit ship gh-release` command promotes it after verification.
 name: release
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "the version to publish, e.g. v0.2.0 (created on this commit)"
-        required: true
+permissions:
+  contents: read
+  actions: read
 env:
-  TAG: ${{ inputs.tag || github.ref_name }}
+  TAG: ${{ github.ref_name }}
+concurrency:                 # C3: a new push to a pull request cancels its old run; main, tags and schedules queue
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+
+  # F1.6: the cheap checks run first, in a 1-minute job the shards wait for, so a bad release page fails in under 2 min.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: the release page carries both tracks in full
+        if: github.ref_type == 'tag'
+        run: |
+          d="releases/notes/$TAG"
+          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: workflow and PowerShell compatibility
+        run: python -m fieldkit repair ps-compat-check --repo .
+
+  # F1.1: a tag on a commit whose tests already passed on main runs 0 shards and logs the run it reused.
+  reuse:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/${{ github.repository }}/actions/workflows/tests.yml/runs?head_sha=${{ github.sha }}&event=push&status=success&per_page=5"             --jq '[.workflow_runs[] | select(.head_branch=="main" and .conclusion=="success")][0].id // empty' || true)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ -n "$run" ]; then echo "release: reused green main run $run for ${{ github.sha }}; 0 shards"; else echo "release: no green main run for ${{ github.sha }}; running the shards"; fi
+
+  # 2026-11-20: shard the release suite 16x per OS so no single runner runs all 6838 tests (causes OOM crash).
+  shard-windows-latest:
+    needs: [reuse, checks]
+    if: needs.reuse.outputs.run == ''
+    name: shard (windows-latest, ${{ matrix.shard }})
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - name: OS parity inventory and generated documentation
+        if: matrix.shard == 1
+        run: python -m fieldkit parity os --check
+      - name: run shard
+        shell: bash
+        env:
+          FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
+          FIELDKIT_REUSE_CI: '1'
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
+
+  shard-ubuntu-latest:
+    needs: [reuse, checks]
+    if: needs.reuse.outputs.run == ''
+    name: shard (ubuntu-latest, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
-      # 2026-11-10: v0.9.0 never published: tests.yml installs this, release.yml did not, so 3 installverify tests failed
+      - name: OS parity inventory and generated documentation
+        if: matrix.shard == 1
+        run: python -m fieldkit parity os --check
       - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
         if: runner.os == 'Linux'
-        # P9 (2026-11-11): Ubuntu's archive DNS was down for hours while pip worked. The package is pinned in
-        # the repo (.github/vendor, sha256 checked; a wrong hash fails); apt only if dpkg cannot install it.
         timeout-minutes: 8
         shell: bash
         run: bash .github/desktop-file-utils.sh
-      - run: python -m pytest -q -rs
-  publish:
-    needs: test
+      - name: run shard
+        shell: bash
+        env:
+          FIELDKIT_CI_READ_TOKEN: ${{ github.token }}
+          FIELDKIT_REUSE_CI: '1'
+        run: python .github/ci_tests.py full --shard "${{ matrix.shard }}/16"
+
+  test:
+    # aggregate: green only when every shard of both OSes is green
+    name: test (${{ matrix.os }})
+    needs: [checks, reuse, shard-windows-latest, shard-ubuntu-latest]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    steps:
+      - name: every shard of this OS passed
+        shell: bash
+        run: |
+          test "${{ needs.checks.result }}" = "success"
+          result="${{ needs[format('shard-{0}', matrix.os)].result }}"
+          echo "shards of ${{ matrix.os }}: $result"
+          if [ -n "${{ needs.reuse.outputs.run }}" ]; then echo "reused green main run ${{ needs.reuse.outputs.run }}"; test "$result" = "skipped"; else test "$result" = "success"; fi
+  candidate:
+    needs: test
+    # always(): the shards are skipped when a green main run is reused, and a skipped ancestor would skip this job
+    if: always() && github.ref_type == 'tag' && needs.test.result == 'success'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,14 +144,16 @@ jobs:
         run: |
           v=$(python -c "import fieldkit; print(fieldkit.__version__)")
           test "v$v" = "$TAG" || { echo "tag $TAG, package $v: not published"; exit 1; }
-      - name: the release page carries both tracks in full
+      - name: no quarantined (twice-hung) test ships
+        run: python -m fieldkit ci quarantine --check
+      - name: Assemble the checked source candidate
         run: |
-          d="releases/notes/$TAG"
-          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
-      - name: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then where=--verify-tag; else where="--target $GITHUB_SHA"; fi
-          gh release create "$TAG" --title "Fieldkit $TAG" \
-            --notes-file "releases/notes/$TAG/page.md" $where
+          mkdir candidate
+          cp "releases/notes/$TAG/page.md" candidate/page.md
+          jq -n --arg version "${TAG#v}" --arg title "Fieldkit $TAG" --argjson run "$GITHUB_RUN_ID" \
+            '{version: $version, title: $title, notes: "page.md", assets: [], runs: {}, source_run: $run}' > candidate/candidate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate/
+          if-no-files-found: error

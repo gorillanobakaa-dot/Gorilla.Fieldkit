@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fieldkit"
-version = "0.9.4"
+version = "0.10.13"
 description = "Deterministic tools, harnesses and orchestration for coding agents: office documents, staged build pipelines, build-log triage, privacy scanning. Windows 11 and Debian."
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0-or-later"}
@@ -31,19 +31,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.5", "coverage>=7.4", "pytest-cov>=5"]
 readers = ["markitdown", "docling"]
 ocr = ["pytesseract", "pdf2image"]   # scanned study materials (academic/read_sources.py; needs Tesseract)
 
 [project.scripts]
 fieldkit = "fieldkit.cli:main"
+pfind = "fieldkit.desk.pfind:main"
 fk = "fieldkit.aliases:main"          # short plain-English names for long commands (fieldkit/desk/aliases.yaml)
 
 [tool.setuptools.packages.find]
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "method/workflows/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml", "integration/*.yaml", "capture/*.yaml", "github/*.yaml", "leakgate/*.yaml", "firefox/*.yaml"]
+fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "method/workflows/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml", "integration/*.yaml", "capture/*.yaml", "github/*.yaml", "leakgate/*.yaml", "firefox/*.yaml", "hog/*.yaml", "hog/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

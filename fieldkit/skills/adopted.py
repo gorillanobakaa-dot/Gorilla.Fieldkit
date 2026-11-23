@@ -30,6 +30,7 @@ import fnmatch
 import os
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 import zipfile
@@ -58,7 +59,7 @@ def _call(argv, **kw):
             kw[name] = stream.fileno()
         except (AttributeError, ValueError, OSError):
             pass
-    return subprocess.call(argv, **kw)
+    return fkproc.call(argv, **kw)
 
 
 def _run(argv, cwd=None, env=None):
@@ -92,7 +93,7 @@ def _stop_tree(proc):
     if proc.poll() is not None:
         return
     if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        fkproc.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
     else:
         import signal
         try:
@@ -151,7 +152,7 @@ def webtest(args):
             handles.append(log)
             kw = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
                   else {"start_new_session": True})
-            p = subprocess.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw)
+            p = fkproc.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw)
             procs.append(p)
             print(f"webtest: server {n} started (pid {p.pid}), waiting for port {port}; log {logs / log.name}")
             err = _wait_port(port, p, a.timeout)

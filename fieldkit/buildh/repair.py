@@ -172,10 +172,11 @@ def moved_member(workdir, rel, ident, member):
 def run(task_id, say=print):
     """Repair what the two verify rows report, record each repair, re-check. -> {"ok", "repaired", "refused"}."""
     import subprocess
+    from fieldkit import proc as fkproc
     t = task.load(task_id)
     w = Path(t["workdir"])
-    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
-    changed = subprocess.run(["git", "-C", str(w), "diff", "--name-only", root[0], "HEAD"], capture_output=True, text=True).stdout.split() if root else []
+    root = fkproc.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    changed = fkproc.run(["git", "-C", str(w), "diff", "--name-only", root[0], "HEAD"], capture_output=True, text=True).stdout.split() if root else []
     repaired, refused = [], []
     for prob in firefox.syntax_problems(w, changed):
         rel, _, rest = prob.partition(": ")
@@ -208,7 +209,7 @@ def run(task_id, say=print):
             handedit.record(task_id, [rel], f"repair: dangling excision - {what}", kind="port")
     def pristine(rel):
         """The upstream file this tree started from (root commit), or None."""
-        b = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True) if root else None
+        b = fkproc.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True) if root else None
         return b.stdout.decode("utf-8", "replace") if b is not None and b.returncode == 0 else None
 
     for prob in symbols.problems(w, changed):

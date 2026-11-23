@@ -290,6 +290,17 @@
    "admit"
   ]
  },
+ "agent-models": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "agent-models"
+  ]
+ },
  "antigravity": {
   "platforms": [
    "darwin",
@@ -1544,6 +1555,26 @@
    "capture"
   ]
  },
+ "capture audit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "clean-slate-audit"
+  ]
+ },
+ "capture clean": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture-clean"
+  ]
+ },
  "capture project firefox": {
   "platforms": [
    "linux",
@@ -1572,6 +1603,17 @@
   "why": "",
   "ids": [
    "harness-opencode"
+  ]
+ },
+ "ci": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ci"
   ]
  },
  "ciaudit": {
@@ -1668,6 +1710,16 @@
   "why": "",
   "ids": [
    "emerge"
+  ]
+ },
+ "escalate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "escalate"
   ]
  },
  "eta": {
@@ -1965,6 +2017,28 @@
    "hog"
   ]
  },
+ "hog churn": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "psutil and ast on every system; the console-host cost it guards against is Windows-only, so the zero-children hook test runs on Windows CI only. Not run on a Mac.",
+  "ids": [
+   "hog-churn"
+  ]
+ },
+ "hog consoles": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "conhost.exe exists only on Windows; elsewhere it reports 0 hosts and PASS. Not run on a Mac.",
+  "ids": [
+   "hog-consoles"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",
@@ -2102,6 +2176,27 @@
   "why": "",
   "ids": [
    "install-verify"
+  ]
+ },
+ "install preflight": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "install-preflight"
+  ]
+ },
+ "installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "installed"
   ]
  },
  "integration": {
@@ -2695,6 +2790,24 @@
   "why": "",
   "ids": [
    "overhead"
+  ]
+ },
+ "ownership take": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "The Windows takeown executable, UAC, and Explorer shell are required.",
+  "ids": [
+   "take-ownership"
+  ]
+ },
+ "ownership take-drive": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "The Windows takeown executable, UAC, and Explorer shell are required.",
+  "ids": [
+   "take-drive-ownership"
   ]
  },
  "parity": {
@@ -3293,6 +3406,16 @@
   "why": "",
   "ids": [
    "plan-row-insert"
+  ]
+ },
+ "repair ps-compat-check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "check runs on any OS; the .ps1 files are Windows scripts but the check is pure Python",
+  "ids": [
+   "ps-compat-check"
   ]
  },
  "repair pwsh-parent-chains": {
@@ -4458,6 +4581,16 @@
   "why": "",
   "ids": [
    "zero"
+  ]
+ },
+ "zero hooks": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "zero-hooks"
   ]
  }
 }

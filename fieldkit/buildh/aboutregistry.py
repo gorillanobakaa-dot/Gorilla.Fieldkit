@@ -19,6 +19,7 @@ Merged per name: {name, sources: [{file, line, how, condition, target, flags}], 
 """
 import re
 import subprocess
+from fieldkit import proc as fkproc
 
 REDIRECT_TABLES = ("docshell/base/nsAboutRedirector.cpp", "browser/components/about/AboutRedirector.cpp")
 CONF_LISTS = ("docshell/build/components.conf", "browser/components/about/components.conf")
@@ -28,7 +29,7 @@ FLAG = re.compile(r"nsIAboutModule::([A-Z_]+)")
 
 
 def _git(w, *a):
-    return subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True,
+    return fkproc.run(["git", "-c", "core.autocrlf=false", "-C", str(w), *a], capture_output=True,
                           text=True, encoding="utf-8", errors="replace")
 
 

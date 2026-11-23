@@ -24,6 +24,7 @@ import re
 import shutil
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -36,7 +37,7 @@ NS, HOST_IP, NS_IP = "lg", "10.77.0.1", "10.77.0.2"
 
 
 def sh(*args, check=True, **kw):
-    return subprocess.run(list(args), capture_output=True, text=True, check=check, **kw)
+    return fkproc.run(list(args), capture_output=True, text=True, check=check, **kw)
 
 
 def selftest():
@@ -71,7 +72,7 @@ table inet leakgate {{
     drop
   }}
 }}"""
-    p = subprocess.run(["ip", "netns", "exec", NS, "nft", "-f", "-"], input=rules, capture_output=True, text=True)
+    p = fkproc.run(["ip", "netns", "exec", NS, "nft", "-f", "-"], input=rules, capture_output=True, text=True)
     if p.returncode:
         raise RuntimeError("nft: " + p.stderr)
     resolv = Path(f"/etc/netns/{NS}")
@@ -94,6 +95,17 @@ def netns_down():
     sh("ip", "link", "del", "lg0", check=False)
 
 
+def namespace_idle():
+    """An old namespace must have no remaining workers before its evidence can be resumed."""
+    try:
+        current = sh("ip", "netns", "list", timeout=10)
+        if not any(line.split()[:1] == [NS] for line in current.stdout.splitlines()):
+            return True
+        return not sh("ip", "netns", "pids", NS, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def snapshot_namespace(work):
     """Spec: record interfaces, addresses, routes, ARP/neighbours, rules, DNS and firewall before the run."""
     out = {}
@@ -111,7 +123,7 @@ def dnsmasq_start(work, allowed_names, upstream="1.1.1.1"):
              f"log-facility={Path(work) / 'dns.log'}", "address=/#/"]
     lines += [f"server=/{n.lstrip('*.')}/{upstream}" for n in sorted(set(allowed_names))]
     conf.write_text("\n".join(lines) + "\n")
-    return subprocess.Popen(["dnsmasq", "-k", "-C", str(conf)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return fkproc.Popen(["dnsmasq", "-k", "-C", str(conf)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def mitm_start(work, name, poison, confdir, port, mitm_out, mitm_raw):
@@ -125,13 +137,13 @@ def mitm_start(work, name, poison, confdir, port, mitm_out, mitm_raw):
     addon = Path(work) / "leakgate_mitm_addon.py"
     addon.write_text(se.MITM_ADDON, encoding="utf-8")
     env = dict(os.environ, LEAKGATE_MITM_OUT=str(mitm_out), LEAKGATE_MITM_RAW=str(mitm_raw), LEAKGATE_POISON="1" if poison else "")
-    p = subprocess.Popen([exe, "--listen-host", HOST_IP, "--listen-port", str(port), "--set", f"confdir={confdir}", "-s", str(addon), "-q"],
+    p = fkproc.Popen([exe, "--listen-host", HOST_IP, "--listen-port", str(port), "--set", f"confdir={confdir}", "-s", str(addon), "-q"],
                          env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(3)
     return p
 
 
-def missing_libs(build_dir, runner=subprocess.run):
+def missing_libs(build_dir, runner=fkproc.run):
     """-> the shared libraries `ldd` cannot find for the build's libxul.so (the usual reason a browser dies at once)."""
     so = Path(build_dir) / "libxul.so"
     if not so.is_file() or not shutil.which("ldd"):
@@ -160,7 +172,7 @@ def smoke(build_dir, server, work, seconds=60, say=print, in_ns=True):
     before = len(server.results)
     t0 = time.time()
     with open(err, "wb") as ef:
-        proc = subprocess.Popen(cmd, env=env, stdout=ef, stderr=subprocess.STDOUT)
+        proc = fkproc.Popen(cmd, env=env, stdout=ef, stderr=subprocess.STDOUT)
         while time.time() - t0 < seconds and proc.poll() is None:
             if any(isinstance(r, dict) and r.get("scenario") == "smoke" for r in server.results[before:]):
                 break
@@ -205,11 +217,11 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     base = {"scenario": name, "mode": mode}
     dns = dnsmasq_start(work, allowed_names)
     mitm = mitm_start(work, name, poison, confdir or work / "mitm-conf", proxy_port, mitm_out, mitm_raw) if mode in ("proxied", "poisoned") else None
-    tcpd = subprocess.Popen(["ip", "netns", "exec", NS, "tcpdump", "-i", "lg1", "-s", "0", "-U", "-w", str(pcap)],
+    tcpd = fkproc.Popen(["ip", "netns", "exec", NS, "tcpdump", "-i", "lg1", "-s", "0", "-U", "-w", str(pcap)],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     nsg = None
     if shutil.which("netsniff-ng"):
-        nsg = subprocess.Popen(["ip", "netns", "exec", NS, "netsniff-ng", "--in", "lg1", "--out", str(work / f"netsniff-{name}-{mode}.pcap"), "--silent"],
+        nsg = fkproc.Popen(["ip", "netns", "exec", NS, "netsniff-ng", "--in", "lg1", "--out", str(work / f"netsniff-{name}-{mode}.pcap"), "--silent"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
     home = work / f"home-{name}-{mode}"                    # the real home is never written to or read from
@@ -222,7 +234,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     firefox = Path(build_dir) / "firefox"
     cmd = ["ip", "netns", "exec", NS, "strace", "-f", "-tt", "-e", "trace=" + ls.TRACE, "-o", str(strace_out),
            str(firefox), "-headless", "-no-remote", "-profile", str(prof)] + list(args) + [url]
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = fkproc.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # root pid 0: strace is the launcher and must not count as the browser; the build's own programs and all their
     # descendants are the tree (sensors.browser_tree with a build_dir)
     sampler = se.Sampler(0, build_dir=build_dir, snap_procs=ls.snapshot_processes, snap_all_socks=lambda: ls.snapshot_all_sockets(NS))
@@ -309,9 +321,9 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     if pcap_ok:
         ev.append({**base, "sensor": "tcpdump", "kind": "coverage", "value": f"pcap {pcap.stat().st_size} bytes"})
     if shutil.which("zeek"):
-        subprocess.run(["zeek", "-r", str(pcap), f"Log::default_logdir={work / ('zeek-' + name + '-' + mode)}"], capture_output=True)
+        fkproc.run(["zeek", "-r", str(pcap), f"Log::default_logdir={work / ('zeek-' + name + '-' + mode)}"], capture_output=True)
     if shutil.which("suricata"):
-        subprocess.run(["suricata", "-r", str(pcap), "-l", str(work / f"suricata-{name}-{mode}")], capture_output=True)
+        fkproc.run(["suricata", "-r", str(pcap), "-l", str(work / f"suricata-{name}-{mode}")], capture_output=True)
     dedup, seen = [], set()
     for e in ev:
         k = (e["sensor"], e["kind"], e["value"], e.get("port"))

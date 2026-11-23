@@ -4,6 +4,7 @@ import re
 import shutil
 import statistics
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 
 PROBE_HOST = "1.1.1.1"
@@ -38,7 +39,7 @@ def unsupported_here():
 
 def _run(args, timeout=30):
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        r = fkproc.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout + r.stderr
     except Exception as e:
         return 1, str(e)

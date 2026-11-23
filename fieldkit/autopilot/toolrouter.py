@@ -13,6 +13,7 @@ not. The table is data: one row per tool, each with a test (tests/test_autopilot
     python -m fieldkit.autopilot.toolrouter "<command>"   (prints the verdict; exit 2 when refused)
 """
 import json
+import os
 import re
 import sys
 
@@ -37,8 +38,8 @@ ROUTES = [
     ("text-search-in-tree",
      re.compile(r"(Get-ChildItem|\bgci\b)[^|\n]*-Recurse[^|\n]*\|\s*(Select-String|sls)\b|"
                 r"\bfindstr\s+[^|;\n]*/s\b", re.I),
-     "the Grep tool (ripgrep), or fieldkit size find --grep TEXT for files matched by name, size or age",
-     FK + " size find --ext py --grep vctip <folder>"),
+     "pfind for text and code references",
+     FK + " agent run pfind --input query=vctip --input content=true"),
     # -- 2026-10-19: every hand-rolled habit a Fieldkit tool replaces (worker session, job 2). Each row has a test that
     #    it fires and a test that its look-alike does not (tests/test_autopilot_toolrouter.py).
     # -- 2026-10-25: the hand steps of the Gorilla OpenCode v0.1.152 release from Windows, each now a tool
@@ -365,7 +366,8 @@ def _sampling(cmd):
 #    pytest` in a shell and nothing refused it (Zero ran 36 tests by hand on PR 533 the same evening). Every test runner
 #    is refused here, on every system: push, and GitHub CI runs the covering tests (`fieldkit testcost staged` names
 #    them). The one way through is the hook's own owner switch, FIELDKIT_LOCAL_TESTS=1, for a debugging session the
-#    owner asked for; `# toolrouter-ok:` does not open it.
+#    owner asked for. `# toolrouter-ok:` opens it only when no test runner is actually executed (F3.3, owner
+#    2026-11-22): a note that merely names pytest in its own text is data; a real runner stays refused.
 LOCAL_TESTS_ENV = "FIELDKIT_LOCAL_TESTS"
 TEST_RUNNERS = [
     re.compile(_AT + r"(?:pytest(?:\.exe)?[\"']?|" + _PY + r"(?:pytest|unittest))(?![\w-])", re.I | re.M),
@@ -398,6 +400,96 @@ def local_tests_refusal(command, environ=None):
     return LOCAL_TESTS if any(p.search(cmd) for p in TEST_RUNNERS) else None
 
 
+# -- F3.3 (owner 2026-11-22: "A la amandoua este aprobat."): clean read-only find / cat / sed -n / wc inside a git
+#    checkout are allowed. Never -exec, -delete, -fprint, a redirect, sed -i, an absolute or parent path, or a
+#    substitution; anything else in the line keeps its own rule.
+_FIND_BAD = re.compile(r"\s-(?:exec|execdir|ok|okdir|delete|fprint\w*|fls)(?![\w-])", re.I)
+_NOISE = re.compile(r"\s*\d?>\s*/dev/null|\s*\d?>&\d")
+_RO_PATH = r"""(?!/|~|\$|[A-Za-z]:|-|\.\.)[^\s<>|;&`$"']+"""
+_RO_OPT = (r"""(?:-(?:i?name|i?path|type|maxdepth|mindepth|size|mtime|newer|empty|print|prune|o|a|not)|!|\(|\)"""
+           r"""|(?!/|\\|\.\.|~|[A-Za-z]:)[\w.*?\[\]/\\+-]+|"[^"\n]*"|'[^'\n]*')""")
+_RO_FIND = re.compile(r"find(?:\s+" + _RO_PATH + r")*(?:\s+" + _RO_OPT + r")*")
+_RO_CAT = re.compile(r"cat(?:\s+-[nAbEsTv]+)?(?:\s+" + _RO_PATH + r")+")
+_RO_SED = re.compile(r"sed\s+-n\s+(['\"]?)[\d,$]+p\1(?:\s+" + _RO_PATH + r")+")
+_RO_WC = re.compile(r"wc(?:\s+-[lwcmL]+)*(?:\s+" + _RO_PATH + r")*")
+
+
+def in_git_checkout(cwd):
+    """True when `cwd` is inside a git checkout (a .git folder or file on the way up)."""
+    if not cwd:
+        return False
+    p = os.path.abspath(cwd)
+    while True:
+        if os.path.exists(os.path.join(p, ".git")):
+            return True
+        q = os.path.dirname(p)
+        if q == p:
+            return False
+        p = q
+
+
+def readonly_clean(command, cwd=""):
+    """True when every statement of `command` is a clean read-only find, cat, sed -n or wc and `cwd` is a git checkout."""
+    if not command or not in_git_checkout(cwd) or re.search(r"[`<]|\$\(", command):
+        return False
+    for _, _, st in _statements(command):
+        st = _NOISE.sub("", st).strip()
+        if not st or ">" in st or _FIND_BAD.search(" " + st):
+            return False
+        if not any(r.fullmatch(st) for r in (_RO_FIND, _RO_CAT, _RO_SED, _RO_WC)):
+            return False
+    return True
+
+
+
+PFIND_ROUTE = {"route": "text-search-in-tree", "use": "pfind for text and code references",
+               "example": FK + " agent run pfind --input query=needle --input content=true"}
+SIZE_FIND_ROUTE = {"route": "recursive-file-search", "use": "fieldkit size find for filesystem inventory",
+                   "example": FK + " size find --name '*.py' --paths ."}
+SIZE_ROUTE = {"route": "folder-size", "use": "fieldkit size for measurements", "example": FK + " size ."}
+READ_ROUTE = {"route": "static-file-read", "use": "fieldkit size find for bounded static reads",
+              "example": FK + " size find --tail 20 log.txt"}
+RAW_SEARCH = (
+    (re.compile(_AT + r"(?:rg(?:\.exe)?\s+--files\b|find\s+|Get-ChildItem\b|gci\s+)", re.I | re.M), SIZE_FIND_ROUTE),
+    (re.compile(_AT + r"(?:rg|grep|egrep|fgrep|ag|findstr|select-string|sls)(?:\.exe)?(?:[\"']?\s)", re.I | re.M), PFIND_ROUTE),
+    (re.compile(_AT + r"(?:du|ncdu)(?:\.exe)?\s", re.I | re.M), SIZE_ROUTE),
+    (re.compile(_AT + r"(?:head|tail|cat|Get-Content|tc|gc)(?:\.exe)?(?:[\"']?\s)", re.I | re.M), READ_ROUTE),
+)
+FOLLOW = re.compile(r"\s(?:--follow(?:=(?:name|descriptor))?|-\w*[fF]\w*|-Wait)(?=\s|$)", re.I)
+
+
+def search_route(command):
+    """Find covered searches outside quoted data and inside recognized shell wrappers."""
+    quoted = [m.span() for m in re.finditer(r"\"[^\"\n]*\"|'[^'\n]*'", command)]
+    for offset, _, statement in _statements(command):
+        if re.match(r"^\s*cat\s+(?:[<>]|/proc/|/sys/)", statement):
+            continue
+        if re.match(r"^\s*(?:tail|Get-Content|gc)(?:\.exe)?\s", statement, re.I) and FOLLOW.search(statement):
+            continue
+        for pattern, route in RAW_SEARCH:
+            for match in pattern.finditer(statement):
+                start = offset + match.start()
+                if not any(left < start < right for left, right in quoted):
+                    return route
+    for wrapped in INNER.finditer(command):
+        if result := search_route(wrapped.group(2)):
+            return result
+    return None
+
+
+def search_rewrite(command, result):
+    # Translate only simple commands with an unambiguous single query or path.
+    rg = re.fullmatch(r"\s*rg\s+(?:-n\s+)?(-F\s+)?(?:--\s+)?([\w.]+)(\s+[\w./:\\\\-]+)?\s*", command)
+    if rg and result == PFIND_ROUTE:
+        fixed, query, paths = rg.groups()
+        mode = "" if fixed else " --regex"
+        return f"python -B -m fieldkit.desk.pfind --content{mode} -- {query}{paths or ''}"
+    du = re.fullmatch(r"\s*du\s+-sh\s+([\w./:\\\\-]+)\s*", command)
+    if du and result == SIZE_ROUTE:
+        return f"{FK} size --depth 0 {du[1]}"
+    return None
+
+
 def route(command, cwd="", shell=""):
     """-> None (allowed) or {"route", "use", "example"} for the first route the command matches. A heredoc's body is
     data written to a file or a program, not a command (2026-10-18: appending the rule that NAMES these commands to
@@ -411,17 +503,19 @@ def route(command, cwd="", shell=""):
                        "the script, then run the file",
                 "example": "python - <<'EOF'"}
     cmd = HEREDOC.sub("<<heredoc", command or "")
-    lt = local_tests_refusal(cmd)                    # before the override: `# toolrouter-ok:` does not open it
+    lt = local_tests_refusal(cmd)                    # before the override: a note opens it only if no runner runs
     if lt:
         return lt
     if OVERRIDE.search(cmd):
+        return None
+    if readonly_clean(cmd, cwd):                      # F3.3: nothing else in the line, so no other row applies
         return None
     for name, pat, use, example in ROUTES:
         hit = _hit(name, pat, cmd) or (name == "recursive-file-search" and shell.lower() == "powershell"
                                        and _hit(name, PS_LS, cmd))
         if hit and not (name == "sleep-to-wait" and _sampling(cmd)):
             return {"route": name, "use": use, "example": example}
-    return unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
+    return (unknown_verb_refusal(cmd) or heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd) or search_route(cmd))
 
 
 def unknown_verb_refusal(command):
@@ -631,6 +725,42 @@ def _no_card(call):
     return None
 
 
+def _mode_spawn(call):
+    """An Agent/Task spawn is checked against the session's mode (fieldkit/lifecycle/sessionmode.py): Economy 0, Time-
+    Sensitive 6, Fast 1000; an Explore search runs on Haiku only. Fails CLOSED to Economy when the mode cannot be read:
+    an unreadable state must not open the gate (owner O4, 2026-11-22)."""
+    try:
+        from ..lifecycle import sessionmode
+        why = sessionmode.spawn_refusal(call)
+    except Exception as e:  # noqa: BLE001
+        why = f"SESSION MODE unreadable ({type(e).__name__}): sub-agents are refused until it can be read (Economy)."
+    return _deny(why) if why else None
+
+
+MODEL_OK = re.compile(r"sonnet|haiku", re.I)
+MODEL_WHY = "Workers run on Sonnet (CLAUDE.md MODELS). Pass model=claude-sonnet-5-5."
+_PARKED = re.compile(r"\bparked\b", re.I)
+_REPAIR = re.compile(r"\brepair", re.I)
+_REVIEW = re.compile(r"\breview", re.I)
+
+
+def _model_guard(call):
+    """start_session and Agent/Task need an explicit Sonnet or Haiku model: an omitted model inherits the parent's, so an
+    Opus chief started Opus workers (hog-churn, 2026-11-22). Parked repairs and reviews may run stronger."""
+    tool = str(call.get("tool_name") or "").lower()
+    if not (tool.endswith("start_session") or tool in ("agent", "task")):
+        return None
+    ti = call.get("tool_input") or {}
+    if ti.get("proposal_id") and not ti.get("prompt"):      # starting a stored proposal: its model was checked when it was made
+        return None
+    if MODEL_OK.search(str(ti.get("model") or "")):
+        return None
+    text = " ".join(str(ti.get(k) or "") for k in ("prompt", "title", "description", "brief"))
+    if _REVIEW.search(text) or (_REPAIR.search(text) and _PARKED.search(text)):
+        return None
+    return MODEL_WHY
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -644,23 +774,39 @@ def _allow(command, rule, tool_input):
         "updatedInput": dict(tool_input, command=command)}}
 
 
+AUDIT_TOOLS = {"mcp__fieldkit__clean_slate_audit", "mcp_fieldkit_clean_slate_audit", "fieldkit_clean_slate_audit"}
+
+
 def verdict(call):
     """-> the deny JSON for a tool call, or None: ground claims, the primary checkout, the rotation stop, the circuit breaker, then (Bash and
     PowerShell) the route table."""
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _no_card(call) or _nested(call) or _permanence(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
+    stop = _no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()
-    if tool not in ("bash", "powershell"):
+    if os.getenv("FIELDKIT_AUDIT_ONLY") == "1" and tool not in AUDIT_TOOLS:
+        return _deny("Audit mode permits only the fixed clean_slate_audit tool.")
+    if tool in {"grep", "search_file_content", "grep_search", "git_grep"}:
+        return _deny(message(PFIND_ROUTE))
+    if tool in {"glob", "find_by_name", "list_directory", "list_dir"}:
+        return _deny(message(SIZE_FIND_ROUTE))
+    if tool in {"read", "read_file", "view_file"}:
+        return _deny(message(READ_ROUTE))
+    if tool in ("agent", "task"):
+        return _mode_spawn(call)
+    if tool not in ("bash", "powershell", "exec_command", "run_shell_command", "run_command"):
         return None
     ti = call.get("tool_input") or {}
     r = route(ti.get("command", ""), call.get("cwd") or "", tool)
     if not r:
         return None
-    fix = rewrite(ti.get("command", ""), call.get("cwd") or "") if tool == "bash" else None
+    command = ti.get("command", "")
+    if fixed := search_rewrite(command, r):
+        return _allow(fixed, r["route"], ti)
+    fix = rewrite(command, call.get("cwd") or "") if tool == "bash" else None
     if fix:
         return _allow(fix[0], fix[1], ti)
     return _deny(message(r))

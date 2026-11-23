@@ -1,0 +1,62 @@
+# fieldkit ci durations: every fail-closed rule must be CAUGHT.
+#   fieldkit mutate --plan tests/ciplan_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ciplan.py tests/test_ciadapters.py
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '    if age is None or age > MAX_AGE_DAYS:'
+  - '    if False:'
+  why: stale durations must fail the selection closed
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        if coverage[o] < MIN_COVERAGE:'
+  - '        if False:'
+  why: low coverage must fail the selection closed
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '    rated = [f for f in selected if f not in set(new_files)]'
+  - '    rated = list(selected)'
+  why: files the PR adds must not count against coverage
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '    d["tests"][os_name] = dict(new) if complete else {**d["tests"][os_name], **new}'
+  - '    d["tests"][os_name] = {**d["tests"][os_name], **new}'
+  why: a whole-suite run must drop deleted tests
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        weights[o] = {f: round(files.get(f, guess), 3) for f in selected}'
+  - '        weights[o] = {f: round(files.get(f, 0.0), 3) for f in selected}'
+  why: an unknown test must weigh the p90
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        n = math.ceil(work / per) if files else 0'
+  - '        n = int(cfg["budget"][o]) if files else 0'
+  why: N must follow the work, not always take the whole budget
+- file: fieldkit/method/ciplan.py
+  swap:
+  - '        if sorted(set(got)) != want:'
+  - '        if False:'
+  why: a dropped test must fail the plan check
+- file: fieldkit/method/cihang.py
+  swap:
+  - '    return int(min(max(h["factor"] * p90, h["floor"]), h["cap"]))'
+  - '    return int(max(h["factor"] * p90, h["floor"]))'
+  why: a hung test must be bounded by the cap
+- file: fieldkit/method/cihang.py
+  swap:
+  - '        if _RESULT.search(m.group("rest")):'
+  - '        if False:'
+  why: a test that finished must not be named as the hung one
+- file: .github/ci_tests.py
+  swap:
+  - '    if not node or cihang.other_failures(text):'
+  - '    if not node:'
+  why: a real failure must never be re-run away
+- file: fieldkit/method/ciplan.py
+  swap:
+  - 'p["heaviest"] - p["lightest"] > p.get("granule", 0):'
+  - 'p["heaviest"] - p["lightest"] > -1:'
+  why: a gap beyond one file's weight must still fail the spread check
+- file: fieldkit/method/ciadapters.py
+  swap:
+  - '    pl = ciplan.plan(units, blocks(adapter, units, raw_durations), cfg, floor=floor)'
+  - '    pl = ciplan.plan(units[1:], blocks(adapter, units, raw_durations), cfg, floor=floor)'
+  why: an adapter must not drop a unit from the plan (C2 union)

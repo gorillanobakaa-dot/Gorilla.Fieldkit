@@ -1,5 +1,6 @@
 """P28 E: fieldkit once - a command that already succeeded is not run or asked again; a watcher stops on no news."""
 import json
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -7,7 +8,7 @@ from fieldkit import once as O
 
 
 def runner(rc, calls):
-    def run(argv):
+    def run(argv, **kw):
         calls.append(argv)
         return SimpleNamespace(returncode=rc)
     return run
@@ -116,3 +117,23 @@ def test_cli_prints_one_json_line_last_and_the_exit_codes(tmp_path, capsys):
     assert O.main(["watch", "--journal", j, "--key", "w", "--file", str(f)]) == 3
     assert O.main(["watch", "--journal", j, "--key", "w", "--file", str(f)]) == 0
     assert "stop watching" in capsys.readouterr().out
+
+
+def test_a_hung_command_is_killed_and_journalled_as_exit_124(tmp_path, capsys):
+    """F4.1: no timeout meant a hang left the journal at 'running' forever."""
+    j = tmp_path / "j.jsonl"
+    seen = {}
+
+    def hang(argv, timeout=None):
+        seen["timeout"] = timeout
+        raise subprocess.TimeoutExpired(argv, timeout)
+    res, rc = O.run(j, "k", "s", ["x"], runner=hang, timeout=5)
+    assert rc == 124 and res["exit"] == 124 and not res["done"] and seen["timeout"] == 5
+    assert "killed" in capsys.readouterr().err
+    assert O.latest(j, "k")["exit"] == 124
+
+
+def test_real_sleep_command_times_out_through_the_cli(tmp_path):
+    j = str(tmp_path / "j.jsonl")
+    rc = O.main(["run", "--journal", j, "--json", "--timeout", "1", "--", sys.executable, "-c", "import time; time.sleep(60)"])
+    assert rc == 124

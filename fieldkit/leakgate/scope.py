@@ -19,6 +19,7 @@ verified before that record existed (157.0 as released, 2026-10-04: the tree its
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 SAFE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg", ".css", ".ftl", ".md", ".txt")
@@ -28,7 +29,7 @@ KNOWN_TREES = {"20261004224302": "109fd17fb5b9926e5e0c17115e9a69418b8173be"}    
 BUILD_LINE = re.compile(r"leakgate: build (\d{14})")
 
 
-def _git(w, *args, run=subprocess.run):
+def _git(w, *args, run=fkproc.run):
     return run(["git", "-C", str(w), *args], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
 
 
@@ -55,7 +56,7 @@ def last_pass(launcher_dir, task_id, builds_jsonl):
     return None
 
 
-def classify(w, a, b, run=subprocess.run):
+def classify(w, a, b, run=fkproc.run):
     """Files changed between trees a and b -> (cannot, can): lists of (path, why)."""
     names = [l for l in _git(w, "diff", "--name-only", a, b, run=run).splitlines() if l.strip()]
     cannot, can = [], []
@@ -73,7 +74,7 @@ def classify(w, a, b, run=subprocess.run):
     return cannot, can
 
 
-def run(w, launcher_dir, task_id, builds_jsonl, from_tree=None, run_cmd=subprocess.run):
+def run(w, launcher_dir, task_id, builds_jsonl, from_tree=None, run_cmd=fkproc.run):
     """-> {"from", "to", "cannot", "can", "verdict"}."""
     lp = last_pass(launcher_dir, task_id, builds_jsonl)
     a = from_tree or (lp or {}).get("tree")

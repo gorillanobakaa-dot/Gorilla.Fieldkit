@@ -14,6 +14,9 @@
                                                re-runs, never bisects), dropped with its log and a brief, the batch is
                                                rebuilt without it and run again.
     fieldkit ship batch status                 the last batch's journal (JSON with --json)
+    fieldkit ship batch before-pr --branches BRANCH ...
+                                               combine named local branches before they open PRs. One PR for the
+                                               resulting tree, with ordinary CI. Conflicting branches are reported.
     fieldkit ship batch select [--only N ...]  the tests the batch's CI runs: what no member's own green head proved,
                                                plus what two members both cover (the integration risk)
 
@@ -27,10 +30,12 @@ Never: force-push, hand-resolve a conflict, batch a red or parked PR, bisect an 
 batch.yaml. Exit 0 done, 3 refused or left something out (with why), 2 bad usage.
 """
 import argparse
+import hashlib
 import json
 import math
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -139,7 +144,7 @@ def _regenerate(work, pol, paths):
     done = []
     for g in pol.get("generated") or []:
         if g["path"] in paths and g.get("regenerate"):
-            r = subprocess.run(_argv(g["regenerate"]), cwd=str(work), capture_output=True, text=True,
+            r = fkproc.run(_argv(g["regenerate"]), cwd=str(work), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", env=mp._gen_env(), timeout=600)
             if r.returncode:
                 raise RuntimeError(f"the generator of {g['path']} failed (exit {r.returncode}): "
@@ -152,7 +157,7 @@ def merge_member(work, member, pol, who):
     """Merge one PR head into the checked-out batch branch. -> {"ok": True, "regenerated": [...]} or
     {"ok": False, "why", "files"}; on a refusal the tree is back as it was (merge --abort)."""
     g = {x["path"]: x for x in pol.get("generated") or []}
-    ref = f"refs/remotes/origin/{member['branch']}"
+    ref = member.get("frozen_ref") or f"refs/remotes/origin/{member['branch']}"
     r = mp._git(work, *who, "merge", "--no-ff", "--no-commit", ref, check=False)
     conflicted = mp._git(work, "diff", "--name-only", "--diff-filter=U").split()
     left = []
@@ -176,14 +181,15 @@ def merge_member(work, member, pol, who):
         return {"ok": False, "files": [], "why": str(e)}
     for p in regen + [c for c in conflicted if c in g]:
         mp._git(work, "add", "--", p)
-    c = mp._git(work, *who, "commit", "-m", f"Merge PR #{member['pr']} ({member['branch']}) into the batch", check=False)
+    label = f"PR #{member['pr']} ({member['branch']})" if "pr" in member else member["branch"]
+    c = mp._git(work, *who, "commit", "-m", f"Merge {label} into the batch", check=False)
     if c.returncode:
         mp._git(work, "merge", "--abort", check=False)
         return {"ok": False, "files": [], "why": f"commit refused: {(c.stdout + c.stderr).strip()[-300:]}"}
     return {"ok": True, "regenerated": sorted(set(regen) | {x for x in conflicted if x in g})}
 
 
-def build(repo, members, base="main", pol=None, name=None, push=None, work=None):
+def build(repo, members, base="main", pol=None, name=None, push=None, work=None, *, publish=True):
     """-> {"ok", "branch", "members": [...], "left": [{pr, why, files}], "head"}. `push(work, base)` is ship.push."""
     pol = pol or policy()
     branch = name or pol.get("branch", "night/batch-{stamp}").format(stamp=stamp())
@@ -198,10 +204,12 @@ def build(repo, members, base="main", pol=None, name=None, push=None, work=None)
         got = merge_member(work, m, pol, who)
         if got["ok"]:
             joined.append(dict(m, regenerated=got["regenerated"]))
-            journal(repo, "joined", pr=m["pr"], branch=branch, regenerated=got["regenerated"])
+            journal(repo, "joined", pr=m.get("pr"), source=m["branch"], branch=branch, regenerated=got["regenerated"])
         else:
-            left.append({"pr": m["pr"], "why": got["why"], "files": got["files"]})
-            journal(repo, "left-out", pr=m["pr"], branch=branch, why=got["why"], files=got["files"])
+            identity = {"pr": m["pr"]} if "pr" in m else {"source": m["branch"]}
+            left.append(dict(identity, why=got["why"], files=got["files"]))
+            journal(repo, "left-out", pr=m.get("pr"), source=m["branch"], branch=branch,
+                    why=got["why"], files=got["files"])
     rep = {"branch": branch, "members": joined, "left": left, "work": str(work)}
     if not joined:
         return dict(rep, ok=False, state="empty", next="no PR could be joined; nothing was pushed")
@@ -218,6 +226,8 @@ def build(repo, members, base="main", pol=None, name=None, push=None, work=None)
             return dict(rep, ok=False, state="commit-refused", error=(c.stdout + c.stderr).strip()[-300:],
                         next="the hook refused the regeneration commit; read why")
     head = mp.rev(work, "HEAD")
+    if not publish:
+        return dict(rep, ok=True, state="prepared", head=head)
     if push is None:
         from .ship import push as push_
         push = push_
@@ -229,12 +239,82 @@ def build(repo, members, base="main", pol=None, name=None, push=None, work=None)
     return dict(rep, ok=True, state="built", head=head, next=f"fieldkit ship batch run (opens one PR from {branch})")
 
 
+def before_pr(repo, branches, base="main", *, clone=train.clone_for, shipper=None, pol=None, gh=None):
+    """Freeze local branch heads, then ship one combined tree using the normal protected PR path."""
+    from .. import admission
+    from . import ship
+
+    branches = list(dict.fromkeys(branches))
+    if len(branches) < 2 or base in branches:
+        raise RuntimeError("name at least two distinct local change branches, excluding the base")
+    members = []
+    for branch in branches:
+        ref = f"refs/heads/{branch}"
+        valid = mp._git(repo, "check-ref-format", ref, check=False).returncode == 0
+        head = mp.rev(repo, f"{ref}^{{commit}}") if valid else None
+        if not head or not re.fullmatch(r"[a-f0-9]{40}", head):
+            raise RuntimeError(f"no local branch {branch!r}")
+        members.append({"branch": branch, "head": head, "frozen_ref": head})
+    if len({m["head"] for m in members}) != len(members):
+        raise RuntimeError("each local change branch must contribute a distinct head")
+    open_sources = {pr["headRefName"] for pr in (gh or BatchGH(repo)).batch_prs()} & set(branches)
+    if open_sources:
+        raise RuntimeError("these changes already have PRs: " + ", ".join(sorted(open_sources)))
+
+    state = mp.state_dir(repo)
+    slot = admission.try_take(1, kind="ship", label="batch before PR", root=state / "batch-before-pr-lock")
+    if slot is None:
+        raise RuntimeError("another pre-PR batch owns its checkout; retry after it finishes")
+    try:
+        work = clone(repo, "batch-before-pr-clone")
+        base_head = mp.rev(work, f"refs/remotes/origin/{base}^{{commit}}")
+        if not base_head:
+            raise RuntimeError(f"cannot resolve origin/{base}")
+        fingerprints = [base_head, *(m["head"] for m in members)]
+        key = hashlib.sha256("\n".join(fingerprints).encode()).hexdigest()[:20]
+        branch = f"night/batch-local-{key}"
+        remote_head = mp.rev(work, f"refs/remotes/origin/{branch}^{{commit}}")
+        if remote_head:
+            if not any(r["kind"] == "prepared-before-pr" and r.get("branch") == branch and r.get("head") == remote_head
+                       for r in read_journal(repo)):
+                raise RuntimeError("the remote batch head does not match a locally recorded preparation")
+            checked = mp._git(work, "checkout", "--quiet", "-B", branch, f"refs/remotes/origin/{branch}", check=False)
+            if checked.returncode:
+                raise RuntimeError("could not resume the previously pushed batch")
+            return (shipper or ship.auto)(work, base=base)
+
+        source = str(mp.common_dir(repo))
+        for member in members:
+            mp._git(work, "fetch", "--quiet", "--no-tags", source, member["head"])
+        result = build(repo, members, base, pol=pol, name=branch, work=work, publish=False)
+        if not result["ok"]:
+            return result
+        if len(result["members"]) < 2:
+            return dict(result, ok=False, state="too-few-compatible", next="fewer than two changes joined; nothing was pushed")
+        body = state / f"batch-local-{key}.md"
+        rows = ["Combined local changes. CI checks the complete batch tree.", ""]
+        rows += [f"- `{m['branch']}` at `{m['head']}`" for m in result["members"]]
+        rows += [f"- Left out `{m['source']}` ({m['why']})" for m in result["left"]]
+        body.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        journal(repo, "prepared-before-pr", branch=branch, head=result["head"], sources=branches)
+        shipped = (shipper or ship.auto)(work, base=base, title=f"Fieldkit batch of {len(result['members'])} changes",
+                                         body_file=str(body))
+        journal(repo, "before-pr", branch=branch, head=result["head"], sources=branches, ok=shipped.get("ok", False))
+        return {**result, **shipped}
+    finally:
+        slot.release()
+
+
 # -- selection: what the batch's CI runs -------------------------------------------------------------------------------
+class Unmapped(ValueError):
+    """A changed file no test covers. One rule with .github/ci_tests.py: fail closed and name the file (F2.6)."""
+
+
 def tests_of(repo, paths, base=None):
     from .. import testcost
     pl = testcost.plan(repo, base=base, paths=list(paths))
-    if pl.get("unmapped"):                             # a file no test covers: the selection fails closed (full suite)
-        raise ValueError(f"unmapped files: {', '.join(pl['unmapped'][:5])}")
+    if pl.get("unmapped"):                             # a file no test covers: fail closed, name it (never the full suite)
+        raise Unmapped(f"no test covers {', '.join(pl['unmapped'][:5])}: map each in tests/testmap.yaml or give it a test")
     return set(pl["tests"])
 
 
@@ -343,7 +423,7 @@ def local_runner(repo, members, base, ids, pol, work=None, python=None):
         if not here:
             journal(repo, "bisect-run", subset=list(subset), green=True, note="the failing tests are not in it")
             return True
-        r = subprocess.run([python or sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *here],
+        r = fkproc.run([python or sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *here],
                            cwd=b["work"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         journal(repo, "bisect-run", subset=list(subset), green=r.returncode == 0)
         return r.returncode == 0
@@ -369,11 +449,14 @@ def body_of(members, left, tests=None):
 
 
 def _selection(gh, members, repo, pol):
-    """The test files the batch CI runs (item 8), or None = the normal selection (also when anything is unmapped)."""
+    """The test files the batch CI runs (item 8), or None = the normal selection (testcost could not answer).
+    An unmapped file raises Unmapped: the batch is refused, same as ci_tests (F2.6)."""
     try:
         files = {m["pr"]: gh.files(m["pr"]) for m in members}
         regen = sorted({f for m in members for f in (m.get("regenerated") or [])})
         return select(repo, files, regen, pol)["tests"]
+    except Unmapped:
+        raise
     except Exception:
         return None
 
@@ -402,8 +485,12 @@ def run(repo=".", gh=None, base="main", pol=None, max_n=None, only=None, push=No
         if not b["ok"]:
             return dict(rep, ok=False, state=b["state"], error=b.get("error"), next=b.get("next"))
         members = b["members"]
+        try:
+            tests = _selection(gh, members, repo, pol)
+        except Unmapped as e:
+            return dict(rep, ok=False, state="unmapped", error=str(e), next=f"{e}; nothing was opened")
         n, err = gh.create_pr(b["branch"], base, f"batch {b['branch'].split('/')[-1]}: {len(members)} PRs",
-                              body_of(members, rep["left"], _selection(gh, members, repo, pol)))
+                              body_of(members, rep["left"], tests))
         if not n:
             return dict(rep, ok=False, state="pr-failed", error=err, next="the branch is pushed; open the PR by hand")
         gh.auto_merge(n, b["head"])
@@ -457,8 +544,9 @@ def lines(d):
     for x in d.get("take", []):
         out.append(f"TAKE #{x['pr']} {x['branch']}")
     for x in d.get("left", []):
-        out.append(f"LEFT #{x['pr']}: {x['why']}")
-    for k in ("state", "batch_pr", "merged", "dropped", "error", "next"):
+        name = f"#{x['pr']}" if x.get("pr") is not None else x["source"]
+        out.append(f"LEFT {name}: {x['why']}")
+    for k in ("state", "batch_pr", "merged", "dropped", "said", "error", "next"):
         if d.get(k):
             out.append(f"{k}: {d[k]}")
     return out or ["nothing"]
@@ -466,7 +554,8 @@ def lines(d):
 
 def main(argv=None, prog="fieldkit ship batch"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("verb", choices=["collect", "build", "run", "status", "select"])
+    ap.add_argument("verb", choices=["collect", "build", "run", "status", "select", "before-pr"])
+    ap.add_argument("--branches", nargs="+", help="local source branches for before-pr")
     ap.add_argument("--max", type=int, dest="max_n", help="at most N PRs in the batch")
     ap.add_argument("--only", type=int, nargs="*", help="only these PR numbers")
     ap.add_argument("--base", default="main")
@@ -474,6 +563,10 @@ def main(argv=None, prog="fieldkit ship batch"):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
+        if a.verb == "before-pr":
+            r = before_pr(a.repo, a.branches or [], a.base)
+            emit(r, a.json, lines)
+            return 0 if r["ok"] else 3
         if a.verb == "status":
             r = status(a.repo)
             emit(r, a.json, lambda d: [f"{x['kind']} {json.dumps({k: v for k, v in x.items() if k != 'kind'})}"

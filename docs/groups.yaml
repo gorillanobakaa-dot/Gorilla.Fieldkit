@@ -20,7 +20,7 @@
 groups:
   - name: autopilot
     title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
-    sources: [autopilot/*.py]
+    sources: [autopilot/*.py, escalate/*.py]
   - name: emerge
     title: Compile jobs like Portage - a recipe per product, content-addressed stages, offload to the other machine, a model only when a stage fails
     sources: [emerge/*.py]
@@ -161,6 +161,7 @@ groups:
       - parity.py
       - parity_goal.py
       - plan.py
+      - proc.py
       - review_verdict.py
       - rules.py
       - rules_lint.py

@@ -30,6 +30,7 @@ Stops by PID and creation time, never by name: nothing outside the container is 
 import os
 import signal
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -576,7 +577,7 @@ class Container:
         deadline_s = deadline_s if deadline_s is not None else self.deadline_s
         if busy_s is None:
             busy_s, on_busy = busy_for(self.label)
-        if popen is not None and popen is not subprocess.Popen:
+        if popen is not None and popen is not subprocess.Popen and popen is not fkproc.Popen:
             return _run_seam(popen, cmd, cwd, env, stdin_text, deadline_s)
         tmp = Path(tempfile.mkdtemp(prefix="fk-contain-"))
         out_p = Path(stdout_path) if stdout_path else tmp / "out.txt"
@@ -860,7 +861,17 @@ def wait_inherit(cmd, label="", deadline_s=None, on_tick=None):
     with Container(label or " ".join(map(str, cmd))[:120], deadline_s, liveness.current()) as c:
         c.open_step(cmd, deadline_s)
         try:
-            p = c.popen([str(x) for x in cmd])
+            # Windows: a child started with no stdio arguments gets no handle of a REDIRECTED parent (a file or pipe,
+            # as in a git hook run with `>out 2>&1`): its output vanished and the caller saw a silent non-zero exit
+            # (2026-11-23, CI: hook tests). Pass the caller's own fds explicitly when they are open.
+            std = {}
+            for name, fd in (("stdin", 0), ("stdout", 1), ("stderr", 2)):
+                try:
+                    os.fstat(fd)
+                    std[name] = fd
+                except OSError:
+                    pass
+            p = c.popen([str(x) for x in cmd], **std)
         except OSError as e:
             print(f"[fieldkit] could not start {cmd[0]}: {e}", file=sys.stderr)
             return 127

@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import urllib.request
 from pathlib import Path
@@ -23,10 +24,10 @@ LM_STUDIO = "http://127.0.0.1:1234/v1/models"
 def _running(image):
     """Names of running processes matching an image name, via the OS (no extra packages)."""
     if os.name == "nt":
-        out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+        out = fkproc.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
                              capture_output=True, text=True, errors="replace").stdout
         return [l.split('","')[1] for l in out.splitlines() if l.lower().startswith(f'"{image.lower()}"')]
-    out = subprocess.run(["pgrep", "-x", image.replace(".exe", "")], capture_output=True, text=True).stdout
+    out = fkproc.run(["pgrep", "-x", image.replace(".exe", "")], capture_output=True, text=True).stdout
     return out.split()
 
 
@@ -100,7 +101,7 @@ def run(task_id, build=False, model=False, fix_locks=False, lm_url=LM_STUDIO, fa
                                      "stale (no git process running); rerun with --fix-locks: ") + ", ".join(p.name for p in locks))
         else:
             row("git locks", True, "none")
-        dirty = subprocess.run(["git", "-C", str(wd), "status", "--porcelain"], capture_output=True, text=True,
+        dirty = fkproc.run(["git", "-C", str(wd), "status", "--porcelain"], capture_output=True, text=True,
                                errors="replace").stdout.splitlines()
         row("working copy clean", not dirty, "clean" if not dirty else f"{len(dirty)} uncommitted file(s): {dirty[:3]}")
     from ..thermal import buildguard as _bg

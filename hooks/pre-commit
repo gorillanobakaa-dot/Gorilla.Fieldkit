@@ -165,6 +165,7 @@ if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp
   if [ -z "$FAILED" ] || ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
     echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"
     [ -n "$FAILED" ] && echo "$FAILED"
+    [ -z "$FAILED" ] && tail -n 15 "$OUT"   # no FAILED line: show why (collection error, crash) instead of nothing
     "$PY" -m fieldkit.testcost record full-suite refused "$(( $(date +%s) - T0 ))" --key "$KEY" \
       --note "caught: $(echo $FAILED | tr '\n' ' ' | cut -c1-400)" >/dev/null 2>&1 || true
     exit 1
@@ -228,6 +229,16 @@ if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
     echo "pre-commit: a capability is not built in (docs/INTEGRATION.md) - commit refused"
     exit 1
   fi
+fi
+# 2026-11-20 (P48): catches unregistered repair tools, missing toolcards, SKILL.md entries,
+# BOM in .py files, stale generated artefacts, PS 5.1/7 compat issues.
+if git diff --cached --name-only | grep -qE '^(fieldkit/repair/[^_][^/]+\.py|fieldkit/desk/tools\.yaml|skills/fieldkit-repair/SKILL\.md|fieldkit/core/cmdtree\.json|fieldkit/desk/platform_index\.json|docs/PLATFORMS\.md|.*\.ps1|\.github/workflows/.*\.yml)'; then
+  if ! "$PY" -m fieldkit repair ps-compat-check --repo . >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: pre-CI health check failed (registration/BOM/stale/PS compat) - commit refused"
+    exit 1
+  fi
+  tail -1 "$OUT" | sed 's/^/pre-commit: /'
 fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"

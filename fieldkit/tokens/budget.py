@@ -135,9 +135,10 @@ def prepare_successor(row, transcript, now=None, cfg=None):
     r = rotate.handover(transcript, title, next_, done=done,
                         not_verified="everything the session did in its last turn, and every number in this note")
     sid = row["session"]
-    brief_file = rotate.state_dir() / "briefs" / f"{sid}.md"
-    brief_file.parent.mkdir(parents=True, exist_ok=True)
-    brief_file.write_text(r["brief"], encoding="utf-8")
+    brief_file = Path(r["launch_brief"]) if r.get("launch_brief") else rotate.state_dir() / "briefs" / f"{sid}.md"
+    if not r.get("launch_brief"):
+        brief_file.parent.mkdir(parents=True, exist_ok=True)
+        brief_file.write_text(r["brief"], encoding="utf-8")
     archive = archive_candidates(sid, now, cfg)
     mark = {"told": "STOP", "stopped_at": now, "title": title, "note": r["note"], "brief": str(brief_file),
             "archive": [a["id"] for a in archive]}
@@ -210,8 +211,9 @@ def _send_zero(text, now=None):
 
 def _headless_sonnet(brief):
     import subprocess
+    from fieldkit import proc as fkproc
     import sys
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "task", "start", str(brief), "--model", "sonnet", "--pin"],
+    r = fkproc.run([sys.executable, "-m", "fieldkit", "task", "start", str(brief), "--model", "sonnet", "--pin"],
                        capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or f"exit {r.returncode}")
@@ -244,6 +246,13 @@ def start_successor(brief, title, origin, send=None, headless=None, now=None):
     now = time.time() if now is None else now
     if origin not in ("user", "session"):
         raise ValueError("origin is user or session")
+    path = Path(brief)
+    if path.is_file():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        work = next((line.removeprefix("Work ID: ") for line in lines if line.startswith("Work ID: ")), None)
+        note = next((line.removeprefix("Handoff note: ") for line in lines if line.startswith("Handoff note: ")), None)
+        if work and note and not rotate.reserve_launch(work, note):
+            return {"step": "already-requested", "line": f"Launch already requested for work {work}."}
     rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "brief": str(brief), "title": title,
            "origin": origin}
     if origin == "user":

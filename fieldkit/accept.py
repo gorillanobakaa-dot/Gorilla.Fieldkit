@@ -17,6 +17,7 @@ import os
 import shutil
 import struct
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import threading
@@ -69,10 +70,10 @@ def _make(path, spec):
     elif kind == "png":
         path.write_bytes(_png())
     elif kind == "png-text":
-        subprocess.run([shutil.which("magick") or shutil.which("convert"), "-size", "500x160", "xc:white", "-pointsize",
+        fkproc.run([shutil.which("magick") or shutil.which("convert"), "-size", "500x160", "xc:white", "-pointsize",
                         "96", "-fill", "black", "-annotate", "+20+110", body, str(path)], check=True, capture_output=True)
     elif kind == "mp4-seconds":
-        subprocess.run([shutil.which("ffmpeg"), "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=" + body, str(path)],
+        fkproc.run([shutil.which("ffmpeg"), "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=" + body, str(path)],
                        check=True, capture_output=True)
     else:
         raise ValueError(f"unknown setup kind {kind!r}")
@@ -153,7 +154,7 @@ def isolated_env(root, model):
 
 def default_agent(prompt, folder, model, timeout):
     env = isolated_env(folder.parent / (folder.name + "-env"), model)
-    r = subprocess.run(["gorilla-opencode", "-p", prompt, "-q", "-c", str(folder)], cwd=folder, env=env,
+    r = fkproc.run(["gorilla-opencode", "-p", prompt, "-q", "-c", str(folder)], cwd=folder, env=env,
                        capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     return (r.stdout or "") + (r.stderr or "")
 

@@ -16,6 +16,7 @@ import os
 import re
 import shlex
 import subprocess
+from fieldkit import proc as fkproc
 import time
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def reviewer_model(data=None):
     return (data or load())["reviewer"]["model"]
 
 
-def run_acceptance(cmd, cwd=None, run=subprocess.run, timeout=None):
+def run_acceptance(cmd, cwd=None, run=fkproc.run, timeout=None):
     """-> (ok, text): the job's acceptance command; the exit code decides, its tail is the evidence."""
     if not cmd:
         return None, "no acceptance command"
@@ -110,7 +111,7 @@ def decide(accept_ok, review_kind, review_why, failures, data=None):
     return {"kind": kind, "why": why[:600]}
 
 
-def review(task, result, accept=None, failures=0, claude=None, cwd=None, run=subprocess.run, data=None):
+def review(task, result, accept=None, failures=0, claude=None, cwd=None, run=fkproc.run, data=None):
     """-> {kind, why, accept_ok, usd}. `claude` is autopilot.run.claude (injected in tests)."""
     d = data or load()
     ok, text = run_acceptance(accept, cwd, run=run, timeout=d["verdict"].get("accept_timeout_s"))
@@ -134,7 +135,7 @@ def verdict_from_checks(checks, failures, data=None):
     return decide(False, None, "; ".join(bad), failures, data)
 
 
-def fix_itself(task, result, why, accept=None, cwd=None, claude=None, run=subprocess.run, data=None, check=None):
+def fix_itself(task, result, why, accept=None, cwd=None, claude=None, run=fkproc.run, data=None, check=None):
     """The worker failed twice: the reviewer model repairs the work itself, then the acceptance command decides.
     `check` (a callable -> (ok, text)) replaces the acceptance command (the goal path re-runs the job's own checks).
     -> {kind: pass | fix_itself, why, usd}. Never passes on its own word."""

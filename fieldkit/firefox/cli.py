@@ -44,6 +44,7 @@ def _stage(tid):
 def where(version):
     """-> {system: {...}} and the ordered step rows with done True/False/None (None = not measurable here)."""
     cb, tid = ho.cookbook(), ho.task_id(version)
+    values = ho.step_values(version, tid)
     stage = _stage(tid)
     order = [s["id"] for s in cb["steps"] if s["id"].startswith("S")]
     root = ho.out_root()
@@ -55,7 +56,7 @@ def where(version):
             done = (root / f"{version}-{s['system']}" / "SHA256SUMS").is_file()
         else:
             done = None
-        rows.append(dict(s, run=s["run"].format(v=version, task=tid), does=s["does"].format(v=version, task=tid), done=done))
+        rows.append(dict(s, run=s["run"].format_map(values), does=s["does"].format_map(values), done=done))
     systems = {k: dict(v, product=concepts.product_name(version)) for k, v in cb["systems"].items()}
     systems["linux"]["stage"] = stage or "no migration task on this machine"
     return {"version": version, "task": tid, "systems": systems, "steps": rows}

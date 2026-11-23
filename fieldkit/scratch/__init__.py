@@ -42,6 +42,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -351,7 +352,7 @@ def sizes(paths):
     if not exe:
         return {}
     try:
-        r = subprocess.run([str(exe), "--json", *paths], capture_output=True, text=True, timeout=600)
+        r = fkproc.run([str(exe), "--json", *paths], capture_output=True, text=True, timeout=600)
         data = json.loads(r.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
         return {}
@@ -404,7 +405,7 @@ def hog_findings():
 
 
 # ---- Defender exclusion ------------------------------------------------------------------------------------------
-def exclusion(r=None, run=subprocess.run):
+def exclusion(r=None, run=fkproc.run):
     """-> {present: True|False|None, how, detail}. Read-only: Get-MpPreference (lists exclusions only for an
     administrator; otherwise None), then the proof the owner's script wrote (state/scratch/exclusion.json)."""
     r = _norm(r or root())
@@ -485,11 +486,11 @@ def bench(files=100_000, recycle=False, say=print):
         exe = str(size_cli.locate())
         t = time.time()
         # over 1,000 files gorilla-size holds the recycle for a plan (exit 4); the bench applies that plan at once
-        r1 = subprocess.run([exe, "recycle", "--whole-folder", "--plan", str(d2)], capture_output=True, text=True)
+        r1 = fkproc.run([exe, "recycle", "--whole-folder", "--plan", str(d2)], capture_output=True, text=True)
         plan = re.search(r"^Plan: (.+)$", r1.stdout + r1.stderr, re.M)
         rc = r1.returncode
         if plan and rc == 4:
-            rc = subprocess.run([exe, "apply", plan.group(1).strip()], capture_output=True, text=True).returncode
+            rc = fkproc.run([exe, "apply", plan.group(1).strip()], capture_output=True, text=True).returncode
         out["recycle_s"], out["recycle_rc"] = round(time.time() - t, 1), rc
         out["recycle_left"] = d2.exists() and any(d2.iterdir())
         say(f"  recycle (fieldkit size recycle --whole-folder, then apply its plan): exit {rc} in {out['recycle_s']} s")

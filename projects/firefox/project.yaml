@@ -5,6 +5,26 @@ repos:
   - {name: harness, github: gorillanobakaa-dot/gorilla-firefox, local: "${LOCAL:firefox.root}"}
   - {name: fieldkit, github: gorillanobakaa-dot/Gorilla.Fieldkit, local: "${FIELDKIT}"}
 recipes: [firefox-debian, firefox-windows]
+release:
+  repo: gorillanobakaa-dot/gorilla-firefox
+  distribution: installers
+  targets:
+    windows-x86_64:
+      platform: windows
+      arch: x86_64
+      installer: 'Gorilla-Unleashed-{version}-(?:win64|windows-x86_64)[.-]installer\.exe'
+      workflow: .github/workflows/release-candidate.yml
+    debian-x86_64:
+      platform: debian
+      arch: x86_64
+      installer: 'Gorilla-Unleashed-{version}-linux-x86_64\.deb'
+      workflow: .github/workflows/release-candidate.yml
+    macos-x86_64:
+      platform: macos
+      arch: x86_64
+      minimum_os: '10.13'
+      installer: 'Gorilla-Unleashed-{version}-(?:mac|macos)-x86_64\.pkg'
+      workflow: .github/workflows/release-candidate.yml
 cookbook:
   - {repo: fieldkit, path: docs/FIREFOX-COOKBOOK.md, what: "the one procedure, Mozilla release to all three systems"}
   - {repo: fieldkit, path: fieldkit/firefox/cookbook.yaml, what: "the same procedure as data (steps S0-S9, systems)"}

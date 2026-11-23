@@ -12,6 +12,7 @@ import getpass
 import os
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -57,7 +58,7 @@ def repair_temp(min_gb=MIN_FREE_GB, where=None, age_s=6 * 3600, now=None, home_t
     return done
 
 
-def repair_clock(run=subprocess.run):
+def repair_clock(run=fkproc.run):
     """Ask the system to synchronise its clock, without a password prompt (none is answered at night)."""
     try:
         if sys.platform.startswith("linux"):
@@ -79,7 +80,7 @@ def free_temp(min_gb=MIN_FREE_GB, where=None):
                                               f"free space, or point TMPDIR at a disk with at least {min_gb} GB")
 
 
-def clock(run=subprocess.run):
+def clock(run=fkproc.run):
     """-> (ok | None when this system cannot say, detail, fix)."""
     try:
         if sys.platform.startswith("linux"):
@@ -98,7 +99,7 @@ def clock(run=subprocess.run):
     return None, "this system does not say whether its clock is synchronised", ""
 
 
-def reach_origin(repo, tries=3, sleep=time.sleep, run=subprocess.run):
+def reach_origin(repo, tries=3, sleep=time.sleep, run=fkproc.run):
     """git can talk to origin; Wi-Fi drops are retried (2, 4 s) before it counts as down."""
     delay, last = 2, ""
     for i in range(tries):
@@ -113,7 +114,7 @@ def reach_origin(repo, tries=3, sleep=time.sleep, run=subprocess.run):
     return False, f"origin did not answer after {tries} tries: {last}", "check the Wi-Fi or cable, then resend the job"
 
 
-def check(repo, min_gb=MIN_FREE_GB, run=subprocess.run, sleep=time.sleep, repair=True):
+def check(repo, min_gb=MIN_FREE_GB, run=fkproc.run, sleep=time.sleep, repair=True):
     """-> (can_run, concerns [{text, fix_offered}], evidence lines). What can be repaired safely is repaired first
     (temp space, the clock); what was repaired is reported too."""
     repaired = []
@@ -131,7 +132,7 @@ def check(repo, min_gb=MIN_FREE_GB, run=subprocess.run, sleep=time.sleep, repair
 
 
 @contextlib.contextmanager
-def awake(why="a fieldkit job is running", popen=subprocess.Popen):
+def awake(why="a fieldkit job is running", popen=fkproc.Popen):
     """Keep the device from sleeping while the job runs: systemd-inhibit (Linux), caffeinate (macOS),
     SetThreadExecutionState (Windows). Nothing is changed after it ends; where none exists, the job runs anyway."""
     held = None

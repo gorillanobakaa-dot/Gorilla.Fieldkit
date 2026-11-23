@@ -147,11 +147,44 @@ def world(tmp_path, monkeypatch):
         git(work, "push", "-q", "origin", f"HEAD:refs/heads/{br}", check=False)
         return {"ok": True, "branch": br}
     w["push"] = push
+    # the fake repo has no tests/testmap.yaml: its files are not "unmapped" (F2.6 refuses those); no test covers them
+    monkeypatch.setattr(batch, "tests_of", lambda repo, paths, base=None: set())
     return w
 
 
 def no_parked(_branch):
     return None
+
+
+def test_before_pr_ships_one_combined_tree_without_individual_prs(world):
+    repo, bare, gh = world["repo"], world["bare"], world["gh"]
+    for branch, filename, shared in (("feat/a", "a.txt", "ONE\ntwo\nthree\n"),
+                                     ("feat/b", "b.txt", None), ("feat/conflict", "c.txt", "OTHER\ntwo\nthree\n")):
+        git(repo, "checkout", "-qb", branch, "main")
+        (repo / "cards" / filename).write_text(filename, encoding="utf-8")
+        if shared:
+            (repo / "shared.txt").write_text(shared, encoding="utf-8")
+        regen(repo)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", filename)
+
+    shipped = []
+
+    def shipper(work, *, base, title, body_file):
+        branch = git(work, "branch", "--show-current")
+        body = Path(body_file).read_text(encoding="utf-8")
+        assert "fieldkit-batch" not in body  # Unproven members use the ordinary full-diff selection.
+        push = world["push"](work, base)
+        gh.create_pr(branch, base, title, body)
+        shipped.append(branch)
+        return push
+
+    result = batch.before_pr(repo, ["feat/a", "feat/b", "feat/conflict"], pol=POL, shipper=shipper, gh=gh)
+    assert result["ok"] and len(shipped) == len(gh.prs_) == 1
+    assert [m["branch"] for m in result["members"]] == ["feat/a", "feat/b"]
+    assert [m["source"] for m in result["left"]] == ["feat/conflict"]
+    assert json.loads(git(bare, "show", f"refs/heads/{shipped[0]}:index.json"))["cards"] == ["a.txt", "b.txt", "m.txt"]
+    assert git(bare, "for-each-ref", "--format=%(refname)", "refs/heads/feat/") == ""
 
 
 # -- 1. collect: only PRs green at their own head ----------------------------------------------------------------------
@@ -213,6 +246,19 @@ def test_run_green_merges_one_pr_and_closes_the_members(world, monkeypatch):
     assert sorted(n for n, _ in gh.closed) == [1, 2, 3]                    # none was merged by GitHub itself here
     body = gh.prs_[100]["body"]
     assert all(f"#{i}" in body for i in (1, 2, 3)) and "fieldkit-batch" in body
+
+
+def test_unmapped_file_refuses_the_batch_and_names_it_like_ci_tests(world, monkeypatch):
+    """F2.6: batch and .github/ci_tests.py share one rule: an unmapped file fails closed and is named."""
+    w, gh = world, world["gh"]
+    for i, c in enumerate("ab", 1):
+        w["pr"](i, f"feat/{c}", card=f"{c}.txt")
+    monkeypatch.setattr(batch, "collect", lambda g, p=None, m=None: _collect(g))
+    monkeypatch.setattr(batch, "select", lambda *a, **k: (_ for _ in ()).throw(
+        batch.Unmapped("no test covers fieldkit/x.py: map each in tests/testmap.yaml")))
+    r = batch.run(w["repo"], gh, pol=POL, push=w["push"], waiter=lambda n: {"ok": True})
+    assert not r["ok"] and r["state"] == "unmapped" and "fieldkit/x.py" in r["error"], r
+    assert gh.merged == [] and 100 not in gh.prs_                      # no PR was opened
 
 
 def _collect(gh):
@@ -333,7 +379,7 @@ def test_policy_file_is_data_with_the_generated_files_the_owner_named():
     assert {"fieldkit/desk/platform_index.json", "fieldkit/desk/tools.yaml", "docs/groups.yaml",
             "docs/PLATFORMS.md"} <= set(paths)
     assert pol["branch"].startswith("night/")                           # inside the mandate's push patterns
-    assert pol["shards"]["default"] == 4
+    assert pol["shards"]["default"] == 16
 
 
 def test_body_lists_every_member_and_what_was_left_out():

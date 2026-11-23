@@ -14,6 +14,7 @@ runs the privacy checks, and pushes / creates the release only after the owner t
 """
 import json
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import time
 from pathlib import Path
@@ -169,7 +170,7 @@ def lines(its):
 
 
 def _git(repo, *a):
-    return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    return fkproc.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
 
 
 def publish_plan(repo, release=None, notes=None, assets=()):
@@ -246,13 +247,13 @@ def sums_blockers(assets):
     return out
 
 
-def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=None, run=subprocess.run, say=print):
+def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=None, run=fkproc.run, say=print):
     """Push (and optionally release) after the privacy checks and the owner's typed yes. -> exit code."""
     import os
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         say("REFUSED: publish never runs inside an autopilot run (no credential there by design)")
         return 3
-    if run is subprocess.run:
+    if (run is subprocess.run or run is fkproc.run):
         from ..leakgate import status as _st
         if _st.gate_running():
             say("REFUSED: a leak gate is running; publishing goes to the network, so it waits until the gate has finished")
@@ -275,8 +276,13 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
         return 0
     if release:                                                   # one release per batch (owner order 2026-11-15)
         from ..core import sync
-        from ..method import releasegate
-        g = releasegate.guard(sync._slug(repo), release)
+        from ..method import releasecandidate, releasegate
+        slug = sync._slug(repo)
+        blocker = releasecandidate.legacy_blocker(repo, slug, release)
+        if blocker:
+            say(f"REFUSED: {blocker}")
+            return 3
+        g = releasegate.guard(slug, release)
         if not g["ok"]:
             say(f"REFUSED: {g['error']}: {g['next']}")
             return 3

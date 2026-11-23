@@ -1,0 +1,9 @@
+- file: fieldkit/method/releasecandidate.py
+  swap: ['if len(matches) != 1:', 'if False:']
+  why: Every platform needs its own installer for the requested version.
+- file: fieldkit/method/releasecandidate.py
+  swap: ['any(observed.get(name) != assets[name] for name in required_files)', 'False']
+  why: A successful installation only proves the exact package that was tested.
+- file: fieldkit/method/releasecandidate.py
+  swap: ['if name in observed or name not in assets or asset.get("state") != "uploaded" or (', 'if False and (']
+  why: Uploaded bytes must match local evidence before Latest can be changed.

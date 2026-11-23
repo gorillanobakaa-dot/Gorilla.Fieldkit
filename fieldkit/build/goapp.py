@@ -9,7 +9,7 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
                 for. Too old or missing: the exact install line for this system, never a silent download.
     modules     go mod download + go mod verify: every dependency matches go.sum, or the build stops
     vet         go vet ./...                      a short report: the problems, not the whole log
-    test        go test ./... -count=1 [-short]   the failing packages and tests, each with its first lines
+    test        go test ./... -count=1 [-short], or the full GitHub suites for an OpenCode release commit
     build       each target (GOOS/GOARCH), CGO off, -trimpath, stamped with the version (-ldflags -X), so the same
                 commit gives the same bytes on any machine; Windows gets .exe and its committed resources (.syso)
     repro       each target built AGAIN from a copy of the source in another folder (own build cache and temp folder,
@@ -38,6 +38,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -152,7 +153,7 @@ def copy_embeds(repo, dest, dirs, seeds=None):
         if not files and not have:
             raise ValueError(f"embed_dirs: {a} holds no files; the build would embed nothing. Put the files there "
                              "(for Gorilla OpenCode: scripts/build-toolbox.ps1 -HelpersDir ...) and run again")
-        ign = subprocess.run(["git", "-C", str(dest), "check-ignore", "-q", rel + "/x"], capture_output=True,
+        ign = fkproc.run(["git", "-C", str(dest), "check-ignore", "-q", rel + "/x"], capture_output=True,
                              timeout=60)
         if ign.returncode != 0:
             raise ValueError(f"embed_dirs: {rel} is not git-ignored in the clone; copying it there would make the "
@@ -228,7 +229,7 @@ def fetch_missing_embeds(ctx, src, goos, goarch, problems):
             env["PATH"] = os.pathsep.join([str(d) for d in (bd, bd.parent / "usr" / "bin", bd.parent.parent / "usr" / "bin")
                                            if d.is_dir()] + [env.get("PATH", "")])
         # OUTDIR is "." with cwd=tmp: GNU tar reads a "C:/..." -C/-f path as host "C" (tar: Cannot connect to C)
-        r = subprocess.run([bash, (Path(src) / script).as_posix(), "."], capture_output=True, text=True,
+        r = fkproc.run([bash, (Path(src) / script).as_posix(), "."], capture_output=True, text=True,
                            timeout=1800, env=env, cwd=str(tmp))
         if r.returncode != 0:
             return [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]] + problems
@@ -283,7 +284,7 @@ def doctor_row(pipeline, local=None):
 def source_commit(src):
     """The commit the source folder is at (40 hex), or None outside git."""
     try:
-        r = subprocess.run(["git", "-C", str(src), "rev-parse", "--verify", "--quiet", "HEAD"], capture_output=True,
+        r = fkproc.run(["git", "-C", str(src), "rev-parse", "--verify", "--quiet", "HEAD"], capture_output=True,
                            text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -320,7 +321,7 @@ def checkout(repo, ref, out=""):
     """A clean clone of `ref` (any commit-ish) of the repository at `repo`, at <out>/source-<sha12> (out empty:
     <repo>/dist/git-<sha12>/source-<sha12>). Made once, then reused while its HEAD is that commit and it is
     clean; anything else there is refused, never deleted. Raises ValueError."""
-    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+    r = fkproc.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
                        capture_output=True, text=True, timeout=60)
     sha = r.stdout.strip()
     if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -329,18 +330,18 @@ def checkout(repo, ref, out=""):
     dest = base / f"source-{sha[:12]}"
     if not dest.exists():
         base.mkdir(parents=True, exist_ok=True)
-        c = subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(repo), str(dest)], capture_output=True,
+        c = fkproc.run(["git", "clone", "--quiet", "--no-checkout", str(repo), str(dest)], capture_output=True,
                            text=True, timeout=1800)
         if c.returncode == 0:
-            c = subprocess.run(["git", "-C", str(dest), "-c", "advice.detachedHead=false", "checkout", "--quiet",
+            c = fkproc.run(["git", "-C", str(dest), "-c", "advice.detachedHead=false", "checkout", "--quiet",
                                 "--detach", sha], capture_output=True, text=True, timeout=1800)
         if c.returncode != 0:
             raise ValueError(f"cloning {sha[:12]} into {dest} failed: {(c.stderr or c.stdout).strip()[:300]}")
-    head = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
+    head = fkproc.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
     if head.stdout.strip() != sha:
         raise ValueError(f"{dest} exists and is not a checkout of {sha[:12]} (HEAD {head.stdout.strip()[:12]!r}): "
                          "move it away or choose another out")
-    dirty = subprocess.run(["git", "-C", str(dest), "status", "--porcelain"], capture_output=True, text=True,
+    dirty = fkproc.run(["git", "-C", str(dest), "status", "--porcelain"], capture_output=True, text=True,
                            timeout=300)
     if dirty.returncode != 0 or dirty.stdout.strip():
         raise ValueError(f"{dest} is not clean (go would record vcs.modified=true): "
@@ -357,7 +358,7 @@ def eol_drift(src):
     prompt, SQL migration and doc was compiled in with CRLF: the published binaries are reproducible only from that
     one folder, never from git. Not a git checkout: []."""
     try:
-        r = subprocess.run(["git", "-C", str(src), "ls-files", "--eol"], capture_output=True, text=True, timeout=300)
+        r = fkproc.run(["git", "-C", str(src), "ls-files", "--eol"], capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired):
         return []
     if r.returncode != 0:
@@ -408,7 +409,7 @@ def _ver(s):
 
 
 def go_version(go):
-    r = subprocess.run([go, "env", "GOVERSION"], capture_output=True, text=True, timeout=60)
+    r = fkproc.run([go, "env", "GOVERSION"], capture_output=True, text=True, timeout=60)
     return r.stdout.strip().removeprefix("go") if r.returncode == 0 else None
 
 
@@ -417,7 +418,7 @@ def fingerprint(src):
     Git's list when it is a git checkout (ignored files do not count), else every .go file under src."""
     src = Path(src)
     try:
-        r = subprocess.run(["git", "-C", str(src), "ls-files", "-co", "--exclude-standard"], capture_output=True,
+        r = fkproc.run(["git", "-C", str(src), "ls-files", "-co", "--exclude-standard"], capture_output=True,
                            text=True, timeout=120)
         files = sorted(l for l in r.stdout.splitlines() if l) if r.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
@@ -440,7 +441,7 @@ def fingerprint(src):
 
 
 def describe_version(src):
-    r = subprocess.run(["git", "-C", str(src), "describe", "--tags", "--always", "--dirty"], capture_output=True,
+    r = fkproc.run(["git", "-C", str(src), "describe", "--tags", "--always", "--dirty"], capture_output=True,
                        text=True, timeout=60)
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "dev"
 
@@ -586,12 +587,55 @@ def verify_vet(ctx):
     return _fresh(ctx, "vet")
 
 
+def _opencode_ci_tests(ctx, github=None):
+    """Read full-suite results for an immutable OpenCode release commit from GitHub Actions."""
+    from ..method.releasecandidate import GitHub, Refused
+
+    repo = "gorillanobakaa-dot/Gorilla.Opencode"
+    commit = ctx.vars.get("git_ref") or ""
+    if ctx.vars.get("repo") != repo or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return {"ok": False, "detail": "GitHub test proof requires OpenCode and its full release commit SHA as git_ref"}
+    github = github or GitHub(repo)
+    try:
+        runs = github.api(f"actions/workflows/ci.yml/runs?branch=main&event=push&head_sha={commit}").get("workflow_runs")
+        if not isinstance(runs, list) or len(runs) != 1:
+            raise Refused("expected one main-push CI run")
+        run = runs[0]
+        run_id, attempt = run.get("id"), run.get("run_attempt")
+        if (type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0
+                or run.get("status") != "completed" or run.get("conclusion") != "success"
+                or run.get("head_branch") != "main" or run.get("event") != "push" or run.get("head_sha") != commit
+                or run.get("path") != ".github/workflows/ci.yml"
+                or (run.get("head_repository") or {}).get("full_name", "").casefold() != repo.casefold()):
+            raise Refused("the run is not a completed successful main-push CI run for this commit")
+        jobs = github.api(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs")
+        if not isinstance(jobs, list):
+            raise Refused("GitHub did not return job results")
+        for name, os_prefix in (("build-test", "ubuntu-"), ("build-test-windows", "windows-")):
+            matches = [job for job in jobs if job.get("name") == name]
+            if len(matches) != 1:
+                raise Refused(f"expected one {name} job")
+            job = matches[0]
+            full = [step for step in job.get("steps") or [] if step.get("name") == "test full Go suite"]
+            if (job.get("head_sha") != commit or job.get("status") != "completed" or job.get("conclusion") != "success"
+                    or not any(label.startswith(os_prefix) for label in job.get("labels") or [])
+                    or len(full) != 1 or full[0].get("status") != "completed" or full[0].get("conclusion") != "success"):
+                raise Refused(f"{name} lacks a successful full-suite test on this commit")
+    except (AttributeError, OSError, TypeError, ValueError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "detail": f"GitHub CI proof for {commit[:12]} refused: {exc}"}
+    return {"ok": True, "detail": f"full Linux and Windows Go suites passed for {commit} in GitHub run {run_id}/{attempt}"}
+
+
 def stage_test(ctx, mode="all"):
+    if mode == "github-main":
+        return _opencode_ci_tests(ctx)
     cmd = ["test", "./...", "-count=1", "-timeout", "45m"] + (["-short"] if mode == "short" else [])
     return _checked(ctx, "test", cmd, 3 * 3600)
 
 
 def verify_test(ctx, mode="all"):
+    if mode == "github-main":
+        return _opencode_ci_tests(ctx)
     return _fresh(ctx, "test")
 
 
@@ -711,7 +755,7 @@ def verify_build(ctx):
             return {"ok": False, "detail": f"{p.name} does not carry the version stamp {rec['version']}"}
     runs = _runs_here(rec)
     if runs and ctx.vars.get("version_flag"):
-        r = subprocess.run([runs, ctx.vars["version_flag"]], capture_output=True, text=True, timeout=60)
+        r = fkproc.run([runs, ctx.vars["version_flag"]], capture_output=True, text=True, timeout=60)
         if r.stdout.strip() != rec["version"]:
             return {"ok": False, "detail": f"{Path(runs).name} {ctx.vars['version_flag']} says "
                                            f"{r.stdout.strip()[:60]!r}, not {rec['version']}"}
@@ -738,7 +782,7 @@ def stage_repro(ctx):
     shutil.copytree(src, other, symlinks=True, ignore=ignore)
     for d in ("gocache", "tmp", "out"):
         (base / d).mkdir()
-    modcache = subprocess.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
+    modcache = fkproc.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
     env = {"GOCACHE": str(base / "gocache"), "TMPDIR": str(base / "tmp"), "TEMP": str(base / "tmp"),
            "TMP": str(base / "tmp"), "TZ": "Pacific/Kiritimati", "LC_ALL": "C", "LANG": "C"}
     if modcache:
@@ -790,7 +834,7 @@ def verify_repro(ctx):
 
 def _buildinfo(go, f):
     """`go version -m` of a binary, the file name line left out: what go recorded (toolchain, vcs.*, flags)."""
-    r = subprocess.run([go, "version", "-m", str(f)], capture_output=True, text=True, timeout=120)
+    r = fkproc.run([go, "version", "-m", str(f)], capture_output=True, text=True, timeout=120)
     return [l.strip() for l in r.stdout.splitlines()[1:] if l.strip()] if r.returncode == 0 else []
 
 
@@ -815,7 +859,7 @@ def _published_files(ctx, src, names):
     cmd = ["gh", "release", "download", rec["version"], "-R", v["repo"], "-D", str(folder), "-p", "SHA256SUMS-*.txt"]
     for n in names:
         cmd += ["-p", n]
-    g = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    g = fkproc.run(cmd, capture_output=True, text=True, timeout=3600)
     if g.returncode != 0:
         raise ValueError(f"gh release download {rec['version']} failed: {(g.stderr or g.stdout).strip()[:200]}")
     sums = sorted(folder.glob("SHA256SUMS-*.txt"))
@@ -945,7 +989,7 @@ def mac_go(ctx, src):
     have = go_version(go) or ""
     if not want or have == want or have.startswith(want + "."):
         return go, have
-    modcache = subprocess.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
+    modcache = fkproc.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
     for ver, cand in cached_toolchains(want, modcache or None):
         if go_version(cand) == ver:
             return cand, ver
@@ -1182,7 +1226,7 @@ def verify_arch(ctx):
         p = Path(f["file"])
         if not p.is_file() or _sha(p) != f["sha256"]:
             return {"ok": False, "detail": f"{p.name} is missing or changed"}
-        r = subprocess.run(["zstd", "-t", str(p)], capture_output=True, text=True, timeout=600)
+        r = fkproc.run(["zstd", "-t", str(p)], capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             return {"ok": False, "detail": f"{p.name}: zstd -t failed: {(r.stderr or r.stdout)[-200:]}"}
         if not p.name.endswith("-x86_64.pkg.tar.zst") or _plain(rec["version"]) not in p.name:
@@ -1253,7 +1297,7 @@ def _source_epoch(src):
     if os.environ.get("SOURCE_DATE_EPOCH", "").isdigit():
         return int(os.environ["SOURCE_DATE_EPOCH"])
     try:
-        r = subprocess.run(["git", "-C", str(src), "log", "-1", "--format=%ct"], capture_output=True, text=True,
+        r = fkproc.run(["git", "-C", str(src), "log", "-1", "--format=%ct"], capture_output=True, text=True,
                            timeout=60)
         return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else 0
     except (OSError, subprocess.TimeoutExpired):
@@ -1308,7 +1352,7 @@ def previous_release_deb(repo, version, dest, gh="gh"):
     from . import relfiles
     from ..method.ship import ship_env        # inside an autopilot run only ship's own environment has gh's account back (#145)
     env = ship_env()
-    r = subprocess.run([gh, "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,isDraft"],
+    r = fkproc.run([gh, "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,isDraft"],
                        capture_output=True, text=True, timeout=120, env=env)
     if r.returncode != 0:
         raise ValueError(f"gh release list -R {repo} failed: {(r.stderr or r.stdout).strip()[:200]}")
@@ -1332,7 +1376,7 @@ def previous_release_deb(repo, version, dest, gh="gh"):
             raise ValueError(f"{tag} has {len(debs)} .deb file(s) and {len(sums)} SHA256SUMS file(s), expected one each")
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
-        g = subprocess.run([gh, "release", "download", tag, "-R", repo, "-D", str(d), "-p", "*_amd64.deb",
+        g = fkproc.run([gh, "release", "download", tag, "-R", repo, "-D", str(d), "-p", "*_amd64.deb",
                             "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800, env=env)
         if g.returncode != 0:
             raise ValueError(f"gh release download {tag} failed: {(g.stderr or g.stdout).strip()[:200]}")
@@ -1478,7 +1522,7 @@ def verify_checksums(ctx):
     return {"ok": True, "detail": f"{f.name} lists every published file and matches it; {t.name} agrees"}
 
 
-def stage_align(ctx, run=subprocess.run):
+def stage_align(ctx, run=fkproc.run):
     """After gh-release (release mode, once): bring both computers to the new version with `fieldkit parity align
     --apply`, here and on every peer over the cable (a `run` link job, no AI, no owner step). The release itself is
     the source: align downloads the asset and SHA256SUMS from it and checks them, so an unpublished tag fails here."""

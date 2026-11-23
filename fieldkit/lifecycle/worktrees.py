@@ -16,6 +16,7 @@ only with `git worktree remove` (no --force): a tree with changes is refused by 
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 from pathlib import Path
 
 PREFIX = "wt-job-"
@@ -26,7 +27,7 @@ class Refused(ValueError):
 SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def _git(repo, *a, run=subprocess.run):
+def _git(repo, *a, run=fkproc.run):
     try:
         r = run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
@@ -39,13 +40,13 @@ def scratch_root():
     return Path(root())
 
 
-def top(repo, run=subprocess.run):
+def top(repo, run=fkproc.run):
     """-> the main checkout of the repository holding `repo`, or None when it is not in git."""
     rc, out = _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir", run=run)
     return Path(out).parent if rc == 0 and out else None
 
 
-def make(repo, name, run=subprocess.run, root=None, fetch=True):
+def make(repo, name, run=fkproc.run, root=None, fetch=True):
     """-> (path or None, why). None: `repo` is not in git, the job runs there and why says so. Raises Refused."""
     main = top(repo, run=run)
     if main is None:
@@ -78,7 +79,7 @@ def _owner(path):
         return {}
 
 
-def listed(main, run=subprocess.run):
+def listed(main, run=fkproc.run):
     """-> [(path, head sha)] of the worktrees git has for this repository."""
     rc, out = _git(main, "worktree", "list", "--porcelain", run=run)
     rows, path = [], None
@@ -103,7 +104,7 @@ def _keep_captures(path):
     return None
 
 
-def reap(repo, run=subprocess.run, root=None, alive=None):
+def reap(repo, run=fkproc.run, root=None, alive=None):
     """-> {"removed": [paths], "kept": [(path, why)]}."""
     if alive is None:
         from ..peers.peers import pid_alive as alive

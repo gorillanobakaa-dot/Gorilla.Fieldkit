@@ -132,6 +132,65 @@ def check(since, until=None, plan=None, **kw):
                                                                                   missing else "")}
 
 
+def note(what, why="", plan=None):
+    """F2.4: one Board table line for a thing that used to be an inbox item (a finished goal, a PR left open).
+    Never raises and never makes PLAN.md: no Board here -> False."""
+    try:
+        plan = Path(plan or plan_file())
+        if not plan.is_file():
+            return False
+        cell = lambda t: " ".join(str(t).split()).replace("|", "/")[:300]  # noqa: E731
+        line = f"| {cell(what)} | NOTE (no inbox item) | {cell(why)} | - | - | {time.strftime('%Y-%m-%d %H:%M')} |"
+        with open(plan, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def cost_rows(day=None, call=None, now=None, measure=None):
+    """F2.10: the day's AI dollars per machine, the numbers `fieldkit cost daily` and `fieldkit session-cost` print
+    (this computer measured here, the other one asked over the cable with the read-only link verb `cost`; the
+    answer kept for a day). -> [(machine, usd or None, text)]; no answer = no dollars, never a guess."""
+    from ..tokens import cost_daily
+    day = day or date.today()
+    mine = (measure or cost_daily.measure_day)(day)
+    rows = [(mine.get("machine") or "L15", mine["usd"],
+             f"${mine['usd']:.2f} in {mine['sessions']} session(s), {mine['calls']} calls (measured here)")]
+    other = cost_daily.peer_name() or "VAIO"
+    f, at = cost_daily.from_cable({"kind": "daily", "date": day.isoformat()}, call=call, now=now)
+    d = None
+    if f:
+        try:
+            d = json.loads(Path(f).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            d = None
+    if d and isinstance(d.get("usd"), (int, float)):
+        rows.append((d.get("machine") or other, round(float(d["usd"]), 2),
+                     f"${float(d['usd']):.2f} in {d.get('sessions', '?')} session(s), {d.get('calls', '?')} calls "
+                     f"(asked over the cable, measured {cost_daily.when_text(at)})"))
+    else:
+        rows.append((other, None, "NOT COUNTED: no answer over the cable and no copy fresher than a day"))
+    return rows
+
+
+def cost_note(day=None, plan=None, **kw):
+    """One Board line per machine from cost_rows. Never makes PLAN.md, never raises. -> the lines written."""
+    day = day or date.today()
+    try:
+        plan = Path(plan or plan_file())
+        if not plan.is_file():
+            return []
+        stamp = time.strftime("%Y-%m-%d %H:%M")
+        lines = [f"| COST {_cell(m)} {day.isoformat()} | {'$%.2f' % usd if usd is not None else 'NOT COUNTED'} | "
+                 f"{_cell(t)} | - | - | {stamp} |" for m, usd, t in cost_rows(day, **kw)]
+        with open(plan, "a", encoding="utf-8") as f:
+            f.write("".join(ln + "\n" for ln in lines))
+        return lines
+    except (OSError, ValueError):
+        return []
+
+
 def row(facts, tag=None):
     """The Board row, from the transcript only (6 cells, the shape of the handover tables)."""
     from ..peers import machine
@@ -192,13 +251,27 @@ def friction_rows(now=None, hours=24, **kw):
     return [{"kind": "board", "key": f"board:{f['session']}",
              "line": f"session \"{_cell(_title(f), 60)}\" ({f['session'][:8]}) "
                      f"ended with no Board row in PLAN.md",
-             "fix": f"fieldkit board add {f['session']}"} for f in r["missing"]]
+             "fix": f"fieldkit board add {f['session']}"} for f in r["missing"]] + refusal_rows()
+
+
+def refusal_rows(root=None):
+    """5.7 / F7: the refusal ledger (state/refusals.jsonl -> defects) shown on the Board side: one row per OPEN defect,
+    linked by its key, so a refusal repeated by a harness tool is seen where the sessions' rows are."""
+    from .. import refusals
+    try:
+        found = refusals.defects(root)
+    except OSError:
+        return []
+    return [{"kind": "refusal", "key": f"refusal:{k}",
+             "line": f"open refusal defect {k} ({d.get('tool', '?')}, {d.get('count', 0)} times; ledger: state/refusals.jsonl)",
+             "fix": f"fieldkit refusals close {k} --test FILE::TEST"}
+            for k, d in sorted(found.items()) if d.get("status") == "open"]
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit board", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["check", "add"])
+    ap.add_argument("action", choices=["check", "add", "cost"])
     ap.add_argument("sessions", nargs="*", help="add: session ids (or their first characters) or transcript paths")
     ap.add_argument("--missing", action="store_true", help="add: every finished session of the day without a row")
     ap.add_argument("--date", help="the day, YYYY-MM-DD (default today)")
@@ -214,6 +287,10 @@ def main(argv=None):
         print(f"no Board: {plan} does not exist (it is never made here)\nNEXT: run in the Fieldkit checkout that "
               "holds state/coordination/PLAN.md")
         return 1
+    if a.action == "cost":                            # F2.10: one row per machine, the other one asked over the cable
+        lines = cost_note(date.fromisoformat(a.date) if a.date else None, plan)
+        print("\n".join(lines) or "no cost rows written")
+        return 0 if lines else 1
     if a.action == "check":
         r = check(since, until, plan)
         if a.json:
@@ -225,6 +302,8 @@ def main(argv=None):
                 print(f"NO ROW  {f['session'][:8]}  ${f.get('usd', 0):>7.2f}  "
                       f"{_cell(_title(f), 70)}")
             print(r["line"])
+            for x in refusal_rows():
+                print(f"REFUSAL  {x['line']}")
             print("NEXT: " + ("fieldkit board add --missing" + (f" --date {a.date}" if a.date else "")
                               if r["missing"] else "nothing: every finished session has its row"))
         return 3 if r["missing"] else 0

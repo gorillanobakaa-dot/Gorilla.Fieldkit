@@ -23,6 +23,7 @@ import json
 import os
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 import tempfile
 import time
@@ -61,7 +62,7 @@ def failing_tests(text):
     return re.findall(r"^FAILED (\S+)", text or "", re.M)
 
 
-def run(repo=None, ref=None, extras="test", keep=False, say=print, runner=subprocess.run, work=None):
+def run(repo=None, ref=None, extras="test", keep=False, say=print, runner=fkproc.run, work=None):
     """-> {"ok", "rows", "work"}."""
     repo = Path(repo or FK)
     rows = []

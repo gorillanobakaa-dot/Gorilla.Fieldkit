@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+from fieldkit import proc as fkproc
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -185,7 +186,7 @@ def stage_deps(ctx, packages=None):
         return {"ok": False, "detail": "dpkg-query not found: this stage needs Debian/Ubuntu"}
     missing = []
     for p in packages:
-        r = subprocess.run(["dpkg-query", "-W", "-f=${Status}", p], capture_output=True, text=True)
+        r = fkproc.run(["dpkg-query", "-W", "-f=${Status}", p], capture_output=True, text=True)
         if "install ok installed" not in r.stdout:
             missing.append(p)
     return {"ok": not missing, "missing": missing,
@@ -279,7 +280,7 @@ def stage_fetch(ctx, mirror="", opener=None, vault_base=None):
 def _fetch_mirror(ctx, mirror, version, work, why):
     """git fetch --depth 1 <mirror> tag v<version>; git archive into <workdir>/linux-<version>."""
     repo, tag, src = work / "mirror.git", f"v{version}", work / f"linux-{version}"
-    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", *a], capture_output=True, text=True)
+    git = lambda *a: fkproc.run(["git", "-c", "core.autocrlf=false", *a], capture_output=True, text=True)
     if not (repo / "HEAD").is_file():
         r = git("init", "-q", "--bare", str(repo))
         if r.returncode:
@@ -290,7 +291,7 @@ def _fetch_mirror(ctx, mirror, version, work, why):
     commit = git("-C", str(repo), "rev-parse", f"{tag}^{{commit}}").stdout.strip()
     if not (src / "Makefile").is_file():
         src.mkdir(parents=True, exist_ok=True)
-        arc = subprocess.run(["git", "-C", str(repo), "archive", tag], capture_output=True)
+        arc = fkproc.run(["git", "-C", str(repo), "archive", tag], capture_output=True)
         if arc.returncode:
             return {"ok": False, "detail": f"git archive {tag} failed: {arc.stderr.decode('utf-8', 'replace')[:200]}"}
         import io
@@ -452,12 +453,21 @@ def build_env(src, kcflags="-O3 -pipe", now=None):
     return env
 
 
+def _ccache_make_args(which=None):
+    """Return kernel `make` compiler-cache overrides (`CC`/`HOSTCC`) when ccache or sccache is installed."""
+    w = which or shutil.which
+    for tool in ("ccache", "sccache"):
+        if w(tool):
+            return [f"CC={tool} gcc", f"HOSTCC={tool} gcc"]
+    return []
+
+
 def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
     src, version = Path(_v(ctx, "src")), _v(ctx, "version")
     name = localversion(version, list(tags))
     (src / BUILD_STAMP).unlink(missing_ok=True)                  # a new build gets a new stamp
     cmd = ["make", "-C", str(src), f"LOCALVERSION={name['localversion']}", f"-j{jobs or ctx.host['cpus']}",
-           "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
+           *_ccache_make_args(), "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
     r = ctx.runner.run(cmd, env=build_env(src, kcflags), name="bindeb-pkg")
     return {"ok": r.ok, "uname": name["uname"], "log": r.log, "detail": f"uname {name['uname']} ({name['length']}/64)"}
 
@@ -478,7 +488,7 @@ def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
     if not release.startswith(version):
         return {"ok": False, "detail": f"the built tree is {release}, not {version}"}
     cmd = ["make", "-C", str(src), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
-           "binrpm-pkg"]
+           *_ccache_make_args(), "binrpm-pkg"]
     env = build_env(src, kcflags)
     # binrpm-pkg re-links with KBUILD_BUILD_VERSION = .version + 1 (scripts/build-version), overriding the build's
     # own number: set the counter so the RPM's kernel carries the .deb's number (2026-10-10: #1 vs #3)

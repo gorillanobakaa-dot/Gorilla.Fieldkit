@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -58,6 +60,7 @@ for _k in [k for k in _os.environ if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFI
 _os.environ["GIT_CONFIG_GLOBAL"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-gitconfig-"), "empty")
 open(_os.environ["GIT_CONFIG_GLOBAL"], "w").close()
 _os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+_os.environ["FIELDKIT_MODE_ASK"] = "off"   # the once-per-session mode question would prefix every room-hook text; its own tests turn it on
 # 2026-10-26: tests that run the real pre-commit hook on a temporary repo must not write their pass/refused rows
 # into the real state/testcost log (fieldkit testcost report would count fake refusals as caught bugs).
 _os.environ["FIELDKIT_TESTCOST_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-testcost-")
@@ -73,6 +76,13 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 # C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
 # toolrouter.hook must not write a room line, check a station in or register a process in the real state.
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
+# The room hook runs the agent-models guard; keep it off the real ~/.claude and give it correct templates so
+# hook tests stay silent on a CI runner whose home has no agent files.
+_os.environ["FIELDKIT_CLAUDE_HOME"] = _tempfile.mkdtemp(prefix="fieldkit-test-claude-")
+_os.environ["FIELDKIT_AGENT_MODELS_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-agentmodels-")
+_os.environ["FIELDKIT_AGENT_MODELS_TRASH"] = _tempfile.mkdtemp(prefix="fieldkit-test-agenttrash-")
+from fieldkit.tokens.agent_models import write_templates as _wt  # noqa: E402
+_wt(_os.path.join(_os.environ["FIELDKIT_CLAUDE_HOME"], "agents"))
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
 # 2026-11-16: refusals.record() with no root wrote fixture rows into the real state/refusals.jsonl, which
@@ -209,7 +219,70 @@ def _no_real_modelauth(request, monkeypatch):
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_modelauth: run the real claude login check on an injected runner")
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
+    config.addinivalue_line("markers", "serial: touches a machine-wide resource (port, registry, real repo); under xdist "
+                                       "every serial test runs on one worker")
     config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
+
+
+_SERIAL_SIGNS = ("serve_forever", "HTTPServer", "socket.socket", "winreg", ".bind((", "create_server")
+
+
+def pytest_collection_modifyitems(config, items):
+    """C7: under xdist (-n, --dist loadgroup) tests marked `serial`, and modules that open ports or touch the registry,
+    share one xdist group, so they run one after another on one worker. Without xdist this changes nothing."""
+    cache = {}
+    for item in items:
+        path = str(item.fspath)
+        if path not in cache:
+            try:
+                text = open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                text = ""
+            cache[path] = any(sign in text for sign in _SERIAL_SIGNS)
+        if cache[path] or item.get_closest_marker("serial"):
+            item.add_marker(pytest.mark.xdist_group("serial"))
+    _skip_reused_nodes(config, items)
+
+
+_NODES = {"passed": set(), "failed": set(), "skipped_by_receipt": 0}
+
+
+def _skip_reused_nodes(config, items):
+    """C5: FIELDKIT_SKIP_NODES names a JSON list of node ids whose pass is already recorded for the same covered files;
+    they are deselected (a file, not the command line, so thousands of ids fit on Windows)."""
+    path = os.environ.get("FIELDKIT_SKIP_NODES")
+    if not path or not os.path.isfile(path):
+        return
+    try:
+        skip = set(json.load(open(path, encoding="utf-8")))
+    except (OSError, ValueError):
+        return
+    dropped = [item for item in items if item.nodeid in skip]
+    if dropped:
+        items[:] = [item for item in items if item.nodeid not in skip]
+        config.hook.pytest_deselected(items=dropped)
+        _NODES["skipped_by_receipt"] += len(dropped)
+
+
+def pytest_runtest_logreport(report):
+    """C5: the controller process records which node ids passed and failed (workers report to it under xdist)."""
+    if report.when == "call" or (report.when == "setup" and report.outcome != "passed"):
+        if report.outcome == "passed":
+            _NODES["passed"].add(report.nodeid)
+        elif report.outcome == "failed" or report.when == "setup":
+            _NODES["failed"].add(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    out = os.environ.get("FIELDKIT_NODES_OUT")
+    if out and not hasattr(session.config, "workerinput"):
+        passed = sorted(_NODES["passed"] - _NODES["failed"])
+        try:
+            with open(out, "w", encoding="utf-8") as handle:
+                json.dump({"passed": passed, "failed": sorted(_NODES["failed"]),
+                           "skipped_by_receipt": _NODES["skipped_by_receipt"]}, handle)
+        except OSError:
+            pass
 
 
 # ============================================================================
@@ -474,6 +547,7 @@ def _release_gate_sees_no_release(monkeypatch):
     tests/test_releasegate.py passes `last=` to guard() itself."""
     from fieldkit.method import releasegate
     monkeypatch.setattr(releasegate, "_gh_last", lambda slug: None)
+    monkeypatch.setattr(releasegate, "_gh_published", lambda slug: [])
 
 
 @pytest.fixture(autouse=True)

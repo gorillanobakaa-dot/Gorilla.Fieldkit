@@ -22,6 +22,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fieldkit import proc as fkproc
 import sys
 from pathlib import Path
 
@@ -55,13 +56,17 @@ def tracked(path):
     """-> True/False: is the file in a git repository's index; None when it is in no repository at all."""
     p = Path(path)
     try:
-        top = subprocess.run(["git", "-C", str(p.parent), "rev-parse", "--show-toplevel"], capture_output=True,
+        top = fkproc.run(["git", "-C", str(p.parent), "rev-parse", "--show-toplevel"], capture_output=True,
                              text=True, timeout=10)
         if top.returncode:
             return None
-        r = subprocess.run(["git", "-C", top.stdout.strip(), "ls-files", "--error-unmatch", str(p.resolve())],
+        r = fkproc.run(["git", "-C", top.stdout.strip(), "ls-files", "--error-unmatch", str(p.resolve())],
                            capture_output=True, text=True, timeout=10)
         return r.returncode == 0
+    except subprocess.TimeoutExpired as exc:
+        print(f"rules_song: git {exc.cmd[3] if len(exc.cmd) > 3 else ''} timed out after {exc.timeout} s for {p}: "
+              "tracked status unknown", file=sys.stderr)
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
 
