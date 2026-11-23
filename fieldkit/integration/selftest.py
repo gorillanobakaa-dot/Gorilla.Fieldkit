@@ -59,6 +59,9 @@ def satisfy(st, cfg, ctype, rule, name):
                 st.add("internal/toolbox/SHA256SUMS", f"{SHA}  {prefix}amd64/{name}")
     elif t == "block":
         st.block.append(name)
+    elif t == "hotpath_compiled":
+        st.files["fieldkit/pycache/hotpath.yaml"] = "modules:\n  - {module: fieldkit.hotmod, why: fixture}\n"
+        st.files["fieldkit/hotmod.py"] = "VALUE = 1\n"
     elif t == "kind_has":
         if rule["id"] not in st.done:
             st.done.add(rule["id"])

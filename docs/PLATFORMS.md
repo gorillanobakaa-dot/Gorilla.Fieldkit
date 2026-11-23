@@ -136,7 +136,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:windows-11-tweaks` | windows | linux | NATIVE-ONLY | CREATE | the Windows 11 tweaks framework changes Windows-only settings (registry, services, AppX) | M |  | fieldkit/emerge/recipes/windows-11-tweaks.yaml:40 |
 | `workflow:release.yml:desktop-file-validate for fieldkit ins…` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/release.yml:103 |
 | `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:176 |
-| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:245 |
+| `workflow:tests.yml:desktop-file-validate for fieldkit insta` | linux | windows | NATIVE-ONLY | CREATE | desktop-file-validate checks .desktop launchers, which exist only on a Linux desktop; Win… | M |  | .github/workflows/tests.yml:248 |
 
 ## How each single-system command is routed (core/crossos.py)
 

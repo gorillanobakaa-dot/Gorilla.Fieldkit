@@ -754,6 +754,7 @@ def _purpose(owner, sc, rel, text):
 def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids=None, tree=None, sc=None):
     owner = Path(owner_root)
     sc = sc or scope_of(owner)
+    owns_tree = tree is None
     tree = tree or Tree(workdir)
     idx, by_id, reloc = _step_index(steps), {s["id"]: s for s in steps}, _relocations(steps)
     patch_decisions = patch_decisions or {}
@@ -874,6 +875,8 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                     again = after(later_patch, l.strip(), g) if present else None    # a later group creates it again
                     deleted.append({"group": g, "file": l.strip(), "present": present and not again,
                                     **({"recreated_by": again} if again else {})})
+    if owns_tree:
+        tree.close()                 # the git cat-file child keeps the tree folder open on Windows until it is waited for
     return {"patches": out, "new_files": nf, "deleted": deleted, "excluded": sc["excluded"], "disabled": sc["disabled"]}
 
 
