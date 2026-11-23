@@ -8127,3 +8127,26 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_antigravity_bridge.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner order 2026-11-15 (Deterministic.tools interoperability). Port of bridge.rs; the Rust orchestrator (own :47078 listener, own key) is NOT ported: the cable relay is Fieldkit's link listener on 47077 with its pairing key. Doc docs/ANTIGRAVITY-BRIDGE.md."
+
+- id: escalate
+  title: "Cheapest session that passes - a job brief runs as a NEW headless session at low effort, a deterministic check (test command, verifier or ship ci-wait) decides, only a red starts a NEW high-effort session with the failure's last lines, then xhigh on Opus if the spend guard allows; every attempt a ledger line; plus the 1h prompt-cache settings check"
+  harness: method
+  entry: [python, -m, fieldkit, escalate]
+  path: ${FIELDKIT}/fieldkit/escalate/cli.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [run, cache, ledger], help: "run BRIEF.md with a check; cache = fail unless promptCacheTtl/subagentPromptCacheTtl are 1h and the three env vars are set; ledger = the attempts"}
+    - {name: test, flag: --test, type: str, required: false, help: "run: the failure signal as a test command (exit 0 = pass)"}
+    - {name: verify, flag: --verify, type: str, required: false, help: "run: the failure signal as a verifier command (exit 0 = pass)"}
+    - {name: ci_wait, flag: --ci-wait, type: str, required: false, help: "run: the failure signal is `fieldkit ship ci-wait PR`"}
+    - {name: skip_if_green, flag: --skip-if-green, type: flag, required: false, help: "run: check first; no model call when it already passes"}
+    - {name: no_xhigh, flag: --no-xhigh, type: flag, required: false, help: "run: stop after the high rung"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  output: own
+  exits: {1: "every rung failed the check", 2: "bad usage", 3: "cache settings missing"}
+  platforms: [windows, linux]
+  e2e: {linux: e2e-escalate-linux, windows: e2e-escalate-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_escalate.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Owner order 2026-11-23 (idea I-32). Evidence: platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence - low effort with the failures re-run at high scored about 97% at about $0.17 a task, against 95.3% at $0.29 for all-high. No model is called when the first try passes or --skip-if-green finds the check green. A retry is always a NEW session (never --resume), its brief the original plus at most 25 lines / 3000 chars of the failing check. The xhigh rung is Opus and goes through models.check_model (TWO STRIKES, mandate models_allowed); a refusal is logged as skipped. Every session inherits CLAUDE_CODE_PROMPT_CACHE_TTL=1h, CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h, ENABLE_PROMPT_CACHING_1H=1. Sessions are started by autopilot.run.claude (guard, container, stall watch), not a second starter. Ledger: state/lifecycle/escalate.jsonl. `fieldkit integration cache` is the same enforcement check next to the integration check. Mutations: tests/escalate_mutations.yaml."

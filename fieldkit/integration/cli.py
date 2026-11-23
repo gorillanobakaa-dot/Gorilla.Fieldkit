@@ -68,7 +68,13 @@ def main(argv=None):
     s = sub.add_parser("self-test", help="seed one omission per surface in a fixture; every one must be caught")
     s.add_argument("--kind", required=True, choices=["opencode", "fieldkit"])
     s.add_argument("--json", action="store_true")
+    k = sub.add_parser("cache", help="fail unless ~/.claude/settings.json carries the 1h prompt-cache settings")
+    k.add_argument("--settings")
+    k.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "cache":
+        from ..escalate import cli as escalate_cli
+        return escalate_cli.cmd_cache(a)
     return cmd_check(a) if a.action == "check" else cmd_selftest(a)
 
 

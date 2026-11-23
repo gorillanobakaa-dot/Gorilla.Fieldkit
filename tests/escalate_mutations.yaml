@@ -1,0 +1,27 @@
+# fieldkit escalate: the failure check and the cache check must be able to FAIL (2026-11-23):
+#   fieldkit mutate --plan tests/escalate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_escalate.py
+- file: fieldkit/escalate/run.py
+  swap:
+  - '    return rc == 0, tail'
+  - '    return True, tail'
+  why: a red check must not count as a pass
+- file: fieldkit/escalate/run.py
+  swap:
+  - '    return ap.claude(prompt, cwd=cwd, timeout=wall, env_extra=env_extra, model=model, effort=effort, resume=None)'
+  - '    return ap.claude(prompt, cwd=cwd, timeout=wall, env_extra=env_extra, model=model, effort=effort, resume=True)'
+  why: a retry is a NEW session, never a resume
+- file: fieldkit/escalate/run.py
+  swap:
+  - '    if skip_if_green:'
+  - '    if False:'
+  why: a green check makes no model call
+- file: fieldkit/escalate/run.py
+  swap:
+  - '            if not g["ok"]:'
+  - '            if False:'
+  why: the spend guard can refuse the xhigh rung
+- file: fieldkit/escalate/cachecheck.py
+  swap:
+  - '    out = [f"{p}: {k} is {data.get(k)!r}, must be ''1h''" for k in TTL_KEYS if data.get(k) != "1h"]'
+  - '    out = []'
+  why: missing TTL settings must fail the cache check

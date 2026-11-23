@@ -259,7 +259,7 @@ def parse_result(text):
 
 
 def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
-           popen=fkproc.Popen, idle_minutes=None, role="worker"):
+           popen=fkproc.Popen, idle_minutes=None, role="worker", effort=None):
     """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
     max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
     budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
@@ -282,6 +282,8 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
         "--max-turns", str(max_turns), "--output-format", "stream-json", "--verbose"]
     if resume:
         args += ["--resume", resume]
+    if effort:                                  # fieldkit escalate: low first, high on a fresh retry
+        args += ["--effort", str(effort)]
     # Spawn-time guard (lifecycle/models.py): the model flag and ANTHROPIC_MODEL are checked and rewritten; a headless
     # run naming none gets the cheap default; a premium or unknown model is refused (and logged) without a signed allow.
     from ..lifecycle import models
