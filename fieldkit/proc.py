@@ -65,19 +65,29 @@ def _prepare(kw: dict, args=()) -> dict:
     return kw
 
 
+def _text(kw: dict) -> dict:
+    """Text mode decodes as UTF-8 with replacement unless the caller chose an encoding. Without it Python uses the
+    locale code page (cp1252 on Windows), which has no byte 0x81: a git diff or log holding one killed `ship push`
+    in subprocess's reader thread with UnicodeDecodeError 'charmap' (2026-11-23). Children here speak UTF-8."""
+    if (kw.get("text") or kw.get("universal_newlines")) and kw.get("encoding") is None:
+        kw = {**kw, "encoding": "utf-8"}
+        kw.setdefault("errors", "replace")
+    return kw
+
+
 def run(*a, **kw):
-    return subprocess.run(*a, **_prepare(kw, a))
+    return subprocess.run(*a, **_prepare(_text(kw), a))
 
 
 def Popen(*a, **kw):  # noqa: N802 - mirrors subprocess.Popen
-    return subprocess.Popen(*a, **_prepare(kw, a))
+    return subprocess.Popen(*a, **_prepare(_text(kw), a))
 
 
 def check_output(*a, **kw):
     kw.pop("stdout", None)
     if sys.platform == "win32" and kw.get("stderr") is None and not _has_console():
         kw["stderr"] = subprocess.DEVNULL  # nobody can read an inherited stderr here anyway
-    return subprocess.run(*a, **_prepare({**kw, "stdout": subprocess.PIPE}, a), check=True).stdout
+    return subprocess.run(*a, **_prepare(_text({**kw, "stdout": subprocess.PIPE}), a), check=True).stdout
 
 
 def _has_console() -> bool:
