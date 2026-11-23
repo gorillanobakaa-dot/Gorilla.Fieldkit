@@ -113,6 +113,9 @@ items:
     proof: test with a fake dpkg-query and a tmp applications folder
     status: PARTIAL
     target: adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux
+  module:fieldkit/hog/consoles.py:
+    reason: console hosts (conhost, OpenConsole, Windows Terminal) and the desktop heap they fill exist only on Windows; a Linux terminal emulator is an ordinary process the hog's process and RAM rules already see
+    status: NATIVE-ONLY
   module:fieldkit/leakgate/sensors.py:
     action: ADAPT
     effort: L

@@ -95,7 +95,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 ## Beyond cards: pipelines, skills, workflows, hooks, modules
 
-35 records: 0 Windows-only, 0 Linux-only, 17 on both but different, 18 native-only.
+36 records: 0 Windows-only, 0 Linux-only, 17 on both but different, 19 native-only.
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
@@ -119,6 +119,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:395 |
 | `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:984 |
 | `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
+| `module:fieldkit/hog/consoles.py` | windows | linux | NATIVE-ONLY | CREATE | console hosts (conhost, OpenConsole, Windows Terminal) and the desktop heap they fill exi… | M |  | fieldkit/hog/consoles.py:55 |
 | `module:fieldkit/peers/link.py` | windows | linux | NATIVE-ONLY | CREATE | _win_known_folder reads Windows Known Folders (SHGetKnownFolderPath/winreg) only on Windo… | M |  | fieldkit/peers/link.py:893 |
 | `module:fieldkit/thermal/pdh.py` | windows | linux | NATIVE-ONLY | CREATE | reads Windows performance counters through pdh.dll in-process (no PowerShell, no console… | M |  | fieldkit/thermal/pdh.py:28 |
 | `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:48 |

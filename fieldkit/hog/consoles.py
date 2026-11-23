@@ -4,7 +4,7 @@ conhost, its creator is gone; it is old enough that a console being created is n
 import sys
 
 HOSTS = ("conhost.exe", "openconsole.exe")
-TERMINALS = ("windowsterminal.exe", "openconsole.exe", "conhost.exe")
+TERMINALS = frozenset({"windowsterminal.exe", "openconsole.exe", "conhost.exe"})   # a set of names, never an argv
 FLOOD = 20      # visible windows: no person keeps 20 terminal windows open (owner, 2026-11-23: one WT held 802)
 
 
