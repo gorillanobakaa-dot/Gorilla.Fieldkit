@@ -12,7 +12,7 @@ use windows::Win32::Foundation::{CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATIO
 use windows::Win32::System::Com::{IBindCtx, IClassFactory, IClassFactory_Impl};
 use windows::Win32::UI::Shell::{
     IEnumExplorerCommand, IExplorerCommand, IExplorerCommand_Impl, IShellItemArray, SHStrDupW, ShellExecuteW,
-    ECF_DEFAULT, ECS_ENABLED,
+    ECF_DEFAULT, ECS_ENABLED, ECS_HIDDEN, SIGDN_DESKTOPABSOLUTEPARSING,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -48,8 +48,15 @@ impl IExplorerCommand_Impl for TrashCommand_Impl {
         Ok(CLSID_TRASH_MENU)
     }
 
-    fn GetState(&self, _items: Ref<'_, IShellItemArray>, _slow: BOOL) -> Result<u32> {
-        Ok(ECS_ENABLED.0 as u32)
+    fn GetState(&self, items: Ref<'_, IShellItemArray>, _slow: BOOL) -> Result<u32> {
+        // Shown only on the Recycle Bin (a virtual shell object, CLSID 645FF040-...): hidden everywhere else.
+        let is_bin = items
+            .as_ref()
+            .and_then(|a| unsafe { a.GetItemAt(0).ok() })
+            .and_then(|i| unsafe { i.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING).ok() })
+            .map(|n| unsafe { n.to_string().unwrap_or_default() }.to_uppercase().contains("645FF040-5081-101B-9F08-00AA002F954E"))
+            .unwrap_or(false);
+        Ok(if is_bin { ECS_ENABLED.0 } else { ECS_HIDDEN.0 } as u32)
     }
 
     fn Invoke(&self, _items: Ref<'_, IShellItemArray>, _ctx: Ref<'_, IBindCtx>) -> Result<()> {

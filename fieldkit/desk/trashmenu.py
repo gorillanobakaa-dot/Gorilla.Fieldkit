@@ -27,7 +27,7 @@ from fieldkit import proc as fkproc
 CLSID = "7C3A1F52-9D4B-4E8A-B2C6-1F0E5A9D3B71"  # the same value as CLSID_TRASH_MENU in rust/gorilla-trash-menu
 SUBJECT = "CN=Fieldkit Gorilla Trash"
 PACKAGE = "Fieldkit.GorillaTrashMenu"
-VERSION = "1.0.1.0"
+VERSION = "1.0.2.0"
 DLL_NAME = "gorilla-trash-menu.dll"
 KITS = r"C:\Program Files (x86)\Windows Kits\10\bin"
 
@@ -76,7 +76,10 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-def manifest(types=("Directory",)) -> str:
+RECYCLE_TYPES = ("Folder", "CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}")  # the Recycle Bin is virtual
+
+
+def manifest(types=RECYCLE_TYPES) -> str:
     items = "\n".join(
         f'            <desktop5:ItemType Type="{t}">\n'
         f'              <desktop5:Verb Id="GorillaTrash" Clsid="{CLSID}" />\n'
@@ -131,7 +134,7 @@ def ensure_cert() -> tuple[str, Path]:
     return thumb.splitlines()[-1].strip(), cer
 
 
-def build(dll: Path, types=("Directory",), target: Path | None = None) -> Path:
+def build(dll: Path, types=RECYCLE_TYPES, target: Path | None = None) -> Path:
     """Copy the DLL next to gorilla-trash.exe, pack and sign the sparse MSIX; returns the .msix path."""
     target = Path(target or bindir())
     target.mkdir(parents=True, exist_ok=True)
@@ -177,11 +180,11 @@ def status() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="trashmenu")
+    ap = argparse.ArgumentParser(prog="fieldkit trashmenu")
     ap.add_argument("cmd", choices=["build", "install-admin", "register", "status"])
     ap.add_argument("--dll")
     ap.add_argument("--bindir")
-    ap.add_argument("--types", default="Directory")
+    ap.add_argument("--types", default=",".join(RECYCLE_TYPES))
     a = ap.parse_args(argv)
     if sys.platform != "win32":
         print("not-this-platform: the Windows 11 menu exists only on Windows")
