@@ -703,6 +703,19 @@ def _permanence(call):
         return None
 
 
+def _sitrep(call):
+    """archive_session is refused until the session showed a checked sitrep (fieldkit/lifecycle/sitrepgate.py, owner
+    2026-11-25). Only archive_session loads it (hook speed). Fails CLOSED."""
+    if not str(call.get("tool_name") or "").endswith("archive_session"):
+        return None
+    try:
+        from ..lifecycle import sitrepgate
+        return sitrepgate.archive_refusal(call)
+    except Exception as e:  # noqa: BLE001
+        return (f"ARCHIVE REFUSED (SITREP): the sitrep gate is broken ({type(e).__name__}); "
+                "show the report, then the owner archives.")
+
+
 #: rules/CORE.md SIDE JOBS: "no own_initiative card". A card waits for the owner's click; on an event turn the app
 #: refuses start_session and a model fell back to a card, so the job sat idle until the owner found it (2026-11-15:
 #: an Opencode successor; owner: "If I was not here to press, what would have happened? MAKE SURE THIS NEVER HAPPENS
@@ -783,7 +796,7 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
+    stop = _no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call) or _sitrep(call) \n        or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()

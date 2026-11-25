@@ -258,8 +258,9 @@ generated:
   - fieldkit board check
   - fieldkit zero retire
   - fieldkit/lifecycle/nested.py (no archive takes a live side session with it)
+  - fieldkit/lifecycle/sitrepgate.py (no archive without a checked sitrep shown in chat)
   owner: 2026-10-26
-  uses: [fieldkit ship push, fieldkit size recycle]
+  uses: [fieldkit ship push, fieldkit size recycle, fieldkit sitrep check]
   parts:
     heading: |-
       ## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
@@ -281,7 +282,7 @@ generated:
     last_headless: |-
       exit: the run ends here (nothing stays running)
     last_session: |-
-      archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. {zero}
+      print a `fieldkit sitrep check`ed report, then archive: Claude desktop `archive_session "self"` (Remote Control off first, `set_remote_control`: it blocks it); others end the session. {zero}
     zero_archive: |-
       Zero archives only into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it (2026-10-30 17:17)
     zero_pointer: |-

@@ -79,3 +79,9 @@ WARN (rendered, but said):
 Association style guide, Scope citing the National Autistic Society, workplace neurodiversity guidance,
 CHADD on working memory) and marks every number as "stated in source" or "model inference". The ones marked
 inference are the ones to argue with, in `rules.yaml`, not in the code.
+
+## The archive gate
+
+`sitrep check` records its result for this session. `archive_session` is refused until a passing report was
+checked after the last code change, in the same turn, and your last chat message shows it (headline or body).
+A later failing check revokes an earlier pass (`fieldkit/lifecycle/sitrepgate.py`, owner 2026-11-25).

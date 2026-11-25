@@ -2923,6 +2923,13 @@ def cmd_sitrep(a):
                                                               f"{x['detail']}" for x in bad]
             d["ok"] = bool(d.get("ok")) and not bad
         _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
+        from .lifecycle import sitrepgate             # the archive gate needs the pass; a later fail revokes it
+        sid = sitrepgate.session_id(getattr(a, "session", None))
+        if sid:
+            sitrepgate.record(sid, text, d.get("ok"), a.lang, a.file)
+            if not a.json:
+                print(f"  recorded for the archive gate: session {sid}" +
+                      (" (now print the report in chat, then archive)" if d.get("ok") else " (FAILED)"))
         return sitrep.exit_code(d)
     d = sitrep.render(text, lang=a.lang, order=a.order, md=a.md)
     _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
