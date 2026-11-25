@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(os.name == "nt" or not shutil.which("sh") or not
                                 reason="install.sh is the macOS/Linux door; Windows gets install.ps1")
 
 
-def _zip(tmp_path):
+def _zip(tmp_path, doctor_ok=False):
     z = tmp_path / "fk.zip"
     with zipfile.ZipFile(z, "w") as zf:
         for rel in (
@@ -39,7 +39,12 @@ def _zip(tmp_path):
         ))
         for p in (ROOT / "fieldkit" / "core").rglob("*"):
             if p.is_file() and "__pycache__" not in p.parts:
-                zf.write(p, f"Gorilla.Fieldkit-main/{p.relative_to(ROOT)}")
+                if doctor_ok and p.name == "doctor.py":
+                    zf.writestr("Gorilla.Fieldkit-main/fieldkit/core/doctor.py",
+                                "import sys\ndef check(lean=True): return {'packages': [], 'install_line': ''}\n"
+                                "if __name__ == '__main__': sys.exit(0)\n")
+                else:
+                    zf.write(p, f"Gorilla.Fieldkit-main/{p.relative_to(ROOT)}")
     return z
 
 
@@ -145,7 +150,8 @@ def test_rules_flag_runs_rules_install_and_check(tmp_path):
     work = tmp_path / "w"
     work.mkdir()
     rhome = tmp_path / "rhome"
-    r = run(["--yes", "--rules"], work, FIELDKIT_ZIP_URL=_zip(tmp_path).as_uri(), FIELDKIT_RULES_HOME=str(rhome))
+    r = run(["--yes", "--rules"], work, FIELDKIT_ZIP_URL=_zip(tmp_path, doctor_ok=True).as_uri(),
+            FIELDKIT_RULES_HOME=str(rhome))
     out = r.stdout + r.stderr
     assert r.returncode == 0, out[-1500:]
     assert (rhome / ".rules-ran").read_text().splitlines() == ["install", "check"]
