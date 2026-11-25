@@ -160,9 +160,15 @@ def _mandate_log(path, what, detail, **extra):
 
 def stale_lock(repo):
     """-> the worktree's index.lock when no git process is running to own it, else ''."""
-    gd = git(repo, "rev-parse", "--absolute-git-dir").stdout.strip()
-    lock = Path(gd) / "index.lock"
-    if not gd or not lock.is_file():
+    here = Path(repo).resolve()                  # file reads only: push refuses other things before git starts
+    top = next((d for d in (here, *here.parents) if (d / ".git").exists()), None)
+    if top is None:
+        return ""
+    gd = top / ".git"
+    if gd.is_file():                             # a linked worktree
+        gd = top / gd.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()
+    lock = gd / "index.lock"
+    if not lock.is_file():
         return ""
     from ..buildh import preflight
     return "" if preflight._running("git.exe" if os.name == "nt" else "git") else str(lock)
