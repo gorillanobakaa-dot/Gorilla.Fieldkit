@@ -306,7 +306,7 @@ DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking 
 4. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
 5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
 6. stop your own background jobs and listeners (by PID, never by name).
-7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
+7. show the report (`fieldkit sitrep check FILE` passes, print it in chat), then archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
 <!-- /fieldkit-lifecycle-rule -->
 
 <!-- fieldkit-rotate-rule v1 -->
