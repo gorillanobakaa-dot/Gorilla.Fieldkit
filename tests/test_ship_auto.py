@@ -21,10 +21,17 @@ def _own_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "pass" for i in ids})
 
 
+RULES = [{"type": "pull_request", "parameters": {}},
+         {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": True,
+          "required_status_checks": [{"context": "test (ubuntu-latest)"}, {"context": "test (windows-latest)"}]}}]
+
+
 class Gh:
     """A fake subprocess.run for gh: answers by the sub-command, records every call."""
-    def __init__(self, prs=(), runs=(), fail=None, rules=("pull_request", "required_status_checks")):
-        self.prs, self.runs, self.fail, self.calls, self.rules = list(prs), list(runs), fail, [], list(rules)
+    def __init__(self, prs=(), runs=(), fail=None, rules=RULES):
+        # a PR given without a base is a PR to main from this repository (the fields gh pr list returns)
+        self.prs = [dict({"baseRefName": "main", "isCrossRepository": False}, **p) for p in prs]
+        self.runs, self.fail, self.calls, self.rules = list(runs), fail, [], list(rules)
 
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
@@ -147,6 +154,32 @@ def test_no_auto_merge_where_the_base_branch_requires_no_check():
     assert not r["ok"] and r["state"] == "no-required-checks" and not gh.did("pr merge")
     assert notes == []                                           # F2.4: the PR stays open, the inbox gets nothing
     assert [c[2] for c in gh.calls if c[1] == "api"] == ["repos/{owner}/{repo}/rules/branches/main"]
+
+
+def test_a_rule_type_without_both_os_contexts_does_not_merge():
+    """2026-11-25: a required_status_checks rule naming one OS (or other contexts) is not enough."""
+    one = [{"type": "required_status_checks",
+            "parameters": {"required_status_checks": [{"context": "test (ubuntu-latest)"}]}}]
+    for rules in (one, [{"type": "required_status_checks", "parameters": {}}], {"message": "Not Found"}):
+        gh = Gh(prs=[{"number": 7, "url": URL}], rules=rules)
+        r, _ = go(gh)
+        assert not r["ok"] and r["state"] == "no-required-checks" and not gh.did("pr merge")
+        assert "test (windows-latest)" in r["error"]
+
+
+def test_missing_contexts_reads_the_rules_list():
+    assert ship.missing_contexts(RULES) == []
+    assert ship.missing_contexts([]) == list(ship.REQUIRED_CONTEXTS)
+    assert ship.missing_contexts(None) == list(ship.REQUIRED_CONTEXTS)
+
+
+def test_a_fork_or_other_base_pr_on_the_same_branch_name_is_not_ours():
+    """2026-11-25: the first open PR by head NAME may be a fork's or aim at another base: a new PR is made instead."""
+    gh = Gh(prs=[{"number": 5, "url": URL.replace("7", "5"), "isCrossRepository": True},
+                 {"number": 6, "url": URL.replace("7", "6"), "baseRefName": "release-1"}])
+    r, _ = go(gh)
+    assert r["ok"] and gh.did("pr create") and r["pr"] == 7
+    assert gh.did("pr merge")[0][3] == "7"
 
 
 def test_a_failed_rules_lookup_does_not_merge():

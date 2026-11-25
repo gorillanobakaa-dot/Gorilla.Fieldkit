@@ -25,7 +25,7 @@
                                            condition proven by the tool (fieldkit/mandate); otherwise the owner does it
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
-    fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
+    fieldkit ship prune  [--archive-unproven]   report remote branches proven merged (owner deletes); one source of truth
     fieldkit ship tags   [--repo R | --all] [--fix-local]   tags classed, only real candidates flagged; never deletes on GitHub
     fieldkit ship prune|audit --all        every non-archived repo of the owner, one before/after table (shiptags.py)
     fieldkit ship update [--base B]        merge origin/main into the branch the train's way: generated files
@@ -231,6 +231,21 @@ def _waiting_prs(run, repo):
         return 0
 
 
+REQUIRED_CONTEXTS = ("test (ubuntu-latest)", "test (windows-latest)")
+
+
+def missing_contexts(rules, wanted=REQUIRED_CONTEXTS):
+    """rules: the JSON list of repos/{owner}/{repo}/rules/branches/{base}. -> the wanted contexts no
+    required_status_checks rule names (all of them when the answer is not that list)."""
+    have = set()
+    for r in rules if isinstance(rules, list) else []:
+        if isinstance(r, dict) and r.get("type") == "required_status_checks":
+            for c in (r.get("parameters") or {}).get("required_status_checks") or []:
+                if isinstance(c, dict) and c.get("context"):
+                    have.add(c["context"])
+    return [c for c in wanted if c not in have]
+
+
 def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=None, inbox=_inbox_add,
          counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
@@ -244,13 +259,20 @@ def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=N
     def fail(what, err):
         return dict(rep, ok=False, state="auto-failed", error=f"{what}: {err}", gh_failed=True,
                     next="the push stands; fix the gh problem and run `fieldkit ship push --auto` again")
-    ok, out, err = _gh(run, repo, "pr", "list", "--head", branch, "--state", "open", "--json", "number,url")
+    # 2026-11-25: a fork's PR or a PR to another base may share the head branch NAME; only a PR from this repository
+    # to this base is ours (shiprefs.same_repo).
+    ok, out, err = _gh(run, repo, "pr", "list", "--head", branch, "--state", "open", "--json",
+                       "number,url,baseRefName,isCrossRepository,headRepository,headRepositoryOwner")
     if not ok:
         return fail("gh pr list", err)
     try:
         prs = json.loads(out or "[]")
     except ValueError:
         return fail("gh pr list", f"not JSON: {out[:200]}")
+    from . import shiprefs
+    from .shiprelease import repo_slug
+    slug = repo_slug(repo)
+    prs = [p for p in prs if p.get("baseRefName") == base and shiprefs.same_repo(p, slug)]
     if prs:
         pr = prs[0]
     else:
@@ -295,16 +317,19 @@ def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=N
     # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge
     # off) `gh pr merge --auto` merges AT ONCE, before CI ends: PRs #42-#44 there merged 1-4 min ahead of their checks.
     # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
-    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}", "--jq", "[.[].type]")
+    # 2026-11-25: a required_status_checks rule that names other contexts (or one OS only) lets GitHub merge before
+    # both OS checks pass: both REQUIRED_CONTEXTS must be required.
+    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}")
     if not ok:
         return fail("gh api rules", err)
     try:
         rules = json.loads(out or "[]")
     except ValueError:
         return fail("gh api rules", f"not JSON: {out[:200]}")
-    if "required_status_checks" not in rules:
-        why = (f"PR #{pr['number']} ({pr['url']}): {base} requires no status check here, so GitHub would merge it "
-               f"before CI ends. Auto-merge NOT enabled; the PR stays open.")
+    missing = missing_contexts(rules)
+    if missing:
+        why = (f"PR #{pr['number']} ({pr['url']}): {base} does not require {', '.join(missing)}, so GitHub could merge "
+               f"it before both OS checks pass. Auto-merge NOT enabled; the PR stays open.")
         try:                                            # F2.4: a Board line, not an inbox item; the PR stays open
             from ..lifecycle import board
             board.note(f"No required CI check on {base}: PR #{pr['number']} left open", why)
@@ -769,7 +794,7 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
     ap.add_argument("--archive-unproven", action="store_true",
-                    help="prune: save a branch whose work is not proven on the base as tag archive/<branch>, then delete it")
+                    help="prune: add archive/<branch> tag lines for unproven branches to the owner command (nothing runs on GitHub)")
     ap.add_argument("--all", action="store_true", dest="all_repos",
                     help="prune, audit, tags: every non-archived repo of the owner (local clone, else a scratch clone), one table")
     ap.add_argument("--fix-local", action="store_true", help="tags: remove local tags that were never pushed (git tag -d)")

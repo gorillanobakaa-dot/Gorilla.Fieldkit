@@ -44,7 +44,7 @@ def test_audit_says_a_release_is_due_and_which_branch_never_reached_main(tmp_pat
     r = sr.audit(w, max_commits=2, gh=gh)
     rows = {x["check"]: x for x in r["rows"]}
     assert rows["checkout"]["state"] == "OK"
-    assert rows["branches"]["state"] == "DO" and "lost (1)" in rows["branches"]["say"]
+    assert rows["branches"]["state"] == "DO" and "lost (work not proven on main" in rows["branches"]["say"]
     assert "branches" not in {x["check"] for x in sr.audit(w, offline=True)["rows"]}   # offline: never a false alarm
     assert rows["release"]["state"] == "DO" and "3 commit(s)" in rows["release"]["say"] and "v0.1.0" in rows["release"]["say"]
     assert sr.audit(w, offline=True, max_commits=5)["rows"][-1]["state"] == "OK"
@@ -107,7 +107,8 @@ def test_release_waits_while_ci_is_still_running(tmp_path):
     assert seen == [30, 30] and [x["check"] for x in r["rows"]][:2] == ["checkout", "ci"] and r["rows"][1]["state"] == "OK"
 
 
-def test_prune_deletes_only_what_is_proven_merged_and_archives_the_rest_on_request(tmp_path):
+def test_prune_deletes_nothing_on_github_and_writes_the_owner_command(tmp_path):
+    # hard line, 2026-11-25: an agent never deletes a remote branch or pushes a tag; prune reports and writes a command
     w = _origin_and_clone(tmp_path)
     for name, merge in (("done", True), ("open-work", False)):
         _g(w, "checkout", "-q", "-b", name, "main")
@@ -122,12 +123,16 @@ def test_prune_deletes_only_what_is_proven_merged_and_archives_the_rest_on_reque
     gh = lambda args, timeout=60: ("", "")
     rows = {x["check"]: x for x in sr.audit(w, gh=gh, max_commits=99)["rows"]}
     assert rows["merged-branches"]["state"] == "DO"
+    before = _g(w, "ls-remote", "origin")
     r = sr.prune(w, gh=gh)
-    assert r["deleted"] == ["done"] and r["kept"] == ["open-work"] and "done" in r["local"]
+    assert r["deleted"] == [] and r["deletable"] == ["done"] and r["kept"] == ["open-work"] and "done" in r["local"]
+    assert not r["ok"] and 'push origin --delete "refs/heads/done"' in r["owner_command"]
+    assert "open-work" not in r["owner_command"]
     r = sr.prune(w, gh=gh, archive_unproven=True)
-    assert r["archived"] == ["open-work"] and r["ok"]
-    remote = _g(w, "ls-remote", "origin")
-    assert "refs/heads/open-work" not in remote and "refs/tags/archive/open-work" in remote
+    assert r["archived"] == [] and not r["ok"]
+    assert 'tag -a "archive/open-work"' in r["owner_command"] and 'push origin --delete "refs/heads/open-work"' in r["owner_command"]
+    assert [x for x in r["rows"] if x["check"] == "owner-command"][0]["state"] == "DO"
+    assert _g(w, "ls-remote", "origin") == before                    # nothing moved on the remote
 
 
 def test_audit_finds_what_is_left_behind_locally(tmp_path):
@@ -150,8 +155,8 @@ def test_audit_finds_what_is_left_behind_locally(tmp_path):
     assert sr.audit(w, offline=True)["rows"][-1]["check"] == "release"
 
 
-def test_prune_reports_a_refused_delete_with_gits_words(tmp_path):
-    # 2026-11-09: Gorilla.Opencode's hook refuses every branch delete and prune hid it: ok stayed true
+def test_prune_never_pushes_even_where_the_remote_would_refuse(tmp_path):
+    # 2026-11-09: Gorilla.Opencode's hook refuses every branch delete; since 2026-11-25 prune sends none at all
     w = _origin_and_clone(tmp_path)
     _g(w, "checkout", "-q", "-b", "done", "main")
     (w / "d.txt").write_text("d")
@@ -166,9 +171,9 @@ def test_prune_reports_a_refused_delete_with_gits_words(tmp_path):
                     newline="\n")
     hook.chmod(0o755)
     r = sr.prune(w, gh=lambda args, timeout=60: ("", ""))
-    assert not r["ok"] and r["deleted"] == [] and r["refused"][0]["branch"] == "done"
-    row = [x for x in r["rows"] if x["check"] == "refused"][0]
-    assert row["state"] == "DO" and "mandate: deletes refused" in row["say"]
+    assert not r["ok"] and r["deleted"] == [] and r["refused"] == [] and r["deletable"] == ["done"]
+    assert "mandate: deletes refused" not in json.dumps(r["rows"])   # no delete reached the hook
+    assert "refs/heads/done" in _g(w, "ls-remote", "origin")
 
 
 def test_prune_deletes_nothing_when_github_is_unreadable(tmp_path, monkeypatch):
