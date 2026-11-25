@@ -86,7 +86,7 @@ def test_budget_duplicate_misplaced_stale_unenforced_and_contradiction(data):
 
 
 def test_a_file_over_the_limit_is_found_before_it_is_installed(data):
-    data["tails"]["gemini"] += "\n" + "y" * 400
+    data["tails"]["gemini"] += "\n" + "y" * L.FILE_LIMIT
     assert ("budget", "FILE gemini") in kinds(L.lint(data, ROOT))
 
 
