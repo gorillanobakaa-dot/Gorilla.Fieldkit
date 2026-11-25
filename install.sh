@@ -2,7 +2,7 @@
 # Version: 1.1.0 · updated 26-10-23-16-30
 # Fieldkit on a computer WITHOUT git (macOS or Linux): no Homebrew, no Xcode, no admin password needed.
 #
-#   sh install.sh [--yes] [--full] [--branch NAME] [FOLDER]
+#   sh install.sh [--yes] [--full] [--rules] [--branch NAME] [FOLDER]
 #
 # Downloaded on its own:   curl -fLO https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/main/install.sh
 #                          sh install.sh                (it downloads Fieldkit's zip into ./Fieldkit)
@@ -17,15 +17,16 @@
 #   3 runs the doctor's probe: the machine, and the way in (zip; lean when memory is under 8 GB or no compiler)
 #   4 makes a private Python environment in FOLDER/.venv and installs the lean set (PyYAML, psutil), or with
 #     --full every dependency; nothing is installed outside FOLDER
-#   5 runs the doctor and writes FOLDER/INSTALLED.txt: everything downloaded and installed, and how to remove it
+#   5 runs the doctor (--rules also installs AI agent rules into installed home config folders) and writes INSTALLED.txt
 # Exit 0 ready, 3 something to do (the last lines say what), 2 bad usage.
 set -u
 REPO_ZIP="https://github.com/gorillanobakaa-dot/Gorilla.Fieldkit/archive/refs/heads"
-YES=0; FULL=0; BRANCH=main; DEST=""
+YES=0; FULL=0; RULES=0; BRANCH=main; DEST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1 ;;
     --full) FULL=1 ;;
+    --rules) RULES=1 ;;
     --branch) shift; BRANCH="${1:-main}" ;;
     -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     -*) echo "unknown option $1 (sh install.sh --help)"; exit 2 ;;
@@ -158,15 +159,30 @@ fi
 # Prepare bundled or previously gathered Python tools with the installed interpreter.
 "$VPY" -m fieldkit.compileonce build || exit 3
 
-# 5 the doctor, and the list
+# 5 the doctor, optional rules, and the list
 if [ "$FULL" = 1 ]; then "$VPY" -m fieldkit.core.doctor; RC=$?; else "$VPY" -m fieldkit.core.doctor --lean; RC=$?; fi
+if [ "$RC" = 0 ] && [ "$RULES" = 1 ]; then
+  RHOME="${FIELDKIT_RULES_HOME:-$HOME}"
+  if ask "Install AI agent rules into installed agent config folders under $RHOME?"; then
+    "$VPY" -m fieldkit.rules install --home "$RHOME" && "$VPY" -m fieldkit.rules check --home "$RHOME" || RC=3
+    [ "$RC" = 0 ] && note "rules       installed and checked under $RHOME (backups in $SRC/state/rules-backup)"
+  else
+    say "Agent rules not installed."
+    RC=3
+  fi
+fi
 {
   echo "What install.sh downloaded and installed ($(date '+%Y-%m-%d %H:%M'))"
   printf '%s' "$LOG"
-  echo "Nothing was installed outside $SRC. To remove everything, delete that folder."
+  if [ "$RULES" = 1 ]; then
+    echo "To remove Fieldkit, delete $SRC (agent rule backups are in $SRC/state/rules-backup)."
+  else
+    echo "Nothing was installed outside $SRC. To remove everything, delete that folder."
+  fi
 } > "$SRC/INSTALLED.txt"
 say "The list of everything downloaded and installed: $SRC/INSTALLED.txt"
 if [ "$RC" = 0 ]; then
+  [ "$RULES" = 0 ] && say "Optional AI agent rules: cd $SRC && $VPY -m fieldkit rules install"
   say "READY. Start with: $VPY -m fieldkit next"
 else
   say "NOT READY yet: the doctor's lines above say what is missing and the line that installs it."

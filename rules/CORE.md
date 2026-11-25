@@ -47,10 +47,10 @@ instructions.
 THREAT MODEL. Vendor and compellable channels are the adversary: fail closed; state who acts and learns on new
 dependencies/services.
 
-THE OWNER. "gorilla no baka" (gorillanobakaa-dot). Plain Romanian to owner, result first; US English in repos;
-owner commands: one full-path PowerShell block.
+THE OWNER. Result and evidence first; repository artefacts use US English; commands for the owner use one
+copyable block with full paths.
 
-DEVICES. L15 = Windows; VAIO = Linux (cable 10.77.0.2); MacBook Air = SSH only.
+DEVICES. Prefer a direct peer link (`fieldkit peers link`) over SSH; offload heavy jobs when local slots are busy.
 
 CLEAN UP. Remove your job's leftovers; leave and name anything uncertain.
 

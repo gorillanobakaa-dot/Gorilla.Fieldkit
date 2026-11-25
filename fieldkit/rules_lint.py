@@ -40,6 +40,7 @@ CORE_HEAD = ("<!-- Version: 1.1.0 · generated from rules/rules.yaml by `fieldki
              "# Core rules (every agent, every project, every machine)\n")
 CORE_END = "<!-- /fieldkit-core-rules -->"
 TAIL_BEGIN, TAIL_END = "<!-- fieldkit-agent-tail v1 -->", "<!-- /fieldkit-agent-tail -->"
+LOCAL_BEGIN, LOCAL_END = "<!-- fieldkit-local-rules v1 -->", "<!-- /fieldkit-local-rules -->"
 AGENTS = ("claude-code", "codex", "gemini")
 
 NEGATION = re.compile(r"\b(no|never|not|without|nothing|nobody|none|don't|do not|need not)\b", re.I)
@@ -341,8 +342,18 @@ def assembled(data, agent):
 # ------------------------------------------------------------------ installed files
 
 BLOCKS = {"core": ("<!-- fieldkit-core-rules", CORE_END), "tail": (TAIL_BEGIN, TAIL_END),
+          "local": (LOCAL_BEGIN, LOCAL_END),
           "lifecycle": ("<!-- fieldkit-lifecycle-rule v1 -->", "<!-- /fieldkit-lifecycle-rule -->"),
           "rotate": ("<!-- fieldkit-rotate-rule v1 -->", "<!-- /fieldkit-rotate-rule -->")}
+
+
+def local_block(home=None):
+    """-> optional per-user local rules block from ~/.fieldkit/rules-local.md, never tracked in git."""
+    if not home:
+        return None
+    p = Path(home) / ".fieldkit" / "rules-local.md"
+    body = p.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip() if p.is_file() else ""
+    return f"{LOCAL_BEGIN}\n{body}\n{LOCAL_END}" if body else None
 
 
 def block(text, name):
@@ -352,25 +363,31 @@ def block(text, name):
     return text[i:j + len(b)] if i >= 0 and j > i else None
 
 
-def expected_blocks(data, agent):
+def expected_blocks(data, agent, home=None):
     out = {"core": block(generate_core(data), "core"), "tail": tail_block(data, agent)}
+    loc = local_block(home)
+    if loc is not None:
+        out["local"] = loc
     for g in data.get("generated") or []:
         if agent in (g.get("files") or []):
             out[g["id"].lower()] = generated_text(g).rstrip("\n")
     return out
 
 
-def check_installed(files, data=None, root=None, skip=()):
+def check_installed(files, data=None, root=None, skip=(), home=None):
     """files: {agent: path}. -> [finding]: each block present and as generated, the shared blocks identical
     (SHA-256) across the files that carry them. skip: block names not to check (rules.check_file does the core)."""
     data = data if data is not None else load(root)
     found, hashes = [], {}
+    has_local = local_block(home) is not None if home is not None else None
     for agent, path in files.items():
         p = Path(path)
         if not p.is_file():
             continue
         text = p.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
-        for name, want in expected_blocks(data, agent).items():
+        if has_local is False and "local" not in skip and block(text, "local") is not None:
+            found.append(_f("identical", agent, f"stale local block in {p} (fieldkit rules install)"))
+        for name, want in expected_blocks(data, agent, home=home).items():
             if name in skip:
                 continue
             have = block(text, name)

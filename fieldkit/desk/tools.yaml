@@ -6681,6 +6681,7 @@ tools:
     - {name: action, flag: null, type: str, required: true, help: "lint (drift, budget, duplicates, misplaced, contradictions, BOTTLENECKS) | build (rules/CORE.md from rules/rules.yaml) | install (every block) | check (files + lint)"}
     - {name: repo_only, flag: --repo-only, type: flag, required: false, help: "check: only this repository's rules files (the pre-commit hook)"}
     - {name: file, flag: --file, type: path, required: false, help: "install: a rules file, repeatable (default: every global one)"}
+    - {name: home, flag: --home, type: path, required: false, help: "install, check, inventory, lint --files, sync: another home folder"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [writes-files]
   safety: reversible

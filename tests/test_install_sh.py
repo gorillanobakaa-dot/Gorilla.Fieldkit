@@ -28,6 +28,15 @@ def _zip(tmp_path):
         ):
             zf.write(ROOT / rel, f"Gorilla.Fieldkit-main/{rel}")
         zf.writestr("Gorilla.Fieldkit-main/toolbox/pfind/pfind.py", "def main():\n    return 0\n")
+        zf.writestr("Gorilla.Fieldkit-main/fieldkit/rules.py", (
+            "import pathlib, sys\n"
+            "if __name__ == '__main__':\n"
+            "    a = sys.argv[1:]\n"
+            "    h = pathlib.Path(a[a.index('--home') + 1])\n"
+            "    h.mkdir(parents=True, exist_ok=True)\n"
+            "    m = h / '.rules-ran'\n"
+            "    m.write_text((m.read_text() if m.exists() else '') + a[0] + '\\n')\n"
+        ))
         for p in (ROOT / "fieldkit" / "core").rglob("*"):
             if p.is_file() and "__pycache__" not in p.parts:
                 zf.write(p, f"Gorilla.Fieldkit-main/{p.relative_to(ROOT)}")
@@ -130,3 +139,14 @@ def test_a_download_that_makes_no_progress_stops_instead_of_looping(tmp_path):
     out = r.stdout + r.stderr
     assert r.returncode == 3 and "No progress since the last try" in out, out[-1500:]
     assert calls.read_text() == "2" and not (work / "Fieldkit").exists()
+
+
+def test_rules_flag_runs_rules_install_and_check(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    rhome = tmp_path / "rhome"
+    r = run(["--yes", "--rules"], work, FIELDKIT_ZIP_URL=_zip(tmp_path).as_uri(), FIELDKIT_RULES_HOME=str(rhome))
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out[-1500:]
+    assert (rhome / ".rules-ran").read_text().splitlines() == ["install", "check"]
+    assert "rules       installed and checked" in (work / "Fieldkit" / "INSTALLED.txt").read_text()

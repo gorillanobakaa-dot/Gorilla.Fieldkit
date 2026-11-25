@@ -26,12 +26,15 @@ The folder Fieldkit goes into. Created if missing; refused if it has files or is
 The GitHub branch whose zip is downloaded (main).
 .PARAMETER Yes
 Answer yes to every question (only for a run you have already read through).
+.PARAMETER Rules
+Also install Fieldkit AI agent rules and Claude hooks into installed agent config folders under HOME.
 #>
 [CmdletBinding()]
 param(
     [string]$Target = (Join-Path $env:USERPROFILE 'Fieldkit'),
     [string]$Branch = 'main',
-    [switch]$Yes
+    [switch]$Yes,
+    [switch]$Rules
 )
 
 $MinPython = [version]'3.11'
@@ -169,11 +172,16 @@ function Add-Record([string]$Line) { $script:Record.Add($Line); Write-Host "  $L
 
 function Save-Record([string]$Outcome) {
     if (-not $script:RecordReady) { return }
+    $removeLine = if ($Rules) {
+        "To remove: delete the folder $Target (agent rules under home have backups in state\rules-backup)"
+    } else {
+        "To remove: delete the folder $Target (nothing outside it was changed; Python itself was already here)"
+    }
     $lines = @('Fieldkit, installed by install.ps1 (no git)',
         "Date: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))",
         "Folder: $Target",
         '') + $script:Record + @('',
-        "To remove: delete the folder $Target (nothing outside it was changed; Python itself was already here)",
+        $removeLine,
         "Outcome: $Outcome")
     Set-Content -LiteralPath (Join-Path $Target 'INSTALLED.txt') -Value $lines -Encoding UTF8
 }
@@ -324,11 +332,26 @@ for name in sys.argv[1:]:
     } finally { Pop-Location }
     Add-Record "python -m fieldkit.core.doctor --lean: exit $doctor"
 
-    # 6. the record
+    # 6. optional agent rules and the record
     if ($doctor -ne 0) { Stop-Install "doctor --lean exit $doctor (each MISS row above has its install line)" }
+    if ($Rules) {
+        $rulesHome = if ($env:FIELDKIT_RULES_HOME) { $env:FIELDKIT_RULES_HOME } else { $HOME }
+        Write-Host ''
+        Write-Host "5b. Install AI agent rules into installed agent folders under $rulesHome"
+        if (-not (Read-Answer '    Install them?')) { Stop-Install 'at step 5b (your no): agent rules were not installed' }
+        Push-Location -LiteralPath $Target
+        try {
+            & $vpy -m fieldkit.rules install --home $rulesHome
+            if ($LASTEXITCODE -ne 0) { Stop-Install "fieldkit rules install exit $LASTEXITCODE" }
+            & $vpy -m fieldkit.rules check --home $rulesHome
+            if ($LASTEXITCODE -ne 0) { Stop-Install "fieldkit rules check exit $LASTEXITCODE" }
+        } finally { Pop-Location }
+        Add-Record "Agent rules installed and checked under: $rulesHome (backups in state\rules-backup)"
+    }
     Save-Record 'ready; doctor --lean passed'
     Write-Host ''
     Write-Host "6. Written: $(Join-Path $Target 'INSTALLED.txt')"
+    if (-not $Rules) { Write-Host "Optional AI agent rules: $vpy -m fieldkit rules install (from $Target)" }
     Write-Host "Run Fieldkit with: $vpy -m fieldkit (from $Target)"
     exit 0
 } finally {
