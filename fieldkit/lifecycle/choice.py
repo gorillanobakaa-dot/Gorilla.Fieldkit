@@ -79,6 +79,8 @@ def command_models(exe, args, run=fkproc.run):
         r = run([exe, *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return []
+    if r is None:
+        return []
     out = []
     for line in (r.stdout or "").splitlines():
         tok = line.split("\t")[0].split()[0] if line.strip() else ""

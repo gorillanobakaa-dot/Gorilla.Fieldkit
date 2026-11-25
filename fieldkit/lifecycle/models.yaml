@@ -3,9 +3,10 @@
 # An unknown model name is premium (fail closed). Premium is refused everywhere unless an owner-signed mandate
 # in force carries `models_allowed: [names]` (its `expires:` is the expiry; fieldkit mandate approve signs it).
 default: sonnet                  # a headless launch that names no model gets this one
-cheap: [sonnet, haiku, local, qwen, gemma, llama]
+cheap: [sonnet, haiku, local, qwen, gemma, llama, gemini-3.8-flash, gemini-4-carbon, gemini-4-argon, gpt-5.4-mini, gpt-5.5, gpt-5.6-luna, gpt-oss]
+cheap_exact: [auto, flash, pro]  # exact CLI aliases offered by gemini CLI and kiro CLI in choice.yaml
 review: [opus]                   # the reviewer role only (roles.yaml reviewer.model)
-premium: [fable, mythos, carbon, argon, gpt, gemini, o1, o3, grok]
+premium: [fable, mythos, gemini-4-neon, gemini-4-hydrogen, gpt-5.6-terra, gpt-9, o1, o3, grok]
 ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycle/)
 # Plan P9, escalation ladder (owner idea I-06). Every attempt records the model that made it; a red the branch owns
 # (strikes.whose_red) is an own failure; `own_limit` own failures on one rung climb to the next rung (the same model

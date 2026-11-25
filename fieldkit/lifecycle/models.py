@@ -51,6 +51,8 @@ def tier_of(model, data=None):
     for t in ("premium", "review", "cheap"):
         if any(str(n).lower() in m for n in d[t]):
             return t
+    if m in {str(x).lower() for x in (d.get("cheap_exact") or ())}:
+        return "cheap"
     return "premium"
 
 

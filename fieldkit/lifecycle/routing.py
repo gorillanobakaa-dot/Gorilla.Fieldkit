@@ -425,6 +425,31 @@ def main(argv=None):
         print("NEXT: jobs squeeze to the cheapest model at "
               f"{d['window']['squeeze_fraction']:.0%} and stop at {d['window']['stop_fraction']:.0%}")
         return 0
+    if cmd == "choose" and "--session-agent" in argv:
+        it = iter(argv[1:])
+        ag = prov = mod = th = sid = None
+        for a in it:
+            if a == "--session-agent":
+                ag = next(it, None)
+            elif a == "--session-provider":
+                prov = next(it, None)
+            elif a == "--session-model":
+                mod = next(it, None)
+            elif a == "--session-thinking":
+                th = next(it, None)
+            elif a == "--session":
+                sid = next(it, None)
+        from . import session_choice, sessionmode
+        sid = sid or sessionmode.session_id({})
+        try:
+            rec = session_choice.write(sid, ag or "", mod or "", th or "", provider=prov)
+        except ValueError as e:
+            print(f"ERROR  {e}")
+            return 2
+        p_txt = f" / {rec['provider']}" if rec.get("provider") else ""
+        print(f"SESSION AGENT  {rec['agent']}{p_txt} / {rec['model']} / {rec['thinking']}, session {sid}")
+        print("NEXT: peers link ask and task start in this session now allow this owner-chosen agent and model")
+        return 0
     if cmd == "choose" and "--session-mode" in argv:
         it = iter(argv[1:])
         code = sid = None
