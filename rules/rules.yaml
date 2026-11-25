@@ -25,10 +25,9 @@ core:
   - fieldkit overhead (time per job against the script)
   owner: 2026-10-28
   text: |-
-    GOAL. Like Gentoo's Portage: one command builds a whole product, unattended. Deterministic scripts do the work; a
-    model is called only when a step fails, and its fix becomes a script. Measured per
-    job: time close to the pre-AI script (a Firefox compile + package: 90 min to 2 h), 0 owner actions, 0 AI tokens
-    when nothing fails.
+    GOAL. One command builds a whole product, unattended, like Gentoo's Portage. Scripts do the work; a model is
+    called only when a step fails, and its fix becomes a script. Per job: near the pre-AI script's time, 0 owner actions,
+    0 AI tokens when nothing fails.
 - id: WORK UNATTENDED
   subject: nothing waits on the owner
   audience: all
@@ -37,12 +36,11 @@ core:
   - fieldkit inbox add
   owner: "2026-10-28 (\"Yes, both\")"
   text: |-
-    WORK UNATTENDED. Do the job; do not ask. Stop only for (1) a hard line below, or (2) a decision only the owner may
-    make: put it in `fieldkit inbox add TITLE WHY [COMMAND]` and carry on with what does not depend on it. No plan
-    drafts, per-step approvals, session cards or pasted command chains.
-    PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HARNESS-PLAN.md) or a Zero order
-    needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
-    Owner-only actions a job may need are asked once, before it starts; a missing one takes its fallback.
+    WORK UNATTENDED. Finish the whole job, across sessions if needed; never end a turn on a question. Make
+    reversible choices yourself and record them. Approved work (docs/HARNESS-PLAN.md, a Zero order, your task) needs no
+    further yes, settings, rules files and hooks included. Stop only for a hard line or an owner-only decision:
+    `fieldkit inbox add TITLE WHY [COMMAND]`, then do what does not depend on it. Owner-only actions are asked once,
+    before the job; a missing one takes its fallback.
 - id: HARD LINES
   subject: hard lines (push, delete, checks, secrets, telemetry)
   audience: all
@@ -63,7 +61,8 @@ core:
       through `fieldkit ship prune` (proof by commit, logged, restorable).
     - Weakening a check, guard, hook or rules file to make a result pass; changing an owner decision (GORILLA blocks,
       decision registers). Prove a check wrong on a real tree before proposing a change.
-    - Secrets and credential files: never open, echo or commit them.
+    - Secrets and credential files: never open, echo or commit them. Fieldkit is PUBLIC: `fieldkit privacy scan`
+      before commit, push or release; keep identity off GitHub.
     - Telemetry, analytics, crash reports, usage pings: cut out at the source in every project.
 - id: BUILDS
   subject: builds
@@ -74,10 +73,9 @@ core:
   - fieldkit/method/releasegate.py (ship gh-release, push --tag, release; refuses inside min_hours)
   owner: 2026-10-29; one release per batch 2026-11-15
   text: |-
-    BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE. Never hand-run stages or re-run
-    one the runner skipped. No recipe? Write one. Any version or OS, never pinned; Windows and
-    Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per OS
-    per 24 h, all OSes same day (`--hotfix WHY`, logged).
+    BUILDS. `fieldkit emerge plan`, `run` (background), `status` RECIPE; never hand-run stages or re-run a skipped
+    one. No recipe? Write one. Never pin a version or OS; Windows and Linux CI before merge; no run-time compile
+    (`fieldkit compileonce`). One release per OS per 24 h, all OSes the same day (`--hotfix WHY`, logged).
 - id: TESTS ONCE
   subject: which tests run
   audience: all
@@ -98,8 +96,9 @@ core:
   owner: 2026-10-29; B2 own failures only 2026-10-31; limit 3, unproven never counted 2026-11-16
   uses: [fieldkit ship ci-wait]
   text: |-
-    TWO STRIKES. Only OWN reds count (not main's, not unproven); 3 on one model
-    send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
+    TWO STRIKES. Only your OWN reds count (not main's, not unproven). 3 on one model send the repair to the next
+    stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest. A parked branch: carry on with the
+    rest.
 - id: WAITING
   subject: waiting
   audience: all
@@ -127,7 +126,8 @@ core:
   - fieldkit zero rollcall
   owner: 2026-11-08 (owner's own words, confirmed)
   text: |-
-    ZERO COMMANDS. Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
+    ZERO COMMANDS. Zero checks every side job's diff and PR and finishes it: unfinished side work is never
+    "not mine".
 - id: IDEAS
   subject: ideas
   audience: all
@@ -139,9 +139,8 @@ core:
   owner: 2026-10-31
   owner_decision: the owner answers parked ideas himself, once per milestone, in `fieldkit review` (owner 2026-10-31)
   text: |-
-    IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
-    "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
-    milestone Zero asks the owner to `fieldkit review`.
+    IDEAS. A new owner suggestion during a job or plan is parked (`fieldkit ideas add TITLE --why W`; reply
+    "parked as I-NN") unless the owner says "now" or "add to the plan". At a milestone Zero asks the owner to `fieldkit review`.
 - id: SHORT SESSIONS
   subject: session length
   audience: all
@@ -149,8 +148,8 @@ core:
   - fieldkit rotate (the room hook runs the check for Claude Code; the rotate block for the others)
   owner: 2026-10-30
   text: |-
-    SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
-    finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
+    SHORT SESSIONS. Every call re-sends the whole conversation. `fieldkit rotate check`: WARN = finish this job,
+    the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end. A long job continues in the successor.
 - id: USE THE HARNESS
   subject: tools before scripts
   audience: all
@@ -161,9 +160,8 @@ core:
   - fieldkit/core/crossos.py (tests/test_crossos.py)
   owner: 2026-10-28
   text: |-
-    USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a script. Sizes, search, hashes:
-    `fieldkit size`. No new tool unless needed. A script you write goes in
-    Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it.
+    USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or script; sizes, search, hashes:
+    `fieldkit size`. A new script goes in Documents/Scripts/<Tool>/ with a README (`fieldkit sweep` adopts it).
 - id: SUB-AGENTS
   subject: session mode and sub-agents
   audience: all
@@ -182,10 +180,9 @@ core:
   - fieldkit privacy scan
   owner: 2026-10-26; B3 fixed rule instead of a question 2026-10-31
   text: |-
-    DONE. Follow the DONE PROTOCOL (fieldkit-lifecycle block). Briefs, sitreps, audits and
-    hand-overs stay in state/ (git-ignored); a document a plan row names goes to git in that row's PR, after
-    `fieldkit privacy scan` (Gorilla.Fieldkit is PUBLIC). "Built in" means all six of docs/INTEGRATION.md
-    (`fieldkit integration check`).
+    DONE. Follow the DONE PROTOCOL (fieldkit-lifecycle block). Briefs, sitreps, audits and hand-overs stay in
+    state/ (git-ignored); a document a plan row names goes to git in that row's PR. "Built in" means all six of
+    docs/INTEGRATION.md (`fieldkit integration check`).
 - id: HONESTY
   subject: honest reports
   audience: all
@@ -202,9 +199,9 @@ core:
   - fieldkit telemetry scan
   owner: 2026-10-20
   text: |-
-    THREAT MODEL. The adversary is the vendor and whoever can compel its channels. Every channel (updates, telemetry,
-    remote config, sync, AI features, store extensions) is a door: justify it or close it. Updates are pulled and
-    verified on the owner's schedule. Fail closed. For a new dependency or service, say who can act through it and who learns what.
+    THREAT MODEL. The adversary is the vendor and whoever can compel its channels (updates, remote config, sync,
+    AI features, store extensions): justify each or close it. Updates are pulled and verified on the owner's schedule.
+    Fail closed. For a new dependency or service, say who can act through it and who learns what.
 - id: THE OWNER
   subject: the owner
   kind: fact
@@ -212,11 +209,10 @@ core:
   enforced_by: []
   owner: 2026-10-20; ADHD style 2026-11-02
   text: |-
-    THE OWNER. Handle "gorilla no baka", GitHub gorillanobakaa-dot. Blunt, evidence-first; money and time matter. Write
-    US English. A command for the owner (only what truly needs them, in the morning inbox): one PowerShell
-    block, `cd` to a full path first, every program by its full path, PowerShell syntax, and say where anything typed
-    after it goes. Explain in layman terms, ADHD style: result first,
-    then the effect on the harness and long-horizon tasks (time, tokens).
+    THE OWNER. "gorilla no baka", GitHub gorillanobakaa-dot. Blunt, evidence-first; money and time matter. Talk to
+    the owner in plain Romanian, result first, then the effect (time, tokens); repository text is US English. A command
+    for the owner (only what truly needs them): one PowerShell block, `cd` to a full path first, full program paths, and
+    say where anything typed after it goes.
 - id: DEVICES
   subject: devices
   kind: fact
@@ -236,7 +232,8 @@ core:
   - fieldkit scratch clean
   owner: 2026-10-26
   text: |-
-    CLEAN UP. Without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
+    CLEAN UP. Without asking, what YOUR job left. A file or process you are not sure is yours: leave it and name
+    it.
 - id: ASK FIRST
   subject: unexpected activity of another session
   audience: all
@@ -244,8 +241,8 @@ core:
   - fieldkit/autopilot/room.py
   owner: 2026-11-16
   text: |-
-    ASK FIRST. Unexpected activity of another session: put the question to it; if confirmed, cooperate. Never assume it
-    was unauthorised.
+    ASK FIRST. Unexpected activity of another session: send it the question and keep working; if confirmed,
+    cooperate. Never assume it was unauthorised.
 
 # Blocks generated by their own code; linted from what the generator returns.
 generated:
@@ -266,11 +263,11 @@ generated:
     heading: |-
       ## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
     side_jobs: |-
-      SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
+      SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click). Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
     done_head: |-
-      DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
+      DONE PROTOCOL (fieldkit lifecycle; every step, in order, without asking anyone):
     steps: |-
-      1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
+      1. commit on your own branch (never main); CI is the test run (TESTS ONCE).
       2. `fieldkit ship push --auto` (headless runs too): it pushes, opens the pull request, merges on green CI.
       3. report: {report}.
       4. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
@@ -301,25 +298,22 @@ generated:
     heading: |-
       ## Session rotation (fieldkit rotate)
     text: |-
-      At the start of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`); SHORT SESSIONS says what WARN and ROTATE mean. ROTATE: at the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
+      At each task start and after each commit run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity omits `--cwd .`). ROTATE: at the next safe point (SHORT SESSIONS) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, end this one.
 
 # Each agent's own lines, after the core block (generated: `fieldkit rules install` replaces them).
 tails:
   claude-code: |-
     # Claude Code
     - The hooks check you in with Zero and run the rotate check: you need not run them.
-    - On Windows the Bash tool is Git Bash; write a multi-line script to a file with Write, then run it.
-    - Claude desktop: end with `archive_session "self"` (turn Remote Control off first if it is on).
-    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    - On Windows the Bash tool is Git Bash: put a multi-line script in a file.
+    - Project rules files hold only that project's rules.
   codex: |-
     # Codex
-    - On Windows the shell is PowerShell (no heredocs, `&&` or backslash escapes): write a script to a file, run it.
-    - At start `fieldkit zero checkin --as codex:NAME`; roll call: answer with the fields in
-      `fieldkit zero --help`; leaving: `fieldkit zero checkin --off`.
-    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    - On Windows the shell is PowerShell (no heredocs, `&&`, backslash escapes): put a script in a file.
+    - `fieldkit zero checkin --as codex:NAME` at start, `--off` on leaving; roll call fields: `fieldkit zero --help`.
+    - Project rules files hold only that project's rules.
   gemini: |-
     # Gemini, Antigravity
-    - On Windows the shell is PowerShell (no heredocs, `&&` or backslash escapes): write a script to a file, run it.
-    - At start `fieldkit zero checkin --as gemini:NAME`; roll call: answer with the fields in
-      `fieldkit zero --help`; leaving: `fieldkit zero checkin --off`.
-    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    - On Windows the shell is PowerShell (no heredocs, `&&`, backslash escapes): put a script in a file.
+    - `fieldkit zero checkin --as gemini:NAME` at start, `--off` on leaving; roll call fields: `fieldkit zero --help`.
+    - Project rules files hold only that project's rules.
