@@ -796,7 +796,8 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call) or _sitrep(call) \n        or _rotate_stop(call) or _breaker(call)
+    stop = (_no_card(call) or _model_guard(call) or _nested(call) or _permanence(call) or _retire(call)
+            or _sitrep(call) or _rotate_stop(call) or _breaker(call))
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()
