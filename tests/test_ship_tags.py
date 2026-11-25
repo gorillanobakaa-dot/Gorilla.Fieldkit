@@ -31,14 +31,20 @@ def test_tags_classes_and_only_real_candidates(tmp_path, monkeypatch):
     _g(w, "tag", "-a", "v9.9.9", "-m", "x")
     _g(w, "push", "-q", "origin", "v9.9.9")               # its commit is on no remote branch
     _g(w, "checkout", "-q", "main")
+    _g(w, "checkout", "-q", "-b", "rel")
+    _g(w, "commit", "-q", "--allow-empty", "-m", "rel")
+    _g(w, "tag", "-a", "v9.9.8", "-m", "y")
+    _g(w, "push", "-q", "origin", "rel", "v9.9.8")
+    _g(w, "checkout", "-q", "main")
     _g(w, "tag", "-a", "archive/old", "-m", "a", "v0.1.0")
     _g(w, "push", "-q", "origin", "archive/old")
     r = st.tags(w, gh=_gh(releases=["v0.1.0"]))
     kinds = {(c["tag"], c["kind"]) for c in r["candidates"]}
     assert ("v9.9.9", "unreachable") in kinds and ("stray", "local-only") in kinds
+    assert ("v9.9.8", "off-base") in kinds and "v9.9.8" not in r["owner_command"]
     assert ("v0.1.0b", "duplicate") in kinds and ("v0.1.0", "duplicate") in kinds
     assert not any(t == "archive/old" for t, _ in kinds)              # archive tags are never candidates
-    assert r["counts"] == {"release": 1, "version-no-release": 2, "archive": 1, "other": 2}
+    assert r["counts"] == {"release": 1, "version-no-release": 3, "archive": 1, "other": 2}
     assert not r["ok"] and "push origin --delete" in r["owner_command"] and "stray" not in r["owner_command"]
     assert "refs/tags/archive/old" not in r["owner_command"]
     assert "refs/tags/v9.9.9" in _g(w, "ls-remote", "--tags", "origin")   # read-only: nothing deleted on the remote

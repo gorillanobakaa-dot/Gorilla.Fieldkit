@@ -199,3 +199,26 @@ def test_three_red_commits_on_a_ladder_model_escalate_instead_of_parking(monkeyp
     r, _ = go(gh)
     assert not r["ok"] and r["state"] == "escalate" and r["escalate_to"] == "opus"
     assert not gh.did("pr " + "merge") and strikes.parked_for("feat/x") is None
+
+
+def test_required_contexts_reads_rulesets_and_classic_protection():
+    rules = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "a", "integration_id": 7}]}}]
+    classic = {"contexts": ["b"], "checks": [{"context": "c", "app_id": 9}]}
+    assert ship.required_contexts(rules, classic) == {"a": 7, "b": None, "c": 9}
+    assert ship.required_contexts({"message": "Not Found"}, None) == {}
+
+
+def test_a_pr_merge_needs_both_os_contexts():
+    assert ship.unrequired(Gh(), ".", "main") == ([], "")
+    assert ship.unrequired(Gh(rules=[]), ".", "main")[0] == list(ship.REQUIRED_CONTEXTS)
+
+
+def test_a_proof_anchor_that_no_longer_holds_is_found(tmp_path, monkeypatch):
+    from fieldkit import rules_lint as L
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "proofs.yaml").write_text("{}")
+    monkeypatch.setattr(ship, "git", lambda *a, **k: type("R", (), {"stdout": str(tmp_path)})())
+    monkeypatch.setattr(L, "load", lambda root: {})
+    monkeypatch.setattr(L, "entries", lambda data: [("HARD LINES", "", {})])
+    monkeypatch.setattr(L, "proof_findings", lambda rid, e, root: [{"rule": rid, "evidence": "anchor gone"}])
+    assert ship.stale_proofs(tmp_path) == ["HARD LINES: anchor gone"]

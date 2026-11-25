@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 
 from ._common import emit
+from ..method import shiprefs
+from ..method.shiprelease import repo_slug
 
 
 def parse_worktree_porcelain(text):
@@ -34,21 +36,20 @@ def parse_worktree_porcelain(text):
     return out
 
 
-def classify(path, branch, head, dirty_lines, is_ancestor_of_main, extra_commits, age_h, prs):
-    merged_heads = {p.get("headRefOid") for p in prs if p.get("state") == "MERGED"}
-    merged_names = {p.get("headRefName") for p in prs if p.get("state") == "MERGED"}
-    open_names = {p.get("headRefName") for p in prs if p.get("state") == "OPEN"}
+def classify(path, branch, head, dirty_lines, is_ancestor_of_main, extra_commits, age_h, prs, slug=None, base="main"):
+    # A branch NAME is reused across PRs: only this repository, this base and this head commit prove anything.
+    states = {p.get("state") for p in shiprefs.matching(prs, slug, base, head)}
     br = branch.removeprefix("refs/heads/")
-    if is_ancestor_of_main or head in merged_heads:
+    if is_ancestor_of_main or "MERGED" in states:
         verdict = "merged"
-    elif br in open_names:
+    elif "OPEN" in states:
         verdict = "open-pr"
     else:
         verdict = "unmerged"
     if dirty_lines:
         verdict += "+dirty"
     return {"path": path, "branch": br, "verdict": verdict, "extra": extra_commits, "dirty": len(dirty_lines),
-            "age_h": round(age_h, 1), "pr_merged_by_name": br in merged_names}
+            "age_h": round(age_h, 1)}
 
 
 def _git(repo, *args, run=fkproc.run):
@@ -63,7 +64,7 @@ def live(repo, run=fkproc.run, now=None):
         raise ValueError("not a git repository (or git failed)")
     notes, prs = [], []
     try:
-        r = run(["gh", "pr", "list", "--state", "all", "--limit", "300", "--json", "headRefName,headRefOid,state"],
+        r = run(["gh", "pr", "list", "--state", "all", "--limit", "300", "--json", shiprefs.PR_FIELDS],
                 capture_output=True, text=True, timeout=120, cwd=str(repo))
         prs = json.loads(r.stdout or "[]") if r.returncode == 0 else []
         if r.returncode != 0:
@@ -106,10 +107,11 @@ def main(argv=None):
         emit(a.json, "FAIL", f"cannot classify: {e}", "run it inside a git repository, or pass --fixture-json")
         return 1
     here = os.path.normcase(os.path.realpath(a.repo))
+    slug = None if a.fixture_json else repo_slug(a.repo)
     rows = []
     for i, w in enumerate(wts):
         r = classify(w["path"], w.get("branch", ""), w["head"], w.get("dirty_lines", []), w.get("is_ancestor_of_main", False),
-                     w.get("extra_commits", 0), w.get("age_h", 0.0), prs)
+                     w.get("extra_commits", 0), w.get("age_h", 0.0), prs, slug)
         r["main_checkout"] = i == 0 and not a.fixture_json
         r["current"] = not a.fixture_json and os.path.normcase(os.path.realpath(w["path"])) == here
         r["recyclable"] = r["verdict"] == "merged" and not r["main_checkout"] and not r["current"]

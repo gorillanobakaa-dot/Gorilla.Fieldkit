@@ -7,6 +7,7 @@ recipes: [fieldkit]
 cookbook:
   - {repo: fieldkit, path: AGENTS.md, what: "Fieldkit's own rules"}
   - {repo: fieldkit, path: rules/CORE.md, what: "the rules for every project"}
+  - {repo: fieldkit, path: skills/fieldkit-ship/SKILL.md, what: "the one GitHub cookbook: steps, evidence, recovery"}
   - {repo: fieldkit, path: docs/HARNESS-PLAN.md, what: "the plan, item by item"}
   - {repo: fieldkit, path: docs/COOKBOOK-VISION.md, what: "the cookbook design (P41)"}
   - {repo: fieldkit, path: projects/README.md, what: "candidate policy, release evidence, and test proof reuse"}

@@ -406,3 +406,28 @@ def test_the_install_hooks_preview_and_the_doctor_are_not_hard_lined():
     from fieldkit.autopilot import hardlines as H
     for cmd in ("fieldkit mandate install-hooks", "fieldkit mandate doctor", "fieldkit mandate install-hooks --stick D"):
         assert not any(re.search(p, cmd, re.I) for p, _ in H.OWNER_ONLY), cmd
+
+
+@pytest.mark.parametrize("cmd, route", [
+    ("gh pr merge 5 --merge", "gh-pr-merge-by-hand"),
+    ("cd . && gh pr merge feat/x --auto", "gh-pr-merge-by-hand"),
+    ("echo 'gh pr merge later'", None),
+    ("gh pr merge 5 --disable-auto", None),
+    ("gh pr view 5", None),
+])
+def test_a_hand_typed_pr_merge_goes_to_ship(clone, monkeypatch, cmd, route):
+    from fieldkit.autopilot import toolrouter as tr
+    from fieldkit.mandate import proofs
+    monkeypatch.setattr(tr, "covered_names", lambda: {proofs.where(str(clone))[0]})
+    assert (tr.push_refusal(cmd, str(clone)) or {}).get("route") == route
+
+
+def test_ship_push_aimed_at_another_checkout_is_refused(clone, tmp_path):
+    from fieldkit.autopilot import toolrouter as tr
+    other = tmp_path / "other-checkout"
+    git(clone, "checkout", "-q", "-b", "feat/mine")
+    git(clone, "worktree", "add", "-q", "-b", "feat/theirs", str(other))
+    for cmd in (f'fieldkit ship push --auto --repo "{other.as_posix()}"', f'cd "{other.as_posix()}" && python -m fieldkit ship push'):
+        assert tr.push_refusal(cmd, str(clone), names=set())["route"] == "ship-push-wrong-checkout"
+    assert tr.push_refusal("fieldkit ship push --auto", str(clone), names=set()) is None
+    assert tr.push_refusal(f'fieldkit ship push --tag v1 --repo "{other.as_posix()}"', str(clone), names=set()) is None

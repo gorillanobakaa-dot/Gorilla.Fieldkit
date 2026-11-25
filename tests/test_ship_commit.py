@@ -82,3 +82,17 @@ def test_never_no_verify(tmp_path):
         return Git(["ok"])(cmd, **kw)
     C.commit(repo, msg, run=run, env={"PATH": "/usr/bin"})
     assert not any("--no-verify" in c or "-n" in c for c in seen if "commit" in c)
+
+
+def test_a_stale_index_lock_stops_the_commit_and_the_push(tmp_path, monkeypatch):
+    from fieldkit.buildh import preflight
+    from fieldkit.method import ship
+    repo, msg = _repo(tmp_path)
+    lock = repo / ".git" / "index.lock"
+    lock.write_text("")
+    monkeypatch.setattr(preflight, "_running", lambda image: [])
+    r = C.commit(repo, msg, run=Git([]), env={"PATH": "/usr/bin"})
+    assert not r["ok"] and "fieldkit size recycle" in r["stopped"] and lock.exists()
+    assert ship.push(repo)["state"] == "stale-lock"
+    monkeypatch.setattr(preflight, "_running", lambda image: [123])      # a live git owns it
+    assert ship.stale_lock(repo) == ""

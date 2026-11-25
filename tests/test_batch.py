@@ -79,7 +79,7 @@ class FakeGH:
         self.ci[n] = "green"
         return n, ""
 
-    def auto_merge(self, n, head):
+    def auto_merge(self, n, head, base="main"):
         self.auto.append(n)
         return True, ""
 

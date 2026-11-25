@@ -18,7 +18,8 @@ HARD LINES (never, whoever asks):
 - Push, tag or release outside the owner-wide mandate: only `fieldkit ship push [--tag vX]` (feat/ fix/
   release- night/ branches), `fieldkit ship gh-release vX -- ARGS`; main moves only by a PR merged on green CI
   (runner down, owner: "we can run a CI locally"). GORILLA_OWNER_APPROVED: owner only.
-- Permanent deletes: recycle with `fieldkit size recycle PATH`. Never delete on GitHub or move a tag.
+- Permanent deletes: recycle with `fieldkit size recycle PATH`. Never move a tag; delete GitHub branches only
+  through `fieldkit ship prune` (proof by commit, logged, restorable).
 - Weakening a check, guard, hook or rules file to make a result pass; changing an owner decision (GORILLA blocks,
   decision registers). Prove a check wrong on a real tree before proposing a change.
 - Secrets and credential files: never open, echo or commit them.
@@ -29,11 +30,10 @@ one the runner skipped. No recipe? Write one. Any version or OS, never pinned; W
 Linux CI before merge; no run-time compile (`fieldkit compileonce`). One release per OS
 per 24 h, all OSes same day (`--hotfix WHY`, logged).
 
-TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks (owner,
-2026-11-15): push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
+TESTS ONCE. Tests run in GitHub CI (Linux and Windows), never locally unless the owner asks: push; CI runs (`fieldkit testcost staged` names them). A passed test is never re-run. On the
 Windows laptop every heavy command runs under `fieldkit guard --`, one at a time.
 
-TWO STRIKES (owner 2026-11-16). Only OWN reds count (not main's, not unproven); 3 on one model
+TWO STRIKES. Only OWN reds count (not main's, not unproven); 3 on one model
 send the repair to the next stronger allowed model; `fieldkit ship ci-wait` parks only past the strongest.
 
 WAITING. Never poll or sleep: `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
@@ -42,7 +42,7 @@ background.
 MODELS. Default Sonnet; Opus or Fable only for parked repairs and reviews, if the model-spend guard allows
 it.
 
-ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
+ZERO COMMANDS. Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
 
 IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
 "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
@@ -72,7 +72,7 @@ verified on the owner's schedule. Fail closed. For a new dependency or service, 
 THE OWNER. Handle "gorilla no baka", GitHub gorillanobakaa-dot. Blunt, evidence-first; money and time matter. Write
 US English. A command for the owner (only what truly needs them, in the morning inbox): one PowerShell
 block, `cd` to a full path first, every program by its full path, PowerShell syntax, and say where anything typed
-after it goes. Explain in layman terms, ADHD style (owner 2026-11-02): result first,
+after it goes. Explain in layman terms, ADHD style: result first,
 then the effect on the harness and long-horizon tasks (time, tokens).
 
 DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the main

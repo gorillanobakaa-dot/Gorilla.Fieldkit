@@ -25,7 +25,7 @@
                                            condition proven by the tool (fieldkit/mandate); otherwise the owner does it
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
-    fieldkit ship prune  [--archive-unproven]   report remote branches proven merged (owner deletes); one source of truth
+    fieldkit ship prune                    delete remote branches proven done by commit; logged; never a tag
     fieldkit ship tags   [--repo R | --all] [--fix-local]   tags classed, only real candidates flagged; never deletes on GitHub
     fieldkit ship prune|audit --all        every non-archived repo of the owner, one before/after table (shiptags.py)
     fieldkit ship update [--base B]        merge origin/main into the branch the train's way: generated files
@@ -66,6 +66,7 @@ Exit 0 done or nothing to do, 3 refused (with the reason and the next step), 2 b
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 from fieldkit import proc as fkproc
@@ -157,7 +158,41 @@ def _mandate_log(path, what, detail, **extra):
         M.log(path, what, detail, **extra)
 
 
+def stale_lock(repo):
+    """-> the worktree's index.lock when no git process is running to own it, else ''."""
+    here = Path(repo).resolve()                  # file reads only: push refuses other things before git starts
+    top = next((d for d in (here, *here.parents) if (d / ".git").exists()), None)
+    if top is None:
+        return ""
+    gd = top / ".git"
+    if gd.is_file():                             # a linked worktree
+        gd = top / gd.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()
+    lock = gd / "index.lock"
+    if not lock.is_file():
+        return ""
+    from ..buildh import preflight
+    return "" if preflight._running("git.exe" if os.name == "nt" else "git") else str(lock)
+
+
+def lock_refusal(lock):
+    return f'stale {lock} (no git process is running): fieldkit size recycle "{lock}"'
+
+
+def stale_proofs(repo):
+    """-> the rules/proofs.yaml anchors that no longer hold, in a checkout that has them (CI would fail on them)."""
+    top = git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+    if not top or not (Path(top) / "rules" / "proofs.yaml").is_file():
+        return []
+    from .. import rules_lint as L
+    return [f"{f['rule']}: {f['evidence']}" for rid, _, e in L.entries(L.load(Path(top)))
+            for f in L.proof_findings(rid, e, Path(top))]
+
+
 def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
+    lock = stale_lock(repo)
+    if lock:
+        return {"ok": False, "state": "stale-lock", "pushed": False, "error": lock_refusal(lock),
+                "next": "recycle the lock, then run the same command again"}
     st = sync(repo, base)
     if not st.get("ok"):
         return st
@@ -174,6 +209,10 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     if not ig["ok"]:
         return dict(st, ok=False, pushed=False, state="integration-gap", error=gate.refusal(ig),
                     next="fix the files named after `fix`, then `fieldkit integration check --repo . --changed " + base + "`")
+    stale = stale_proofs(repo)
+    if stale:
+        return dict(st, ok=False, pushed=False, state="stale-proofs", error="; ".join(stale[:5]),
+                    next="re-point rules/proofs.yaml at the enforcer's current line (`fieldkit rules lint`), commit, push")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
@@ -234,16 +273,39 @@ def _waiting_prs(run, repo):
 REQUIRED_CONTEXTS = ("test (ubuntu-latest)", "test (windows-latest)")
 
 
-def missing_contexts(rules, wanted=REQUIRED_CONTEXTS):
-    """rules: the JSON list of repos/{owner}/{repo}/rules/branches/{base}. -> the wanted contexts no
-    required_status_checks rule names (all of them when the answer is not that list)."""
-    have = set()
+def required_contexts(rules, classic=None):
+    """The one parser of a base's required checks. rules: the JSON list of repos/{owner}/{repo}/rules/branches/{base}
+    (or ruleset rules); classic: the JSON of .../branches/{base}/protection/required_status_checks.
+    -> {context: the app id it is pinned to, or None}."""
+    got = {}
     for r in rules if isinstance(rules, list) else []:
         if isinstance(r, dict) and r.get("type") == "required_status_checks":
             for c in (r.get("parameters") or {}).get("required_status_checks") or []:
                 if isinstance(c, dict) and c.get("context"):
-                    have.add(c["context"])
+                    got[c["context"]] = got.get(c["context"]) or c.get("integration_id")
+    if isinstance(classic, dict):
+        for name in classic.get("contexts") or []:
+            got.setdefault(name, None)
+        for c in classic.get("checks") or []:
+            got[c["context"]] = got.get(c["context"]) or c.get("app_id")
+    return got
+
+
+def missing_contexts(rules, wanted=REQUIRED_CONTEXTS):
+    """-> the wanted contexts no required_status_checks rule names (all of them when the answer is not that list)."""
+    have = required_contexts(rules)
     return [c for c in wanted if c not in have]
+
+
+def unrequired(run, repo, base):
+    """-> (the REQUIRED_CONTEXTS the base does not require, '') or (None, error): unreadable is never 'required'."""
+    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}")
+    if not ok:
+        return None, err
+    try:
+        return missing_contexts(json.loads(out or "[]")), ""
+    except ValueError:
+        return None, f"not JSON: {out[:200]}"
 
 
 def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=None, inbox=_inbox_add,
@@ -319,14 +381,9 @@ def auto(repo=".", base="main", title="", body_file="", run=fkproc.run, pusher=N
     # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
     # 2026-11-25: a required_status_checks rule that names other contexts (or one OS only) lets GitHub merge before
     # both OS checks pass: both REQUIRED_CONTEXTS must be required.
-    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}")
-    if not ok:
+    missing, err = unrequired(run, repo, base)
+    if missing is None:
         return fail("gh api rules", err)
-    try:
-        rules = json.loads(out or "[]")
-    except ValueError:
-        return fail("gh api rules", f"not JSON: {out[:200]}")
-    missing = missing_contexts(rules)
     if missing:
         why = (f"PR #{pr['number']} ({pr['url']}): {base} does not require {', '.join(missing)}, so GitHub could merge "
                f"it before both OS checks pass. Auto-merge NOT enabled; the PR stays open.")
@@ -734,6 +791,11 @@ def merge(repo=".", base="main", mandate=_mandate, run=fkproc.run, verdict_call=
                         next=f"merge origin/{base} into {branch}, push, and have it reviewed again")
         r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}", env=ship_env())
     elif how == "pull-request":
+        missing, err = unrequired(run, repo, base)
+        if missing is None or missing:
+            return dict(rep, ok=False, state="no-required-checks",
+                        error=f"{base} does not require {', '.join(missing or REQUIRED_CONTEXTS)}" + (f" ({err})" if err else ""),
+                        next="the owner makes both OS checks required (`fieldkit github plan`); nothing was merged")
         r = run(["gh", "pr", "merge", branch, "--merge", "--match-head-commit", commit],
                 cwd=str(repo), capture_output=True, text=True, env=ship_env())
     else:
@@ -793,8 +855,6 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
-    ap.add_argument("--archive-unproven", action="store_true",
-                    help="prune: add archive/<branch> tag lines for unproven branches to the owner command (nothing runs on GitHub)")
     ap.add_argument("--all", action="store_true", dest="all_repos",
                     help="prune, audit, tags: every non-archived repo of the owner (local clone, else a scratch clone), one table")
     ap.add_argument("--fix-local", action="store_true", help="tags: remove local tags that were never pushed (git tag -d)")
@@ -851,11 +911,11 @@ def main(argv=None, prog="fieldkit ship"):
         from . import shiptags as st
         from . import shiprelease as sr
         if a.all_repos:
-            r = st.run_all(a.action, archive_unproven=a.archive_unproven)
+            r = st.run_all(a.action)
             emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} --ALL {'OK' if d['ok'] else 'NOT OK'}"] + st.all_lines(d))
             st.cleanup(r)
         else:
-            r = st.tags(a.repo, fix_local=a.fix_local)
+            r = st.tags(a.repo, fix_local=a.fix_local, base=a.base or "main")
             emit(r, a.json, lambda d: [f"SHIP TAGS {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     if a.action in ("audit", "release", "prune"):
@@ -863,7 +923,7 @@ def main(argv=None, prog="fieldkit ship"):
         if a.action == "audit":
             r = sr.audit(a.repo, a.base, offline=a.offline)
         elif a.action == "prune":
-            r = sr.prune(a.repo, a.base, archive_unproven=a.archive_unproven)
+            r = sr.prune(a.repo, a.base)
         elif not a.tag:
             ap.error("release needs a tag: fieldkit ship release vX.Y.Z")
         else:

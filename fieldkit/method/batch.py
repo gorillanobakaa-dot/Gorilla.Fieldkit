@@ -89,7 +89,10 @@ class BatchGH(train.GH):
         m = re.search(r"/pull/(\d+)", out or "")
         return (int(m.group(1)) if m else None), (err or out).strip()[-300:]
 
-    def auto_merge(self, n, head):
+    def auto_merge(self, n, head, base="main"):
+        from .ship import REQUIRED_CONTEXTS
+        if not set(REQUIRED_CONTEXTS) <= self.required_checks(base):      # --auto would merge without them
+            return False, "auto-merge not enabled: the base does not require both OS checks"
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--auto", "--merge", "--match-head-commit", head)
         return rc == 0, (out + err).strip()[-300:]
 
@@ -493,7 +496,7 @@ def run(repo=".", gh=None, base="main", pol=None, max_n=None, only=None, push=No
                               body_of(members, rep["left"], tests))
         if not n:
             return dict(rep, ok=False, state="pr-failed", error=err, next="the branch is pushed; open the PR by hand")
-        gh.auto_merge(n, b["head"])
+        gh.auto_merge(n, b["head"], base)
         r["pr"] = n
         res = waiter(n)
         r["ci"] = res.get("state") or ("green" if res.get("ok") else "red")

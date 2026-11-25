@@ -36,12 +36,16 @@ def offer_line(request, folder=None):
     d = offer(request, folder)
     if not d:
         return ""
+    if d.get("superseded_by"):
+        return f"WORKFLOW: this request looks like '{d['intent']}': follow {d['superseded_by']} (recipe {d['id']} is historical)"
     return (f"WORKFLOW: this request looks like '{d['intent']}': recipe {d['id']} has {len(d['steps'])} steps, each one "
             f"sentence, one command, one check: fieldkit capture workflow show {d['id']}")
 
 
 def show_lines(d):
     out = [f"{d['id']}: {d.get('title', '')}", f"Goal: {d.get('goal', '')}"]
+    if d.get("superseded_by"):
+        out.append(f"HISTORICAL: follow {d['superseded_by']} instead")
     for i, s in enumerate(d.get("steps", []), 1):
         out += [f"{i}. {s['sentence']}", f"   Command: {s.get('command', '')}", f"   Check: {s['check']}"]
     return out
@@ -51,5 +55,6 @@ def list_lines(folder=None):
     out = []
     for d in load(folder).values():
         kind = f"recipe, {len(d['steps'])} steps" if d.get("accepted") and d.get("steps") else "procedure (did not replay)"
-        out.append(f"{d['id']}  [{d.get('intent', '')}]  {kind}")
+        old = f"  historical, see {d['superseded_by']}" if d.get("superseded_by") else ""
+        out.append(f"{d['id']}  [{d.get('intent', '')}]  {kind}{old}")
     return out

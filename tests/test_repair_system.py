@@ -82,17 +82,21 @@ def test_parent_chains_cli(tmp_path, capsys):
 
 # --- worktree-classify-recycle -------------------------------------------------------------------------------------
 def test_worktree_verdicts():
-    prs = [{"headRefName": "feat/a", "headRefOid": "aaa", "state": "MERGED"}, {"headRefName": "feat/b", "headRefOid": "bbb", "state": "OPEN"}]
+    pr = lambda name, oid, state, base="main", **k: {"headRefName": name, "headRefOid": oid, "state": state, "baseRefName": base, **k}
+    prs = [pr("feat/a", "aaa", "MERGED"), pr("feat/b", "bbb", "OPEN"), pr("f", "fff", "MERGED", "other"),
+           pr("g", "ggg", "MERGED", isCrossRepository=True)]
     row = lambda br, head, anc=False, dirty=(): wc.classify("p", "refs/heads/" + br, head, list(dirty), anc, 1, 2.0, prs)
     assert row("feat/a", "aaa")["verdict"] == "merged"                  # squash-merged: not an ancestor, the PR says so
     assert row("x", "ccc", anc=True)["verdict"] == "merged"
     assert row("feat/b", "bbb")["verdict"] == "open-pr"
     assert row("feat/z", "zzz")["verdict"] == "unmerged"
+    assert row("feat/b", "new")["verdict"] == "unmerged"                # a reused name proves nothing
+    assert row("f", "fff")["verdict"] == row("g", "ggg")["verdict"] == "unmerged"   # wrong base, a fork
     assert row("feat/a", "aaa", dirty=["M f"])["verdict"] == "merged+dirty"
 
 
 def test_worktree_cli_lists_only_clean_merged(tmp_path, capsys):
-    fx = {"prs": [{"headRefName": "a", "headRefOid": "h1", "state": "MERGED"}],
+    fx = {"prs": [{"headRefName": "a", "headRefOid": "h1", "state": "MERGED", "baseRefName": "main"}],
           "worktrees": [{"path": "/w/1", "branch": "refs/heads/a", "head": "h1"},
                         {"path": "/w/2", "branch": "refs/heads/a", "head": "h1", "dirty_lines": ["M x"]},
                         {"path": "/w/3", "branch": "refs/heads/q", "head": "h3"}]}

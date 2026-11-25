@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-11-09-16-00
+# Version: 1.1.0 · updated 26-11-25-02-00
 """Tags and every owner repo, for `fieldkit ship tags` and `fieldkit ship prune|audit --all` (owner, 2026-11-09:
 "obviously we should not delete tags indiscriminately"; use git's own commands, not a new tool).
 
@@ -6,10 +6,11 @@
 
 Every tag comes from `git ls-remote --tags origin` and `git tag --sort=-creatordate`, and is classed:
   release              v* with a GitHub release            version-no-release   v* without one
-  archive              archive/* (what `ship prune --archive-unproven` saved: restorable work, never a candidate)
+  archive              archive/* (archived work: restorable, never a candidate)
   other                anything else
 Candidates (the only things flagged):
   unreachable   the tag's commit is on no remote branch (work only the tag holds; GitHub can still serve it)
+  off-base      on a remote branch but not in origin/<base> (reported; never part of the delete command)
   duplicate     another non-archive tag points at the same commit
   local-only    a local tag never pushed (the tool may remove it with --fix-local: `git tag -d`, logged)
   remote-only   a remote tag this clone lacks (information only)
@@ -64,7 +65,7 @@ def classify(tag, releases):
     return "other"
 
 
-def tags(repo=".", gh=sr._gh, fix_local=False):
+def tags(repo=".", gh=sr._gh, fix_local=False, base="main"):
     """-> {"ok", "rows", "counts", "candidates", "removed", "owner_command"}. Read-only unless fix_local, which only
     removes local tags that were never pushed. Never touches a remote."""
     slug = sr.repo_slug(repo)
@@ -81,6 +82,7 @@ def tags(repo=".", gh=sr._gh, fix_local=False):
     for t, c in remote.items():
         if classes[t] != "archive":
             by_commit.setdefault(c, []).append(t)
+    has_base = git(repo, "rev-parse", "--verify", "-q", f"origin/{base}").returncode == 0
     for t, c in sorted(remote.items()):
         if classes[t] == "archive":
             continue
@@ -88,6 +90,8 @@ def tags(repo=".", gh=sr._gh, fix_local=False):
         if have and not _lines(git(repo, "for-each-ref", "refs/remotes", "--contains", c, "--count=1",
                                    "--format=%(refname)")):
             cand.append((t, "unreachable", f"{t}: its commit {c[:10]} is on no remote branch"))
+        elif have and has_base and git(repo, "merge-base", "--is-ancestor", c, f"origin/{base}").returncode:
+            cand.append((t, "off-base", f"{t}: its commit {c[:10]} is not in origin/{base}"))
         twins = [x for x in by_commit[c] if x != t]
         if twins:
             cand.append((t, "duplicate", f"{t}: same commit as {', '.join(sorted(twins)[:3])}"))
@@ -107,7 +111,8 @@ def tags(repo=".", gh=sr._gh, fix_local=False):
         owner_cmd = "\n".join([f'cd "{top}"'] + [f'& "C:\\Program Files\\Git\\cmd\\git.exe" push origin --delete "refs/tags/{t}"'
                                                 for t in deletable])
     rows = [{"check": "tags", "state": "OK", "say": f"{len(classes)} tag(s): " + ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))}]
-    for kind, why in (("unreachable", "work only the tag holds"), ("duplicate", "two tags, one commit"),
+    for kind, why in (("unreachable", "work only the tag holds"), ("off-base", "not on the base branch"),
+                      ("duplicate", "two tags, one commit"),
                       ("local-only", "never pushed")):
         mine = [s for t, k, s in cand if k == kind and not (kind == "local-only" and t in removed)]
         rows.append({"check": kind, "state": "OK" if not mine else "DO", "say": f"no {kind} tag" if not mine else
@@ -168,7 +173,7 @@ def snapshot(repo, base, gh):
             "worktrees": len(sr._worktrees(repo)) - 1}
 
 
-def run_all(action, archive_unproven=False, gh=sr._gh, repos=owner_repos, find=find_local, clone=scratch_clone):
+def run_all(action, gh=sr._gh, repos=owner_repos, find=find_local, clone=scratch_clone):
     """action: prune | audit | tags -> {"ok", "table": [{repo, before, after, ...}], "rows"}; one repo failing never stops the rest."""
     table, scratch = [], []
     try:
@@ -191,11 +196,11 @@ def run_all(action, archive_unproven=False, gh=sr._gh, repos=owner_repos, find=f
             git(path, "fetch", "--quiet", "--prune", "origin")
             entry["before"] = snapshot(path, base, gh)
             if action == "prune":
-                res = sr.prune(path, base, archive_unproven=archive_unproven, gh=gh)
+                res = sr.prune(path, base, gh=gh)
             elif action == "audit":
                 res = sr.audit(path, base, gh=gh)
             else:
-                res = tags(path, gh=gh)
+                res = tags(path, gh=gh, base=base)
             entry["after"] = snapshot(path, base, gh)
             entry["ok"] = res["ok"]
             entry["rows"] = [x for x in res["rows"] if x["state"] != "OK"]

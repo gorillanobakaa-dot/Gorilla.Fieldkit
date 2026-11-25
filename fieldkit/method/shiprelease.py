@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-11-25-12-00
+# Version: 1.2.0 · updated 26-11-25-14-00
 """Is the work on main, and is main released? The two questions nothing asked until 2026-10-16.
 
 That night the Fieldkit release page still showed v0.3.0 of 13 October while main was 135 commits ahead: every pull
@@ -128,8 +128,7 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
     row("merged-branches", not on_base,
         "no merged branch left on the remote" if not on_base else
         f"{len(on_base)} branch(es) on the remote are fully merged into {base}: " + ", ".join(r["name"] for r in on_base[:8]),
-        "" if not on_base else "GitHub deletes a head branch when its PR merges; an agent never deletes a remote branch: "
-                               "fieldkit ship prune lists the rest for the owner")
+        "" if not on_base else "fieldkit ship prune")
     if not offline:
         unproven, unknown = cls["unproven"], cls["unknown"]
         row("branches", not unproven,
@@ -144,7 +143,7 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
         if stale:
             row("stale-branches", False, "merged (same head commit) or squash-merged and still on the remote: "
                 + ", ".join(f"{r['name']} ({r['why']})" for r in stale[:8]),
-                "fieldkit ship prune (report only: the owner deletes remote branches)")
+                "fieldkit ship prune")
     if not offline:
         out, err = gh(["pr", "list", "-R", slug, "--state", "open", "--json", "number,title,headRefName,statusCheckRollup"]) \
             if slug else (None, "no GitHub remote")
@@ -223,57 +222,87 @@ def _local_leftovers(repo, base, row):
         "unpushed: push and open a pull request (fieldkit ship push); merged: git branch -d NAME (refuses unmerged)")
 
 
-def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
-    """One source of truth, without deleting on GitHub (hard line, 2026-11-25: an agent never deletes a remote branch
-    or pushes a tag outside fieldkit ship push). Remote branches are classed by shiprefs (same repo, same base, same
-    head commit) and reported; the deletions the proof allows are written as ONE owner command. archive_unproven adds
-    archive/<branch> tags for unproven branches to that command (tag first, then delete). Local branches merged into
-    the base are removed with git branch -d (git refuses an unmerged one). Never touches the base.
-    -> {"ok", "rows", "deleted": [] (always), "archived": [] (always), "kept", "local", "refused", "deletable",
-        "owner_command"}"""
+def _guarded(repo, slug, gh):
+    """-> ({branch: why it stays}, error). The default branch, protected branches, and every branch an open pull
+    request uses as head or base. Any failed read is an error: the caller then deletes nothing."""
+    m = re.search(r"ref: refs/heads/(\S+)\s+HEAD", git(repo, "ls-remote", "--symref", "origin", "HEAD").stdout)
+    if not m:
+        return {}, "the remote's default branch is not readable"
+    keep = {m.group(1): "default branch"}
+    if not slug:
+        return keep, ""
+    out, err = gh(["pr", "list", "-R", slug, "--state", "open", "--limit", "1000", "--json", "headRefName,baseRefName"])
+    prot, err2 = gh(["api", "--paginate", f"repos/{slug}/branches?protected=true&per_page=100", "-q", ".[].name"])
+    if out is None or prot is None:
+        return {}, err or err2 or "gh failed"
+    try:
+        for p in json.loads(out or "[]"):
+            keep.setdefault(p["headRefName"], "head of an open PR")
+            keep.setdefault(p["baseRefName"], "base of an open PR")
+    except (ValueError, KeyError, TypeError) as e:
+        return {}, f"unreadable gh output: {e}"
+    for name in prot.split():
+        keep.setdefault(name, "protected")
+    return keep, ""
+
+
+def prune(repo=".", base="main", gh=_gh, log=None):
+    """Delete the remote branches proven done by commit (owner, 2026-11-25: "We need the agent to be able to ...
+    delete and clean on the ... GitHub"). Proof: the head commit is in origin/<base>, or a merged PR has the same
+    repository, base and head commit (shiprefs). Kept and listed: everything else, the default branch, protected
+    branches, branches of an open PR. Tags are never touched. Each delete is a plain `git push` leased to the proven
+    commit (a branch that moved is refused; repository hooks and rules still apply) and is logged with its restore
+    line. A remote that is not GitHub gets git's proof only. Local branches merged into the base go with
+    git branch -d. -> {"ok", "rows", "deleted", "refused", "kept", "local"}"""
+    from ..core import settings
     git(repo, "fetch", "--quiet", "--prune", "origin")
     slug = repo_slug(repo)
-    res = shiprefs.classify(repo, base, gh=gh if slug else None, slug=slug)
-    if slug and res["errors"]:      # without GitHub an open PR's head looks unproven: propose nothing (2026-11-09)
-        why = ghhidden.explain("; ".join(res["errors"])[:160])
-        return {"ok": False, "deleted": [], "archived": [], "kept": [], "local": [], "refused": [], "deletable": [],
-                "owner_command": "",
-                "rows": [{"check": "github", "state": "DO", "say": f"pull requests not readable ({why}): nothing was proposed",
+    keep, err = _guarded(repo, slug, gh)
+    if err:
+        why = ghhidden.explain(err[:160])
+        return {"ok": False, "deleted": [], "refused": [], "kept": [], "local": [],
+                "rows": [{"check": "github", "state": "DO", "say": f"GitHub not readable ({why}): nothing was deleted",
                           "run": "run it where gh is signed in (not inside an autopilot run)"}]}
-    cls = shiprefs.by_class(res)
-    deletable = sorted(r["name"] for c in ("on-base", "merged-pr", "content-on-base") for r in cls[c])
-    kept = sorted(r["name"] for r in cls["unproven"])
+    res = shiprefs.classify(repo, base, gh=gh if slug else None, slug=slug)
+    log = Path(log or settings.state_root() / "state" / "ship" / "deleted-branches.jsonl")
+    deleted, refused, kept, doubt = [], [], [], []
+    for r in res["refs"]:
+        name, sha = r["name"], r["sha"]
+        if name in keep or r["cls"] not in ("on-base", "merged-pr"):
+            kept.append({"name": name, "why": keep.get(name) or r["why"]})
+            if name not in keep and r["cls"] != "open-pr":
+                doubt.append(name)
+            continue
+        log.parent.mkdir(parents=True, exist_ok=True)       # first: no delete without a place to log it
+        p = git(repo, "push", "--quiet", f"--force-with-lease=refs/heads/{name}:{sha}", "origin",
+                f":refs/heads/{name}")
+        if p.returncode != 0:
+            ls = [x.strip() for x in (p.stderr or p.stdout or "").splitlines()
+                  if x.strip() and not x.startswith(("error: failed to", "To "))]
+            refused.append({"name": name, "why": " | ".join(ls)[:300] or f"exit {p.returncode}"})
+            continue
+        entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "repo": slug or str(repo), "branch": name, "sha": sha,
+                 "proof": r["why"], "restore": f"git push origin {sha}:refs/heads/{name}"}
+        with log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+        deleted.append(entry)
     current = git(repo, "branch", "--show-current").stdout.strip()
     local = []
     for b in git(repo, "branch", "--merged", f"origin/{base}", "--format=%(refname:short)").stdout.split():
         if b not in (base, current) and git(repo, "branch", "-d", b).returncode == 0:
             local.append(b)
-    top = str(Path(git(repo, "rev-parse", "--show-toplevel").stdout.strip() or repo))
-    gitexe = '& "C:\\Program Files\\Git\\cmd\\git.exe"'
-    cmd = []
-    for b in deletable:
-        cmd.append(f'{gitexe} push origin --delete "refs/heads/{b}"')
-    if archive_unproven:
-        for b in kept:
-            cmd.append(f'{gitexe} tag -a "archive/{b}" -m "archived: work not proven on {base}" "origin/{b}"')
-            cmd.append(f'{gitexe} push origin "refs/tags/archive/{b}"')
-            cmd.append(f'{gitexe} push origin --delete "refs/heads/{b}"')
-    owner_cmd = "\n".join([f'cd "{top}"'] + cmd) if cmd else ""
-    rows = [{"check": "deletable", "state": "OK" if not deletable else "DO",
-             "say": "no remote branch proven merged" if not deletable else
-             f"{len(deletable)} remote branch(es) proven merged (same head commit or on {base}): {', '.join(deletable[:12])}",
-             "run": "" if not deletable else "the owner decides: the command below (an agent never deletes on GitHub)"},
-            {"check": "kept", "state": "OK" if not kept else "DO", "say": "nothing unproven" if not kept else
-             f"{len(kept)} branch(es) with work not proven on {base}, kept: "
-             + "; ".join(f"{r['name']} ({r['why']})" for r in cls["unproven"][:8]),
-             "run": "" if not kept else "look at each: open a pull request (fieldkit ship push --auto), "
-                                        "or the owner archives it (fieldkit ship prune --archive-unproven writes the command)"},
+    rows = [{"check": "deleted", "state": "OK", "say": "no remote branch to delete" if not deleted else
+             f"{len(deleted)} remote branch(es) deleted, logged in {log}:" + "".join(
+                 f"\n        {d['branch']} ({d['proof']}); restore: {d['restore']}" for d in deleted)},
+            {"check": "kept", "state": "DO" if doubt else "OK", "say": "nothing kept" if not kept else
+             f"{len(kept)} kept: " + "; ".join(f"{k['name']} ({k['why']})" for k in kept),
+             "run": "not proven done: open a pull request (fieldkit ship push --auto) or leave it" if doubt else ""},
             {"check": "local", "state": "OK", "say": f"{len(local)} merged local branch(es) removed"}]
-    if owner_cmd:
-        rows.append({"check": "owner-command", "state": "DO", "say": "remote branch and tag changes on GitHub are the owner's",
-                     "run": owner_cmd})
-    return {"ok": not kept and not deletable, "rows": rows, "deleted": [], "archived": [], "kept": kept,
-            "local": local, "refused": [], "deletable": deletable, "owner_command": owner_cmd}
+    if refused:
+        rows.append({"check": "refused", "state": "DO", "say": "; ".join(f"{x['name']}: {x['why']}" for x in refused),
+                     "run": "a hook, a GitHub rule or a moved branch refused it: never bypass; run prune again"})
+    return {"ok": not refused and not doubt, "rows": rows, "deleted": [d["branch"] for d in deleted],
+            "refused": [x["name"] for x in refused], "kept": [k["name"] for k in kept], "local": local}
 
 
 def package_version(repo):

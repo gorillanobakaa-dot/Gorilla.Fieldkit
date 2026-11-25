@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-13-45
+# Version: 1.1.0 · updated 26-11-25-14-00
 """ship audit / ship release: work reaches main and main is released (2026-10-16: main 135 commits past v0.3.0 and no
 tool said so). Real git repositories in a temp folder; GitHub is a stand-in."""
 import json
@@ -107,32 +107,35 @@ def test_release_waits_while_ci_is_still_running(tmp_path):
     assert seen == [30, 30] and [x["check"] for x in r["rows"]][:2] == ["checkout", "ci"] and r["rows"][1]["state"] == "OK"
 
 
-def test_prune_deletes_nothing_on_github_and_writes_the_owner_command(tmp_path):
-    # hard line, 2026-11-25: an agent never deletes a remote branch or pushes a tag; prune reports and writes a command
+def _branch_on_origin(w, name, merge=False):
+    _g(w, "checkout", "-q", "-b", name, "main")
+    (w / f"{name}.txt").write_text(name)
+    _g(w, "add", "-A")
+    _g(w, "commit", "-qm", name)
+    _g(w, "push", "-q", "origin", name)
+    _g(w, "checkout", "-q", "main")
+    if merge:
+        _g(w, "merge", "-q", "--no-ff", name, "-m", f"merge {name}")
+        _g(w, "push", "-q", "origin", "main")
+
+
+def test_prune_deletes_only_proven_branches_logs_them_and_the_restore_line_works(tmp_path):
+    # owner, 2026-11-25: the agent cleans up GitHub; proof by commit, logged, restorable, tags untouched
     w = _origin_and_clone(tmp_path)
-    for name, merge in (("done", True), ("open-work", False)):
-        _g(w, "checkout", "-q", "-b", name, "main")
-        (w / f"{name}.txt").write_text(name)
-        _g(w, "add", "-A")
-        _g(w, "commit", "-qm", name)
-        _g(w, "push", "-q", "origin", name)
-        _g(w, "checkout", "-q", "main")
-        if merge:
-            _g(w, "merge", "-q", "--no-ff", name, "-m", "merge done")
-            _g(w, "push", "-q", "origin", "main")
+    _branch_on_origin(w, "done", merge=True)
+    _branch_on_origin(w, "open-work")
     gh = lambda args, timeout=60: ("", "")
-    rows = {x["check"]: x for x in sr.audit(w, gh=gh, max_commits=99)["rows"]}
-    assert rows["merged-branches"]["state"] == "DO"
-    before = _g(w, "ls-remote", "origin")
-    r = sr.prune(w, gh=gh)
-    assert r["deleted"] == [] and r["deletable"] == ["done"] and r["kept"] == ["open-work"] and "done" in r["local"]
-    assert not r["ok"] and 'push origin --delete "refs/heads/done"' in r["owner_command"]
-    assert "open-work" not in r["owner_command"]
-    r = sr.prune(w, gh=gh, archive_unproven=True)
-    assert r["archived"] == [] and not r["ok"]
-    assert 'tag -a "archive/open-work"' in r["owner_command"] and 'push origin --delete "refs/heads/open-work"' in r["owner_command"]
-    assert [x for x in r["rows"] if x["check"] == "owner-command"][0]["state"] == "DO"
-    assert _g(w, "ls-remote", "origin") == before                    # nothing moved on the remote
+    assert {x["check"]: x for x in sr.audit(w, gh=gh, max_commits=99)["rows"]}["merged-branches"]["state"] == "DO"
+    log = tmp_path / "deleted.jsonl"
+    r = sr.prune(w, gh=gh, log=log)
+    assert r["deleted"] == ["done"] and r["kept"] == ["open-work"] and r["refused"] == [] and not r["ok"]
+    after = _g(w, "ls-remote", "origin")
+    assert "refs/heads/done" not in after and "refs/heads/open-work" in after
+    assert "refs/heads/main" in after and "refs/tags/v0.1.0" in after
+    entry = json.loads(log.read_text(encoding="utf-8"))
+    assert entry["branch"] == "done" and entry["restore"] in r["rows"][0]["say"]
+    _g(w, *entry["restore"].split()[1:])
+    assert "refs/heads/done" in _g(w, "ls-remote", "origin")
 
 
 def test_audit_finds_what_is_left_behind_locally(tmp_path):
@@ -155,29 +158,59 @@ def test_audit_finds_what_is_left_behind_locally(tmp_path):
     assert sr.audit(w, offline=True)["rows"][-1]["check"] == "release"
 
 
-def test_prune_never_pushes_even_where_the_remote_would_refuse(tmp_path):
-    # 2026-11-09: Gorilla.Opencode's hook refuses every branch delete; since 2026-11-25 prune sends none at all
+def test_prune_reports_a_refused_delete_in_gits_words(tmp_path):
     w = _origin_and_clone(tmp_path)
-    _g(w, "checkout", "-q", "-b", "done", "main")
-    (w / "d.txt").write_text("d")
-    _g(w, "add", "-A")
-    _g(w, "commit", "-qm", "done")
-    _g(w, "push", "-q", "origin", "done")
-    _g(w, "checkout", "-q", "main")
-    _g(w, "merge", "-q", "--no-ff", "done", "-m", "merge done")
-    _g(w, "push", "-q", "origin", "main")
+    _branch_on_origin(w, "done", merge=True)
     hook = tmp_path / "origin.git" / "hooks" / "pre-receive"
     hook.write_text('#!/bin/sh\nwhile read o n r; do case "$n" in 0000*) echo "mandate: deletes refused" >&2; exit 1;; esac; done\n',
                     newline="\n")
     hook.chmod(0o755)
-    r = sr.prune(w, gh=lambda args, timeout=60: ("", ""))
-    assert not r["ok"] and r["deleted"] == [] and r["refused"] == [] and r["deletable"] == ["done"]
-    assert "mandate: deletes refused" not in json.dumps(r["rows"])   # no delete reached the hook
+    r = sr.prune(w, gh=lambda args, timeout=60: ("", ""), log=tmp_path / "d.jsonl")
+    assert not r["ok"] and r["deleted"] == [] and r["refused"] == ["done"] and not (tmp_path / "d.jsonl").exists()
+    assert "mandate: deletes refused" in json.dumps(r["rows"])
     assert "refs/heads/done" in _g(w, "ls-remote", "origin")
 
 
+def test_prune_keeps_open_pr_and_protected_branches_even_when_on_the_base(tmp_path, monkeypatch):
+    w = _origin_and_clone(tmp_path)
+    for name in ("pr-head", "pr-base", "locked", "squashed", "done"):
+        _branch_on_origin(w, name, merge=name != "squashed")
+    monkeypatch.setattr(sr, "repo_slug", lambda repo: "o/r")
+
+    def gh(args, timeout=60):
+        if args[0] == "api":
+            return "locked\n", ""
+        if "--head" in args:
+            return "[]", ""
+        return json.dumps([{"headRefName": "pr-head", "baseRefName": "pr-base"}]), ""
+
+    r = sr.prune(w, gh=gh, log=tmp_path / "d.jsonl")
+    assert r["deleted"] == ["done"] and sorted(r["kept"]) == ["locked", "pr-base", "pr-head", "squashed"]
+
+
+def test_prune_never_deletes_a_branch_that_moved_after_the_proof(tmp_path, monkeypatch):
+    w = _origin_and_clone(tmp_path)
+    _branch_on_origin(w, "done", merge=True)
+    real = sr.shiprefs.classify
+
+    def classify_then_someone_pushes(*a, **kw):
+        res = real(*a, **kw)
+        _g(w, "checkout", "-q", "done")
+        (w / "more.txt").write_text("more")
+        _g(w, "add", "-A")
+        _g(w, "commit", "-qm", "more")
+        _g(w, "push", "-q", "origin", "done")
+        _g(w, "checkout", "-q", "main")
+        return res
+
+    monkeypatch.setattr(sr.shiprefs, "classify", classify_then_someone_pushes)
+    r = sr.prune(w, gh=lambda args, timeout=60: ("", ""), log=tmp_path / "d.jsonl")
+    assert r["deleted"] == [] and r["refused"] == ["done"]
+    assert _g(w, "ls-remote", "origin", "refs/heads/done").split()[0] == _g(w, "rev-parse", "done")
+
+
 def test_prune_deletes_nothing_when_github_is_unreadable(tmp_path, monkeypatch):
-    # an open PR's head looks unproven without GitHub: prune must refuse, not archive or delete it
+    # without GitHub, open PRs and protection are unknown: prune deletes nothing
     w = _origin_and_clone(tmp_path)
     _g(w, "checkout", "-q", "-b", "open-pr", "main")
     (w / "o.txt").write_text("o")
@@ -186,6 +219,6 @@ def test_prune_deletes_nothing_when_github_is_unreadable(tmp_path, monkeypatch):
     _g(w, "push", "-q", "origin", "open-pr")
     _g(w, "checkout", "-q", "main")
     monkeypatch.setattr(sr, "repo_slug", lambda repo: "o/r")
-    r = sr.prune(w, gh=lambda args, timeout=60: (None, "gh hidden"), archive_unproven=True)
-    assert not r["ok"] and r["archived"] == [] and r["rows"][0]["check"] == "github"
+    r = sr.prune(w, gh=lambda args, timeout=60: (None, "gh hidden"))
+    assert not r["ok"] and r["deleted"] == [] and r["rows"][0]["check"] == "github"
     assert "refs/heads/open-pr" in _g(w, "ls-remote", "origin")

@@ -77,8 +77,8 @@ HARD LINES:
     test: tests/test_ship_auto.py::test_no_auto_merge_where_the_base_branch_requires_no_check
     mutate:
     - fieldkit/method/ship.py
-    - 'missing = missing_contexts(rules)'
-    - 'missing = []'
+    - 'return missing_contexts(json.loads(out or "[]")), ""'
+    - 'return [], ""'
   - demand: permanent deletes (rm -rf, git clean/reset --hard, --no-verify) outside scratch are refused
     test: tests/test_autopilot_hardlines.py::test_discarding_work_outside_scratch_is_refused
     mutate:
@@ -111,7 +111,7 @@ HARD LINES:
       \ \"line\": i, \"kind\": kind,\n                               \"match\": m.group(0), \"text\""
     - "                    m = None\n                    if m:\n                        row = {\"file\": p.relative_to(root).as_posix(),\
       \ \"line\": i, \"kind\": kind,\n                               \"match\": m.group(0), \"text\""
-  - demand: never delete on GitHub (gh api -X DELETE)
+  - demand: "an autopilot worker never deletes on GitHub by hand (gh api -X DELETE); branches go only through ship prune (owner 2026-11-25)"
     test: tests/test_autopilot_hardlines.py
     mutate:
     - fieldkit/autopilot/hardlines.py
@@ -473,8 +473,8 @@ LIFECYCLE:
     test: tests/test_ship_auto.py::test_no_auto_merge_where_the_base_branch_requires_no_check
     mutate:
     - fieldkit/method/ship.py
-    - 'missing = missing_contexts(rules)'
-    - 'missing = []'
+    - 'return missing_contexts(json.loads(out or "[]")), ""'
+    - 'return [], ""'
   - demand: 'DONE 3: a Board row in PLAN.md per finished session'
     test: tests/test_board.py::test_rows_found_by_session_id_task_id_and_job_id
     mutate:
