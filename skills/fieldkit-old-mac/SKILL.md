@@ -1,6 +1,6 @@
 ---
 name: fieldkit-old-mac
-description: Reach and support an old Mac that Apple no longer supports (a MacBook Air 2011 on macOS 10.13 High Sierra and the like) over SSH from the Linux box or a Windows PC - check the key, find the Mac when its address changes (mDNS name, hardware address, ping sweep), log in, read what it is, fix the ssh alias, run commands and tests on it. Use when asked to connect to the MacBook Air or any Mac, when ssh to a Mac fails or its address changed, before running a test or measurement on a Mac, or when adding a new old Mac to look after.
+description: "Reach and support an old Mac (MacBook Air 2011, macOS 10.13) over SSH from Linux or a Windows PC: find its address, fix the ssh alias, run commands and tests. Use to connect to any Mac or when ssh to it fails."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

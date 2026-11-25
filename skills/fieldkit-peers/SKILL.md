@@ -1,6 +1,6 @@
 ---
 name: fieldkit-peers
-description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Also each device's load (fieldkit orchestrate load), the machine-wide gate for heavy jobs (fieldkit admit) a test suite placed on an idle device over the cable (fieldkit orchestrate place) and the Windows pre-commit suite sent to the Linux box (fieldkit orchestrate offload). Use when asked to tell, ask, warn or hand over to another session on the same machine, to wait until another session has finished, when a computer is overloaded by suites, mutates or builds, or to spread test work across the household.
+description: "Message other AI sessions on this computer or across the cable, wait for replies, check device load, gate or offload heavy jobs and test suites (Windows to Linux). Use to tell, ask, warn or hand over to a session, or when a computer is overloaded."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

@@ -1,6 +1,6 @@
 ---
 name: fieldkit-evidence
-description: Research evidence that can be checked later - find sources in a 985-source registry, search free scholarly and data APIs as JSON, fetch pages safely into a store kept by hash with their words, render a checked run as a report, import a research run's findings (Gorilla OpenCode findings-*.md or one lane's reply) as one record per claim, and check every claim against the output contract, the run's own fetches, its snapshot and its quote. Use after a /research or /osint run, before writing up a dossier, when a claim cites a URL, or when asked whether a source really says something.
+description: "Checkable research evidence: source registry, scholarly and data APIs, hashed page store, claim checks against quotes, reports. Use after /research or /osint, before a dossier, or when asked whether a source really says something."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

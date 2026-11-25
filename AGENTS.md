@@ -1,8 +1,8 @@
 # Fieldkit - instructions for coding agents
 
 The rules for every project are in `rules/CORE.md` (the one source; your global CLAUDE.md, GEMINI.md or
-~/.codex/AGENTS.md carries a copy). This file holds only what is Fieldkit's own. The previous long version, with
-every command and its history, is `docs/AGENTS-REFERENCE.md`: read it only when you need a detail. An agent with no
+~/.codex/AGENTS.md carries a copy). This file holds only what is Fieldkit's own. The long version, with every
+command and its history, is `docs/AGENTS-REFERENCE.md`: read it only when you need a detail. An agent with no
 global rules file (Gorilla OpenCode) reads `rules/CORE.md` first.
 Where the harness is going: `docs/VISION.md`; the work that gets it there, item by item: `docs/HARNESS-PLAN.md`.
 Where a plan, idea, hand-over or brief is kept, and where a new one goes: `docs/WHERE-THINGS-LIVE.md`.
@@ -34,21 +34,20 @@ fieldkit sync [--apply]                           both machines against GitHub, 
 
 Machine-specific paths live in `fieldkit.local.json` (git-ignored, never published). The owner's own tools, sources
 and tests live in `local/` (git-ignored). `state/` is git-ignored: plans and reports there are not shared until the
-owner says "add it to git" (rules/CORE.md DONE PROTOCOL).
+owner says "add it to git" (a plan-row document is the exception: rules/CORE.md DONE).
 
 ## Changing Fieldkit
 
 - "Built in" has one definition, all six conditions: `docs/INTEGRATION.md`. `fieldkit integration check` enforces it.
 
-- Run the tests covering your change (`fieldkit testcost staged`); the full suite runs in CI. A new check needs a test
-  that proves it can fail (`fieldkit mutate`).
+- Tests run in CI (rules/CORE.md TESTS ONCE). A new check needs a test that proves it can fail (`fieldkit mutate`).
 - Pipelines, signatures, recipes and the registry are data (YAML). Change the data before the code.
 - A tool is written for Windows and Linux; CI runs both. A card naming one system needs `platforms_why`. After
   changing a card's `platforms` or entry, run `python -m fieldkit.core.platform_gate --write`. Never hand-resolve
   `tools.yaml`, `platform_index.json` or `docs/groups.yaml`: `fieldkit merge-driver` merges them.
 - Inside a tool, a reader that exists on one system checks `sys.platform` and returns nothing elsewhere.
 - How work gets done, as tools: `docs/METHODS.md`. A new method is added there and becomes a tool with a test.
-- The core rules: edit `rules/CORE.md` only, then copy the block between its markers into the global files.
+- The core rules: edit `rules/rules.yaml`, run `fieldkit rules build` (writes rules/CORE.md) and `fieldkit rules sync`.
 
 ## Rules this code enforces
 

@@ -1,6 +1,6 @@
 ---
 name: fieldkit-net
-description: The agent net, the military way, with fieldkit zero (also fieldkit net) - is Zero established (who is net control, its epoch, its 2IC), establish Zero, roll call every session for a fixed sitrep, comms check / radio check (leases, SILENT and MISSING stations, a dead cable revived), compare the clocks of both computers, hand Zero over, send a message that wants an ack, read and verify the net log. Use when the owner says "zero", "zero established", "has zero been established", "establish zero", "comms check", "radio check", "roll call", "net", "who is out there", "is everyone alive", "2IC", "second in command", "who is 2IC", or when a session starts and must learn who Zero is, or the sessions went quiet; and for command - "give X its orders", "task X", "who is doing what", "orders", "X is done", a write refused with GROUND CLAIM, "why idle", or "--relieve" in a rotation brief.
+description: "The agent net with fieldkit zero: who is Zero and 2IC, establish or hand over, roll call, comms check, orders, ack messages, net log. Use for \"zero\", \"roll call\", \"comms check\", \"who is doing what\", \"X is done\", a GROUND CLAIM refusal, or at session start."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; the only network is the paired cable peer through fieldkit peers link."
 ---

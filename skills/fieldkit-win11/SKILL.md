@@ -1,6 +1,6 @@
 ---
 name: fieldkit-win11
-description: Run the Windows 11 tweaks framework (gorillanobakaa-dot/windows.11.tweaks.optimisation) safely on any Windows 11 PC - check a module, preview it, apply it with the owner's consent, undo it; check first which service-profile entries (measured on one ThinkPad) would be wrong on this PC, and whether the maker's hardware-button services are present. Use when asked to make Windows lighter, disable services, Copilot, OneDrive, recommendations, Xbox, visual effects, apps, or hold feature updates.
+description: "Run the Windows 11 tweaks framework safely: check, preview, apply with consent, undo, and check which service profiles fit this PC. Use to make Windows lighter or disable services, Copilot, OneDrive, Xbox, effects, apps or feature updates."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

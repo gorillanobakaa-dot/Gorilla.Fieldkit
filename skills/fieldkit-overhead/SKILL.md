@@ -1,6 +1,6 @@
 ---
 name: fieldkit-overhead
-description: How much longer than the bare pre-AI build script a job took, and where the extra time went, with fieldkit overhead - one line per job (a Firefox or kernel build-harness task, a fieldkit goal) with the bare build time from the build pipeline's own stage logs, the wall clock, the ratio, and the split into rework, tests and gates, LLM time, waiting for the owner, agent tools and idle; a budget (overhead.max_ratio, default 1.5x) shown as WARN in goal status, the goal report and the Board. Read-only, offline, no model. Use when a job "took days", to see where a migration or build's time went, before and after changing how jobs are run, when a goal or the Board shows OVERHEAD WARN, or when the owner asks why a 90-minute build took longer.
+description: "How much longer than the bare build script a job took, and where the time went (fieldkit overhead). Use when a job \"took days\", when OVERHEAD WARN shows, or before and after changing how jobs run."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+) on Windows, Linux, macOS. Works offline; no network access."
 ---
