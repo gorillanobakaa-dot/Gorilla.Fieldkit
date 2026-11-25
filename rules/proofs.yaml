@@ -432,6 +432,30 @@ CLEAN UP:
       naming it is not deterministic
 LIFECYCLE:
   proofs:
+  - demand: 'DONE 6: no archive without a checked sitrep (owner 2026-11-25)'
+    test: tests/test_sitrep_gate.py::test_missing_report_is_refused
+    mutate:
+    - fieldkit/lifecycle/sitrepgate.py
+    - 'return "this session has no checked sitrep"'
+    - 'return None'
+  - demand: 'DONE 6: a sitrep older than the last code change or turn does not count'
+    test: tests/test_sitrep_gate.py::test_stale_report_is_refused
+    mutate:
+    - fieldkit/lifecycle/sitrepgate.py
+    - 'if r["at"] < t["changed"]:'
+    - 'if False:'
+  - demand: 'DONE 6: a failing sitrep does not count'
+    test: tests/test_sitrep_gate.py::test_failing_sitrep_is_refused
+    mutate:
+    - fieldkit/lifecycle/sitrepgate.py
+    - 'if not r.get("ok"):'
+    - 'if False:'
+  - demand: 'DONE 6: the report must be shown in chat'
+    test: tests/test_sitrep_gate.py::test_report_not_shown_is_refused
+    mutate:
+    - fieldkit/lifecycle/sitrepgate.py
+    - 'if not ((head and head in said) or (_plain(r["text"]) and _plain(r["text"]) in said)):'
+    - 'if False:'
   - demand: 'SIDE JOBS: a headless side job starts through `fieldkit task start` which appends the side-jobs rule and DONE
       protocol to the brief'
     test: tests/test_zero_friction.py::test_task_start_here_writes_a_runbook_and_launches_it_headless
