@@ -129,3 +129,29 @@ def test_a_peer_task_start_with_a_mode_carries_it_into_the_brief(monkeypatch):
     r = link.handle({"verb": "ask", "agent": "claude", "brief": "do it", "from_host": "L15", "session_mode": rec},
                     _V(), via="cable")
     assert r["ok"] and started and "SESSION MODE 5b" in started[0][1] and "per node" in started[0][1]
+
+
+def test_antigravity_subagent_workflow_and_swarm_tools_obey_session_mode():
+    # Economy (default): invoke_subagent, run_workflow, and swarm add are denied; swarm status/models are allowed.
+    assert _denied(tr.verdict({"conversationId": "agy1", "tool_name": "invoke_subagent",
+                               "tool_input": {"TypeName": "research", "Role": "R", "Prompt": "x"}}))
+    assert _denied(tr.verdict({"conversationId": "agy1", "tool_name": "run_workflow", "tool_input": {"Script": "x"}}))
+    assert _denied(tr.verdict({"conversationId": "agy1", "tool_name": "swarm",
+                               "tool_input": {"action": "add", "name": "w", "brief": "x"}}))
+    assert tr.verdict({"conversationId": "agy1", "tool_name": "swarm", "tool_input": {"action": "status"}}) is None
+    why = sm.antigravity_spawn_refusal({"conversationId": "agy1",
+                                        "toolCall": {"name": "invoke_subagent", "args": {"TypeName": "self"}}})
+    assert why and "SESSION MODE 1 (economy)" in why
+    assert sm.antigravity_spawn_refusal({"conversationId": "agy1",
+                                         "toolCall": {"name": "swarm", "args": {"action": "models"}}}) is None
+    # Time-Sensitive (cap 6): multi-worker swarm add counts exact workers against the cap.
+    sm.write("agy2", "2")
+    assert sm.antigravity_spawn_refusal({"conversationId": "agy2",
+                                         "toolCall": {"name": "swarm", "args": {"action": "add", "n": 4}}}) is None
+    assert sm.spawned("agy2") == 4
+    over = sm.antigravity_spawn_refusal({"conversationId": "agy2",
+                                         "toolCall": {"name": "swarm", "args": {"action": "add", "n": 3}}})
+    assert over and "4 already spawned" in over
+    assert sm.antigravity_spawn_refusal({"conversationId": "agy2",
+                                         "toolCall": {"name": "invoke_subagent", "args": {"TypeName": "self"}}}) is None
+    assert sm.spawned("agy2") == 5

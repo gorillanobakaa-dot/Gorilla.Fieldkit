@@ -53,8 +53,8 @@ def mode_dir():
 
 
 def session_id(call):
-    """The session of a hook call: its session_id, else the transcript's file stem, else the environment."""
-    sid = str((call or {}).get("session_id") or "")
+    """The session of a hook call: its session_id or conversationId, else the transcript's file stem, else env."""
+    sid = str((call or {}).get("session_id") or (call or {}).get("conversationId") or "")
     if not sid:
         sid = Path(str((call or {}).get("transcript_path") or "")).stem
     return SAFE.sub("_", sid or os.environ.get("CLAUDE_SESSION_ID", "") or "unknown")[:80]
@@ -115,13 +115,43 @@ def spawned(sid):
         return 0
 
 
-def count_spawn(sid):
+def count_spawn(sid, delta=1):
     try:
         p = _path(sid, ".spawns")
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(str(spawned(sid) + 1), encoding="utf-8")
+        p.write_text(str(spawned(sid) + max(1, int(delta))), encoding="utf-8")
     except OSError:
         pass
+
+
+AGY_SPAWN_TOOLS = ("invoke_subagent", "run_workflow", "swarm")
+
+
+def requested_spawns(call):
+    """-> how many agent spawns a tool call requests (0 when a swarm action only inspects or stops)."""
+    tool = str((call or {}).get("tool_name") or "").strip().lower()
+    ti = (call or {}).get("tool_input") or {}
+    if tool == "swarm":
+        if str(ti.get("action") or "").strip().lower() != "add":
+            return 0
+        tasks = ti.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            return len(tasks)
+        try:
+            return max(1, int(ti.get("n") or 1))
+        except (TypeError, ValueError):
+            return 1
+    return 1
+
+
+def antigravity_spawn_refusal(payload):
+    """-> refusal text for an Antigravity PreToolUse payload when Session Mode forbids spawning, else None."""
+    call = (payload or {}).get("toolCall") or {}
+    name = str(call.get("name") or "").strip().lower()
+    if name not in AGY_SPAWN_TOOLS:
+        return None
+    return spawn_refusal({"session_id": (payload or {}).get("conversationId") or "unknown",
+                          "tool_name": name, "tool_input": call.get("args") or {}})
 
 
 def inherit(src_record, sid):
@@ -147,15 +177,19 @@ def spawn_refusal(call):
                 "on the cheapest model. Pass model \"haiku\", or search with the harness: "
                 "`python -m fieldkit agent run pfind --input query=needle --input content=true` (text) or "
                 "`python -m fieldkit size find --name '*.py' --paths .` (files).")
+    want = requested_spawns(call)
+    if want <= 0:
+        return None
     sid = session_id(call)
     rec = current(sid)
     cap = int(rec["cap"])
-    n = spawned(sid)
+    already = spawned(sid)
+    n = already + want - 1
     if n >= cap:
         who = "zero sub-agents" if cap == 0 else f"at most {cap} in all"
-        return (f"SESSION MODE {rec['mode']} ({rec['speed']}): {who}; {n} already spawned. Do the work yourself with "
+        return (f"SESSION MODE {rec['mode']} ({rec['speed']}): {who}; {already} already spawned. Do the work yourself with "
                 "the harness tools (pfind for text, `fieldkit size find` for files). Only the owner changes the mode: "
                 "`python -m fieldkit route choose --session-mode 2|3|4a|4b|4c|5a|5b|5c` after they say so; never raise it "
                 "yourself.")
-    count_spawn(sid)
+    count_spawn(sid, want)
     return None

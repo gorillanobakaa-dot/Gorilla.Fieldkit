@@ -858,7 +858,7 @@ def verdict(call):
         return _deny(message(SIZE_FIND_ROUTE))
     if tool in {"read", "read_file", "view_file"}:
         return _deny(message(READ_ROUTE))
-    if tool in ("agent", "task"):
+    if tool in ("agent", "task", "invoke_subagent", "run_workflow", "swarm"):
         return _mode_spawn(call)
     if tool not in ("bash", "powershell", "exec_command", "run_shell_command", "run_command"):
         return None
