@@ -25,7 +25,7 @@ TWO STRIKES. `fieldkit ship ci-wait` counts your own red CI runs and parks the b
 
 WAITING. Never poll or sleep: run `fieldkit task watch ID` or `fieldkit ship ci-wait` in background.
 
-MODELS. Default Sonnet; model-spend guard gates Opus/Fable.
+MODELS. Ask the owner which agent/provider/model to start (`fieldkit models menu`); spend guard gates premium/Opus/Fable.
 
 ZERO COMMANDS. Zero verifies every side job's diff and PR and finishes it.
 

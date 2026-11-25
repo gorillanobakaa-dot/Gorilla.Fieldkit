@@ -45,14 +45,15 @@ LIMIT = 8 * 1024          # bytes: the core (about 5.7 KB) plus a short section 
 REPO_FILES = ("AGENTS.md",)
 
 
-#: agent -> the program that proves it is installed when its config folder is not there yet
-PROGRAMS = {"claude-code": "claude", "codex": "codex", "gemini": "gemini"}
+#: agent -> the program(s) that prove it is installed when its config folder is not there yet
+PROGRAMS = {"claude-code": ("claude",), "codex": ("codex",), "gemini": ("gemini", "agy", "antigravity")}
 _which = shutil.which
 
 
 def installed(agent, home=None):
     """-> True when the agent is on this machine: its config folder exists or its program is on PATH."""
-    return global_files(home)[agent].parent.is_dir() or bool(_which(PROGRAMS[agent]))
+    progs = PROGRAMS[agent] if isinstance(PROGRAMS[agent], tuple) else (PROGRAMS[agent],)
+    return global_files(home)[agent].parent.is_dir() or any(bool(_which(p)) for p in progs)
 
 
 def _settings(home=None):
@@ -64,6 +65,17 @@ def check_hooks(home=None):
     from .autopilot import room
     r = room.doctor(_settings(home))
     probs = ([f"hook missing: {', '.join(r['missing'])} (fieldkit rules install puts it in)"] if r["missing"] else []) +         ([f"hook stale: {', '.join(r['stale'])} (fieldkit rules install fixes it)"] if r["stale"] else [])
+    return {"path": r["settings"], "kind": "hooks", "ok": not probs, "bytes": 0, "problems": probs}
+
+
+def check_antigravity_hooks(home=None, root=None):
+    """The Antigravity global hooks (guard.py + hooks.json + 150k context warning). -> a check row"""
+    from .antigravity import hooks as agy_hooks
+    r = agy_hooks.doctor(home, root=root)
+    probs = (
+        ([f"antigravity hook missing: {', '.join(r['missing'])} (fieldkit rules install puts it in)"] if r["missing"] else [])
+        + ([f"antigravity hook stale: {', '.join(r['stale'])} (fieldkit rules install updates it)"] if r["stale"] else [])
+    )
     return {"path": r["settings"], "kind": "hooks", "ok": not probs, "bytes": 0, "problems": probs}
 
 
@@ -148,6 +160,8 @@ def check(root=None, home=None, repo_only=False):
         out.append(r)
     if installed("claude-code", home):
         out.append(check_hooks(home))
+    if installed("gemini", home):
+        out.append(check_antigravity_hooks(home, root))
     same = [x for x in lint_mod.check_installed(files, root=root, home=h) if x["rule"] in lint_mod.BLOCKS]
     if same:
         out.append({"path": "global files", "kind": "same", "ok": False, "bytes": 0,
@@ -272,6 +286,11 @@ def install_all(home=None, root=None, backup_dir=None):
         from .autopilot import room
         code, lines = room.apply(_settings(home), keep_dir=bdir / "claude-settings")
         out.append({"path": str(_settings(home)), "done": "hooks: " + lines[0].split(": ", 1)[-1]
+                    + ("" if code == 0 else " - NOT OK after writing")})
+    if installed("gemini", home):
+        from .antigravity import hooks as agy_hooks
+        code, lines = agy_hooks.apply(home, root=root, keep_dir=bdir / "antigravity-hooks")
+        out.append({"path": str(agy_hooks.hooks_json_path(home)), "done": "hooks: " + lines[0].split(": ", 1)[-1]
                     + ("" if code == 0 else " - NOT OK after writing")})
     return out
 

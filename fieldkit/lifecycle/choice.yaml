@@ -31,8 +31,8 @@ providers:
     title: Google (Gemini, Antigravity)
     who_can_act: "Google, and whoever can compel it, sees every prompt and file the agent sends and the answers"
     who_learns: "Google: the Google account, the prompts, the code sent, usage and timing"
-    models: [gemini-4-hydrogen-high, gemini-4-argon-medium, gemini-3.8-flash-medium, claude-opus-5-5-high,
-             claude-sonnet-5-5-medium, gpt-oss-120b-medium]
+    models: [gemini-4-hydrogen-high, gemini-4-carbon-medium, gemini-4-argon-medium, gemini-3.8-flash-medium,
+             claude-opus-5-5-high, claude-sonnet-5-5-medium, gpt-oss-120b-medium]
   amazon:
     title: Amazon (Kiro)
     who_can_act: "Amazon (AWS), and whoever can compel it, sees every prompt and file the agent sends and the answers"

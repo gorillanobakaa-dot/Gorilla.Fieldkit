@@ -101,10 +101,12 @@ core:
   audience: all
   enforced_by:
   - fieldkit/lifecycle/models.py (the model-spend guard)
+  - fieldkit/lifecycle/session_choice.py (pre-tool hook asks owner for coding agent, provider and model)
   - fieldkit task start (refuses expensive workers)
-  owner: 2026-10-30
+  owner: 2026-10-30; P39 multi-agent choice 2026-11-25
+  owner_decision: the owner chooses which coding agent, provider and model to start (`fieldkit models menu`, owner 2026-11-25)
   text: |-
-    MODELS. Default Sonnet; model-spend guard gates Opus/Fable.
+    MODELS. Ask the owner which agent/provider/model to start (`fieldkit models menu`); spend guard gates premium/Opus/Fable.
 - id: ZERO COMMANDS
   subject: finishing started work
   audience: all

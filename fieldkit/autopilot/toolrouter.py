@@ -799,7 +799,10 @@ def _mode_spawn(call):
     return _deny(why) if why else None
 
 
-MODEL_OK = re.compile(r"sonnet|haiku", re.I)
+MODEL_OK = re.compile(
+    r"sonnet|haiku|gemini-3\.8-flash|gemini-4-(?:carbon|argon)|gpt-5\.(?:4-mini|5\b|6-luna)|gpt-oss",
+    re.I,
+)
 MODEL_WHY = "Workers run on Sonnet (CLAUDE.md MODELS). Pass model=claude-sonnet-5-5."
 _PARKED = re.compile(r"\bparked\b", re.I)
 _REPAIR = re.compile(r"\brepair", re.I)
@@ -863,6 +866,13 @@ def verdict(call):
     if tool not in ("bash", "powershell", "exec_command", "run_shell_command", "run_command"):
         return None
     ti = call.get("tool_input") or {}
+    try:
+        from ..lifecycle import session_choice
+        sc_why = session_choice.call_refusal(call)
+    except Exception:  # noqa: BLE001
+        sc_why = None
+    if sc_why:
+        return _deny(sc_why)
     r = route(ti.get("command", ""), call.get("cwd") or "", tool)
     if not r:
         return None
