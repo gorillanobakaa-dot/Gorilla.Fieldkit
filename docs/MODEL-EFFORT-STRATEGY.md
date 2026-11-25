@@ -37,7 +37,7 @@ lists what is not yet enforced (plan row P49).
 - `fieldkit ship ci-wait` waits in the background; a red is counted per commit (P14) and fed to step 3 above.
 - Zero checks every side job's diff and PR (ZERO COMMANDS) before reporting it done.
 - `fieldkit ship audit` / `prune` class remote branches by same repo, base and head commit (`method/shiprefs.py`)
-  and never delete on GitHub; remote deletions are an owner command.
+  ; `prune` deletes only branches proven done by commit, logged and restorable (owner, 2026-11-25).
 
 ## Gaps (P49, not enforced yet)
 
@@ -46,6 +46,6 @@ lists what is not yet enforced (plan row P49).
 | G1 | Nothing checks that Zero runs Opus at medium, or that an Opus session is not at high/xhigh | the check-in hook (`fieldkit zero` establish) reads the session effort and warns |
 | G2 | `fieldkit task start` / autopilot pass `--effort` only through `fieldkit escalate`; a plain worker runs at the CLI default | `autopilot/run.py` claude(): effort defaults to the escalate rung 1 (low) for role worker |
 | G3 | Desktop side sessions (`start_session`) carry a model but no effort | toolrouter.py MODEL_OK check: require an effort, low for coders |
-| G4 | Four parsers of a base's required checks: `ship.missing_contexts` (rulesets), `train.Gh.required_checks` (rulesets + classic), `cilocal.pinned`, `github/engine.values` | one pure `required_contexts(rules, classic)` used by all four |
-| G5 | `repair/worktree_classify_recycle.open_names` matches open PRs by branch NAME (the bug class shiprefs fixed) | `shiprefs.matching` by repo, base and head commit |
-| G6 | `shiptags` accepts a tag whose commit is on any remote branch, not on the base | check containment in origin/<base> |
+| G4 | Four parsers of a base's required checks: `ship.missing_contexts` (rulesets), `train.Gh.required_checks` (rulesets + classic), `cilocal.pinned`, `github/engine.values` | closed 2026-11-25: `ship.required_contexts` |
+| G5 | `repair/worktree_classify_recycle.open_names` matches open PRs by branch NAME (the bug class shiprefs fixed) | closed 2026-11-25: `shiprefs.matching` |
+| G6 | `shiptags` accepts a tag whose commit is on any remote branch, not on the base | closed 2026-11-25: kind `off-base` |

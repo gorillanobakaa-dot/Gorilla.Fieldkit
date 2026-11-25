@@ -296,12 +296,9 @@ class Hub:
         rc, out, _ = self.gh._gh("api", f"repos/{self.slug}/rules/branches/{base}")
         if rc:
             return None
-        for rule in json.loads(out or "[]"):
-            if rule.get("type") == "required_status_checks":
-                for c in (rule.get("parameters") or {}).get("required_status_checks") or []:
-                    if c.get("context") == context and c.get("integration_id"):
-                        return int(c["integration_id"])
-        return None
+        from .ship import required_contexts
+        app = required_contexts(json.loads(out or "[]")).get(context)
+        return int(app) if app else None
 
 
 def proof_dir():

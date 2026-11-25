@@ -17,6 +17,8 @@ from pathlib import Path
 
 import yaml
 
+from ..method.ship import required_contexts
+
 HERE = Path(__file__).resolve().parent
 SAMPLE_BRANCH = "feat/example"            # a non-default branch name, to ask "does this rule reach feature branches?"
 RULESET_KEYS = ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")
@@ -156,7 +158,7 @@ def read_state(repo):
     st["ran"] = sorted(ran)
     st["ran_readable"] = ok
     cl = _try("GET", f"repos/{repo}/branches/{default}/protection/required_status_checks")
-    st["classic_checks"] = list((cl or {}).get("contexts") or []) if isinstance(cl, dict) else []
+    st["classic_checks"] = sorted(required_contexts([], cl))
     st["dependabot_alerts"] = _try("GET", f"repos/{repo}/vulnerability-alerts") is not None
     acts = _try("GET", f"repos/{repo}/actions/permissions")
     st["actions_enabled"] = acts.get("enabled") if isinstance(acts, dict) else None
@@ -199,8 +201,7 @@ def values(st):
         return [x.get("parameters") or {} for x in rules if x.get("type") == t]
     pr, rsc = of("pull_request"), of("required_status_checks")
     sa = info.get("security_and_analysis") or {}
-    checks = sorted({c["context"] for p in rsc for c in p.get("required_status_checks") or []}
-                    | set(st.get("classic_checks") or []))
+    checks = sorted(required_contexts(rules, {"contexts": st.get("classic_checks")}))
     v = {
         "ruleset_targets_main": any(covers(r, d, d) for r in st["rulesets"]),
         "block_deletion": any(x.get("type") == "deletion" for x in rules),
@@ -348,7 +349,7 @@ def find_mistakes(st):
         if stale and not blockers_:
             out.append({"id": "branches-not-deleted", "text": f"Merged branches still exist: {', '.join(stale[:5])}. "
                         "Usual causes: the setting was turned on after they merged, or they were merged by something "
-                        "other than a pull request.", "fix": "delete them on the Branches page, or: git push origin --delete NAME"})
+                        "other than a pull request.", "fix": "delete them on the Branches page, or: fieldkit ship prune"})
     return out
 
 

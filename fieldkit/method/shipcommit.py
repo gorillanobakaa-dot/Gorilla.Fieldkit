@@ -105,6 +105,10 @@ def fix(cls, repo, env, run=fkproc.run):
 
 def commit(repo, message_file, run=fkproc.run, env=None, max_tries=5):
     """-> {ok, commit, attempts: [{class, done}], stopped, log}. Never --no-verify; a class seen twice stops."""
+    from .ship import lock_refusal, stale_lock
+    lock = stale_lock(repo)
+    if lock:
+        return {"ok": False, "stopped": lock_refusal(lock), "attempts": [], "log": ""}
     top, d = _state(repo)
     env = dict(env if env is not None else os.environ)
     if not env.get("VIRTUAL_ENV") and venv_for(top):
@@ -149,4 +153,4 @@ def lines(r):
     if r["ok"]:
         return [f"COMMITTED {r['commit'][:10]}"] + out
     return ([f"NOT COMMITTED: {r['stopped']}"] + out + [f"    {s}" for s in r.get("shown") or []]
-            + [f"  the hook's whole output: {r['log']}"])
+            + ([f"  the hook's whole output: {r['log']}"] if r["log"] else []))

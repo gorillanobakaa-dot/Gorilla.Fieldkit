@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fieldkit.capture import weaktest as W
 
 REC = {"id": "r", "goal": "Save the work.", "accepted": True, "steps": [
@@ -75,3 +77,12 @@ def test_prompt_hook_carries_the_offer():
     out = room._workflows({"prompt": "publish the release notes"}, "UserPromptSubmit", "")
     assert out.startswith("WORKFLOW:")
     assert room._workflows({"prompt": "publish the release"}, "PreToolUse", "") == ""
+
+
+def test_superseded_github_recipes_point_at_the_one_cookbook():
+    from fieldkit.capture import workflows as WF
+    for rid in ("recipe-release", "recipe-sync"):
+        d = WF.load()[rid]
+        assert d["superseded_by"] == "skills/fieldkit-ship/SKILL.md" and (Path(__file__).resolve().parents[2] / d["superseded_by"]).is_file()
+        assert "HISTORICAL" in "\n".join(WF.show_lines(d))
+    assert "follow skills/fieldkit-ship/SKILL.md" in WF.offer_line("publish the release")

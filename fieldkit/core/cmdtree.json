@@ -4386,7 +4386,6 @@
    "f": {
     "--add": 1,
     "--all": 0,
-    "--archive-unproven": 0,
     "--auto": 0,
     "--base": 1,
     "--body-file": 1,

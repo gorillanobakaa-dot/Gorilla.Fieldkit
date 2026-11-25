@@ -14,6 +14,7 @@ roots: ["~/Documents", "~/Documents/Scripts", "~"]
 everywhere:
   - fieldkit-tools
   - fieldkit-methods
+  - fieldkit-ship
   - fieldkit-net
   - fieldkit-lifecycle
   - fieldkit-emerge

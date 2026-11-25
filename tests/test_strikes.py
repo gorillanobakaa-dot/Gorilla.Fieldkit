@@ -102,6 +102,7 @@ def test_push_to_a_parked_branch_is_refused_and_nothing_is_run(monkeypatch):
     strikes.park("feat/x", inbox=Inbox())
     monkeypatch.setattr(ship, "sync", lambda repo, base: {"ok": True, "state": "ahead", "branch": "feat/x"})
     monkeypatch.setattr(ship, "git", lambda *a, **k: pytest.fail("git push ran for a parked branch"))
+    monkeypatch.setattr(ship, "stale_lock", lambda repo: "")
     r = ship.push(".")
     assert not r["ok"] and not r["pushed"] and r["state"] == "parked" and "PARKED" in r["error"]
 

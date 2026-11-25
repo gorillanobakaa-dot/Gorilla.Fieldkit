@@ -2358,7 +2358,7 @@ tools:
     verify: [python, -m, fieldkit, mandate, doctor]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "gate or end_to_end"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Born 2026-10-25 (owner: 'the approval has to come once, at the beginning ... cover all our projects'). Called by the hook, never by hand: Gorilla.Opencode's template (fieldkit/mandate/hooks/gorilla-opencode) runs it when FIELDKIT_SHIP_PUSH=1 and GORILLA_OWNER_APPROVED is not set. FIELDKIT_SHIP_PUSH is a marker any same-user program can set (said on the approve screen); what cannot be forged is the seal, the trusted key, the expiry and the stop. A broken gate refuses (exit 3). The hook's own secret and privacy scans run on every push either way."
 
 - id: mandate-doctor
@@ -2374,7 +2374,7 @@ tools:
   exits: {3: "not working: no mandate in force, no trusted key, or a covered hook that needs the gate (each row says which)"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "doctor or each_kind or covered"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Born 2026-10-26 (owner: 'fa permanent 1,2,3,4'). Clones found by catchup's walk (Documents and the Antigravity scratch, its exclusions; worktrees left out, they share the main clone's hooks). Covered = every mandate here plus the packaged owner-wide.yaml list. A hook is read as text: the pre-push file and the .py it runs; GORILLA_OWNER_APPROVED without a `mandate gate` call = NEEDS-GATE, except BY_DESIGN (gorilla-firefox: the flag only for the decision register). A repository with a template must match it byte for byte (LF). 'VAIO pinned' = the other computer's review key pinned HERE; whether the VAIO trusts the owner key is its own doctor's row."
 
 - id: mandate-receive
@@ -2391,7 +2391,7 @@ tools:
   exits: {2: "not a .yaml then a .seal, or a file missing", 3: "refused: the seal does not verify here (changed byte, bad signature, key not pinned here, stopped, expired) or an older approval"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_receive.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Born 2026-10-26 (owner approved: 'yeah'), after the VAIO kept the old copy of a renewed owner-wide mandate and refused a job. The pair is verified in a staging folder exactly as verify() reads it in place (both named <project>), so nothing that would not be in force is ever written to the mandate home; then it replaces the installed mandate of the same project (whatever its file name), else mandates/<project>.yaml. The old pair is copied to the trash before the swap and put back if the installed copy does not verify (a .STOP beside the old file). The mandate's .log stays and gets a received entry. No passphrase and no guarded write: a model can run it because it can only install what the owner already signed. `mandate share` puts the four files, then calls the far listener's verb mandate-receive (cable only, logged); an older listener gets a link note with the command. Mutation plan tests/mandate_receive_mutations.yaml (9/9)."
 
 - id: mandate-install-hooks
@@ -2411,7 +2411,7 @@ tools:
     verify: [python, -m, fieldkit, mandate, doctor]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "install or stick or template or verified"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Born 2026-10-26: the Gorilla.Opencode hook is private to the clone (scripts/ gitignored there), so it existed on one laptop; the template now lives in Fieldkit and this puts it back. Verification runs the installed hook twice with no push lines: without the marker it must refuse for the owner flag, with FIELDKIT_SHIP_PUSH=1 it must reach the gate. It never writes a hook it has no template for (those rows say NEEDS: a hook change for the owner). --yes is hard line 4 in an unattended run. catchup collect puts the --stick folder in every handover bundle (mandate-hooks/)."
 
 - id: mandate-renew
@@ -2428,7 +2428,7 @@ tools:
   exits: {1: "not renewed", 2: "bad input or no key here", 3: "no typed yes at a real terminal, or a wrong passphrase", 4: "stopped: never renewed"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "renew or warning or session or status"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Born 2026-10-26. The OWNER's, at a real terminal (hard line 4 in every unattended run). The warning WARN_DAYS = 3 days before the end, and for 14 days after an expiry, is one line: in `fieldkit mandate status`, `fieldkit mandate start` (the command post's board check) and once per session per day in the UserPromptSubmit hook (fieldkit.autopilot.room). After renewing: `fieldkit mandate share FILE` so the other computer has the new seal."
 
 - id: ship-push-tag
@@ -2447,7 +2447,7 @@ tools:
     preview: [python, -m, fieldkit, mandate, doctor]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "tag"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "PUBLISHES. Born 2026-10-25. Sets FIELDKIT_SHIP_PUSH=1 so the repository's hook asks the gate; a hook refusal is reported, never retried as a network error. The owner's manual path stays GORILLA_OWNER_APPROVED."
 
 - id: ship-gh-release
@@ -2467,7 +2467,7 @@ tools:
     preview: [python, -m, fieldkit, mandate, doctor]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "gh_release"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "PUBLISHES. Born 2026-10-25. The release page rules still hold (both tracks on the page, read earlier release bodies first); this command only makes the release a session may publish under the mandate, logged in the mandate's log."
 
 - id: peers-link-relay
@@ -5969,7 +5969,7 @@ tools:
   notes: "Read-only without --keys-from; --keys-from runs that command (its safety). Exit 2 bad input."
 
 - id: ship
-  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), commit (a known hook refusal fixed and tried again, the same one twice or an unknown one reported, never --no-verify), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
+  title: THE GitHub entry point (skill fieldkit-ship) - status, sync a squash-merged branch (merge -s ours), commit (a known hook refusal fixed and tried again, the same one twice or an unknown one reported, never --no-verify), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
   harness: method
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py
@@ -5980,7 +5980,6 @@ tools:
     - {name: title, flag: --title, type: str, required: false, help: "push --auto: title of a PR it creates (else --fill)"}
     - {name: body_file, flag: --body-file, type: str, required: false, help: "push --auto: body file of a PR it creates"}
     - {name: offline, flag: --offline, type: flag, required: false, help: "audit: git only, no network"}
-    - {name: archive_unproven, flag: --archive-unproven, type: flag, required: false, help: "prune: add archive/<branch> tag lines for unproven branches to the owner command (nothing runs on GitHub)"}
     - {name: scaffold, flag: --scaffold, type: flag, required: false, help: "release: write the missing note files and stop"}
     - {name: all_repos, flag: --all, type: flag, required: false, help: "audit, prune, tags: every non-archived repo of the owner (local clone, else a scratch clone), one before/after table"}
     - {name: fix_local, flag: --fix-local, type: flag, required: false, help: "tags: remove local tags never pushed (git tag -d)"}
@@ -5996,8 +5995,8 @@ tools:
     verify: [python, -m, fieldkit, ship, audit]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
-  skill: skills/fieldkit-methods/SKILL.md
-  notes: "push --auto (plan I9, 2026-10-30): push, find or create the branch's PR, find the open PR from this repository to the base (a fork's or another base's PR on the same name is ignored), count failed CI runs on the branch (2+ = PARKED, inbox note, exit 3, no auto-merge), then enable GitHub auto-merge with --match-head-commit SHA; GitHub merges when the required checks pass. A gh failure exits 1 and the push stands. PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune is report-only on GitHub (2026-11-25): it classes remote branches by same repo, same base and same head commit (shiprefs), deletes merged LOCAL branches with git branch -d, and writes the remote deletions (with --archive-unproven, archive tags first) as one owner command; an agent never deletes a remote branch. push --auto merges only when the base requires both test (ubuntu-latest) and test (windows-latest), and only uses an open PR from this repository to the base. audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
+  skill: skills/fieldkit-ship/SKILL.md
+  notes: "push --auto (plan I9, 2026-10-30): push, find or create the branch's PR, find the open PR from this repository to the base (a fork's or another base's PR on the same name is ignored), count failed CI runs on the branch (2+ = PARKED, inbox note, exit 3, no auto-merge), then enable GitHub auto-merge with --match-head-commit SHA; GitHub merges when the required checks pass. A gh failure exits 1 and the push stands. PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune deletes remote branches proven done by commit (head commit on the base, or a merged PR with the same repository, base and head commit), never the default, a protected or an open-PR branch, never a tag; each delete is leased to that commit, logged in state/ship/deleted-branches.jsonl with its restore line; merged LOCAL branches go with git branch -d (owner order 2026-11-25). push --auto merges only when the base requires both test (ubuntu-latest) and test (windows-latest), and only uses an open PR from this repository to the base. audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
 
 - id: ship-tags
   title: "Every tag of a repository classed (release, version without a release, archive/*, other) from git ls-remote --tags and git tag --sort=-creatordate, only real candidates flagged (unreachable, duplicate, local-only); one owner command for any GitHub deletion; with --all every non-archived repo of the owner in one table"
@@ -6015,8 +6014,8 @@ tools:
   exits: {3: "candidates found: the rows name them and the owner command deletes nothing itself"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ship_tags.py"]
-  skill: skills/fieldkit-methods/SKILL.md
-  notes: "Owner 2026-11-09: tags are never deleted indiscriminately. Read-only except --fix-local, which removes only a local tag that was never pushed. A tag on GitHub is never deleted or moved by an agent (hard line): the deletions are written as one PowerShell command for the owner. archive/* tags (what ship prune --archive-unproven saved) are never candidates."
+  skill: skills/fieldkit-ship/SKILL.md
+  notes: "Owner 2026-11-09: tags are never deleted indiscriminately. Read-only except --fix-local, which removes only a local tag that was never pushed. A tag on GitHub is never deleted or moved by an agent (hard line): the deletions are written as one PowerShell command for the owner. archive/* tags are never candidates."
 
 - id: merge-train
   title: "The merge train - a session declares its PR final (ship ready), Zero merges the declared PRs one at a time, dependencies first, brought up to date with main (generated files regenerated, cards entry by entry), never red, only with --match-head-commit; a merge of main proven to be only a merge skips the full pre-commit suite"
@@ -6041,7 +6040,7 @@ tools:
     verify: [python, -m, fieldkit, ship, train, --doctor]
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py", "${FIELDKIT}/tests/test_ci_wait.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], ci-wait PR [--merge] (O4: one background wake when CI ends, the failed log tail on red; tests/test_ci_wait.py, tests/ci_wait_mutations.yaml), train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
 
 - id: handover
@@ -6254,7 +6253,7 @@ tools:
   exits: {1: "the registry state/parked.json cannot be read or its folder is missing", 3: "refused or not parked"}
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_strikes.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
 
 - id: install-verify
@@ -7891,7 +7890,7 @@ tools:
   platforms: [linux, windows]
   e2e: {linux: e2e-ship-batch-collect-linux, windows: e2e-ship-batch-collect-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
 
 - id: ship-batch-build
@@ -7906,7 +7905,7 @@ tools:
   platforms: [linux, windows]
   e2e: {linux: e2e-ship-batch-build-linux, windows: e2e-ship-batch-build-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
 
 - id: ship-batch-run
@@ -7921,7 +7920,7 @@ tools:
   platforms: [linux, windows]
   e2e: {linux: e2e-ship-batch-run-linux, windows: e2e-ship-batch-run-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Use fieldkit ship batch before-pr --branches BRANCH ... for related local changes that have no PRs. The combined tree gets the ordinary protected checks in one PR. Use batch run for PRs that already exist and passed their own CI. Policy lives in fieldkit/method/batch.yaml. Mutation plan tests/batch_mutations.yaml."
 
 - id: ship-batch-status
@@ -7936,7 +7935,7 @@ tools:
   platforms: [linux, windows]
   e2e: {linux: e2e-ship-batch-status-linux, windows: e2e-ship-batch-status-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
 
 - id: ship-batch-select
@@ -7951,7 +7950,7 @@ tools:
   platforms: [linux, windows]
   e2e: {linux: e2e-ship-batch-select-linux, windows: e2e-ship-batch-select-windows}
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_batch.py", "${FIELDKIT}/tests/test_shard.py"]
-  skill: skills/fieldkit-methods/SKILL.md
+  skill: skills/fieldkit-ship/SKILL.md
   notes: "Plan P9, ideas I-14 and I-15 (owner 2026-11-12: 300-400 PRs, 40 minutes of CI each is not acceptable). Policy is data: fieldkit/method/batch.yaml. Worked example (2026-11-12, Zero by hand, PR 477): 7 PRs (465 468 470 471 472 474 476) merged into feat/batch-2026-11-12; the only conflict was a GENERATED file (docs/PLATFORMS.md), regenerated and the join went on; one CI, one merge, the 7 old PRs closed as merged. Lesson the same day: 5 of the 7 were already RED on windows-latest, so collect takes only PRs green on every required check at their current head. Mutation plan tests/batch_mutations.yaml."
 
 - id: pycache-audit

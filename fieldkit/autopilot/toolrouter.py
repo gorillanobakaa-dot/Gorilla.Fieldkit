@@ -186,19 +186,68 @@ def push_repo(command, cwd=""):
     return where
 
 
-def push_refusal(command, cwd="", names=None):
-    """-> the SHIP_PUSH route when the command hand-types a git push from a clone a mandate covers, else None."""
-    where = push_repo(command, cwd)
-    if where is None:
+GH_MERGE = re.compile(r"(?:^|[;&|(]\s*|\b(?:then|do)\s+)(?:\w+=\S*\s+)*(?:[\"'][^\"']*[\\/]|[^\s\"';&|]*[\\/])?"
+                      r"gh(?:\.exe)?[\"']?\s+pr\s+merge\b(?![^;&|\n]*\s--(?:disable-auto|help)\b)(?P<args>[^;&|\n]*)", re.I | re.M)
+SHIP_MERGE = {"route": "gh-pr-merge-by-hand",
+              "use": "fieldkit ship push --auto (merge bound to the pushed commit, both OS checks required), "
+                     "or fieldkit ship train for declared PRs",
+              "example": FK + " ship push --auto"}
+WRONG_CHECKOUT = {"route": "ship-push-wrong-checkout",
+                  "use": "run fieldkit ship push in this job's own worktree: that --repo / cd is another checkout of "
+                         "the same repository, on another branch",
+                  "example": FK + " ship push --auto"}
+
+
+def _folder(command, upto, cwd):
+    """Where the command is at offset upto: the call's cwd, moved by the last `cd` before it."""
+    import os
+    cds = [x for x in CD.finditer(command) if x.start() < upto]
+    where = cwd or os.getcwd()
+    return os.path.join(where, os.path.expanduser(_unquote(cds[-1].group(1)))) if cds else where
+
+
+def other_checkout(command, cwd):
+    """-> WRONG_CHECKOUT when `ship push` (not --tag) aims at another checkout of the session's repository."""
+    m = cwd and re.search(_AT + "(?:fieldkit|" + _PY + r"fieldkit)[\"']?\s+ship\s+push\b(?P<args>[^;&|\n]*)", command, re.I | re.M)
+    if not m or "--tag" in m.group("args"):
         return None
+    import os
+    from ..method.ship import git
+    where = _folder(command, m.start(), cwd)
+    to = re.search(r"--repo[\s=]+(\"[^\"]+\"|'[^']+'|\S+)", m.group("args"))
+    if to:
+        where = os.path.join(where, os.path.expanduser(_unquote(to.group(1))))
+    try:
+        seen = [git(d, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel",
+                    "--abbrev-ref", "HEAD").stdout.split("\n")[:3] for d in (cwd, where)]
+    except Exception:  # noqa: BLE001 - not a folder (or no git): nothing to say
+        return None
+    if any(len(s) < 3 for s in seen):
+        return None
+    (common, top, mine), (common2, top2, other) = seen
+    same_repo = common and common == common2 and top != top2
+    return WRONG_CHECKOUT if same_repo and mine != other and mine not in ("main", "master", "HEAD") else None
+
+
+def push_refusal(command, cwd="", names=None):
+    """-> the route when the command hand-types a git push or `gh pr merge` in a clone a mandate covers, or aims
+    ship push at another checkout of the session's repository; else None."""
+    command = command or ""
+    merge = GH_MERGE.search(command)
+    where, hit = push_repo(command, cwd), SHIP_PUSH
+    slug = merge and re.search(r"(?:\s-R|\s--repo)[\s=]+[\"']?([^\s\"']+)", merge.group("args"))
+    if merge:
+        where, hit = _folder(command, merge.start(), cwd), SHIP_MERGE
+    if where is None:
+        return other_checkout(command, cwd)
     try:
         from ..mandate import proofs, upkeep
         if not upkeep.git_here()[0]:                      # never run macOS's /usr/bin/git stub (a dialog)
             return None
-        name = proofs.where(where)[0]
+        name = slug.group(1).rstrip("/").rsplit("/", 1)[-1] if slug else proofs.where(where)[0]
     except Exception:  # noqa: BLE001 - not a clone (or no git): nothing to say
         return None
-    return SHIP_PUSH if name and name in (covered_names() if names is None else names) else None
+    return hit if name and name in (covered_names() if names is None else names) else None
 
 
 # -- 2026-10-27 (CRASH ~04:14: the laptop lost power below Windows while a session ran a full pre-commit suite AND a

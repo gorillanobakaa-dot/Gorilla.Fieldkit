@@ -280,17 +280,12 @@ class GH:
 
     def required_checks(self, base="main"):
         """-> the check names the base branch requires, from its rulesets and its branch protection (R17)."""
-        names = set()
-        rc, out, _ = self._gh("api", f"repos/{self.slug}/rules/branches/{base}", "--jq",
-                              "[.[] | select(.type == \"required_status_checks\") | "
-                              ".parameters.required_status_checks[].context]")
-        if rc == 0:
-            names |= set(json.loads(out or "[]"))
-        rc, out, _ = self._gh("api", f"repos/{self.slug}/branches/{base}/protection/required_status_checks", "--jq",
-                              "[(.contexts // [])[], (.checks // [])[].context]")
-        if rc == 0:
-            names |= set(json.loads(out or "[]"))
-        return names
+        from .ship import required_contexts
+        got = []
+        for path in (f"rules/branches/{base}", f"branches/{base}/protection/required_status_checks"):
+            rc, out, _ = self._gh("api", f"repos/{self.slug}/{path}")
+            got.append(json.loads(out or "null") if rc == 0 else None)
+        return set(required_contexts(*got))
 
     def check_runs(self, sha):
         """-> [{name, status, conclusion}] of the check runs GitHub has registered for exactly `sha`."""

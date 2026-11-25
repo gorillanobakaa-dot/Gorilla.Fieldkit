@@ -125,6 +125,8 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   fast-forward, only with a clean tree, and only when CI ran green on both windows-latest and ubuntu-latest for
   that commit. Diverged history and a default branch ahead of a feature branch are reported for a person to merge.
   Pushing goes through the owner-wide mandate (below). Private files (`local/`, memory) travel by `catchup`, not git.
+- **GitHub: one cookbook, `skills/fieldkit-ship/SKILL.md`.** Stale GitHub branches are deleted only by
+  `fieldkit ship prune` (proof by commit; each one logged in `state/ship/deleted-branches.jsonl` with its restore line).
 - **Pushes go through the owner-wide mandate, never as per-push lines for the owner (owner, 2026-10-26).** In every
   repository the mandate covers (`fieldkit mandate doctor` lists them) a session pushes ONLY with
   `fieldkit ship push` (a feat/ fix/ release- night/ branch, fast-forward), `fieldkit ship push --tag vX` (a new tag)
