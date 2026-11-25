@@ -1,5 +1,6 @@
 """No archive without a checked sitrep shown in chat (owner, 2026-11-25)."""
 import json
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -121,5 +122,6 @@ def test_sitrep_check_records_for_the_gate(tmp_path, monkeypatch, capsys):
     f.write_text(REPORT, encoding="utf-8")
     assert cli.main(["sitrep", "check", str(f)]) == 0
     assert "recorded for the archive gate" in capsys.readouterr().out
-    tp = transcript(tmp_path, entry("user", "go", T0), say(HEAD, T0 + 3))
+    now = time.time()                              # `sitrep check` records the real clock, so the turn must too
+    tp = transcript(tmp_path, entry("user", "go", now - 60), say(HEAD, now))
     assert gate.archive_refusal(call(tp)) is None
