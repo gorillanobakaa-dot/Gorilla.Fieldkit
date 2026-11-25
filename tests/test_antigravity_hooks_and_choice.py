@@ -20,12 +20,15 @@ ROOT = Path(rules.__file__).resolve().parents[1]
 
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path, monkeypatch):
+    from fieldkit.mandate import mandate as M
+
     monkeypatch.setenv("FIELDKIT_MODE_DIR", str(tmp_path / "mode"))
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
     monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
     monkeypatch.delenv("FIELDKIT_JOB_DIR", raising=False)
     monkeypatch.delenv("FIELDKIT_AUDIT_ONLY", raising=False)
+    monkeypatch.setattr(M, "mandates", lambda: [])
 
 
 def test_stranger_pc_rules_install_creates_antigravity_hooks_and_passes_selftest(tmp_path, monkeypatch):
