@@ -273,7 +273,7 @@ generated:
     heading: |-
       ## Session rotation (fieldkit rotate)
     text: |-
-      At task start and commits: `fieldkit rotate check --source <agent> --cwd . --newest` (codex, antigravity, gorilla-opencode, generic; Antigravity omits `--cwd .`). On ROTATE: `fieldkit rotate handover --session <id> --title T --done D --next N --not-verified V`, start successor, end session.
+      At the start of a task and at commits: `fieldkit rotate check --source <agent> --cwd . --newest` (codex, antigravity, gorilla-opencode, generic; Antigravity omits `--cwd .`). ROTATE: at the next safe point (SHORT SESSIONS) run `fieldkit rotate handover --session <id> --title T --done D --next N --not-verified V`, start successor, end session.
 
 # Each agent's own lines, after the core block (generated: `fieldkit rules install` replaces them).
 tails:
