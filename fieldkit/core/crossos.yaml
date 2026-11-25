@@ -43,7 +43,10 @@ commands:
   firmware check: {route: none, why: "reads /sys, the kernel log and /lib/modules: a Linux kernel"}
   gtk-theme check: {route: none, why: "GTK user stylesheets and libraries exist only on a Linux desktop"}
   leftovers: {route: none, why: "XDG autostart, menu entries, systemd user units and dpkg exist only on a Linux desktop"}
-  net route: {route: none, port: true, why: "reads the Linux routing table (ip route); a Windows reader (Get-NetRoute) is not written yet"}
+  net route:
+    route: dispatch
+    dispatch: {windows: [network, routes, "{args}"], macos: [network, routes, "{args}"]}
+    why: "the cross-platform routing table and per-interface link probe is `fieldkit network routes`"
   ownership take: {route: none, why: "Windows Explorer registration and interactive ownership recovery use Windows ACLs and UAC on this machine"}
   ownership take-drive: {route: none, why: "recursive Windows drive ownership uses Windows ACLs and interactive UAC on this machine"}
   update: {route: none, port: true, why: "compares this machine's Linux installs with what was published; the Windows side is not written yet"}
@@ -53,10 +56,22 @@ commands:
   voice install: {route: none, port: true, why: "Linux speech install"}
   voice say: {route: none, port: true, why: "Linux speech"}
   watchdog install: {route: none, why: "Windows already starts the watchdog from a scheduled task; nothing to install there"}
-  wifi: {route: none, why: "reads this machine's Linux Wi-Fi card (/sys/class/net, iw, dmidecode)"}
-  wifi card: {route: none, why: "reads this machine's Linux Wi-Fi card"}
-  wifi doctor: {route: none, why: "reads this machine's Linux Wi-Fi driver and firmware"}
-  wifi scan: {route: none, why: "Linux iw scan"}
+  wifi:
+    route: dispatch
+    dispatch: {windows: [network, "{args}"], macos: [network, "{args}"]}
+    why: "the cross-platform Wi-Fi toolkit is `fieldkit network` (same verbs: help, channels, devices, rate, watch, gui; no verb = the overview)"
+  wifi card:
+    route: dispatch
+    dispatch: {windows: [network, radios], macos: [network, radios]}
+    why: "the cross-platform Wi-Fi card & chipset inventory is `fieldkit network radios`"
+  wifi doctor:
+    route: dispatch
+    dispatch: {windows: [network, diagnose], macos: [network, diagnose]}
+    why: "the cross-platform offline Wi-Fi & connection diagnostic is `fieldkit network diagnose`"
+  wifi scan:
+    route: dispatch
+    dispatch: {windows: [network, scan], macos: [network, scan]}
+    why: "the cross-platform Wi-Fi scan is `fieldkit network scan`"
   wifi upgrade: {route: none, why: "reads Linux DMI and slot data (/sys/class/dmi, dmidecode)"}
   power audit: {route: none, why: "Security 4688 and Event Log Readers are Windows"}
   power drift: {route: none, why: "ibmpmsvc.exe is Lenovo's Windows power service"}

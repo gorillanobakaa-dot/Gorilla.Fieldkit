@@ -2041,6 +2041,21 @@ def _sweep(subnet, timeout=1, workers=48):
         list(pool.map(ping, hosts))
 
 
+def _local_ipv4_subnets():
+    sysname = platform.system().lower()
+    mine = set()
+    if sysname == "linux":
+        _, text = _run(["ip", "-4", "addr"])
+        mine.update(re.findall(r"inet (\d+\.\d+\.\d+)\.\d+/\d+", text or ""))
+    elif sysname == "windows":
+        _, text = _run(["ipconfig"])
+        mine.update(re.findall(r"IPv4 Address[^\n:]*:\s*(\d+\.\d+\.\d+)\.\d+", text or ""))
+    elif sysname == "darwin":
+        _, text = _run(["ifconfig"])
+        mine.update(re.findall(r"\binet (\d+\.\d+\.\d+)\.\d+\b", text or ""))
+    return {s for s in mine if s != "127.0.0" and not s.startswith("169.254.")}
+
+
 def local_devices(sweep=True):
     """How many things are on YOUR network, and what they are. -> a list.
 
@@ -2048,9 +2063,7 @@ def local_devices(sweep=True):
     your own subnet and answer when spoken to, so the count is real, unlike the
     attached gadgets of a NEIGHBOUR'S network, which are invisible to any scan.
     """
-    rc, text = _run(["ip", "-4", "addr"]) if platform.system().lower() == "linux" else (1, "")
-    mine = set(re.findall(r"inet (\d+\.\d+\.\d+)\.\d+/\d+", text or ""))
-    mine.discard("127.0.0")
+    mine = _local_ipv4_subnets()
     if sweep:
         for subnet in sorted(mine):
             _sweep(subnet)

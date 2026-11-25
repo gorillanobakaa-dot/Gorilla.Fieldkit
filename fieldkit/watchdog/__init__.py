@@ -40,7 +40,16 @@ import socket
 import sys
 import time
 
-from .net import current_ssid, reconnect, state_dir, tools_present
+from .net import (
+    current_ssid,
+    fallback_saved_ssid,
+    manual_switch_active,
+    read_remembered_ssid,
+    reconnect,
+    state_dir,
+    tools_present,
+    write_remembered_ssid,
+)
 
 PROBES = [("1.1.1.1", 443), ("8.8.8.8", 53), ("9.9.9.9", 443), ("208.67.222.222", 443)]
 
@@ -126,10 +135,26 @@ def set_pause(minutes, platform=None):
     return {"paused_minutes": minutes, "file": str(pause_path(platform))}
 
 
+def clear_pause(platform=None):
+    p = pause_path(platform)
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
+    log("alarms resumed (pause cleared)", platform)
+    return {"paused": False, "file": str(p)}
+
+
 def status(platform=None):
     """What a person wants to know without reading a log."""
     missing = tools_present(platform)
-    return {"online": online(), "ssid": current_ssid(platform), "paused": paused(platform),
+    cur = current_ssid(platform)
+    rem = read_remembered_ssid(platform)
+    if cur and not rem:
+        rem = cur
+    return {"online": online(), "ssid": cur, "remembered_ssid": rem,
+            "paused": paused(platform), "manual_switch_grace": manual_switch_active(platform),
             "log": str(log_path(platform)), "missing_tools": missing,
             "ok": not missing}
 
@@ -151,8 +176,10 @@ def loop(interval=5, reconnect_after=20, alarm_after=90, repeat=60, ssid="",
     """The watchdog itself. `forever=False` runs one pass, which is what tests use."""
     log(f"watchdog started (pid {os.getpid()}), reconnect after {reconnect_after} s, "
         f"alarm after {alarm_after} s", platform)
-    remembered, offline_since = ssid, None
+    remembered = ssid or (read_remembered_ssid(platform) if forever else "")
+    offline_since = None
     last_try = last_alarm = 0.0
+    tries = 0
     alarmed = False
     ssid_read = None
     while True:
@@ -162,13 +189,15 @@ def loop(interval=5, reconnect_after=20, alarm_after=90, repeat=60, ssid="",
                 log(f"back online after {int(_now() - offline_since)} s", platform)
                 if alarmed:
                     speak(RECOVERED, platform)
-            offline_since, alarmed = None, False
+            offline_since, alarmed, tries = None, False, 0
             now = _now()
             if not ssid and ssid_due(ssid_read, now, just_back):
                 ssid_read = now
                 seen = current_ssid(platform)
                 if seen and seen != remembered:
                     remembered = seen
+                    if forever:
+                        write_remembered_ssid(seen, platform)
                     log(f"online via '{seen}'", platform)
         else:
             now = _now()
@@ -178,7 +207,17 @@ def loop(interval=5, reconnect_after=20, alarm_after=90, repeat=60, ssid="",
             down = now - offline_since
             if down >= reconnect_after and now - last_try >= 15:
                 last_try = now
-                reconnect(remembered, platform, log=lambda s: log(s, platform))
+                if forever and manual_switch_active(platform, now=now):
+                    log("reconnect skipped: manual Wi-Fi switch in progress", platform)
+                else:
+                    target = remembered
+                    if forever and (not target or tries >= 2):
+                        alt = fallback_saved_ssid(exclude=(remembered,) if tries >= 2 and remembered else (), platform=platform)
+                        if alt:
+                            log(f"reconnect fallback: trying saved network '{alt}' in range", platform)
+                            target = alt
+                    tries += 1
+                    reconnect(target, platform, log=lambda s: log(s, platform))
             if down >= alarm_after and now - last_alarm >= repeat and not paused(platform):
                 last_alarm, alarmed = now, True
                 speak(ALARM, platform)
