@@ -1,6 +1,6 @@
 ---
 name: fieldkit-hog
-description: Find what is eating this computer's memory, CPU, heat or disk and free it safely with fieldkit hog - RAM and commit charge with the top processes, kernel limits (desktop heap, USER/GDI objects, handles, process exhaustion, pagefile thrashing), idle local models in LM Studio or Ollama (unloaded after 15 idle minutes; they just reload), memory leaks with their growth curve, test runners, listeners and browsers our sessions left behind (stopped only when registered), a program hoarding dozens of consoles or shells it never closed, a core pinned at 100%, CPU temperature, low disk, and a laptop that shuts down or restarts by itself (fieldkit power investigate gives ranked suspects and the owner steps). Use when the laptop is slow, the fans scream, RAM is high, "what is using my memory", Task Manager shows dozens of "Console Window Host" rows, a model is loaded nobody uses, before a long build or test run, or after a session ended with things still running. Works on Windows, Linux and macOS.
+description: "Find and safely free what eats memory, CPU, heat or disk (fieldkit hog, fieldkit power): idle local models, leaks, leftover processes, console hoards, unexpected shutdowns. Use when a machine is slow, fans scream, RAM is high, or before a long build. Windows, Linux, macOS."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; no network access unless a step says so."
 ---

@@ -1,6 +1,6 @@
 ---
 name: fieldkit-repair
-description: Small repair and check tools for failures agents hit again and again, through `fieldkit repair` - Windows cp1252 errors in Python scripts, a missing stdlib import, git conflict markers in append-only logs, C/C++ brace balance before a long compile, bash written into a .ps1 file, who opened dozens of PowerShell consoles, stopping a process only when PID and start time still match, which worktrees are merged and clean, a Board row insert, a Mach-O binary's minimum macOS, and the TPFanControl.ini mode. Use on UnicodeEncodeError charmap, NameError for shutil/re/os, git conflict markers, before a Firefox build, a PowerShell parse error, or before recycling worktrees.
+description: "Small fixes for recurring failures via fieldkit repair: UnicodeEncodeError charmap, missing import, conflict markers in logs, brace balance, bash in .ps1, PowerShell parse error, console hoards, safe process stop, merged worktrees, Board rows. Use before a Firefox build or recycling worktrees."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline on Windows, Linux and macOS."
 ---

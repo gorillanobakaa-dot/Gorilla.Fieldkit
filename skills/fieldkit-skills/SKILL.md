@@ -1,13 +1,6 @@
 ---
 name: fieldkit-skills
-description: >-
-  Agent Skills (the SKILL.md folder standard at agentskills.io, now at the Agentic AI Foundation) checked, aligned and
-  installed the same way on every machine with fieldkit skills, plus the commands behind the adopted Anthropic skills -
-  fieldkit webtest (start local servers, run a Playwright or other test, stop them), fieldkit prefix-diff (what broke
-  the prompt-cache prefix between two API requests, offline), fieldkit mcp-eval (evaluate an MCP server, opt-in) and
-  fieldkit skills package, benchmark and eval (skill-creator). Use when writing, editing, reviewing or installing a
-  skill, when a skill does not show up in Claude Code, Codex, Gemini or another agent, before committing a SKILL.md,
-  when adopting a third-party skill, when testing a local web app, or when asked why prompt caching misses.
+description: "Check, install and package Agent Skills (SKILL.md), plus webtest, prefix-diff and mcp-eval. Use when writing, reviewing, installing or committing a skill, a skill does not show up, testing a local web app, or prompt caching misses."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; no network access unless a step says so."
 ---

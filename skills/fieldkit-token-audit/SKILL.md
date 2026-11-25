@@ -1,6 +1,6 @@
 ---
 name: fieldkit-token-audit
-description: What an AI coding session costs, where its tokens went, and when to replace it with a fresh one - dollars per session, live running total with a warning, cost per call, the share spent re-reading old context, for Claude Code (CLI and the desktop Code tab, subagents included) and Google Antigravity, with fieldkit session-cost, token-audit and rotate; every live session judged OK / WARN / ROTATE by context per call and dollars, a handover written and a fresh session started for the monsters, finished sessions listed for archive. Use when the owner asks what a session costs, to watch the cost live, why usage limits run out, whether sessions should be split, when a hook line says SESSION ROTATION, to hand a long session over to a fresh one, or to find finished sessions to archive.
+description: "What AI sessions cost, where tokens went, and when to rotate to a fresh one (Claude Code and Antigravity). Use for cost or usage-limit questions, a SESSION ROTATION hook line, handing over a long session, or finding sessions to archive."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; no network access unless a step says so (rotate finished --gh asks the local gh)."
 ---
