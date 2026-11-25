@@ -1,6 +1,6 @@
 ---
 name: fieldkit-emerge
-description: Build, compile or package a product the way Gentoo's Portage does it, and better, with fieldkit emerge - one recipe per product (Gorilla Firefox for Windows and Debian, the Debian kernel, a Gorilla OpenCode release, gorilla-size), every stage content-addressed and skipped when its inputs were already built, stages for the other OS offloaded to the other machine over the cable, the leak gate once per release, a model called only when a stage fails and its fix accepted only as a commit, the owner's inbox past the limit, an ETA and an overhead number per run. Use when asked to emerge, build, compile, rebuild or package something, to make it "like portage", to resume a failed build, before running a build pipeline or a release by hand, or when a build takes days instead of the 90 minutes it should.
+description: "Build, compile or package a product with fieldkit emerge, one recipe each (Gorilla Firefox, Debian kernel, Gorilla OpenCode, gorilla-size), on Windows or Linux. Use for any emerge, build, rebuild or package request, to resume a failed build, or before running a pipeline or release by hand."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) and git, on Windows, Linux, macOS. No network except what a recipe's own fetch stage pulls by pin; offload uses the household cable (fieldkit peers link)."
 ---

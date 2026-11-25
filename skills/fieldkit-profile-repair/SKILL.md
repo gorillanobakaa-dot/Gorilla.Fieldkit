@@ -1,6 +1,6 @@
 ---
 name: fieldkit-profile-repair
-description: Repair a Windows PC whose user account or profile folder was renamed (its folder under Users got a new name) and purge a program completely (the Windows equivalent of apt-get purge), with profilefix. Use when an installer or updater fails with "Error opening file for writing" or "cannot create" under a C:\Users folder that no longer exists, when a program keeps looking for or installing into an old or deleted account, after renaming an account, or when asked to uninstall, remove, purge or clean every trace of a program including its registry entries.
+description: "Repair a Windows PC after its profile folder was renamed, and purge a program completely (profilefix), the Windows form of apt-get purge. Use for \"Error opening file for writing\" under an old C:\\Users folder, or to uninstall every trace of a program including registry entries."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

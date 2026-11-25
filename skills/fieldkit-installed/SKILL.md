@@ -1,6 +1,6 @@
 ---
 name: fieldkit-installed
-description: Keep the copy of Fieldkit that the `fieldkit` command runs (the Fieldkit-installed worktree) level with origin/main, with fieldkit installed check, sync and where - PASS or FAIL against origin/main, a fast-forward only move that refuses a dirty tree and never resets or deletes, pip install -e re-run only when pyproject.toml changed, verified by HEAD = origin/main and a loading `fieldkit --version`. Use when a merged fix does not show on this machine, a subcommand answers "invalid choice" that main has, the SessionStart line says FIELDKIT INSTALLED COPY, or after a merge to main.
+description: "Keep the installed copy that the fieldkit command runs level with origin/main (fieldkit installed check, sync, where). Use when a merged fix does not show, a subcommand says \"invalid choice\", the hook says FIELDKIT INSTALLED COPY, or after a merge to main."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Network only for sync (git fetch origin main)."
 ---

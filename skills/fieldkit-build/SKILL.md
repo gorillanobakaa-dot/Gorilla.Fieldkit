@@ -1,6 +1,6 @@
 ---
 name: fieldkit-build
-description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages, every Gorilla OpenCode release file from Linux or Windows - .deb/.rpm with nfpm, the tarball, the Mac 10.13 zip on go1.24, SHA256SUMS, the page's measured file table and the whole release page from its notes - release page), check a published release (release verify - download, checksums, the linux-install workflow), find out why a local LM Studio model is slow (lmstudio-log), and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox, the kernel or a Gorilla OpenCode release, when a build or packaging step failed, before typing a checksum table or a release page, or downloading release files by hand, when a local model is slow or says device lost, before downloading or loading a local model (fieldkit models gguf - dense or MoE and the expected speed), or to find out which stage a build is at.
+description: "Run, resume and diagnose staged build pipelines (Gorilla Firefox Windows and Debian, Debian kernel, Gorilla OpenCode release files and page), verify a published release, read an LM Studio log, check a GGUF model before download. Use when a build or packaging step failed or to find the current stage."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

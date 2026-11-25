@@ -1,6 +1,6 @@
 ---
 name: fieldkit-machine-catchup
-description: Bring another machine's AI session up to date with this one, and keep identifying text off GitHub, with the catchup tool. Covers listing every git repository with what is ahead, behind, uncommitted or never pushed; gathering the context GitHub does not carry (memory files, CLAUDE.md, GEMINI.md, AGENTS.md, skills, private tools, local tool registry, notes, earlier handovers) plus unpushed work as diffs, patches and git bundles; checking the bundle for secrets; zipping it to a USB stick with a verified checksum; and the public-check that finds Romanian text and the owner's private names and places before a push. Use when the owner says another laptop, the Linux machine, Debian, the other Claude, Codex or Gemini is behind, "catch it up", "sync the machines", "handover", "spoonfeed", "put it on the flash drive", "what is not on GitHub", or before publishing anything when the owner asks that nothing personal, Romanian or identifying reaches GitHub.
+description: "Bring another machine's AI session up to date (repos, memory, rule files, bundles to USB) and keep identifying or Romanian text off GitHub. Use for \"catch it up\", \"sync the machines\", \"handover\", \"what is not on GitHub\", or a nothing-personal check before publishing."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---

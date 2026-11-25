@@ -1,6 +1,6 @@
 ---
 name: fieldkit-scratch
-description: Put test copies, fixtures, big transfers and probe output in the scratch root and delete them fast and safely with fieldkit scratch - one short folder (C:\fk-scratch on Windows, ~/.cache/fieldkit-scratch elsewhere) of marked job folders; clean deletes directly (not through the Recycle Bin) and only jobs that are yours, stale, or claimed; long paths, junctions never followed; report with sizes, ages, owners; the owner's one-click Defender exclusion for the root. Use before making a large test fixture or test copy, when a cleanup of many files is slow or the Recycle Bin refuses long paths, when cleaning up after a job, when the preflight or the hog reports stale scratch jobs, or when received transfers must go.
+description: "Test copies, fixtures and probe output in the scratch root (C:\fk-scratch on Windows) with fast safe cleanup (fieldkit scratch). Use before making large test data, when cleanup is slow or long paths fail, after a job, or when stale scratch is reported."
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML and psutil) on Windows, Linux, macOS. Works offline; no network access."
 ---
