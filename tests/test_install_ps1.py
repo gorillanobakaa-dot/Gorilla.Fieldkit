@@ -25,10 +25,11 @@ def ps(code, env=None, stdin=""):
     return r.returncode, r.stdout + r.stderr
 
 
-def run_script(target, answers, zip_path, extra_env=None):
+def run_script(target, answers, zip_path, extra_env=None, extra_args=None):
     env = dict(os.environ, FIELDKIT_ZIP_URL=Path(zip_path).as_uri(), FIELDKIT_SKIP_PIP="1")
     env.update(extra_env or {})
-    r = subprocess.run([PS, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT), "-Target", str(target)],
+    r = subprocess.run([PS, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT), "-Target", str(target),
+                        *(extra_args or ())],
                        input="".join(a + "\n" for a in answers), capture_output=True, text=True, env=env, timeout=300)
     return r.returncode, r.stdout + r.stderr
 
@@ -40,6 +41,15 @@ def make_zip(path, entries=None, doctor_exit=0):
             "Gorilla.Fieldkit-main/fieldkit/__init__.py": "",
             "Gorilla.Fieldkit-main/fieldkit/__main__.py": "",
             "Gorilla.Fieldkit-main/fieldkit/compileonce.py": (ROOT / "fieldkit" / "compileonce.py").read_text(encoding="utf-8"),
+            "Gorilla.Fieldkit-main/fieldkit/rules.py": (
+                "import pathlib, sys\n"
+                "if __name__ == '__main__':\n"
+                "    a = sys.argv[1:]\n"
+                "    h = pathlib.Path(a[a.index('--home') + 1])\n"
+                "    h.mkdir(parents=True, exist_ok=True)\n"
+                "    m = h / '.rules-ran'\n"
+                "    m.write_text((m.read_text() if m.exists() else '') + a[0] + '\\n')\n"
+            ),
             "Gorilla.Fieldkit-main/fieldkit/desk/__init__.py": "",
             "Gorilla.Fieldkit-main/fieldkit/desk/install_preflight.py": (ROOT / "fieldkit" / "desk" / "install_preflight.py").read_text(encoding="utf-8"),
             "Gorilla.Fieldkit-main/fieldkit/core/__init__.py": "",
@@ -207,3 +217,19 @@ def test_no_at_venv_stops_with_record(tmp_path):
     assert not (target / ".venv").exists()
     rec = (target / "INSTALLED.txt").read_text(encoding="utf-8-sig")
     assert "Outcome: not ready: at step 4a (your no)" in rec
+
+
+def test_rules_switch_installs_and_records(tmp_path):
+    target = tmp_path / "fk"
+    rhome = tmp_path / "rhome"
+    z = make_zip(tmp_path / "fk.zip")
+    code, out = run_script(target, ["y", "y", "y", "y"], z,
+                           extra_env={"FIELDKIT_RULES_HOME": str(rhome)}, extra_args=["-Rules"])
+    assert code == 0, out
+    assert (rhome / ".rules-ran").read_text().splitlines() == ["install", "check"]
+    rec = (target / "INSTALLED.txt").read_text(encoding="utf-8-sig")
+    assert f"Agent rules installed and checked under: {rhome}" in rec
+    target2 = tmp_path / "fk2"
+    code2, out2 = run_script(target2, ["y", "y", "y", "n"], z,
+                             extra_env={"FIELDKIT_RULES_HOME": str(tmp_path / "rhome2")}, extra_args=["-Rules"])
+    assert code2 == 3 and "at step 5b (your no)" in out2, out2

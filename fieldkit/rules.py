@@ -136,18 +136,19 @@ def check(root=None, home=None, repo_only=False):
     if repo_only:
         return out
     files = global_files(home)
+    h = Path(home or Path.home())
     for agent, p in files.items():
         r = check_file(p, block, "global")
         if r.get("missing") and installed(agent, home):
             r.update(ok=False, problems=[f"{agent} is installed here but has no rules file (fieldkit rules install "
                                          "creates it)"])
         elif not r.get("missing"):
-            r["problems"] += [x["evidence"] for x in lint_mod.check_installed({agent: p}, root=root, skip=("core",))]
+            r["problems"] += [x["evidence"] for x in lint_mod.check_installed({agent: p}, root=root, skip=("core",), home=h)]
             r["ok"] = not r["problems"]
         out.append(r)
     if installed("claude-code", home):
         out.append(check_hooks(home))
-    same = [x for x in lint_mod.check_installed(files, root=root) if x["rule"] in lint_mod.BLOCKS]
+    same = [x for x in lint_mod.check_installed(files, root=root, home=h) if x["rule"] in lint_mod.BLOCKS]
     if same:
         out.append({"path": "global files", "kind": "same", "ok": False, "bytes": 0,
                     "problems": [f"{x['rule']}: {x['evidence']}" for x in same]})
@@ -209,12 +210,31 @@ def with_tail(text, tail):
     return text[:i] + "\n\n" + tail + region
 
 
+def with_local(text, local):
+    """-> text with the optional per-user local block (~/.fieldkit/rules-local.md), or removed when absent."""
+    b, e = lint_mod.LOCAL_BEGIN, lint_mod.LOCAL_END
+    if b in text and e in text:
+        head, rest = text.split(b, 1)
+        after = rest.split(e, 1)[1]
+        if local is None:
+            return head.rstrip("\n") + ("\n\n" + after.lstrip("\n") if after.strip() else "\n")
+        return head + local + after
+    if local is None:
+        return text
+    i = text.find(lint_mod.TAIL_END)
+    if i >= 0:
+        i += len(lint_mod.TAIL_END)
+        return text[:i] + "\n\n" + local + text[i:]
+    return text.rstrip("\n") + "\n\n" + local + "\n"
+
+
 def install_all(home=None, root=None, backup_dir=None):
-    """Every block into each global file that exists: core, the agent's tail, lifecycle, rotate (codex, gemini).
+    """Every block into each global file that exists: core, the agent's tail, optional local, lifecycle, rotate.
     One backup per changed file. -> [what was done]"""
     from .lifecycle import protocol
     from .tokens import rotate
     root = Path(root or ROOT)
+    h = Path(home or Path.home())
     data = lint_mod.load(root)
     bdir = Path(backup_dir or (state_root(root) / "state" / "rules-backup"))
     out = []
@@ -233,6 +253,7 @@ def install_all(home=None, root=None, backup_dir=None):
         block = core_block(root).replace("\r\n", "\n")
         text = text.replace(have, block) if have else block + "\n\n" + text
         text = with_tail(text, lint_mod.tail_block(data, agent))
+        text = with_local(text, lint_mod.local_block(h))
         new = text.replace("\n", nl).encode("utf-8")
         if new != before:
             b = None if created else _backup(p, bdir)
@@ -241,7 +262,7 @@ def install_all(home=None, root=None, backup_dir=None):
         if agent in ("codex", "gemini"):
             rotate.install_rule(p)
         after = p.read_bytes()
-        bad = lint_mod.check_installed({agent: p}, data, root)
+        bad = lint_mod.check_installed({agent: p}, data, root, home=h)
         if bad:                                           # read back: the artifact, not the write calls
             raise OSError(f"{p}: " + "; ".join(x["evidence"] for x in bad))
         out.append({"path": str(p), "bytes": len(after),
@@ -291,7 +312,7 @@ def main(argv=None):
     ap.add_argument("--against", help="sync: the other laptop's manifest (JSON from `rules sync --json`)")
     ap.add_argument("--apply", action="store_true", help="sync: refresh the private store from this machine")
     ap.add_argument("--restore", action="store_true", help="sync: bring files the store holds back where missing")
-    ap.add_argument("--home", help="inventory, lint --files, sync: another home folder")
+    ap.add_argument("--home", help="install, check, inventory, lint --files, sync: another home folder")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.action in ("inventory", "sync", "hooks"):
@@ -318,11 +339,11 @@ def main(argv=None):
         print("NEXT: " + ("nothing" if not bad else "fix each finding in rules/rules.yaml, then fieldkit rules build"))
         return 3 if bad else 0
     if a.action == "install":
-        r = install(a.file) if a.file else install_all()
+        r = install(a.file) if a.file else install_all(home=a.home)
         print(json.dumps(r, indent=1) if a.json else "\n".join(f"{x['path']}: {x['done']}" for x in r))
         print("NEXT: fieldkit rules check")
         return 0
-    r = check(repo_only=a.repo_only)
+    r = check(repo_only=a.repo_only, home=a.home)
     bad = [x for x in r if not x["ok"]]
     if a.json:
         print(json.dumps(r, indent=1))

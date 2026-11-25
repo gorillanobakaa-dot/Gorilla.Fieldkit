@@ -111,3 +111,29 @@ def test_an_empty_home_ends_all_ok_after_one_install(tmp_path, monkeypatch, caps
 def test_an_agent_program_on_path_counts_as_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(rules, "_which", lambda name: "/usr/bin/codex" if name == "codex" else None)
     assert rules.installed("codex", tmp_path) and not rules.installed("gemini", tmp_path)
+
+
+def test_local_rules_block_is_optional_and_kept_out_of_public_core(tmp_path):
+    core_text = (ROOT / rules.CORE).read_text(encoding="utf-8")
+    assert "10.77.0.2" not in core_text and "Romanian" not in core_text and "VAIO" not in core_text
+    h = tmp_path / "stranger"
+    (h / ".claude").mkdir(parents=True)
+    (h / ".gemini").mkdir()
+    rules.install_all(h, ROOT, backup_dir=tmp_path / "bk1")
+    gf = rules.global_files(h)
+    assert rules.lint_mod.LOCAL_BEGIN not in gf["claude-code"].read_text(encoding="utf-8")
+    assert all(x["ok"] for x in rules.check(ROOT, h))
+    local_file = h / ".fieldkit" / "rules-local.md"
+    local_file.parent.mkdir(parents=True)
+    local_file.write_text("# Local machine notes\n- Local peer address: 192.0.2.10.\n", encoding="utf-8")
+    assert rules.main(["check", "--home", str(h)]) == 3
+    assert rules.main(["install", "--home", str(h)]) == 0
+    assert rules.lint_mod.LOCAL_BEGIN in gf["claude-code"].read_text(encoding="utf-8")
+    assert "192.0.2.10" in gf["gemini"].read_text(encoding="utf-8")
+    assert rules.main(["check", "--home", str(h)]) == 0
+    local_file.unlink()
+    bad = [x for x in rules.check(ROOT, h) if not x["ok"]]
+    assert bad and any("stale local block" in p for p in bad[0]["problems"])
+    rules.install_all(h, ROOT, backup_dir=tmp_path / "bk2")
+    assert rules.lint_mod.LOCAL_BEGIN not in gf["claude-code"].read_text(encoding="utf-8")
+    assert all(x["ok"] for x in rules.check(ROOT, h))
