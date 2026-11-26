@@ -246,7 +246,7 @@ generated:
     steps: |-
       1. commit on your branch.
       2. `fieldkit ship push --auto` (PR, auto-merge on green CI).
-      3. report: {report}.
+      3. Finish outstanding requests. For Fieldkit changes, verify the public release includes the merged commit before marking work done. Record the release URL with {report}.
       4. `fieldkit size recycle` job leftovers.
       5. stop own background jobs (by PID).
       6. {last}.
@@ -257,7 +257,7 @@ generated:
     last_headless: |-
       exit: the run ends here
     last_session: |-
-      show `fieldkit sitrep check` report, then archive (`set_remote_control` off, `archive_session "self"`). {zero}
+      show the checked `fieldkit sitrep check` report in chat. Keep owner conversations open until the owner explicitly requests archive. Only completed unattended side sessions may self-archive (`set_remote_control` off, `archive_session "self"`). {zero}
     zero_archive: |-
       Zero archives only into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it
     zero_pointer: |-
