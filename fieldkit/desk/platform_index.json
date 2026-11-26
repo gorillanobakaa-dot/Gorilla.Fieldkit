@@ -1926,6 +1926,17 @@
    "fieldkit-gtk-theme-check"
   ]
  },
+ "handoff": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "handoff"
+  ]
+ },
  "handover": {
   "platforms": [
    "linux",

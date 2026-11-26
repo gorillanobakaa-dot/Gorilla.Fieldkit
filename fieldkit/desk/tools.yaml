@@ -8219,6 +8219,29 @@ tools:
   skill: skills/fieldkit-tools/SKILL.md
   notes: "Owner order 2026-11-23 (idea I-32). Evidence: platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence - low effort with the failures re-run at high scored about 97% at about $0.17 a task, against 95.3% at $0.29 for all-high. No model is called when the first try passes or --skip-if-green finds the check green. A retry is always a NEW session (never --resume), its brief the original plus at most 25 lines / 3000 chars of the failing check. The xhigh rung is Opus and goes through models.check_model (TWO STRIKES, mandate models_allowed); a refusal is logged as skipped. Every session inherits CLAUDE_CODE_PROMPT_CACHE_TTL=1h, CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h, ENABLE_PROMPT_CACHING_1H=1. Sessions are started by autopilot.run.claude (guard, container, stall watch), not a second starter. Ledger: state/lifecycle/escalate.jsonl. `fieldkit integration cache` is the same enforcement check next to the integration check. Mutations: tests/escalate_mutations.yaml."
 
+- id: handoff
+  title: "Find a saved coding session by ID, title text, or project and hand its recent work to another provider"
+  harness: method
+  entry: [python, -m, fieldkit, handoff]
+  path: ${FIELDKIT}/fieldkit/handoff.py
+  draft: true
+  inputs:
+    - {name: query, flag: null, type: str, required: false, help: "Session ID or title text"}
+    - {name: list, flag: --list, type: flag, required: false, help: "List saved sessions and last activity time"}
+    - {name: project, flag: --project, type: str, required: false, help: "Filter by project"}
+    - {name: provider, flag: --provider, type: str, required: false, choices: [antigravity, claude, opencode, codex, kiro, lmstudio], help: "Target provider"}
+    - {name: model, flag: --model, type: str, required: false, help: "Target model"}
+    - {name: thinking, flag: --thinking, type: str, required: false, choices: [low, medium, high], help: "Thinking effort"}
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "Preview only"}
+    - {name: json, flag: --json, type: flag, required: false, help: "Machine-readable result"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: irreversible
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-handoff-linux, windows: e2e-handoff-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_handoff.py"]
+  skill: skills/fieldkit-tools/SKILL.md
+  notes: "Writes redacted cards under ~/.agent-handoff/cards. An approved remote launch sends the card to the selected provider."
+
 - id: network
   title: "Unified Wi-Fi, routing, router, LAN, and offline-watchdog toolkit with human aliases and examples (Windows, Linux, macOS)"
   harness: fieldkit
