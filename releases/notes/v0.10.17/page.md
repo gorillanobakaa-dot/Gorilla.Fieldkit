@@ -1,14 +1,14 @@
 ## What this is
 
-Fieldkit v0.10.17 adds session handoff, network diagnostics, and a clearer completion rule for agent sessions.
+Fieldkit v0.10.17 adds a unified cross-platform network command and a guarded session-handoff command for continuing saved coding work with another provider.
 
 ## Should you download it?
 
-Upgrade if you want to continue a saved coding session with another provider or diagnose a connection failure from the command line.
+Yes, if you use Fieldkit to diagnose Wi-Fi or routes, or if a coding session needs to be resumed by another supported provider. The new commands run on Windows, Linux, and macOS; their available actions still depend on the operating system and the installed provider CLIs.
 
 ## Why this matters
 
-You can inspect the context a provider would receive before launching it. You can also collect network evidence while the internet connection is down.
+Network diagnosis previously lived behind separate command surfaces. Saved coding conversations could be located manually but not handed over through one Fieldkit command with a redacted, privacy-gated card. This release makes both workflows discoverable through the command registry while retaining explicit approval before a remote provider receives a handoff card.
 
 ---
 # In plain language: everything in this release
@@ -544,4 +544,20 @@ Written for someone who will audit, fork or change the code. It covers the same 
 
 <!-- developer track: in full, on this page -->
 
+### Scope
 
+`v0.10.16..main`: PRs 716 and 717.
+
+- **PR 716, unified network CLI.** Added `fieldkit/network/cli.py` as the `fieldkit network` command and registered its cards, command tree, OS-parity inventory, documentation group, Linux/Windows E2E checks, and `tests/test_network.py`. The command consolidates network state, diagnosis, Wi-Fi radio/profile/channel work, routes, router and LAN-device inspection, and watchdog integration. Platform-dependent calls are guarded; JSON help and live-diagnosis coverage were corrected before merge.
+- **PR 717, cross-provider session discovery and guarded handoff.** Added `fieldkit/handoff.py`, `tests/test_handoff.py`, `docs/HANDOFF.md`, Linux/Windows E2E checks, CLI and command-tree registration, platform inventory, documentation group, and the `handoff` tool card. Session discovery covers local Claude, Codex, Kiro, Antigravity, and LM Studio stores; cards carry source, title, project, recent messages/tool calls, artifacts, and `last_activity`. Cards are redacted through Fieldkit privacy helpers and remotely dispatched only after Fieldkit's privacy scan, model guard, and explicit approval. The launcher uses `fieldkit.proc` rather than raw subprocess invocation.
+
+#### Verification
+
+- PR #716 merged as `cdf9080c`; PR #717 merged as `a240b927`.
+- PR #717's dedicated `e2e-handoff-linux` and `e2e-handoff-windows` checks succeeded. Its Windows shard 3 initially stalled while the test step was in progress; attempt 2 completed successfully with 235 passed and 2 platform-specific skips.
+- The `tests` workflow for `main` at `a240b927` completed successfully. `fieldkit ship release-ready v0.10.17 --repo <checkout>` confirmed CI green and OS parity current before this release preparation.
+
+#### Known limits
+
+- ChatGPT share pages are client-rendered and may not expose their transcript to a non-browser fetcher. A user can instead provide the conversation text or a local file.
+- A remote provider launch has not been exercised against every provider CLI in this release process. The preview, privacy-gate, and Linux/Windows CI coverage are not evidence that every third-party CLI/model spelling will work on a given machine.
