@@ -40,7 +40,7 @@ import os
 import re
 import shutil
 import sqlite3
-import subprocess
+from . import proc as fkproc
 import sys
 import urllib.parse
 import urllib.request
@@ -963,7 +963,7 @@ def dispatch(card: HandoffCard, reg: Dict[str, Provider], args: argparse.Namespa
         raise Blocked(verdict["why"], 3, "BLOCKED_MODEL")
     cmd[0] = exe  # full path so Windows .cmd shims resolve
     cwd = card.cwd if card.cwd and Path(card.cwd).is_dir() else None
-    rc = subprocess.run(cmd, env=env, cwd=cwd, check=False).returncode
+    rc = fkproc.run(cmd, env=env, cwd=cwd, check=False).returncode
     res.update(status="LAUNCHED", exit_code=rc)
     return res, (0 if rc == 0 else 1)
 
