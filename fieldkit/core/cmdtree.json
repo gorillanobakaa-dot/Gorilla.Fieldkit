@@ -1133,6 +1133,21 @@
    "open": false,
    "v": {}
   },
+  "connect": {
+   "c": [],
+   "f": {
+    "--expect-gateway-mac": 1,
+    "--help": 0,
+    "--json": 0,
+    "--no-fix-auto": 0,
+    "--profile": 1,
+    "--radio": 1,
+    "--ssid": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "cookbook": {
    "c": [],
    "f": {
@@ -1222,6 +1237,32 @@
     "--name": 1,
     "--trade": 1,
     "--variant": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "diag": {
+   "c": [],
+   "f": {
+    "--fix-auto": 0,
+    "--help": 0,
+    "--hours": 1,
+    "--json": 0,
+    "--ssid": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "diagnose": {
+   "c": [],
+   "f": {
+    "--fix-auto": 0,
+    "--help": 0,
+    "--hours": 1,
+    "--json": 0,
+    "--ssid": 1,
     "-h": 0
    },
    "open": false,
@@ -2553,6 +2594,21 @@
    "open": false,
    "v": {}
   },
+  "join": {
+   "c": [],
+   "f": {
+    "--expect-gateway-mac": 1,
+    "--help": 0,
+    "--json": 0,
+    "--no-fix-auto": 0,
+    "--profile": 1,
+    "--radio": 1,
+    "--ssid": 1,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "keeper": {
    "c": [
     "install",
@@ -3290,6 +3346,1157 @@
    "open": false,
    "v": {}
   },
+  "network": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "adapters": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "air": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "antenna": {
+     "c": [],
+     "f": {
+      "--bands": 1,
+      "--cable": 1,
+      "--cable-m": 1,
+      "--help": 0,
+      "--json": 0,
+      "--read-only-status": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "auto-metric": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "calibrate": {
+     "c": [],
+     "f": {
+      "--at": 1,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "can-upgrade": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "card": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cards": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cellular": {
+     "c": [],
+     "f": {
+      "--bands": 1,
+      "--cable": 1,
+      "--cable-m": 1,
+      "--help": 0,
+      "--json": 0,
+      "--read-only-status": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "channel": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "channels": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cheatsheet": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "check": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "compare": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "connect": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "demote": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "deprioritize": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "devices": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "diag": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "diagnose": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "disable": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "doctor": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "down": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "enable": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ensure": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "events": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "examples": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "free-channel": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "gateway": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "guard": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "gui": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "guide": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hardware": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "help": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "history": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hotspot-prefer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hub": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ifaces": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "info": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "interfaces": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "join": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "keep-online": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "kind": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "known": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "lan": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "line-kind": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "link-rate": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "list": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "logs": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "meter": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "nearby": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "neighbors": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "neighbours": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "off": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "on": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "overview": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-iface": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-radio": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-route": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "profiles": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "radios": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "rate": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "reconnect": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "rejoin": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "restore": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "restore-route": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "route": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "router": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "routes": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "saved": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "scan": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "show": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "speed-code": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "speed-compare": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "status": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "survey": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "troubleshoot": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "unprefer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "up": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "upgrade": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "use-interface": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watch": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watch-signal": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watchdog": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "why": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "window": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
   "next": {
    "c": [],
    "f": {
@@ -3843,6 +5050,21 @@
    "f": {
     "--help": 0,
     "--json": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
+  "reconnect": {
+   "c": [],
+   "f": {
+    "--expect-gateway-mac": 1,
+    "--help": 0,
+    "--json": 0,
+    "--no-fix-auto": 0,
+    "--profile": 1,
+    "--radio": 1,
+    "--ssid": 1,
     "-h": 0
    },
    "open": false,
@@ -4442,6 +5664,28 @@
    "open": false,
    "v": {}
   },
+  "show": {
+   "c": [
+    "all",
+    "devices",
+    "events",
+    "help",
+    "networks",
+    "profiles",
+    "radios",
+    "router",
+    "routes",
+    "watchdog"
+   ],
+   "f": {
+    "--fast": 0,
+    "--help": 0,
+    "--json": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {}
+  },
   "sitrep": {
    "c": [
     "check",
@@ -5030,10 +6274,12 @@
    "c": [
     "install",
     "pause",
+    "resume",
     "run",
     "status",
     "test",
-    "uninstall"
+    "uninstall",
+    "windows-task"
    ],
    "f": {
     "--alarm-after": 1,
@@ -5129,6 +6375,7 @@
     "devices",
     "doctor",
     "gui",
+    "help",
     "rate",
     "scan",
     "upgrade",
@@ -5230,6 +6477,1157 @@
       "--steps": 1,
       "--threshold-percent": 1,
       "--tier": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    }
+   }
+  },
+  "wlan": {
+   "c": [],
+   "f": {
+    "--help": 0,
+    "--json": 0,
+    "-h": 0
+   },
+   "open": false,
+   "v": {
+    "adapters": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "air": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "antenna": {
+     "c": [],
+     "f": {
+      "--bands": 1,
+      "--cable": 1,
+      "--cable-m": 1,
+      "--help": 0,
+      "--json": 0,
+      "--read-only-status": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "auto-metric": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "calibrate": {
+     "c": [],
+     "f": {
+      "--at": 1,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "can-upgrade": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "card": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cards": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cellular": {
+     "c": [],
+     "f": {
+      "--bands": 1,
+      "--cable": 1,
+      "--cable-m": 1,
+      "--help": 0,
+      "--json": 0,
+      "--read-only-status": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "channel": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "channels": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "cheatsheet": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "check": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "compare": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "connect": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "demote": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "deprioritize": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "devices": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "diag": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "diagnose": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "disable": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "doctor": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "down": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "enable": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ensure": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "events": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "examples": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "free-channel": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "gateway": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "guard": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "gui": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "guide": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hardware": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "help": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "history": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hotspot-prefer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "hub": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "ifaces": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "info": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "interfaces": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "join": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "keep-online": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "kind": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "known": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "lan": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "line-kind": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "link-rate": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "list": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "logs": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "meter": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "nearby": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "neighbors": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "neighbours": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--no-sweep": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "off": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "on": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "overview": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-iface": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-radio": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "prefer-route": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "profiles": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "radios": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "rate": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "reconnect": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "rejoin": {
+     "c": [],
+     "f": {
+      "--expect-gateway-mac": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-fix-auto": 0,
+      "--profile": 1,
+      "--radio": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "restore": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "restore-route": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "route": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "router": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--risk": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "routes": {
+     "c": [],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "saved": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "scan": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--band": 1,
+      "--help": 0,
+      "--json": 0,
+      "--no-rescan": 0,
+      "--radio": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "show": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "speed-code": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--mbps": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "speed-compare": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "status": {
+     "c": [
+      "all",
+      "devices",
+      "events",
+      "networks",
+      "profiles",
+      "radios",
+      "router",
+      "routes",
+      "watchdog"
+     ],
+     "f": {
+      "--fast": 0,
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "survey": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--avoid": 1,
+      "--band": 1,
+      "--case": 1,
+      "--check": 1,
+      "--count-mine": 0,
+      "--devices": 1,
+      "--help": 0,
+      "--json": 0,
+      "--list-profiles": 0,
+      "--mine": 1,
+      "--networks": 0,
+      "--profile": 1,
+      "--score": 1,
+      "--technical": 0,
+      "--why": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "troubleshoot": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "unprefer": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--plan": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "up": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "upgrade": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "use-interface": {
+     "c": [],
+     "f": {
+      "--help": 0,
+      "--json": 0,
+      "--metric": 1,
+      "--plan": 0,
+      "--undo": 0,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watch": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watch-signal": {
+     "c": [],
+     "f": {
+      "--bssid": 1,
+      "--help": 0,
+      "--json": 0,
+      "--samples": 1,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "watchdog": {
+     "c": [
+      "install",
+      "pause",
+      "resume",
+      "run",
+      "status",
+      "test",
+      "uninstall",
+      "windows-task"
+     ],
+     "f": {
+      "--alarm-after": 1,
+      "--apply": 0,
+      "--help": 0,
+      "--json": 0,
+      "--out": 1,
+      "--reconnect-after": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "why": {
+     "c": [],
+     "f": {
+      "--fix-auto": 0,
+      "--help": 0,
+      "--hours": 1,
+      "--json": 0,
+      "--ssid": 1,
+      "-h": 0
+     },
+     "open": false,
+     "v": {}
+    },
+    "window": {
+     "c": [],
+     "f": {
+      "--anonymise": 0,
+      "--anonymize": 0,
+      "--help": 0,
+      "--json": 0,
       "-h": 0
      },
      "open": false,

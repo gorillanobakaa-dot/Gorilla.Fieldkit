@@ -1649,6 +1649,17 @@
    "compileonce"
   ]
  },
+ "connect": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "network-connect"
+  ]
+ },
  "cookbook": {
   "platforms": [
    "linux",
@@ -1689,6 +1700,17 @@
   "why": "",
   "ids": [
    "fieldkit-cv"
+  ]
+ },
+ "diagnose": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "network-diagnose"
   ]
  },
  "drift": {
@@ -2572,6 +2594,17 @@
   "why": "",
   "ids": [
    "net-route"
+  ]
+ },
+ "network": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "network"
   ]
  },
  "next": {
@@ -3715,6 +3748,17 @@
   "why": "",
   "ids": [
    "shot-verdict"
+  ]
+ },
+ "show": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "network-show"
   ]
  },
  "sitrep": {

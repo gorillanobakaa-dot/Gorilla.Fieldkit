@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: network
+    title: One human network command on Windows, Linux and macOS - Wi-Fi radios, scan, saved profiles, connect, offline diagnose from the OS logs, routes, router and LAN, with aliases and examples
+    sources: [network/*.py]
   - name: autopilot
     title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
     sources: [autopilot/*.py, escalate/*.py]

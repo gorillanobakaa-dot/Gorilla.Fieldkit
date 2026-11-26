@@ -70,11 +70,11 @@ rows:
   voice-say: {status: PORT, order: 5, mechanism: "Piper or System.Speech through PowerShell"}
   voice-clean: {status: PORT, order: 5, mechanism: "remove unused voice model files (same logic)"}
   watchdog-install: {status: EQUIVALENT, counterpart: "the Windows scheduled task the watchdog already registers"}
-  wifi: {status: PORT, order: 5, mechanism: "netsh wlan show interfaces, drivers and networks in place of iw and nmcli"}
-  net-route: {status: PORT, order: 5, mechanism: "Get-NetRoute / route print for the default interface"}
-  wifi-card: {status: PORT, order: 5, mechanism: "netsh wlan show drivers (radio types, bands)"}
-  wifi-doctor: {status: PORT, order: 5, mechanism: "netsh wlan show interfaces plus wlanreport"}
-  wifi-scan: {status: PORT, order: 5, mechanism: "netsh wlan show networks mode=bssid"}
+  wifi: {status: EQUIVALENT, counterpart: "fieldkit network show"}
+  net-route: {status: EQUIVALENT, counterpart: "fieldkit network routes"}
+  wifi-card: {status: EQUIVALENT, counterpart: "fieldkit network radios"}
+  wifi-doctor: {status: EQUIVALENT, counterpart: "fieldkit network diagnose"}
+  wifi-scan: {status: EQUIVALENT, counterpart: "fieldkit network scan"}
   wifi-upgrade: {status: PORT, order: 5, mechanism: "Get-PnpDevice for the card; the replaceability facts are data"}
   bh-clip-check: {status: PORT, order: 6, mechanism: "same screenshots and stock-Firefox control with the Windows stock zip"}
   bh-profile-check: {status: PORT, order: 6, mechanism: "%APPDATA%\\Mozilla profiles.ini and Start-menu .lnk launchers"}
