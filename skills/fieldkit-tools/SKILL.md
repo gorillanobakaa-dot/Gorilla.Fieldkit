@@ -7,6 +7,10 @@ compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorilla
 
 # Tools registry and privacy scan
 
+## Resume a saved session
+
+Use `fieldkit handoff --list --project NAME` to find local session IDs and last saved times. Use `fieldkit handoff ID --provider codex --model gpt-6.2-astra --thinking medium --dry-run` to review a redacted card. A provider launch sends the card to that provider and requires approval.
+
 ## Before writing a new script
 
 ```

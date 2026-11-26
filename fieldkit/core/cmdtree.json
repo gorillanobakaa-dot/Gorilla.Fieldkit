@@ -1775,6 +1775,29 @@
    "open": true,
    "v": {}
   },
+  "handoff": {
+   "c": [],
+   "f": {
+    "--approve": 0,
+    "--dry-run": 0,
+    "--economy": 0,
+    "--file": 1,
+    "--help": 0,
+    "--json": 0,
+    "--light-model": 1,
+    "--list": 0,
+    "--model": 1,
+    "--no-economy": 0,
+    "--project": 1,
+    "--provider": 1,
+    "--thinking": 1,
+    "--use-card": 1,
+    "-h": 0,
+    "-p": 1
+   },
+   "open": false,
+   "v": {}
+  },
   "handover": {
    "c": [],
    "f": {
