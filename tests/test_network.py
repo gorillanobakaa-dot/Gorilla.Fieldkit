@@ -180,6 +180,28 @@ def test_all_radios_off_is_said_first():
     assert "RADIO IS OFF" in d["verdict"] and d["next"] == ["fieldkit network on"]
 
 
+@pytest.mark.parametrize("reachable", [True, False])
+def test_connected_diagnosis_checks_internet_and_reports_failure(monkeypatch, reachable):
+    from fieldkit.network import triage
+
+    iface = triage.Iface(index=1, alias="Wi-Fi", status="Up", ipv4="192.0.2.2",
+                        has_default_route=True, dns=["192.0.2.1"])
+    monkeypatch.setattr(triage, "_windows_interfaces", lambda: [iface])
+    monkeypatch.setattr(triage, "tcp_from", lambda source, host, port: reachable)
+    monkeypatch.setattr(triage, "dns_from", lambda source, server: reachable)
+    monkeypatch.setattr(R, "list_radios", lambda s: [_radio(status="Up", connected_ssid="X")])
+    monkeypatch.setattr(R, "scan_networks", lambda **kwargs: {})
+    monkeypatch.setattr(R, "inspect_profile", lambda *args, **kwargs: {"saved": True})
+    monkeypatch.setattr(D, "read_events", lambda **kwargs: [])
+    monkeypatch.setattr(R, "probe_internet_quick", lambda timeout: reachable)
+
+    result = D.diagnose("X", sysname="windows")
+    assert result["interfaces"][0]["internet"] is reachable
+    assert result["interfaces"][0]["dns_ok"] is reachable
+    assert result["ok"] is reachable
+    assert result["exit"] == (0 if reachable else 3)
+
+
 def test_connected_then_reset_is_an_upstream_internet_fault(monkeypatch):
     monkeypatch.setattr(R, "probe_internet_quick", lambda timeout=0: False)
     ev = [{"log": "WLAN", "id": 8001, "ssid": "X", "time": "2026-01-01T10:00:00"},

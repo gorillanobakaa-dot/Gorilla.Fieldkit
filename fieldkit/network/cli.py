@@ -119,8 +119,9 @@ def build_parser(prog: str = "fieldkit network") -> argparse.ArgumentParser:
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="machine-readable JSON output")
 
     sub = ap.add_subparsers(dest="action", metavar="COMMAND")
 
@@ -634,6 +635,8 @@ def main(argv: list[str] | None = None, prog: str = "fieldkit network") -> int:
         return 0
     a = ap.parse_args(args)
     act = a.action
+    if act is None:
+        return _run_show("all", fast=False, as_json=a.json)
 
     if act in ("help", "examples", "cheatsheet", "guide"):
         if getattr(a, "json", False):

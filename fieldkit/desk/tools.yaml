@@ -8247,7 +8247,7 @@ tools:
     - {name: fast, flag: --fast, type: flag, required: false, help: "skip live outbound TCP/DNS socket probes"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [reads-files, processes, network]
-  safety: read-only
+  safety: reversible
   output: own
   platforms: [windows, linux, darwin]
   e2e: {linux: e2e-network-linux, windows: e2e-network-windows}

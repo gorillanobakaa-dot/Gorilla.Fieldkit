@@ -11,6 +11,10 @@ Every Wi-Fi, routing, router, LAN, and offline-watchdog capability lives under o
 
 ## Quick human commands & top-level shortcuts
 
+`fieldkit diagnose` reads radio state, routes, and OS logs locally, even during an outage.
+It also opens outbound TCP connections and queries the configured IPv4 DNS servers to check
+connectivity on active interfaces. The report includes those probe results alongside the local evidence.
+
 ```bash
 fieldkit network help
 fieldkit wlan help

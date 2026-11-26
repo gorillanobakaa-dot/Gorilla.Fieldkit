@@ -181,6 +181,10 @@ def system_name(sysname: str | None = None) -> str:
     return s
 
 
+def on_windows(sysname: str | None = None) -> bool:
+    return system_name(sysname) == "windows"
+
+
 def find_tool(name: str) -> str | None:
     p = shutil.which(name)
     if p:
@@ -211,6 +215,8 @@ def run_cmd(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
 
 
 def run_ps(script: str, timeout: int = 45) -> str:
+    if not on_windows():
+        return ""
     rc, out, _ = run_cmd(
         ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
         timeout=timeout,
@@ -490,6 +496,8 @@ def parse_netsh_networks(text: str) -> list[dict]:
 
 
 def windows_radios() -> list[Radio]:
+    if not on_windows():
+        return []
     radios = build_windows_radios(parse_adapters_json(run_ps(PS_ADAPTERS)))
     _, drv_txt, _ = run_cmd(["netsh", "wlan", "show", "drivers"])
     _, if_txt, _ = run_cmd(["netsh", "wlan", "show", "interfaces"])
@@ -669,7 +677,7 @@ def macos_radios() -> list[Radio]:
 
 def list_radios(sysname: str | None = None) -> list[Radio]:
     s = system_name(sysname)
-    if s == "windows":
+    if on_windows(s):
         return windows_radios()
     if s == "linux":
         return linux_radios()
@@ -685,7 +693,7 @@ def list_radios(sysname: str | None = None) -> list[Radio]:
 def scan_networks(radio_name: str | None = None, rescan_now: bool = True, sysname: str | None = None) -> dict:
     """Fresh Wi-Fi scan on Windows, Linux, or macOS -> {rescan, radios: {name: {identity, summary, all}}, networks}."""
     s = system_name(sysname)
-    if s == "windows":
+    if on_windows(s):
         radios = [r for r in windows_radios() if r.status in ON_STATES and (not radio_name or r.name == radio_name)]
         if not radios:
             return {"rescan": "no active Wi-Fi radio", "radios": {}, "networks": [], "ok": False}
@@ -854,7 +862,7 @@ def parse_windows_profile_detail(ssid: str, text: str) -> dict:
 
 def list_profiles(sysname: str | None = None, with_details: bool = True) -> list[dict]:
     s = system_name(sysname)
-    if s == "windows":
+    if on_windows(s):
         _, txt, _ = run_cmd(["netsh", "wlan", "show", "profiles"])
         names = [m.group(1).strip() for m in re.finditer(r"All User Profile\s*:\s*(.+)", txt)]
         if not with_details:
@@ -899,7 +907,7 @@ def list_profiles(sysname: str | None = None, with_details: bool = True) -> list
 
 def inspect_profile(ssid: str, sysname: str | None = None) -> dict:
     s = system_name(sysname)
-    if s == "windows":
+    if on_windows(s):
         _, txt, _ = run_cmd(["netsh", "wlan", "show", "profiles"])
         names = [m.group(1).strip() for m in re.finditer(r"All User Profile\s*:\s*(.+)", txt)]
         if ssid not in names:
@@ -917,7 +925,7 @@ def inspect_profile(ssid: str, sysname: str | None = None) -> dict:
 
 def set_autoconnect(ssid: str, auto: bool = True, sysname: str | None = None) -> tuple[bool, str]:
     s = system_name(sysname)
-    if s == "windows":
+    if on_windows(s):
         mode = "auto" if auto else "manual"
         rc, out, err = run_cmd(["netsh", "wlan", "set", "profileparameter", f"name={ssid}", f"connectionmode={mode}"])
         msg = (out or err).strip()
@@ -1040,7 +1048,7 @@ def switch_radio(name: str | None = None, on: bool = True, sysname: str | None =
     if not radios:
         return {"ok": False, "exit": 2, "verdict": f"no Wi-Fi radio {name!r} found" if name else "no Wi-Fi radio found", "radios": []}
 
-    if s == "windows":
+    if on_windows(s):
         # Software-only radio toggle needs NO admin rights on Windows.
         if on and all(r.status in (*ON_STATES, "Software off") for r in radios):
             msg = run_ps(f"& {{ {PS_RADIO_SET} }} -TargetState 'On'", timeout=25).strip()
@@ -1208,7 +1216,7 @@ def join_saved(
 
     # Step 3: connect using OS native saved profile
     connected = False
-    if s == "windows":
+    if on_windows(s):
         run_cmd(["netsh", "wlan", "connect", f"name={chosen}", f"interface={target_radio.name}"])
         deadline = time.time() + wait_seconds
         while time.time() < deadline:
