@@ -8218,3 +8218,75 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_escalate.py"]
   skill: skills/fieldkit-tools/SKILL.md
   notes: "Owner order 2026-11-23 (idea I-32). Evidence: platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence - low effort with the failures re-run at high scored about 97% at about $0.17 a task, against 95.3% at $0.29 for all-high. No model is called when the first try passes or --skip-if-green finds the check green. A retry is always a NEW session (never --resume), its brief the original plus at most 25 lines / 3000 chars of the failing check. The xhigh rung is Opus and goes through models.check_model (TWO STRIKES, mandate models_allowed); a refusal is logged as skipped. Every session inherits CLAUDE_CODE_PROMPT_CACHE_TTL=1h, CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h, ENABLE_PROMPT_CACHING_1H=1. Sessions are started by autopilot.run.claude (guard, container, stall watch), not a second starter. Ledger: state/lifecycle/escalate.jsonl. `fieldkit integration cache` is the same enforcement check next to the integration check. Mutations: tests/escalate_mutations.yaml."
+
+- id: network
+  title: "Unified Wi-Fi, routing, router, LAN, and offline-watchdog toolkit with human aliases and examples (Windows, Linux, macOS)"
+  harness: fieldkit
+  skill: skills/fieldkit-network/SKILL.md
+  entry: [python, -m, fieldkit, network]
+  path: ${FIELDKIT}/fieldkit/network/cli.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "help, show, diagnose, connect, scan, channels, gui, radios, on, off, profiles, routes, prefer-route, demote, restore-route, hotspot-prefer, router, devices, events, speed-code, watch-signal, calibrate, kind, compare, antenna, upgrade, watchdog (plus human aliases)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes, network, hardware]
+  safety: reversible
+  output: own
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-network-linux, windows: e2e-network-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_network.py"]
+  notes: "Unifies the WifiRadios and NetTriage kits, fieldkit wifi, fieldkit net and fieldkit watchdog into one cross-platform CLI with human aliases (wlan, status, diag, join, cards, nearby, saved, ifaces, gateway, lan, guard) and `fieldkit network help` usage examples. Wi-Fi passwords and keys are never read. Offline: no internet and no model needed for diagnose, scan, radio on/off, profile repair or reconnect."
+
+- id: network-show
+  title: "Show Wi-Fi radios, active network, routes, profiles, LAN devices, router, events, and watchdog status at a glance (Windows, Linux, macOS)"
+  harness: fieldkit
+  skill: skills/fieldkit-network/SKILL.md
+  entry: [python, -m, fieldkit, show]
+  path: ${FIELDKIT}/fieldkit/network/cli.py
+  inputs:
+    - {name: area, flag: null, type: str, required: false, choices: [all, radios, routes, networks, profiles, devices, router, events, watchdog, help], help: "area to inspect (default: all)"}
+    - {name: fast, flag: --fast, type: flag, required: false, help: "skip live outbound TCP/DNS socket probes"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes, network]
+  safety: reversible
+  output: own
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-network-linux, windows: e2e-network-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_network.py"]
+
+- id: network-diagnose
+  title: "Offline Wi-Fi and network diagnostic across radios, air scan, saved profile mode, OS connection logs, DHCP, NCSI, and routing (Windows, Linux, macOS)"
+  harness: fieldkit
+  skill: skills/fieldkit-network/SKILL.md
+  entry: [python, -m, fieldkit, diagnose]
+  path: ${FIELDKIT}/fieldkit/network/diagnose.py
+  inputs:
+    - {name: ssid, flag: --ssid, type: str, required: false, help: "optional Wi-Fi SSID to diagnose (exact name, punctuation included)"}
+    - {name: hours, flag: --hours, type: str, required: false, help: "hours of OS connection events to read (default 12)"}
+    - {name: fix_auto, flag: --fix-auto, type: flag, required: false, help: "restore automatic reconnection if the OS demoted the saved profile to manual"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes]
+  safety: safe
+  output: own
+  exits: {0: "healthy", 2: "bad usage or nothing to read", 3: "root cause found"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-network-linux, windows: e2e-network-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_network.py"]
+
+- id: network-connect
+  title: "Switch Wi-Fi radio on if needed, connect to a saved network or the strongest saved SSID in range, and verify internet and default route (Windows, Linux, macOS)"
+  harness: fieldkit
+  skill: skills/fieldkit-network/SKILL.md
+  entry: [python, -m, fieldkit, connect]
+  path: ${FIELDKIT}/fieldkit/network/radios.py
+  inputs:
+    - {name: ssid, flag: --ssid, type: str, required: false, help: "saved Wi-Fi SSID (omit to join the strongest saved network in range)"}
+    - {name: radio, flag: --radio, type: str, required: false, help: "Wi-Fi adapter name (Wi-Fi, wlan0, en0)"}
+    - {name: expect_gateway_mac, flag: --expect-gateway-mac, type: str, required: false, help: "expected router MAC prefix for the route check"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes, network, hardware]
+  safety: reversible
+  output: own
+  exits: {0: "connected with internet", 2: "no radio or profile", 3: "connect or internet failed"}
+  platforms: [windows, linux, darwin]
+  e2e: {linux: e2e-network-linux, windows: e2e-network-windows}
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_network.py"]

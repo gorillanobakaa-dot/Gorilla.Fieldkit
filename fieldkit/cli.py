@@ -55,7 +55,13 @@
     fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
     fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
     fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
-    fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
+    fieldkit watchdog status|run|test|pause|resume|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
+    fieldkit network [help|show|diagnose|connect|scan|radios|on|off|profiles|routes|router|devices|watchdog ...]
+                                                 unified human Wi-Fi, routing, router & offline-watchdog CLI (alias: `fieldkit wlan`)
+    fieldkit show [all|radios|routes|networks|profiles|devices|router|events|watchdog]
+                                                 quick overview of Wi-Fi radios, active link, routes & internet
+    fieldkit diagnose [SSID] [--fix-auto]        offline diagnostic of a Wi-Fi network or the whole stack (alias: `fieldkit diag`)
+    fieldkit connect [to] [SSID]                 switch radio on if needed, join saved Wi-Fi, verify internet (aliases: `join`, `reconnect`)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
     fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor|task|release|orders]   the agent net: is Zero
                                                  established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
@@ -1648,6 +1654,19 @@ def cmd_kernel(a):
 
 
 # -- parser ---------------------------------------------------------------------
+WIFI_HELP = """\
+fieldkit wifi: examples (the unified cross-platform equivalents follow below)
+  fieldkit wifi doctor                       why the Wi-Fi is slow, from the hardware (Linux; Windows/macOS -> network diagnose)
+  fieldkit wifi scan                         every network in range (Windows/macOS -> network scan)
+  fieldkit wifi channels --band 5            which channel is clearest, and why
+  fieldkit wifi channels --check 6           what overlaps channel 6
+  fieldkit wifi card                         what this machine's radio can tune (Windows/macOS -> network radios)
+  fieldkit wifi rate --mbps 2401             decode a reported link rate
+  fieldkit wifi watch --ssid "MyHomeWiFi"    repeated signal samples
+  fieldkit wifi devices                      devices on your own LAN (Windows, Linux, macOS)
+  fieldkit wifi calibrate --at 2.0:-35 --at 8.0:-55   fit this building's path loss
+
+"""
 # the agent net's verbs (fieldkit/zero/net.py): `fieldkit net VERB` goes there; the network tool keeps its own verbs
 ZERO_VERBS = ("status", "open", "establish", "rollcall", "sitrep", "checkin", "check", "comms", "time", "handover",
               "send", "ack", "log", "close", "doctor", "schedule", "task", "release", "orders")
@@ -1689,7 +1708,7 @@ def build_parser():
     ap.add_argument("--version", action="version", version=f"fieldkit {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="machine-readable output")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="COMMAND")
 
     sub.add_parser("host", parents=[common]).set_defaults(fn=cmd_host)
 
@@ -2386,22 +2405,34 @@ def build_parser():
     vp.set_defaults(fn=cmd_voice)
 
     wd = sub.add_parser("watchdog", parents=[common], help="keep this laptop online, or say so out loud: "
-                                                           "status, run, test, pause, install (fieldkit/watchdog)")
-    wd.add_argument("action", choices=["status", "run", "test", "pause", "install", "uninstall"])
-    wd.add_argument("args", nargs="*", help="pause: how many minutes")
+                                                           "status, run, test, pause, resume, install (fieldkit/watchdog)")
+    wd.add_argument("action", choices=["status", "run", "test", "pause", "resume", "install", "uninstall", "windows-task"])
+    wd.add_argument("args", nargs="*", help="pause: how many minutes; windows-task: optional output folder")
     wd.add_argument("--apply", action="store_true", help="install: do it (without: the plan)")
     wd.add_argument("--alarm-after", type=int, default=90, help="offline seconds before the alarm (90)")
     wd.add_argument("--reconnect-after", type=int, default=20, help="offline seconds before rejoining (20)")
     wd.set_defaults(fn=cmd_watchdog)
 
+    for _n, _h in (
+        ("network", "unified Wi-Fi, routing, router, LAN & offline-watchdog toolkit with human aliases & examples (fieldkit/network)"),
+        ("wlan", "human alias for `fieldkit network` (Wi-Fi radios, scan, connect, diagnose, channels, routes)"),
+        ("show", "quick overview of Wi-Fi radios, active link, routes, profiles, devices, router & watchdog (fieldkit/network)"),
+        ("diagnose", "100% offline Wi-Fi & network diagnostic: radios, air, profile, OS logs, DHCP, NCSI, routes (fieldkit/network)"),
+        ("diag", "short human alias for `fieldkit diagnose`"),
+        ("connect", "switch Wi-Fi radio on if needed, join `[to] SSID` (or strongest saved), verify internet (fieldkit/network)"),
+        ("join", "human alias for `fieldkit connect`"),
+        ("reconnect", "human alias for `fieldkit connect`"),
+    ):
+        sub.add_parser(_n, add_help=False, help=_h).add_argument("args", nargs=argparse.REMAINDER)
+
     wf = sub.add_parser("wifi", parents=[common], help="why the wifi is slow, answered from the "
                                                        "hardware: doctor, scan, channels, card, "
-                                                       "upgrade (fieldkit/wifi)")
+                                                       "upgrade, help (fieldkit/wifi)")
     # devices and calibrate exist in the standalone file and were missing here.
     # The two entry points must offer the same things as well as print the same
     # numbers: the layman track described `fieldkit wifi devices` and it did not
     # exist (found 2026-10-13, second divergence between these two front doors).
-    wf.add_argument("action", choices=["doctor", "scan", "channels", "card", "upgrade", "gui",
+    wf.add_argument("action", choices=["help", "doctor", "scan", "channels", "card", "upgrade", "gui",
                                        "watch", "rate", "devices", "calibrate"])
     wf.add_argument("--mbps", type=float, help="rate: the 'connection speed' a device reports")
     wf.add_argument("--ssid", help="watch: the network name, exactly, punctuation included")
@@ -2632,6 +2663,10 @@ def cmd_wifi(a):
         # and anything written later that forgets to ask for it.
         from .wifi import channelsurvey as _cs
         os.environ[_cs.ANONYMISE_ENV] = "1"
+    if a.action == "help":
+        from .network import cli as network_cli
+        print(WIFI_HELP + "\n" + network_cli.HELP_EXAMPLES, end="")
+        return 0
     if a.action == "doctor":
         d = wifi.doctor()
         _emit(d, a.json, lambda x: print("\n".join(wifi.lines(x))))
@@ -2975,6 +3010,14 @@ def cmd_watchdog(a):
         _emit(watchdog.set_pause(float(a.args[0])), a.json,
               lambda d: print(f"alarms paused for {d['paused_minutes']} minutes"))
         return 0
+    if a.action == "resume":
+        _emit(watchdog.clear_pause(), a.json, lambda _: print("alarms resumed (pause cleared)"))
+        return 0
+    if a.action == "windows-task":
+        out_dir = a.args[0] if a.args else None
+        r = wdinstall.windows_event_hook_scripts(out_dir)
+        _emit(r, a.json, lambda d: print(d.get("preview") or str(d.get("script"))))
+        return 0
     if a.action == "run":
         watchdog.loop(alarm_after=a.alarm_after, reconnect_after=a.reconnect_after)
         return 0
@@ -3251,6 +3294,18 @@ def main(argv=None):
     if args[:1] == ["mandate"]:                       # one owner approval per project, both computers (fieldkit/mandate)
         from .mandate import mandate as mandate_cli
         return mandate_cli.main(args[1:])
+    if args[:1] in (["network"], ["wlan"]):           # unified human Wi-Fi, routing, router & watchdog CLI (fieldkit/network)
+        from .network import cli as network_cli
+        return network_cli.main(args[1:], prog=f"fieldkit {args[0]}")
+    if args[:1] == ["show"]:                          # top-level human shortcut: `fieldkit show [area]`
+        from .network import cli as network_cli
+        return network_cli.shortcut_main("show", args[1:], prog="fieldkit show")
+    if args[:1] in (["diagnose"], ["diag"]):          # top-level human shortcut: `fieldkit diagnose [SSID]`
+        from .network import cli as network_cli
+        return network_cli.shortcut_main("diagnose", args[1:], prog=f"fieldkit {args[0]}")
+    if args[:1] in (["connect"], ["join"], ["reconnect"]):   # top-level human shortcut: `fieldkit connect [to] [SSID]`
+        from .network import cli as network_cli
+        return network_cli.shortcut_main("connect", args[1:], prog=f"fieldkit {args[0]}")
     if args[:1] == ["zero"] or (args[:1] == ["net"] and (len(args) == 1 or args[1] in ZERO_VERBS)):
         from .zero import net as zero_net             # the agent net, "Zero has been established" (fieldkit/zero)
         return zero_net.main(args[1:], prog="fieldkit " + args[0])
@@ -3448,6 +3503,16 @@ def main(argv=None):
     # key=value arguments are accepted after --flags too (2026-10-18: `probe ... --install-dir D file=a=b` was
     # refused as "unrecognized arguments", and the fast CSS loop looked broken); anything else unknown still fails
     _p = build_parser()
+    if args and not args[0].startswith("-"):          # a mistyped verb: one short line and the nearest names, never
+        _sub = next(x for x in _p._actions if getattr(x, "dest", None) == "cmd")   # argparse's wall of 200 verbs
+        if args[0] not in _sub.choices:
+            import difflib
+            near = difflib.get_close_matches(args[0], list(_sub.choices), n=4, cutoff=0.5)
+            print(f"fieldkit: unknown command '{args[0]}'." + (f" Did you mean: {', '.join(near)}?" if near else ""),
+                  file=sys.stderr)
+            print("NEXT: `fieldkit --help` lists every command; `fieldkit network help` shows the Wi-Fi and network "
+                  "examples.", file=sys.stderr)
+            return 2
     a, extra = _p.parse_known_args(argv)
     kv = [x for x in extra if "=" in x and not x.startswith("-")]
     if len(kv) != len(extra) or (kv and not isinstance(getattr(a, "args", None), list)):
